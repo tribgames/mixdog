@@ -52,6 +52,33 @@ test('runtime control rows are classified and wrapped on the wire', () => {
     assert.equal(nudge.content.startsWith('[mixdog-runtime]'), true, 'stored row is untouched');
 });
 
+test('stacked Goal and clock reminders are runtime context, without hiding intervening human instructions', () => {
+    const goal = '<system-reminder>\n# Active Goal\nContinue approved work.\n</system-reminder>';
+    const clock = '<system-reminder>\n# Current Time\n2026-09-13\n</system-reminder>';
+    const content = `${goal}\n\n${clock}`;
+    const rows = [
+        { role: 'user', content },
+        ...['goal-continuation', 'goal-closeout'].map(source => ({
+            role: 'user', content: 'Runtime-owned Goal input.', meta: { source, synthetic: true },
+        })),
+    ];
+    for (const row of rows) {
+        assert.equal(classifySyntheticUserMessage(row), SYNTHETIC_USER_KINDS.RUNTIME_CONTROL);
+    }
+    const projected = projectSyntheticUserEnvelopes(rows);
+    assert.equal(projected.stats.wrapped, rows.length);
+    assert.equal(projected.messages[0].content, `${OPEN('runtime-control')}${content}${CLOSE}`);
+    for (const text of [
+        `Keep the approved scope.\n\n${content}`,
+        `${goal}\n\nKeep the approved scope.\n\n${clock}`,
+        `${content}\n\nKeep the approved scope.`,
+    ]) {
+        const row = { role: 'user', content: text };
+        assert.equal(classifySyntheticUserMessage(row), null);
+        assert.equal(projectSyntheticUserEnvelopes([row]).messages[0], row);
+    }
+});
+
 test('compaction state and attached context get their own kinds', () => {
     const summary = makeSummaryMessage(`${SUMMARY_PREFIX}\nmessages=3 sha256=abc roles=user:1\n\nhandoff`);
     const continuation = {

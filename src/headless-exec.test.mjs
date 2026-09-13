@@ -31,13 +31,20 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
   writeFileSync(join(dataDir, 'cursor-oauth.json'), JSON.stringify({
     access_token: 'cursor-test-token',
   }));
-  const env = { MIXDOG_HOME: root };
+  const selectedGraph = join(root, 'selected-graph');
+  const env = {
+    MIXDOG_HOME: root,
+    MIXDOG_SEARCH_SERVER_BIN: selectedGraph,
+    MIXDOG_UNLISTED_OVERRIDE: 'must not reach execution',
+  };
   const boundary = createPristineExecutionBoundary({
     provider: 'cursor-oauth',
     model: 'gemini-3.7-flash',
     env,
   });
   try {
+    assert.equal(env.MIXDOG_SEARCH_SERVER_BIN, selectedGraph);
+    assert.equal(env.MIXDOG_UNLISTED_OVERRIDE, undefined);
     assert.equal(boundary.audit.authMode, 'in-process-host-oauth-binding');
     assert.equal(await resolveCursorOAuthAccessToken(), 'cursor-test-token');
     assert.deepEqual(boundary.loadConfig().providers, {

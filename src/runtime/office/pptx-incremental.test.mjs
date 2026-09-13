@@ -95,6 +95,95 @@ test('stable IDs survive reordering, reject conflicts, and transaction rollback 
   assert.deepEqual(restored.slides.map((slide) => slide.text), before.slides.map((slide) => slide.text));
 });
 
+test('a hidden slide owns no exported page, so rendering the deck stays in range', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'appendix.pptx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    format: 'pptx',
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_textbox', slide: 1, text: 'Body', left: 60, top: 60, width: 400, height: 60 },
+      { op: 'add_slide' },
+      { op: 'add_textbox', slide: 2, text: 'Appendix', left: 60, top: 60, width: 400, height: 60 },
+    ],
+  }, { cwd }));
+  const before = await pptxPageSignatures(target);
+  assert.equal(before.length, 2);
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_slide_visibility', slide: 2, visible: false }],
+  }, { cwd }));
+  const after = await pptxPageSignatures(target);
+  assert.equal(after.length, 1, 'the hidden slide must not claim a rendered page');
+  assert.deepEqual(after.map((entry) => entry.page), [1]);
+  assert.equal(after[0].slideId, before[0].slideId);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('a Word run can be hidden, and hidden text is neither audited nor read as body copy', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'contract.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    format: 'docx',
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '2026 logistics contract summary' },
+      { op: 'append_text', text: 'Internal note: approved up to 42,000,000', properties: { hidden: true, color: 'EEEEEE', size: 7 } },
+    ],
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  const hidden = (snapshot.document?.paragraphs || []).filter((entry) => entry.hiddenText);
+  assert.equal(hidden.length, 1, 'the snapshot must report the run Word hides');
+  assert.match(String(hidden[0].text), /42,000,000/);
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.equal(
+    (issues.issues || []).some((entry) => entry.code === 'low_contrast'),
+    false,
+    'ink no reader sees must not become a fix target',
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('the audit does not report defects on a slide the deck hides', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'hidden-audit.pptx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    format: 'pptx',
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_textbox', slide: 1, text: 'Visible summary', left: 60, top: 60, width: 600, height: 80, properties: { fontSize: 28 } },
+      { op: 'add_slide' },
+      { op: 'add_textbox', slide: 2, text: 'Appendix working note', left: 60, top: 60, width: 600, height: 80, properties: { fontSize: 9, color: 'EEEEEE' } },
+    ],
+  }, { cwd }));
+  const before = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.ok(
+    (before.issues || []).some((entry) => entry.code === 'low_contrast' && String(entry.path).includes('/slide[2]')),
+    'the unreadable appendix text must be reported while the slide is visible',
+  );
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_slide_visibility', slide: 2, visible: false }],
+  }, { cwd }));
+  const after = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.equal(
+    (after.issues || []).some((entry) => String(entry.path || '').includes('/slide[2]')),
+    false,
+    'a hidden slide must not send the fix round after a page no reader sees',
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
 test('shared resource changes invalidate all page signatures and failed refresh clears reusable visual state', async (t) => {
   const f = await fixture(t);
   const before = await pptxPageSignatures(f.session.target);

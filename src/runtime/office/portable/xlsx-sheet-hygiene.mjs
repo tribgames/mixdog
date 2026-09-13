@@ -4,7 +4,7 @@
 // reported as information: a long sheet whose header scrolls away, a table
 // column of numbers left under the General format.
 import { columnLabel } from './portable-cells.mjs';
-import { cellPath, escapeRegExp, formulaBody, generalFormat, locate, numericValue, sheetPath, tableAreas } from './xlsx-audit-support.mjs';
+import { cellPath, escapeRegExp, formulaBody, generalFormat, insideArea, locate, mergedAreas, numericValue, position, sheetPath, tableAreas } from './xlsx-audit-support.mjs';
 
 const LONG_SHEET_ROWS = 20;
 const NUMERIC_COLUMN_MIN = 3;
@@ -48,9 +48,12 @@ function yearLike(values) {
 }
 
 export function auditSheetHygiene(list, sheet, cells, sheetNames) {
+  const display = mergedAreas(sheet);
   for (const cell of cells) {
     const path = cellPath(sheet, cell);
-    if (numericText(cell)) {
+    // A figure typed as text in a merged banner or metric tile is the label it
+    // was written as; only a grid cell has a column to sum or sort.
+    if (numericText(cell) && !(display.length && insideArea(display, position(cell) || { row: 0, column: 0 }))) {
       list.push('warning', 'number_stored_as_text', path, `"${cell.value.trim()}" is text, so it neither sums nor sorts as a number; store the number and give the column a format.`);
       continue;
     }
@@ -87,6 +90,7 @@ export function auditSheetLayout(list, sheet, cells) {
     }
   }
   tableAreas(sheet).forEach((area, index) => {
+    const unformatted = [];
     for (let column = area.startCol; column <= area.endCol; column += 1) {
       const body = located.filter((entry) => entry.at.column === column
         && entry.at.row > area.startRow && entry.at.row <= area.endRow);
@@ -94,7 +98,17 @@ export function auditSheetLayout(list, sheet, cells) {
       if (numbers.length < NUMERIC_COLUMN_MIN || numbers.length < body.length) continue;
       if (!numbers.every((entry) => generalFormat(entry.cell.style))) continue;
       if (yearLike(numbers.map((entry) => numericValue(entry.cell)))) continue;
-      list.push('info', 'numeric_column_unformatted', area.table.path || `${sheetPath(sheet)}/table[${index + 1}]`, `Column ${columnLabel(column)} of ${area.table.name || 'the table'} holds numbers under the General format; an explicit format (#,##0, 0.0%, yyyy-mm-dd) aligns the figures and names their unit.`);
+      unformatted.push(columnLabel(column));
     }
+    // One table, one finding: repeating it per column produced entries a
+    // reader cannot tell apart, since they all carry the table's own path.
+    if (!unformatted.length) return;
+    list.push(
+      'info',
+      'numeric_column_unformatted',
+      area.table.path || `${sheetPath(sheet)}/table[${index + 1}]`,
+      `Column${unformatted.length > 1 ? 's' : ''} ${unformatted.join(', ')} of ${area.table.name || 'the table'}`
+        + ` hold numbers under the General format; an explicit format (#,##0, 0.0%, yyyy-mm-dd) aligns the figures and names their unit.`,
+    );
   });
 }

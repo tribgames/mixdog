@@ -6,10 +6,8 @@ import { join } from 'node:path';
 
 import { freshContextCompactMessages, SUMMARY_PREFIX } from './compact.mjs';
 import { runFreshContextCompact } from './loop/fresh-context.mjs';
-import { compactHandoffRows } from '../../../memory/lib/compact-handoff.mjs';
-import { renderEntryLines } from '../../../memory/lib/recall-format.mjs';
 
-test('fresh Compact persists one verbatim Memory handoff without rebuilding a duplicate dump', async () => {
+test('fresh Compact summarizes the live conversation without calling Memory', async () => {
     const messages = [{ role: 'system', content: 'system' }];
     for (let index = 0; index < 7; index += 1) {
         messages.push(
@@ -22,12 +20,15 @@ test('fresh Compact persists one verbatim Memory handoff without rebuilding a du
             },
         );
     }
-    const digest = [
-        '[2026-08-31 12:00] a: AUTHORITATIVE_MEMORY_STATE',
-        '[2026-08-31 11:59] a: DUPLICATE_STATE',
-    ].join('\n');
+    let summaryInput = '';
     const sessionId = 'sess-recall-verbatim';
     const result = await runFreshContextCompact({
+        config: {},
+        model: 'fake-model',
+        provider: { name: 'fake', async send(input) {
+            summaryInput = input[1].content;
+            return { content: GENERATED_HANDOFF };
+        } },
         sessionRef: {
             id: sessionId,
             cwd: 'C:\\Project\\mixdog',
@@ -42,17 +43,7 @@ test('fresh Compact persists one verbatim Memory handoff without rebuilding a du
             reserveTokens: 0,
         },
         sessionId,
-        executeMemorySearch: async (args) => {
-            if (args.action === 'ingest_session') {
-                assert.equal(args.fullTranscript, true);
-                assert.equal(args.embedWait, false);
-                assert.equal(args.messages.length, 14);
-                return 'ingest_session: considered=14 inserted=14';
-            }
-            assert.equal(args.compactHandoff, true);
-            assert.equal(args.preserveLatestUserTurns, 0);
-            return digest;
-        },
+        executeMemorySearch: async () => { assert.fail('compaction must not read or write Memory'); },
     });
 
     const summary = result.messages.find((message) => (
@@ -61,18 +52,20 @@ test('fresh Compact persists one verbatim Memory handoff without rebuilding a du
         && message.content.startsWith(SUMMARY_PREFIX)
     ));
     assert.ok(summary);
-    assert.ok(summary.content.includes(
-        `memory_session=${sessionId} order=oldest_first\n${digest}`,
-    ));
-    assert.doesNotMatch(summary.content, /source=legacy-fasttrack|query_sha=/);
-    assert.equal(summary.content.split('AUTHORITATIVE_MEMORY_STATE').length - 1, 1);
-    assert.equal(summary.content.split('DUPLICATE_STATE').length - 1, 1);
-    assert.equal(summary.content.includes('LOCAL_ONLY_OLD_HISTORY'), false);
+    assert.match(summaryInput, /LOCAL_ONLY_OLD_HISTORY/);
+    assert.match(summary.content, /one Compact path/);
+    assert.doesNotMatch(summary.content, /memory_session=/);
 });
 
-test('fresh Compact waits for ingest before browsing the complete session handoff', async () => {
-    const order = [];
+test('fresh Compact excludes skill bodies and tool output from the conversation summary request', async () => {
+    let summaryInput = '';
     const result = await runFreshContextCompact({
+        config: {},
+        model: 'fake-model',
+        provider: { name: 'fake', async send(input) {
+            summaryInput = input[1].content;
+            return { content: GENERATED_HANDOFF };
+        } },
         sessionRef: {
             id: 'sess-ingest-barrier',
             cwd: 'C:\\Project\\mixdog',
@@ -83,6 +76,9 @@ test('fresh Compact waits for ingest before browsing the complete session handof
             { role: 'system', content: 'system' },
             { role: 'user', content: 'old request' },
             { role: 'assistant', content: 'old answer' },
+            { role: 'user', meta: 'skill', content: '<skill>\n<name>demo</name>\nSKILL_BODY_ONLY\n</skill>' },
+            { role: 'assistant', content: '', toolCalls: [{ id: 'read-source', name: 'read', arguments: '{}' }] },
+            { role: 'tool', toolCallId: 'read-source', content: 'TOOL_OUTPUT_ONLY' },
             { role: 'user', content: 'current request' },
         ],
         compactBudgetTokens: 50_000,
@@ -92,26 +88,17 @@ test('fresh Compact waits for ingest before browsing the complete session handof
             reserveTokens: 0,
         },
         sessionId: 'sess-ingest-barrier',
-        executeMemorySearch: async (args) => {
-            if (args.action === 'ingest_session') {
-                order.push('ingest-start');
-                await new Promise((resolve) => setTimeout(resolve, 5));
-                order.push('ingest-end');
-                return 'ingest_session: considered=3 inserted=3';
-            }
-            order.push('search');
-            return '[2026-08-31 12:00] a: STORED_BEFORE_SEARCH';
-        },
     });
-    assert.deepEqual(order, ['ingest-start', 'ingest-end', 'search']);
-    assert.ok(result.messages.some((message) => (
-        typeof message.content === 'string'
-        && message.content.includes('STORED_BEFORE_SEARCH')
-    )));
+    assert.match(summaryInput, /old request/);
+    assert.doesNotMatch(summaryInput, /SKILL_BODY_ONLY|TOOL_OUTPUT_ONLY/);
+    assert.equal(result.messages.find(m => m.toolCallId === 'read-source')?.content, 'TOOL_OUTPUT_ONLY');
 });
 
-test('pre-send active turn reaches the Memory fresh builder as a continuation', async () => {
+test('pre-send active turn reaches the fresh builder as a continuation', async () => {
     const result = await runFreshContextCompact({
+        config: {},
+        model: 'fake-model',
+        provider: { name: 'fake', async send() { return { content: GENERATED_HANDOFF }; } },
         sessionRef: {
             id: 'sess-active-turn',
             cwd: 'C:\\Project\\mixdog',
@@ -136,51 +123,21 @@ test('pre-send active turn reaches the Memory fresh builder as a continuation', 
         },
         sessionId: 'sess-active-turn',
         activeTurn: true,
-        executeMemorySearch: async (args) => (
-            args.action === 'ingest_session'
-                ? 'ingest_session: considered=4 inserted=4'
-                : 'The mobile inspection completed and only interpretation remains.'
-        ),
     });
 
     assert.match(String(result.messages.at(-1)?.content), /already in progress/i);
     assert.equal(result.diagnostics.activeTurnContinuation, true);
 });
 
-test('repeated compact rebuilds from the same session transcript instead of nesting the prior handoff', async () => {
+test('repeated compact replaces one cumulative summary and does not replay older raw history', async () => {
     const sessionId = 'sess-repeat-full-rebuild';
-    const stored = [];
-    const seen = new Set();
-    let nextId = 1;
-    let searchCount = 0;
-    const executeMemorySearch = async (args) => {
-        assert.equal(args.sessionId, sessionId);
-        if (args.action === 'ingest_session') {
-            for (const message of args.messages) {
-                const key = `${message.role}\u0000${message.content}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                stored.push({
-                    id: nextId,
-                    ts: nextId * 1000,
-                    session_id: sessionId,
-                    source_turn: nextId,
-                    role: message.role,
-                    content: message.content,
-                    is_root: 0,
-                    chunk_root: null,
-                });
-                nextId += 1;
-            }
-            return `ingest_session: considered=${args.messages.length} inserted=${stored.length}`;
-        }
-        searchCount += 1;
-        return renderEntryLines(
-            compactHandoffRows(stored, {
-                preserveLatestUserTurns: args.preserveLatestUserTurns,
-            }),
-            { pendingMarks: false, chronologicalOrder: true, compactTimestamps: true },
-        );
+    const prompts = [];
+    const provider = {
+        name: 'fake',
+        async send(input) {
+            prompts.push(input[1].content);
+            return { content: GENERATED_HANDOFF.replace('one Compact path', `CUMULATIVE_REVISION_${prompts.length}`) };
+        },
     };
     const compactPolicy = {
         contextWindow: 100_000,
@@ -195,17 +152,22 @@ test('repeated compact rebuilds from the same session transcript instead of nest
         );
     }
     const first = await runFreshContextCompact({
+        config: {},
+        provider,
+        model: 'fake-model',
         sessionRef: { id: sessionId, cwd: 'C:\\Project\\mixdog', contextWindow: 100_000 },
         messages: original,
         compactBudgetTokens: 50_000,
         compactPolicy,
         sessionId,
-        executeMemorySearch,
     });
     const second = await runFreshContextCompact({
+        config: {},
+        provider,
+        model: 'fake-model',
         sessionRef: { id: sessionId, cwd: 'C:\\Project\\mixdog', contextWindow: 100_000 },
         messages: [
-            ...first.messages,
+            ...JSON.parse(JSON.stringify(first.messages)),
             { role: 'user', content: 'follow-up request' },
             { role: 'assistant', content: 'follow-up answer' },
             { role: 'user', content: 'current request' },
@@ -213,15 +175,19 @@ test('repeated compact rebuilds from the same session transcript instead of nest
         compactBudgetTokens: 50_000,
         compactPolicy,
         sessionId,
-        executeMemorySearch,
     });
     const secondSummary = second.messages.find((message) => (
         typeof message.content === 'string'
         && message.content.startsWith(SUMMARY_PREFIX)
     ));
-    assert.equal(searchCount, 2);
-    assert.ok(secondSummary?.content.includes('request-1'));
-    assert.ok(secondSummary?.content.includes('answer-1'));
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[0], /request-1/);
+    assert.match(prompts[1], /CUMULATIVE_REVISION_1/);
+    assert.match(prompts[1], /follow-up request/);
+    assert.doesNotMatch(prompts[1], /request-1|answer-1/);
+    assert.match(secondSummary.content, /CUMULATIVE_REVISION_2/);
+    assert.doesNotMatch(secondSummary.content, /CUMULATIVE_REVISION_1/);
+    assert.equal(second.messages.filter(m => m.meta?.source === 'compact-summary').length, 1);
     assert.equal(secondSummary?.content.split(SUMMARY_PREFIX).length - 1, 1);
 });
 
@@ -504,6 +470,7 @@ test('Agent sessions use the same fresh layout with a session-local handoff', as
         },
     };
     const result = await runFreshContextCompact({
+        config: {},
         sessionRef: {
             id: 'sess-agent-fresh',
             owner: 'agent',
@@ -533,22 +500,23 @@ test('Agent sessions use the same fresh layout with a session-local handoff', as
     )));
 });
 
-test('oversized Memory handoff is summarized in full before entering the fresh layout', async () => {
+test('large conversation input is batched completely within the summary model window', async () => {
     let providerCalls = 0;
+    const prompts = [];
     const provider = {
         name: 'fake',
-        async send() {
+        async send(input) {
             providerCalls += 1;
+            prompts.push(input[1].content);
             return { content: GENERATED_HANDOFF, usage: { inputTokens: 10, outputTokens: 5 } };
         },
     };
-    const executeMemorySearch = async (args) => {
-        if (args.action === 'ingest_session') return 'ingest_session: inserted=3';
-        return `[full memory] ${'complete history line\n'.repeat(20_000)}`;
-    };
     const result = await runFreshContextCompact({
+        config: {},
         sessionRef: {
             id: 'sess-memory-compressed',
+            provider: 'fake',
+            model: 'fake-model',
             cwd: 'C:\\Project\\mixdog',
             contextWindow: 24_000,
         },
@@ -556,18 +524,24 @@ test('oversized Memory handoff is summarized in full before entering the fresh l
             { role: 'system', content: 'system' },
             { role: 'user', content: 'old request' },
             { role: 'assistant', content: 'old answer' },
+            ...Array.from({ length: 60 }, (_, i) => ({
+                role: 'assistant', content: `SOURCE_MARKER_${i}_END`.padEnd(1600, '.'),
+            })),
             { role: 'user', content: 'LATEST_MEMORY_REQUEST' },
         ],
         compactBudgetTokens: 12_000,
         compactPolicy: { reserveTokens: 0, contextWindow: 24_000, handoffTimeoutMs: 5_000 },
         sessionId: 'sess-memory-compressed',
-        executeMemorySearch,
         provider,
         model: 'fake-model',
         sendOpts: {},
     });
-    assert.ok(providerCalls > 0);
-    assert.equal(result.handoffSource, 'memory-compressed');
+    assert.ok(providerCalls > 1);
+    for (let i = 0; i < 60; i += 1) {
+        assert.ok(prompts.some(prompt => prompt.includes(`SOURCE_MARKER_${i}_END`)), `source fragment ${i} was omitted`);
+    }
+    assert.equal(result.usage.inputTokens, providerCalls * 10);
+    assert.equal(result.handoffSource, 'session-local');
     assert.equal(result.messages.at(-1)?.content, 'LATEST_MEMORY_REQUEST');
     assert.ok(result.messages.some((message) => (
         typeof message?.content === 'string' && message.content.includes('one Compact path')

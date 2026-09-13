@@ -345,7 +345,15 @@ export async function initializeOfficeTransactions(dataDir = defaultOfficeDataDi
 
 export async function recoverOfficeTransaction(args, dataDir) {
   const id = String(args.transaction || '').trim();
-  if (!id) throw new Error('recover requires transaction');
+  // recover finishes an interrupted transaction, which is not what the word
+  // suggests to someone holding a damaged file: the answer says so and names
+  // the call that lists what can actually be recovered.
+  if (!id) {
+    throw new Error('recover finishes an interrupted Office transaction and needs its transaction id.'
+      + ' Call office with {"action":"transactions"} to list pending ones.'
+      + ' A damaged document is a different matter: it cannot be repaired here — ask for an intact copy,'
+      + ' or open it in Microsoft Office and save a fresh file.');
+  }
   const strategy = String(args.strategy || '').toLowerCase();
   if (!['commit', 'rollback', 'discard'].includes(strategy)) {
     throw new Error('recover requires strategy: commit, rollback, or discard');

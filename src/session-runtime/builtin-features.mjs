@@ -22,6 +22,8 @@ import {
   moduleEnabled,
 } from './config-helpers.mjs';
 import { readBridgeDiscovery } from '../runtime/bridge-discovery.mjs';
+import { HEADLESS_MODEL_TOOL_NAMES, HEADLESS_TOOL_PROFILE, normalizeToolProfile } from './tool-profile.mjs';
+import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 
 // Browser Use / Computer Use have no install marker: the desktop app publishes
 // a loopback bridge discovery file while the feature is on. The same file
@@ -95,7 +97,7 @@ export function featureDisallowedToolsFor(configLike, {
 } = {}) {
   const browser = featureEnvOverride('MIXDOG_FEATURE_BROWSER') ?? browserAvailable === true;
   const computer = featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? computerAvailable === true;
-  return [
+  const denied = [
     ...(builtinFeatureActive(configLike, 'webSearch') ? [] : ['web_search', 'web_fetch']),
     ...(builtinFeatureActive(configLike, 'memory') ? [] : ['memory', 'recall']),
     ...(localGitToolsActive(configLike, toolProfile) ? [] : ['git']),
@@ -105,6 +107,16 @@ export function featureDisallowedToolsFor(configLike, {
     ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),
     ...(builtinFeatureActive(configLike, 'media') ? [] : ['media']),
   ];
+  // Headless exec uses the Lead surface and excludes Skill/MCP tools. When
+  // only its eager defaults remain, neither schemas nor loader guidance help.
+  // Derive this from the two catalog contracts, not a second feature list.
+  if (normalizeToolProfile(toolProfile) === HEADLESS_TOOL_PROFILE
+    && HEADLESS_MODEL_TOOL_NAMES.every((name) => (
+      denied.includes(name) || DEFERRED_DEFAULT_LEAD_TOOLS.includes(name)
+    ))) {
+    denied.push('load_tool');
+  }
+  return denied;
 }
 
 export function builtinInstalled(configLike, id) {

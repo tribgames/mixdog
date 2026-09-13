@@ -38,9 +38,24 @@ function reference(value, fallbackSheet = '') {
 
 function numeric(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
+  // Number('') is 0, which made an empty cell equal to a zero expectation — a
+  // model that had not been calculated yet answered "correct".
+  if (typeof value !== 'string' || !value.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
+
+/** A formula whose result has not been computed yet: nothing to compare against. */
+function uncalculated(cell) {
+  return Boolean(cell?.formula) && (cell.value === '' || cell.value === null || cell.value === undefined);
+}
+
+function formulaText(cell) {
+  const formula = String(cell?.formula || '');
+  return formula.startsWith('=') ? formula : `=${formula}`;
+}
+
+const UNCALCULATED_ROUTE = 'the workbook is recalculated by finalize (or by opening it in Office), and the assertion belongs after that';
 
 function sameValue(actual, expected, tolerance = 0) {
   const left = numeric(actual);
@@ -107,8 +122,30 @@ export function evaluateXlsxAssertions(document, assertions = []) {
     const target = assertion?.cell ? get({ sheet, cell: assertion.cell }) : null;
     let passed = true;
     if (kind === 'cell-value') {
-      passed = Boolean(target) && sameValue(target.value, assertion.equals, assertion.tolerance);
-      if (!passed) issues.push(issue(assertion, assertionIndex, 'assertion_value_mismatch', `Expected ${sheet}!${assertion.cell} to equal ${JSON.stringify(assertion.equals)}; actual value is ${JSON.stringify(target?.value ?? null)}.`, target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`));
+      // A formula written without Excel carries no cached result until the
+      // workbook is recalculated. Compared anyway it reads as a wrong model —
+      // and against a zero expectation it used to read as a right one.
+      if (uncalculated(target)) {
+        passed = false;
+        issues.push(issue(
+          assertion,
+          assertionIndex,
+          'assertion_value_uncalculated',
+          `${sheet}!${assertion.cell} holds ${JSON.stringify(formulaText(target))} with no calculated result, so it cannot be compared with ${JSON.stringify(assertion.equals)}: ${UNCALCULATED_ROUTE}.`,
+          target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`,
+        ));
+      } else {
+        passed = Boolean(target) && sameValue(target.value, assertion.equals, assertion.tolerance);
+        if (!passed) {
+          issues.push(issue(
+            assertion,
+            assertionIndex,
+            'assertion_value_mismatch',
+            `Expected ${sheet}!${assertion.cell} to equal ${JSON.stringify(assertion.equals)}; actual value is ${JSON.stringify(target?.value ?? null)}.`,
+            target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`,
+          ));
+        }
+      }
     } else if (kind === 'cell-formula') {
       const actual = String(target?.formula || '');
       const comparableActual = actual.replace(/^=/, '');
@@ -120,8 +157,23 @@ export function evaluateXlsxAssertions(document, assertions = []) {
     } else if (kind === 'tie-out') {
       const left = get(assertion.left, sheet);
       const right = get(assertion.right, sheet);
-      passed = Boolean(left && right) && sameValue(left.value, right.value, assertion.tolerance);
-      if (!passed) issues.push(issue(assertion, assertionIndex, 'assertion_tie_out_failed', `Tie-out failed: ${JSON.stringify(assertion.left)}=${JSON.stringify(left?.value ?? null)} and ${JSON.stringify(assertion.right)}=${JSON.stringify(right?.value ?? null)}.`, left?.path || right?.path || '/'));
+      // Two sides that have not been calculated are both empty, and an empty
+      // pair used to tie out: the strictest check in the model answered "agreed"
+      // without a single number behind it.
+      const pending = [[assertion.left, left], [assertion.right, right]].filter(([, cell]) => uncalculated(cell));
+      if (pending.length) {
+        passed = false;
+        issues.push(issue(
+          assertion,
+          assertionIndex,
+          'assertion_value_uncalculated',
+          `Tie-out cannot be read yet: ${pending.map(([reference, cell]) => `${JSON.stringify(reference)} holds ${JSON.stringify(formulaText(cell))} with no calculated result`).join(' and ')}; ${UNCALCULATED_ROUTE}.`,
+          pending[0][1]?.path || left?.path || right?.path || '/',
+        ));
+      } else {
+        passed = Boolean(left && right) && sameValue(left.value, right.value, assertion.tolerance);
+        if (!passed) issues.push(issue(assertion, assertionIndex, 'assertion_tie_out_failed', `Tie-out failed: ${JSON.stringify(assertion.left)}=${JSON.stringify(left?.value ?? null)} and ${JSON.stringify(assertion.right)}=${JSON.stringify(right?.value ?? null)}.`, left?.path || right?.path || '/'));
+      }
     } else if (kind === 'no-errors') {
       const failures = cellsForAssertion(document, assertion).filter((cell) => (
         ERROR_VALUE.test(String(cell.value || ''))

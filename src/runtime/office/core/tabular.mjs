@@ -9,7 +9,9 @@ function delimiterFor(format) {
 }
 
 function sheetName(path, format) {
-  return basename(path, extname(path)) || format.toUpperCase();
+  // An edit works on a copy beside the file (…mixdog-edit.csv). The sheet the
+  // caller is answered with is still the file they handed over, not our copy.
+  return basename(path, extname(path)).replace(/\.mixdog-edit$/i, '') || format.toUpperCase();
 }
 
 function parseDelimited(text, delimiter) {
@@ -66,12 +68,21 @@ function serializeDelimited(rows, delimiter) {
   return `${rows.map((row) => row.map((value) => serializeField(value, delimiter)).join(delimiter)).join('\r\n')}\r\n`;
 }
 
-async function loadRows(path, format) {
-  return parseDelimited(await readFile(path, 'utf8'), delimiterFor(format));
+// A byte-order mark is how Excel knows a delimited file is UTF-8: dropping it
+// on save turns a Korean column into mojibake the next time the user opens the
+// file, so an edit keeps the mark the file arrived with.
+async function readDelimited(path, format) {
+  const text = await readFile(path, 'utf8');
+  return { rows: parseDelimited(text, delimiterFor(format)), byteOrderMark: text.startsWith('\uFEFF') };
 }
 
-async function saveRows(path, format, rows) {
-  await writeFile(path, serializeDelimited(rows, delimiterFor(format)), 'utf8');
+async function loadRows(path, format) {
+  return (await readDelimited(path, format)).rows;
+}
+
+async function saveRows(path, format, rows, { byteOrderMark = false } = {}) {
+  const body = serializeDelimited(rows, delimiterFor(format));
+  await writeFile(path, byteOrderMark ? `\uFEFF${body}` : body, 'utf8');
 }
 
 function ensureCell(rows, row, column) {
@@ -159,7 +170,7 @@ export async function snapshotTabular(path, format, options = {}) {
 }
 
 export async function applyTabularBatch(path, format, operations) {
-  const rows = await loadRows(path, format);
+  const { rows, byteOrderMark } = await readDelimited(path, format);
   const results = [];
   for (const operation of operations || []) {
     const op = String(operation.op || '');
@@ -226,7 +237,7 @@ export async function applyTabularBatch(path, format, operations) {
     }
     throw new Error(`${format.toUpperCase()} backend does not support operation: ${op}`);
   }
-  await saveRows(path, format, rows);
+  await saveRows(path, format, rows, { byteOrderMark });
   return results;
 }
 
@@ -252,14 +263,22 @@ export async function issuesTabular(path, format, options = {}) {
   const issues = [];
   const bounds = options.range ? parseXlsxRange(options.range, { maxCells: Number.MAX_SAFE_INTEGER }) : null;
   const widths = rows.map((row) => row.length);
-  const expectedColumns = widths.length ? Math.max(...widths) : 0;
+  // The file's shape is the width its rows agree on, not the widest row it
+  // holds: measured against the maximum, one row with an extra separator made
+  // every well-formed row — the header included — read as broken.
+  const tally = new Map();
+  for (const width of widths) tally.set(width, (tally.get(width) || 0) + 1);
+  const expectedColumns = [...tally.entries()]
+    .sort((left, right) => right[1] - left[1] || (left[0] === widths[0] ? -1 : right[0] === widths[0] ? 1 : right[0] - left[0]))[0]?.[0] ?? 0;
   for (let row = 0; row < rows.length; row += 1) {
     if (rows[row].length !== expectedColumns) {
+      const extra = rows[row].length > expectedColumns;
       issues.push({
         severity: 'warning',
         code: 'ragged_row',
         path: `/row[${row + 1}]`,
-        message: `Row has ${rows[row].length} column(s); expected ${expectedColumns}.`,
+        message: `Row has ${rows[row].length} column(s); the file's rows are ${expectedColumns} wide.`
+          + `${extra ? ' An unquoted separator inside a value splits it into an extra column.' : ''}`,
       });
     }
     for (let column = 0; column < rows[row].length; column += 1) {
@@ -269,7 +288,11 @@ export async function issuesTabular(path, format, options = {}) {
         || column + 1 < bounds.start.column
         || column + 1 > bounds.end.column
       )) continue;
-      if (/^[=+\-@]/.test(String(rows[row][column] || ''))) {
+      // A leading =, +, - or @ is how a spreadsheet is tricked into evaluating a
+      // pasted value — but a negative figure starts the same way, and reporting
+      // every one of them buries the one cell that actually carries a formula.
+      const raw = String(rows[row][column] || '').trim();
+      if (/^[=+\-@]/.test(raw) && !Number.isFinite(Number(raw))) {
         const ref = `${columnLabel(column + 1)}${row + 1}`;
         issues.push({
           severity: 'warning',

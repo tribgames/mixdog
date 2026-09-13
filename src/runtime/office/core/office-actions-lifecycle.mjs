@@ -200,7 +200,7 @@ export async function finalize(session, args, cwd, signal) {
       stepMetrics,
       reviewToken,
       visualReview: documentVisualReview,
-      nextAction: `Inspect the actual pages for ${documentVisualReview.checks.join(', ')}. Record specific keep/fix observations, not checkbox assertions. Correct material issues and rerender. Then submit design.reviewed:true, design.reviewToken and design.critique with one {page, verdict:'pass', note} per page; unresolved fixes cannot be accepted. This records agent review, not user approval.`,
+      nextAction: `${documentVisualReview.blockers?.length ? `Review not accepted — ${documentVisualReview.blockers.join(' · ')}. ` : ''}Inspect the actual pages for ${documentVisualReview.checks.join(', ')}. Record specific keep/fix observations, not checkbox assertions. Correct material issues and rerender. Then submit design.reviewed:true, design.reviewToken and design.critique with one {page, verdict:'pass', note} per page; unresolved fixes cannot be accepted. This records agent review, not user approval.`,
       _images: reviewImages,
     };
   }

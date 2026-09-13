@@ -2,7 +2,7 @@ import { posix } from 'node:path';
 import { chartWorkbookRows, chartXml } from './portable-chart.mjs';
 import { addPackageRelationship, partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
 import { OFFICE_RELATIONSHIP_BASE, tagPattern, upsertOrderedChild, xmlEncode } from './portable-xml.mjs';
-import { CHART_AXIS_ORDER, LABEL_POSITION_CODES, chartCategories, chartFrameXml, chartTitleText, detectChartType, resolveSlideChart, writePresentationChart } from './portable-pptx-chart.mjs';
+import { CHART_AXIS_ORDER, LABEL_POSITION_CODES, chartCategories, chartFrameXml, chartTitleText, detectChartType, readChartPresentation, resolveSlideChart, writePresentationChart } from './portable-pptx-chart.mjs';
 import { slidePath } from './portable-pptx-package.mjs';
 import { appendSlideShape, nextShapeId } from './portable-pptx-core.mjs';
 
@@ -29,7 +29,7 @@ export async function handleAddChart(context, op) {
       dataLabelColor: op.dataLabelColor,
       valueNumberFormat: op.valueNumberFormat,
       showLegend: op.showLegend,
-      zeroBaseline: op.zeroBaseline === true,
+      zeroBaseline: op.zeroBaseline,
       externalDataId: 'rId1',
     }),
     rows: chartWorkbookRows(categories, series),
@@ -64,6 +64,25 @@ export async function handleSetChartData(context, op) {
   const embeddingPart = embedded
     ? relationshipTarget(partRelationshipPath(chartPart), embedded)
     : `ppt/embeddings/chartData${Number(/chart(\d+)\.xml$/.exec(chartPart)?.[1]) || 1}.xlsx`;
+  // The chart is rewritten around the new numbers, so its own presentation is
+  // read back first: a monthly refresh keeps the labels, number format, legend,
+  // base line, and series colours the deck was approved with.
+  const kept = readChartPresentation(existing);
+  const coloured = series.map((entry, index) => {
+    if (!entry) return entry;
+    const points = kept.pointColors?.[index] || [];
+    // Point colors are kept only where the new data still has that point, so a
+    // shorter refresh never leaves the accent on a category that is gone.
+    const carried = entry.pointColors === undefined && points.some(Boolean)
+      ? { pointColors: points.slice(0, Array.isArray(entry.values) ? entry.values.length : 0) }
+      : {};
+    const filled = entry.color === undefined && kept.seriesColors[index]
+      ? { color: kept.seriesColors[index] }
+      : {};
+    return Object.keys(carried).length || Object.keys(filled).length
+      ? { ...entry, ...filled, ...carried }
+      : entry;
+  });
   await writePresentationChart(zip, {
     chartPart,
     embeddingPart,
@@ -71,18 +90,38 @@ export async function handleSetChartData(context, op) {
       chartType: op.chartType || detectChartType(existing),
       title: op.title ?? chartTitleText(existing),
       categories,
-      series,
-      showValues: op.showValues === true,
-      dataLabelPosition: op.dataLabelPosition,
-      dataLabelColor: op.dataLabelColor,
-      valueNumberFormat: op.valueNumberFormat,
-      showLegend: op.showLegend,
-      zeroBaseline: op.zeroBaseline === true,
+      series: coloured,
+      showValues: op.showValues === undefined ? kept.showValues : op.showValues === true,
+      dataLabelPosition: op.dataLabelPosition ?? kept.dataLabelPosition,
+      dataLabelColor: op.dataLabelColor ?? kept.dataLabelColor,
+      valueNumberFormat: op.valueNumberFormat ?? kept.valueNumberFormat,
+      showLegend: op.showLegend ?? kept.showLegend,
+      zeroBaseline: op.zeroBaseline === undefined ? kept.zeroBaseline : op.zeroBaseline === true,
+      axis: kept.axis,
       externalDataId: 'rId1',
     }),
-    rows: chartWorkbookRows(categories, series),
+    rows: chartWorkbookRows(categories, coloured),
   });
-  return { op: op.op, changed: true, slide: Number(op.slide), chart: chartPart };
+  // A zero baseline is already reported on its own; the axis line is what the
+  // caller could not have asked for: a hidden axis, a zoomed range, no grid.
+  const axisKept = kept.axis.hideValueAxis || kept.axis.hideCategoryAxis
+    || kept.axis.max != null || (kept.axis.min != null && kept.axis.min !== 0) || !kept.axis.gridlines;
+  const preserved = [
+    ...(kept.showValues ? ['dataLabels'] : []),
+    ...(kept.valueNumberFormat ? ['numberFormat'] : []),
+    ...(kept.showLegend ? ['legend'] : []),
+    ...(kept.zeroBaseline ? ['zeroBaseline'] : []),
+    ...(kept.seriesColors.some(Boolean) ? ['seriesColors'] : []),
+    ...(coloured.some((entry) => entry?.pointColors?.some(Boolean)) ? ['pointColors'] : []),
+    ...(axisKept ? ['axis'] : []),
+  ];
+  return {
+    op: op.op,
+    changed: true,
+    slide: Number(op.slide),
+    chart: chartPart,
+    ...(preserved.length ? { preserved } : {}),
+  };
 }
 
 

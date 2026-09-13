@@ -16,7 +16,6 @@ import {
 } from '../shared/common';
 import { persistFrameImage } from '../../frame-files';
 import { renderSomOverlay } from './som-overlay';
-import { electronWindowForNativeId } from './window-handles';
 import {
   captureAccessibilityError,
   createOcrCapturePreferenceStore,
@@ -36,6 +35,8 @@ import type {
   CaptureFrame,
   ComputerCommand,
   ComputerElementRecord,
+  ComputerInputObservation,
+  ComputerObservationGuard,
   ElementAliasTarget,
   ScreenshotCapture,
 } from '../shared/types';
@@ -53,6 +54,7 @@ export interface CaptureEngineHost {
   }>;
   sessionIdFor(command: ComputerCommand): string;
   assertExecutionNotAborted(): void;
+  beginObservation(windowId: string): ComputerObservationGuard;
   normalizeElementRecords(value: unknown): ComputerElementRecord[];
   rememberFrame(frame: CaptureFrame): void;
   rememberElementTargets(command: ComputerCommand, elements: ComputerElementRecord[]): void;
@@ -60,6 +62,7 @@ export interface CaptureEngineHost {
     command: ComputerCommand,
     windowId: string,
     relatedWindowIds?: string[],
+    inputObservation?: ComputerInputObservation,
   ): void;
   forgetObservedWindowScope(command: ComputerCommand): void;
   requireValidFrame(command: ComputerCommand): Promise<CaptureFrame>;
@@ -103,6 +106,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
   async function captureComputer(
     command: ComputerCommand,
     forcedWindowId?: string,
+    replacementRead = false,
   ): Promise<{
     payload: Record<string, unknown>;
     image?: { mimeType: string; data: string };
@@ -156,6 +160,25 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     if (!windowId && !explicitScreen) windowId = await resolveForegroundWindowId(command);
     await host.authorizeCapture?.(command, windowId);
     assertExecutionNotAborted();
+    const observationGuard = host.beginObservation(windowId);
+    try {
+    const readInputObservation = async (): Promise<ComputerInputObservation | undefined> => {
+      assertExecutionNotAborted();
+      try {
+        const response = await callPowerShell({
+          action: 'input_idle_state', session_id: sessionIdFor(command), read_only: true,
+        }, CAPTURE_ACCESSIBILITY_TIMEOUT_MS);
+        assertExecutionNotAborted();
+        const result = response.result;
+        if (!response.ok || typeof result?.monitor !== 'string' || !result.monitor
+          || !Number.isSafeInteger(result.sequence) || Number(result.sequence) < 0) return undefined;
+        return { ready: result.observer_ready === true, monitor: result.monitor, sequence: Number(result.sequence) };
+      } catch {
+        assertExecutionNotAborted();
+        return undefined;
+      }
+    };
+    let inputObservation = await readInputObservation();
     const visualOnlyCapabilityKey = `${sessionIdFor(command)}\u0000${windowId}`;
     const visualOnlyEligible = Boolean(
       windowId
@@ -190,9 +213,9 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     if (mode !== 'vision' && !windowId) {
       throw new Error(`${mode} capture requires an exact target window`);
     }
-    // External pixels can be captured while PowerShell walks UI Automation.
-    // App-owned Chromium uses one renderer for both operations, so serialize it
-    // to avoid a capturePage/UIA deadlock on newly opened BrowserWindows.
+    // Complete accessibility before pixels. If its read worker is replaced,
+    // bind the pixel fallback to the replacement's input observation, not the
+    // obsolete worker or a concurrently queued bounds request.
     const runScreenshotTask = async () => {
       if (mode === 'ax') return null;
       const startedAt = performance.now();
@@ -207,7 +230,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       return { capture, elapsed: elapsedMs(startedAt) };
     };
     const runAccessibilityTask = async () => {
-      if (mode === 'vision') return null;
+      if (mode === 'vision' || replacementRead) return null;
       if (visualOnlyCacheHit) {
         return { response: null, error: '', elapsed: 0, visualOnlyCacheHit: true };
       }
@@ -236,12 +259,12 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         };
       }
     };
-    const serializeOwnedCapture = mode !== 'vision'
-      && mode !== 'ax'
-      && Boolean(windowId && electronWindowForNativeId(windowId));
-    const captureResults = serializeOwnedCapture
-      ? [await runAccessibilityTask(), await runScreenshotTask()] as const
-      : await Promise.all([runAccessibilityTask(), runScreenshotTask()] as const);
+    const accessibilityTask = await runAccessibilityTask();
+    if (accessibilityTask?.error || accessibilityTask?.response?.ok === false) {
+      inputObservation = await readInputObservation();
+    }
+    const captureResults = [accessibilityTask, await runScreenshotTask()] as const;
+    host.assertExecutionNotAborted();
     const [accessibilityResult, screenshotResult] = captureResults;
     if (accessibilityResult) {
       const snapshot = accessibilityResult.response;
@@ -299,10 +322,25 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         });
       }
     }
-    const { ocrPayload, ocrElements, returnedAccessibilityElements } = await mergeCaptureOcr(host, {
+    const { ocrPayload, ocrElements, returnedAccessibilityElements } = replacementRead
+      ? { ocrPayload: { ok: false, skipped: true, error: 'observation worker was replaced; fresh pixels only' },
+          ocrElements: [] as ComputerElementRecord[], returnedAccessibilityElements: 0 }
+      : await mergeCaptureOcr(host, {
       command, mode, screenshot, rawElements, elements, totalElementBudget,
       semanticAccessibilityAvailable, observationWindowId, timings,
     });
+    host.assertExecutionNotAborted();
+    const inputAfter = await readInputObservation();
+    if (inputObservation && inputAfter && inputObservation.monitor !== inputAfter.monitor) {
+      if (replacementRead || mode === 'ax') {
+        throw new Error('input_observation_unavailable: observation worker changed during capture');
+      }
+      // One bounded fresh-pixel read; do not repeat the provider that timed out.
+      return await captureComputer(command, forcedWindowId, true);
+    }
+    const foregroundReady = inputObservation?.ready === true && inputAfter?.ready === true
+      && inputObservation.monitor === inputAfter.monitor && inputObservation.sequence === inputAfter.sequence;
+    if (inputObservation) inputObservation = { ...inputObservation, ready: foregroundReady };
     if (mode !== 'vision') {
       rememberElementTargets(command, [...rawElements, ...ocrElements]);
     }
@@ -312,6 +350,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         command,
         observationWindowId,
         screenshot?.frame?.relatedWindowIds || [observationWindowId],
+        inputObservation,
       );
     }
     let changes: Record<string, unknown> | undefined;
@@ -349,6 +388,8 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       elements, visualOnlyCacheHit, accessibilityError, semanticAccessibilityAvailable,
       changes, continuation, ocrPayload,
     });
+    payload.foreground_input_ready = foregroundReady;
+    if (replacementRead) payload.observation_fallback = 'replacement_worker_pixels';
     let image = screenshot?.image;
     if (screenshot?.frame && screenshot.frameId) {
       payload.frame_id = screenshot.frameId;
@@ -378,6 +419,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     }
     timings.total_ms = elapsedMs(captureStartedAt);
     payload.timings_ms = timings;
+    assertExecutionNotAborted();
     if (!forcedWindowId && captureOk) {
       ocrPreferences.remember(sessionIdFor(command), {
         includeOcr: command.include_ocr === true,
@@ -407,6 +449,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       payload,
       ...(image ? { image } : {}),
     };
+    } finally { observationGuard.close(); }
   }
 
   const captureAfterAction = createCaptureAfter(host, ocrPreferences, captureComputer);

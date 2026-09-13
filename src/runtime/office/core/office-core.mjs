@@ -119,14 +119,13 @@ export class OfficeConflictError extends Error {
 }
 
 
-function compactOfficeSnapshot(value) {
-  return value?.document?.format === 'xlsx'
-    && value.document.sheets?.some?.((sheet) => sheet?.representation === 'row-blocks');
-}
 
 
+// Results are read by a model, not by eye: indentation adds about a third to
+// every audit, snapshot, and review a session returns, and buys the reader
+// nothing that the structure does not already carry.
 export function serializedToolValue(value) {
-  return JSON.stringify(value, null, compactOfficeSnapshot(value) ? 0 : 2);
+  return JSON.stringify(value);
 }
 
 
@@ -165,12 +164,33 @@ function officeArtifact(format, fileKind, path, operation) {
 }
 
 
+// What a caller needs back is the design in force: its profile, tokens, the
+// selected direction, and any warning. The catalogue it was chosen from — every
+// available layout, the rejected direction candidates, the composition history —
+// is input the caller already holds, and echoing it on every batch and finalize
+// costs several times the audit it rides along with.
+const DESIGN_CATALOGUE_KEYS = Object.freeze(['layouts', 'recentCompositions']);
+
+export function officeDesignDigest(design) {
+  if (!design || typeof design !== 'object') return design;
+  const digest = { ...design };
+  for (const key of DESIGN_CATALOGUE_KEYS) delete digest[key];
+  const direction = digest.artDirection;
+  if (direction && typeof direction === 'object' && Array.isArray(direction.candidates)) {
+    const { candidates, ...rest } = direction;
+    digest.artDirection = { ...rest, candidateCount: candidates.length };
+  }
+  return digest;
+}
+
 export function finalizeOfficeResult(value, {
   action,
   session = null,
   startedAt = 0,
 } = {}) {
   if (!value || typeof value !== 'object') return value;
+  if (value.design) value.design = officeDesignDigest(value.design);
+  if (value.batch?.design) value.batch = { ...value.batch, design: officeDesignDigest(value.batch.design) };
   value.metrics = {
     ...(value.metrics || {}),
     durationMs: Math.max(0, Number((performance.now() - startedAt).toFixed(2))),

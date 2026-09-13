@@ -26,6 +26,7 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
+import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
 import {
   normalizeSessionTitle,
   promptTitle,
@@ -45,7 +46,7 @@ import { DesktopSessionMetadata } from './desktop-session-metadata';
 import { RecoveringStoreWatcher } from './recovering-store-watcher';
 import { SessionViewRegistry } from './session-view-registry';
 import { NewTaskRequests, type NewTaskRequest } from './new-task-requests';
-import { localProviderInstallRequestTimeout } from './local-provider-install-timeout';
+import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createShellJobsPoller } from './shell-jobs-poller';
 import { reconcileSessionProjection } from './state-delta';
 import { searchProjectDirectory } from './project-file-search';
@@ -257,6 +258,7 @@ export class SessionHost implements DesktopService {
   private coldViewTimer: NodeJS.Timeout | null = null;
   private remoteSessionId = '';
   private disposed = false;
+  private disposePromise: Promise<void> | null = null;
 
   private constructor(
     private readonly options: SerializableDesktopServiceOptions,
@@ -411,13 +413,17 @@ export class SessionHost implements DesktopService {
     sessionId: string,
     snapshot: SessionSnapshot,
     frameSource: DesktopSessionFrameSource = 'live',
+    readTraceId?: string,
   ): void {
     const visibleSnapshot = this.snapshotWithRemoteSession(
       this.snapshotWithShellJobs(sessionId, snapshot),
     );
     for (const listener of [...this.sessionStateListeners]) {
       try {
-        listener({ sessionId, snapshot: visibleSnapshot, frameSource });
+        listener({
+          sessionId, snapshot: visibleSnapshot, frameSource,
+          ...(readTraceId ? { readTraceId } : {}),
+        });
       } catch {
         // A visual client cannot affect service execution.
       }
@@ -615,15 +621,22 @@ export class SessionHost implements DesktopService {
     };
   }
 
-  private async readSession(sessionId: string, forceFull = false, publish = true): Promise<SessionSnapshot> {
+  private async readSession(
+    sessionId: string, forceFull = false, publish = true, readTraceId?: string,
+  ): Promise<SessionSnapshot> {
     const id = sessionIdOf(sessionId);
     const prior = this.sessionProjections.get(id);
+    const startedAt = performance.now();
+    reportTranscriptRead(id, readTraceId, 'host-read-start');
     const result = await this.sessionClient.read({
       sessionId: id,
       open: this.openHints(id),
       baseRevision: forceFull ? null : prior?.revision ?? null,
       ...(!forceFull && prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
     }, this.callOptions());
+    reportTranscriptRead(id, readTraceId, 'host-read-result', {
+      durationMs: performance.now() - startedAt,
+    });
     const current = this.sessionProjections.get(id);
     const hasFull = result.full !== null && typeof result.full === 'object';
     const hasBaseline = current && (result.patch
@@ -631,7 +644,7 @@ export class SessionHost implements DesktopService {
       : Number(result.revision) === current.revision);
     if (!hasFull && !hasBaseline) {
       if (forceFull) throw new Error('Session recovery returned no usable baseline.');
-      return this.readSession(id, true, publish);
+      return this.readSession(id, true, publish, readTraceId);
     }
     return this.applySessionResult(id, result, publish);
   }
@@ -652,7 +665,7 @@ export class SessionHost implements DesktopService {
     };
     const callOptions = this.callOptions(
       randomUUID(),
-      localProviderInstallRequestTimeout(method, args),
+      longRunningRequestTimeout(method, args),
     );
     const result = READ_CAPABILITIES.has(method)
       ? await this.sessionClient.read(params, callOptions)
@@ -709,7 +722,7 @@ export class SessionHost implements DesktopService {
         };
         const callOptions = this.callOptions(
           randomUUID(),
-          localProviderInstallRequestTimeout(method, args),
+          longRunningRequestTimeout(method, args),
         );
         const result = READ_CAPABILITIES.has(method)
           ? await this.sessionClient.read(params, callOptions)
@@ -958,25 +971,51 @@ export class SessionHost implements DesktopService {
   async prefetchSession(
     sessionId: string,
     transcriptItemLimit = DESKTOP_TRANSCRIPT_ITEM_LIMIT,
+    readTraceId?: string,
   ): Promise<boolean> {
     const id = sessionIdOf(sessionId);
+    const traceId = transcriptReadTraceId(readTraceId);
+    const startedAt = performance.now();
+    reportTranscriptRead(id, traceId, 'host-start');
     const limit = Math.max(
       1,
       Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT)),
     );
-    if (limit <= DESKTOP_TRANSCRIPT_ITEM_LIMIT) {
-      const snapshot = await this.readSession(id, false, false);
-      this.publishSession(id, snapshot, 'replay');
+    try {
+      let snapshot: SessionSnapshot;
+      if (limit <= DESKTOP_TRANSCRIPT_ITEM_LIMIT) {
+        snapshot = await this.readSession(id, false, false, traceId);
+      } else {
+        reportTranscriptRead(id, traceId, 'host-read-start');
+        const store = await this.runtime.loadSessionStore();
+        const stored = await store.readStoredSessionTranscript?.(id, {
+          transcriptItemLimit: limit,
+        });
+        reportTranscriptRead(id, traceId, 'host-read-result', {
+          durationMs: performance.now() - startedAt,
+        });
+        if (!stored || typeof stored !== 'object') {
+          reportTranscriptRead(id, traceId, 'host-failed');
+          return false;
+        }
+        const live = this.sessionProjections.get(id)?.snapshot ?? null;
+        snapshot = mergeSessionHistorySnapshot(id, live, stored);
+      }
+      reportTranscriptRead(id, traceId, 'host-projected', {
+        elapsedMs: performance.now() - startedAt,
+        itemCount: Array.isArray(snapshot?.items) ? snapshot.items.length : 0,
+      });
+      this.publishSession(id, snapshot, 'replay', traceId);
+      reportTranscriptRead(id, traceId, 'host-published', {
+        elapsedMs: performance.now() - startedAt,
+      });
       return true;
+    } catch (error) {
+      reportTranscriptRead(id, traceId, 'host-failed', {
+        elapsedMs: performance.now() - startedAt,
+      });
+      throw error;
     }
-    const store = await this.runtime.loadSessionStore();
-    const stored = await store.readStoredSessionTranscript?.(id, {
-      transcriptItemLimit: limit,
-    });
-    if (!stored || typeof stored !== 'object') return false;
-    const live = this.sessionProjections.get(id)?.snapshot ?? null;
-    this.publishSession(id, mergeSessionHistorySnapshot(id, live, stored), 'replay');
-    return true;
   }
 
   async replaySessionStates(
@@ -1320,10 +1359,13 @@ export class SessionHost implements DesktopService {
     sessionId?: string,
   ): Promise<SessionSnapshot> {
     const target = sessionId || await this.ensureControlSession();
-    const { snapshot } = await this.invokeSession(target, 'setRoute', [{
+    const { value, snapshot } = await this.invokeSession(target, 'setRoute', [{
       ...selection,
       applyToCurrentSession: true,
     }]);
+    if (value === false) {
+      throw new Error('Model change was not applied because another session command is running.');
+    }
     return snapshot;
   }
 
@@ -1473,24 +1515,30 @@ export class SessionHost implements DesktopService {
     }
   }
 
-  async dispose(): Promise<void> {
-    if (this.disposed) return;
+  dispose(): Promise<void> {
+    if (this.disposePromise) return this.disposePromise;
     this.disposed = true;
-    this.shellJobsPoller.stop();
-    if (this.storeRefreshTimer) clearTimeout(this.storeRefreshTimer);
-    this.storeRefreshTimer = null;
-    if (this.coldViewTimer) clearInterval(this.coldViewTimer);
-    this.coldViewTimer = null;
-    this.catalogWatcher.close();
-    this.sessionViews.close();
-    await this.sessionMetadata.flush();
-    try { await this.sessionClient.close('service host disposed'); } catch {}
     this.listeners.clear();
     this.sessionListeners.clear();
     this.agentPoolListeners.clear();
     this.sessionStateListeners.clear();
-    this.sessionProjections.clear();
-    this.visibleSessionIds.clear();
-    this.visibleSessionSources.clear();
+    this.disposePromise = (async () => {
+      try {
+        this.shellJobsPoller.stop();
+        if (this.storeRefreshTimer) clearTimeout(this.storeRefreshTimer);
+        this.storeRefreshTimer = null;
+        if (this.coldViewTimer) clearInterval(this.coldViewTimer);
+        this.coldViewTimer = null;
+        this.catalogWatcher.close();
+        this.sessionViews.close();
+        await this.sessionMetadata.flush();
+      } finally {
+        try { await this.sessionClient.close('service host disposed'); } catch {}
+        this.sessionProjections.clear();
+        this.visibleSessionIds.clear();
+        this.visibleSessionSources.clear();
+      }
+    })();
+    return this.disposePromise;
   }
 }

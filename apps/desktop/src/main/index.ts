@@ -51,6 +51,9 @@ import {
 } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
 import {
+  normalizeTranscriptReadDiagnostic, setTranscriptReadDiagnosticSink,
+} from '../shared/transcript-read-diagnostics';
+import {
   normalizeRendererComposerActionDiagnostic,
   normalizeRendererDiagnostic,
   normalizeRendererLongTaskDiagnostic,
@@ -972,6 +975,11 @@ async function createWindow(): Promise<void> {
     if (window.isDestroyed()
       || event.sender !== window.webContents
       || event.senderFrame !== window.webContents.mainFrame) return;
+    const transcriptRead = normalizeTranscriptReadDiagnostic(payload);
+    if (transcriptRead) {
+      diagnostics?.write('renderer-transcript-read', { ...transcriptRead });
+      return;
+    }
     const composerAction = normalizeRendererComposerActionDiagnostic(payload);
     const longTask = composerAction ? null : normalizeRendererLongTaskDiagnostic(payload);
     diagnostics?.write(
@@ -1245,6 +1253,9 @@ if (!app.requestSingleInstanceLock()) {
         ...(desktopBootScenario ? { scenario: desktopBootScenario } : {}),
       },
     );
+    setTranscriptReadDiagnosticSink((entry) => {
+      diagnostics?.write('transcript-read', { ...entry });
+    });
     diagnostics.write('process-entry', {
       occurredAt: new Date(desktopProcessStartedAt).toISOString(),
       totalMs: 0,

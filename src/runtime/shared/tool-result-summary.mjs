@@ -53,11 +53,16 @@ function splitPathAndDelta(value, explicitDelta = '') {
 
 export function parseLineDelta(delta) {
   const totals = { added: 0, removed: 0, seen: false };
-  for (const match of String(delta ?? '').matchAll(/([+-])\s*(\d+)\s*(?:line|lines)?/gi)) {
-    const n = Number(match[2]) || 0;
-    totals.seen = true;
-    if (match[1] === '+') totals.added += n;
-    else totals.removed += n;
+  // Summaries also contain filenames. Only whole delta fields may contribute:
+  // scanning arbitrary signed numbers turns report-20260920.md into deletions.
+  for (const field of String(delta ?? '').split(/[·,()\r\n]/)) {
+    if (!/^\s*[+-]\s*\d+(?:\s*lines?)?(?:(?:\s*\/\s*|\s+)[+-]\s*\d+(?:\s*lines?)?)*\s*$/i.test(field)) continue;
+    for (const match of field.matchAll(/([+-])\s*(\d+)/g)) {
+      const n = Number(match[2]) || 0;
+      totals.seen = true;
+      if (match[1] === '+') totals.added += n;
+      else totals.removed += n;
+    }
   }
   return totals;
 }

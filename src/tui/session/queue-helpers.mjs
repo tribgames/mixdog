@@ -34,11 +34,15 @@ export function defaultQueuePriority(mode) {
   return mode === 'task-notification' ? 'later' : 'next';
 }
 
+export function isGoalQueuedEntry(entry) {
+  return entry?.mode === 'goal-continuation' || entry?.mode === 'goal-closeout';
+}
+
 export function isQueuedEntryEditable(entry) {
   const mode = entry?.mode || 'prompt';
   return mode !== 'task-notification'
     && mode !== 'pending-resume'
-    && mode !== 'goal-continuation'
+    && !isGoalQueuedEntry(entry)
     && entry?.isMeta !== true;
 }
 
@@ -47,7 +51,7 @@ export function isQueuedEntryVisible(entry) {
   // task completions stay in the internal pending queue, but should never look
   // like commands typed by the user while they wait to be drained.
   const mode = entry?.mode || 'prompt';
-  if (mode === 'pending-resume' || mode === 'goal-continuation') return false;
+  if (mode === 'pending-resume' || isGoalQueuedEntry(entry)) return false;
   return isQueuedEntryEditable(entry);
 }
 

@@ -31,16 +31,13 @@ await import('../runtime/shared/uv-threadpool-boot.mjs');
 import os from 'node:os';
 import path from 'node:path';
 import { rmSync } from 'node:fs';
-import { appendFile, mkdir, open, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
-import { inspect } from 'node:util';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
 import { claimSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { remoteIntentPath } from '../runtime/shared/remote-intent.mjs';
-import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
@@ -68,6 +65,7 @@ import { createDaemonSessionRuntimeHost } from './session-runtime-host-factory.m
 import { getStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
 import { createDaemonBootCoordinator } from './daemon-boot-coordinator.mjs';
+import { createDaemonLog } from './daemon-log.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -91,149 +89,15 @@ const OWNER_PATH = path.join(DATA_DIR, 'daemon-owner.json');
 const MEMORY_ENTRY = fileURLToPath(new URL('../runtime/memory/index.mjs', import.meta.url));
 // The spawning TUI mirrors our stderr into this file ONLY until it sees our
 // 'ready' message; after that its pipe consumer dies on parent exit and later
-// lines would be lost. So once ready we append here ourselves (fileLogging on),
+// lines would be lost. So once ready we append through the daemon's file sink,
 // keyed to the SAME ready event the spawner detaches on — no loss, no dup.
 const LOG_PATH = path.join(DATA_DIR, 'daemon.log');
-let fileLogging = false;
-// This process outlives every spawner, so it has to bound its OWN log: the
-// spawner's boot-time rotate never runs again while the daemon lives, and the
-// redirect below sends every hosted module's stderr here too.
-const LOG_LINE_MAX_CHARS = 16_384;
-const LOG_QUEUE_MAX_BYTES = 512 * 1024;
-let logQueue = [];
-let logQueueBytes = 0;
-let logDropped = 0;
-let logFlushTimer = null;
-let logWriter = Promise.resolve();
-let logFileBytes = null;
-
-function boundedLogText(value) {
-  const text = String(value ?? '');
-  if (text.length <= LOG_LINE_MAX_CHARS) return text;
-  return `${text.slice(0, LOG_LINE_MAX_CHARS)}… [truncated ${text.length - LOG_LINE_MAX_CHARS} chars]`;
-}
-
-async function rotateDaemonLogIfNeeded(incomingBytes) {
-  if (logFileBytes === null) {
-    try { logFileBytes = (await stat(LOG_PATH)).size; }
-    catch { logFileBytes = 0; }
-  }
-  if (logFileBytes + incomingBytes <= PLUGIN_LOG_MAX_BYTES) return;
-  const keep = Math.min(logFileBytes, PLUGIN_LOG_KEEP_BYTES);
-  const tail = Buffer.allocUnsafe(keep);
-  const handle = await open(LOG_PATH, 'r');
-  try {
-    const { bytesRead } = await handle.read(tail, 0, keep, Math.max(0, logFileBytes - keep));
-    await writeFile(LOG_PATH, tail.subarray(0, bytesRead));
-    logFileBytes = bytesRead;
-  } finally {
-    await handle.close().catch(() => {});
-  }
-}
-
-function takeLogBatch() {
-  if (logQueue.length === 0 && logDropped === 0) return '';
-  const dropped = logDropped;
-  const rows = logQueue;
-  logQueue = [];
-  logQueueBytes = 0;
-  logDropped = 0;
-  if (dropped > 0) {
-    rows.unshift(`[${new Date().toISOString()}] [daemon] dropped ${dropped} log line(s) under backpressure\n`);
-  }
-  return rows.join('');
-}
-
-function queueLogFlush(delayMs = 10) {
-  if (logFlushTimer) return;
-  logFlushTimer = setTimeout(() => {
-    logFlushTimer = null;
-    const batch = takeLogBatch();
-    if (!batch) return;
-    logWriter = logWriter.then(async () => {
-      await mkdir(path.dirname(LOG_PATH), { recursive: true });
-      await rotateDaemonLogIfNeeded(Buffer.byteLength(batch));
-      await appendFile(LOG_PATH, batch, 'utf8');
-      logFileBytes = (logFileBytes || 0) + Buffer.byteLength(batch);
-    }).catch(() => {});
-    if (logQueue.length > 0 || logDropped > 0) queueLogFlush();
-  }, delayMs);
-  logFlushTimer.unref?.();
-}
-
-function appendDaemonLog(text) {
-  const line = `[${new Date().toISOString()}] ${boundedLogText(text)}\n`;
-  const bytes = Buffer.byteLength(line);
-  if (bytes > LOG_QUEUE_MAX_BYTES || logQueueBytes + bytes > LOG_QUEUE_MAX_BYTES) {
-    logDropped += 1;
-    queueLogFlush();
-    return;
-  }
-  logQueue.push(line);
-  logQueueBytes += bytes;
-  queueLogFlush();
-}
-
-async function flushDaemonLogs() {
-  if (logFlushTimer) {
-    clearTimeout(logFlushTimer);
-    logFlushTimer = null;
-  }
-  const batch = takeLogBatch();
-  if (batch) {
-    logWriter = logWriter.then(async () => {
-      await mkdir(path.dirname(LOG_PATH), { recursive: true });
-      await rotateDaemonLogIfNeeded(Buffer.byteLength(batch));
-      await appendFile(LOG_PATH, batch, 'utf8');
-      logFileBytes = (logFileBytes || 0) + Buffer.byteLength(batch);
-    }).catch(() => {});
-  }
-  await logWriter;
-}
-function log(line) {
-  const text = `[daemon] ${line}`;
-  // Exactly ONE sink per line: before ready the spawner mirrors our stderr into
-  // the log, so write stderr only; after ready we own the file, so write the
-  // file only — never both (no duplicate around the ready handoff).
-  if (!fileLogging) {
-    try { process.stderr.write(`${text}\n`); } catch {}
-    return;
-  }
-  appendDaemonLog(text);
-}
-
-// Redirect raw process.stderr/stdout writes and console.* from ANY module in
-// this process to the daemon log file. Installed at the ready boundary (same
-// point fileLogging flips) so pre-ready lines still reach the spawner mirror.
-function installDaemonLogRedirect() {
-  if (process.env.MIXDOG_DAEMON_ALLOW_STDERR === '1') return;
-  const file = (chunk) => {
-    const text = String(chunk ?? '').trimEnd();
-    if (text) appendDaemonLog(text);
-  };
-  const patch = (stream) => {
-    stream.write = ((chunk, encoding, callback) => {
-      const done = typeof encoding === 'function' ? encoding : callback;
-      file(chunk);
-      if (typeof done === 'function') { try { done(); } catch {} }
-      return true;
-    });
-  };
-  patch(process.stderr);
-  patch(process.stdout);
-  for (const m of ['log', 'info', 'warn', 'error', 'debug', 'trace']) {
-    console[m] = (...args) => file(`[console.${m}] ${args.map((a) =>
-      typeof a === 'string'
-        ? boundedLogText(a)
-        : boundedLogText(inspect(a, {
-          depth: 4,
-          maxArrayLength: 50,
-          maxStringLength: 4_096,
-          breakLength: Infinity,
-          compact: true,
-        }))).join(' ')}`);
-  }
-}
+const {
+  log,
+  flush: flushDaemonLogs,
+  enableFileLogging,
+  installRedirect: installDaemonLogRedirect,
+} = createDaemonLog({ logPath: LOG_PATH });
 
 let channels = null;
 let transport = null;
@@ -827,7 +691,7 @@ async function main() {
   // here: the spawner already bounds the file at its own boot (channel-worker
   // rotateBoundedLog), and rotating now would race other processes' buffered
   // appends into the same log.
-  fileLogging = true;
+  enableFileLogging();
   // Global stderr/console redirect: runtime modules hosted in this daemon
   // (session sweeps, scheduler, inbound handlers, providers…) write raw
   // process.stderr lines. With the current pipe stdio those bytes die with the

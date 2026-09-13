@@ -28,6 +28,8 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
   const setup = record(data.providerSetup);
   const apiProviders = rows(setup.api);
+  const openCodeGoProvider = apiProviders.find((provider) => String(provider.id) === 'opencode-go');
+  const otherApiProviders = apiProviders.filter((provider) => provider !== openCodeGoProvider);
   const oauthProviders = rows(setup.oauth);
   const busy = Boolean(pending);
   const loading = !sectionLoaded(data, 'providerSetup');
@@ -39,6 +41,29 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
     if (provider.authenticated && /^(valid|set|access only)$/i.test(status)) return 'Connected';
     return status || (provider.authenticated ? 'Connected' : 'Not connected');
   };
+  const renderApiProvider = (provider: RecordValue) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
+    description={String(provider.detail || provider.envName || '')}
+    status={providerStatus(provider)}
+    actions={<>{provider === openCodeGoProvider && <ActionButton disabled={busy}
+      onClick={() => void run('loginOpenCodeGoUsage')}>Usage sign-in</ActionButton>}
+      {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) &&
+        <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>Get API key ↗</ActionButton>}
+      {!provider.authenticated && <form className="settings-provider-secret" onSubmit={(event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const secret = new FormData(form).get('secret');
+        form.reset();
+        void run('saveProviderApiKey', [provider.id, secret], `provider-key-${String(provider.id)}`);
+      }}>
+        <input name="secret" type="password" autoComplete="off" placeholder="API key"
+          aria-label={`${providerLabel(provider)} API key`} required />
+        <button disabled={busy}>Save</button>
+      </form>}
+      {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&
+        <ActionButton danger disabled={busy} onClick={() => {
+      confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
+        confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
+      }}>Forget</ActionButton>}</>} />;
   return <>
     {/* One card PER provider: sharing a single card ran "OpenAI's accounts →
         Anthropic header" as one continuous list (user: 프로바이더별 분리된
@@ -64,29 +89,9 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
         />
       </div>) : <div className="settings-group-body"><ListEmpty text={loading ? 'Loading providers…' : 'No OAuth providers available.'} /></div>}
     </section>
-    <Group title="API-key providers">{apiProviders.length ? apiProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
-      description={String(provider.detail || provider.envName || '')}
-      status={providerStatus(provider)}
-      actions={<>{String(provider.id) === 'opencode-go' && <ActionButton disabled={busy}
-        onClick={() => void run('loginOpenCodeGoUsage')}>Usage sign-in</ActionButton>}
-        {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) &&
-          <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>Get API key ↗</ActionButton>}
-        {!provider.authenticated && <form className="settings-provider-secret" onSubmit={(event) => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const secret = new FormData(form).get('secret');
-          form.reset();
-          void run('saveProviderApiKey', [provider.id, secret], `provider-key-${String(provider.id)}`);
-        }}>
-          <input name="secret" type="password" autoComplete="off" placeholder="API key"
-            aria-label={`${providerLabel(provider)} API key`} required />
-          <button disabled={busy}>Save</button>
-        </form>}
-        {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&
-          <ActionButton danger disabled={busy} onClick={() => {
-        confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
-          confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
-        }}>Forget</ActionButton>}</>} />) : <ListEmpty text={loading ? 'Loading providers…' : 'No API-key providers available.'} />}</Group>
+    {openCodeGoProvider && <Group>{renderApiProvider(openCodeGoProvider)}</Group>}
+    <Group title="API-key providers">{otherApiProviders.length ? otherApiProviders.map(renderApiProvider)
+      : <ListEmpty text={loading ? 'Loading providers…' : 'No API-key providers available.'} />}</Group>
   </>;
 }
 

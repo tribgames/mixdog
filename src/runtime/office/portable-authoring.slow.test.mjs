@@ -9,6 +9,7 @@ import { applyPortableOoxmlBatch } from './portable/portable-ooxml.mjs';
 import { createPortableOoxmlDocument } from './portable/portable-package.mjs';
 import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './core/snapshot-contract.mjs';
 import { PNG_PIXEL, parts, value, workspace, writeZip } from './office-test-support.mjs';
+import { contrastRatio } from './portable/text-metrics.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
@@ -270,6 +271,35 @@ test('portable charts write a chart part with an embedded workbook', async (t) =
   const revised = await (await parts(deck)).text('ppt/charts/chart1.xml');
   assert.match(revised, /<c:v>180<\/c:v>/);
   assert.doesNotMatch(revised, /<c:v>120<\/c:v>/);
+  // New numbers are a refresh, not a redesign: the emphasized point survives it.
+  assert.match(revised, /<c:dPt><c:idx val="1"\/><c:spPr><a:solidFill><a:srgbClr val="2D66D5"/);
+  assert.ok(updated.results[0].preserved.includes('pointColors'), JSON.stringify(updated.results[0]));
+
+  // A duplicated page owns its chart: an edit on the copy leaves the source page
+  // as it was approved, and the copy keeps the axis the chart was drawn with.
+  const copied = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_chart_axis', slide: 1, shape: 1, axis: 'value', minimum: 100, maximum: 200 },
+      { op: 'duplicate_slide', slide: 1 },
+    ],
+  }, { cwd }));
+  assert.deepEqual(copied.results.at(-1).ownParts, ['ppt/charts/chart2.xml']);
+  const refreshed = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_chart_data', slide: 2, shape: 1, series: [{ name: '2028', values: [150, 160] }] }],
+  }, { cwd }));
+  assert.equal(refreshed.results[0].chart, 'ppt/charts/chart2.xml');
+  assert.ok(refreshed.results[0].preserved.includes('axis'));
+  const bothCharts = await parts(deck);
+  const source = await bothCharts.text('ppt/charts/chart1.xml');
+  const copy = await bothCharts.text('ppt/charts/chart2.xml');
+  assert.match(source, /<c:v>180<\/c:v>/);
+  assert.doesNotMatch(source, /<c:v>150<\/c:v>/);
+  assert.match(copy, /<c:v>150<\/c:v>/);
+  assert.match(copy, /<c:max val="200"\/><c:min val="100"\/>/);
 });
 
 test('portable workbook charts anchor through a drawing part', async (t) => {
@@ -329,6 +359,36 @@ test('portable cell writes stay ordered and keep the section break last', async 
   const body = await (await parts(document)).text('word/document.xml');
   assert.ok(body.indexOf('<w:tbl>') < body.indexOf('<w:sectPr>'), 'table must precede the section break');
   assert.ok(body.indexOf('Heading') < body.indexOf('<w:sectPr>'), 'text must precede the section break');
+});
+
+// A long document is written paragraph by paragraph, so appending must read the
+// body's tail rather than its whole model — and still put the first paragraph in
+// place of the empty one a new file starts with.
+test('a long document appends in order and keeps no empty first paragraph', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'long.docx');
+  const count = 120;
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    format: 'docx',
+    operations: [
+      { op: 'append_text', text: '야간 운영 보고', properties: { style: 'Heading1' } },
+      ...Array.from({ length: count }, (_, index) => ({ op: 'append_text', text: `${index + 1}. 대전 허브 정시 출고율은 89.1%였습니다.` })),
+    ],
+  }, { cwd }));
+  assert.equal(created.batch.results.length, count + 1);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  const paragraphs = snapshot.document.paragraphs;
+  assert.equal(paragraphs[0].text, '야간 운영 보고');
+  assert.equal(paragraphs[1].text, '1. 대전 허브 정시 출고율은 89.1%였습니다.');
+  // The snapshot is paged; the document itself carries every appended block.
+  assert.equal(snapshot.document.paragraphCount, count + 1, 'no placeholder paragraph survives');
+  const body = await (await parts(target)).text('word/document.xml');
+  const written = [...body.matchAll(/(\d+)\. 대전 허브/g)].map((match) => Number(match[1]));
+  assert.deepEqual(written, Array.from({ length: count }, (_, index) => index + 1), 'paragraphs keep their order');
+  assert.ok(body.lastIndexOf(`${count}. 대전`) < body.indexOf('<w:sectPr'), 'content stays before the section break');
 });
 
 test('portable Word authoring covers images, sections, lists, and links', async (t) => {
@@ -433,9 +493,99 @@ test('portable workbook tables register a table part', async (t) => {
   const packaged = await parts(target);
   const table = await packaged.text('xl/tables/table1.xml');
   assert.match(table, /name="Revenue"/);
+  assert.match(table, /<tableStyleInfo name="TableStyleMedium9"/);
   assert.match(table, /<tableColumn id="1" name="Region"\/>/);
   const sheet = await packaged.text('xl/worksheets/sheet1.xml');
   assert.match(sheet, /<tableParts count="1">/);
+
+  // Excel accepts a Korean table name; keeping only ASCII erased it and the
+  // table was silently called Table1 instead.
+  const korean = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_range', range: 'D1:E3', values: [['허브', '물량'], ['서울', 1240], ['부산', 1105]] },
+      { op: 'add_table', range: 'D1:E3', name: '허브 실적' },
+    ],
+  }, { cwd }));
+  assert.equal(korean.results.at(-1).name, '허브_실적');
+  assert.match(await (await parts(target)).text('xl/tables/table2.xml'), /displayName="허브_실적"/);
+
+  // A composed sheet paints its own palette; a built-in table style would band
+  // the same range from the workbook's theme instead (a green sheet came back
+  // with orange rows). style:'none' keeps the table and its filters and leaves
+  // the colours alone.
+  const unstyled = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_range', range: 'G1:H2', values: [['항목', '값'], ['운송비', 5483]] },
+      { op: 'add_table', range: 'G1:H2', name: '비용', style: 'none' },
+    ],
+  }, { cwd }));
+  assert.equal(unstyled.results.at(-1).columns, 2);
+  const plain = await (await parts(target)).text('xl/tables/table3.xml');
+  assert.doesNotMatch(plain, /tableStyleInfo name=/);
+  assert.match(plain, /showRowStripes="0"/);
+  assert.match(plain, /<autoFilter ref="G1:H2"\/>/);
+});
+
+// Word collapses a literal newline inside one text element, so a cell written as
+// "title\ndate" rendered as one running line.
+test('a table cell keeps the line breaks it was written with', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'steps.docx');
+  value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [{
+      op: 'add_table',
+      values: [['01', '채용 공고\n10월 20일']],
+      properties: { fontName: 'Noto Sans KR', fontSize: 10 },
+    }],
+  }, { cwd }));
+  const document = await (await parts(target)).text('word/document.xml');
+  assert.match(document, /<w:t>채용 공고<\/w:t><w:br\/><w:t>10월 20일<\/w:t>/);
+});
+
+// A Word table with neither borders nor a style rendered as three loose columns
+// of text: nothing on the page said the rows belonged together.
+test('a Word table a caller did not style is still readable as a table', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'plain.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [{
+      op: 'add_table',
+      values: [['허브', '물동량'], ['서울', '1,240'], ['대전', '880']],
+      properties: { fontName: 'Noto Sans KR', fontSize: 10, repeatHeader: true },
+    }],
+  }, { cwd }));
+  assert.equal(created.batch.results.at(-1).table, 1);
+  const document = await (await parts(target)).text('word/document.xml');
+  const properties = /<w:tblPr>[\s\S]*?<\/w:tblPr>/.exec(document)?.[0] || '';
+  assert.match(properties, /<w:bottom w:val="single"/, 'a rule under the header');
+  assert.match(properties, /<w:insideH w:val="single"/, 'hairlines between rows');
+  assert.doesNotMatch(properties, /<w:insideV/, 'no column rules by default');
+
+  // A caller who styles the table owns it: the default never overrides them.
+  const styled = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{
+      op: 'add_table',
+      values: [['항목', '금액'], ['운송비', '548,300,000원']],
+      properties: { borders: { top: { style: 'single', size: 8, color: '1F3A5F' } } },
+    }],
+  }, { cwd }));
+  assert.equal(styled.results.at(-1).table, 2);
+  const second = await (await parts(target)).text('word/document.xml');
+  const tables = [...second.matchAll(/<w:tblPr>[\s\S]*?<\/w:tblPr>/g)].map((match) => match[0]);
+  assert.match(tables[1], /<w:top w:val="single" w:sz="8"[^>]*w:color="1F3A5F"/);
+  assert.doesNotMatch(tables[1], /<w:insideH w:val="single"/);
 });
 
 test('portable Word tables gain and drop rows and columns', async (t) => {
@@ -475,7 +625,8 @@ test('portable workbook shifts rows and columns and manages sheet metadata', asy
       { op: 'set_autofilter', range: 'A1:B4' },
       { op: 'define_name', name: 'Regions', refersTo: 'Sheet1!$A$3:$A$4' },
       { op: 'add_sheet', name: 'Notes' },
-      { op: 'set_sheet_visibility', sheet: 'Notes', visibility: 'hidden' },
+      // Rows and columns take visible: true/false; a sheet accepts the same word.
+      { op: 'set_sheet_visibility', sheet: 'Notes', visible: false },
     ],
   }, { cwd }));
   assert.equal(created.batch.results.length, 7);
@@ -488,6 +639,181 @@ test('portable workbook shifts rows and columns and manages sheet metadata', asy
   const workbook = await packaged.text('xl/workbook.xml');
   assert.match(workbook, /name="Regions"/);
   assert.match(workbook, /state="hidden"/);
+  // A withheld row or column is not a deleted one: the values stay, the sheet
+  // stops showing them, and an edit written into a hidden column lands where the
+  // user never looks — so the same call has to hide it and say that it is hidden.
+  const withheld = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_column_visibility', column: 'B', visible: false },
+      { op: 'set_row_visibility', row: 3, visible: false },
+    ],
+  }, { cwd }));
+  assert.deepEqual(withheld.results.map((entry) => entry.visible), [false, false]);
+  const sheetXml = await (await parts(target)).text('xl/worksheets/sheet1.xml');
+  assert.match(sheetXml, /<col\b[^>]*\bmin="2"[^>]*\bhidden="1"/);
+  assert.match(sheetXml, /<row\b[^>]*\br="3"[^>]*\bhidden="1"/);
+  const withheldSnapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session, sheet: 'Sheet1' }, { cwd }));
+  const withheldSheet = withheldSnapshot.document.sheets.find((entry) => entry.name === 'Sheet1');
+  assert.deepEqual([withheldSheet.hiddenRows, withheldSheet.hiddenColumns], [[3], ['B']]);
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_column_visibility', column: 'B', visible: true },
+      { op: 'set_row_visibility', row: 3, visible: true },
+    ],
+  }, { cwd }));
+  const restored = value(await executeOfficeTool({ action: 'snapshot', session: created.session, sheet: 'Sheet1' }, { cwd }));
+  const shownSheet = restored.document.sheets.find((entry) => entry.name === 'Sheet1');
+  assert.deepEqual([shownSheet.hiddenRows, shownSheet.hiddenColumns], [[], []]);
+
+  // A hidden sheet still answers a read; the snapshot has to say the workbook
+  // withholds it, or its numbers are quoted as ordinary content.
+  const hidden = value(await executeOfficeTool({ action: 'snapshot', session: created.session, sheet: 'Notes' }, { cwd }));
+  assert.equal(hidden.document.sheets.find((sheet) => sheet.name === 'Notes')?.visibility, 'hidden');
+  const shown = value(await executeOfficeTool({ action: 'snapshot', session: created.session, sheet: 'Sheet1' }, { cwd }));
+  assert.equal(shown.document.sheets.find((sheet) => sheet.name === 'Sheet1')?.visibility, 'visible');
+});
+
+// A printed sheet carries its marking on every page, as a document and a deck do.
+// Without the operation a workbook in the same pack went out unmarked.
+test('a worksheet carries the mark its printed pages show', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'plan.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B2', values: [['허브', '건수'], ['대전', 1240]] },
+      { op: 'set_header_footer', kind: 'header', text: '대외비 — 물류본부 & 운영팀', alignment: 'left' },
+      { op: 'set_header_footer', kind: 'footer', text: '문서번호 LOG-2026-114' },
+    ],
+  }, { cwd }));
+  assert.deepEqual(created.batch.results.slice(1).map((entry) => entry.kind), ['header', 'footer']);
+  const sheetXml = await (await parts(target)).text('xl/worksheets/sheet1.xml');
+  // An ampersand opens a field code, so the literal one is doubled in the file.
+  assert.match(sheetXml, /<headerFooter><oddHeader>&amp;L대외비 — 물류본부 &amp;&amp; 운영팀<\/oddHeader><oddFooter>&amp;C문서번호 LOG-2026-114<\/oddFooter><\/headerFooter>/);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session, sheet: 'Sheet1' }, { cwd }));
+  const setup = snapshot.document.sheets[0].pageSetup;
+  assert.equal(setup.header, '&L대외비 — 물류본부 && 운영팀');
+  assert.equal(setup.footer, '&C문서번호 LOG-2026-114');
+  const refused = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_header_footer', kind: 'top', text: '…' }],
+  }, { cwd });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /kind must be header or footer/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+// Naming the thing to write — kind:'footer' — used to be read as an unknown page
+// variant: the text became a second default header, replaced the real header, and
+// the call reported success for a document whose footer never existed.
+test('a footer asked for by name is written as a footer', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'contract.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    format: 'docx',
+    operations: [
+      { op: 'append_text', text: '계약 본문' },
+      { op: 'set_header_footer', kind: 'header', text: '대외비 — 물류본부' },
+      { op: 'set_header_footer', kind: 'footer', text: '문서번호 LOG-2026-114' },
+    ],
+  }, { cwd }));
+  assert.deepEqual(created.batch.results.slice(1).map((entry) => entry.header), [true, false]);
+  const packaged = await parts(target);
+  assert.match(await packaged.text('word/header1.xml'), /대외비 — 물류본부/);
+  assert.match(await packaged.text('word/footer1.xml'), /문서번호 LOG-2026-114/);
+  const document = await packaged.text('word/document.xml');
+  assert.match(document, /<w:footerReference\b[^>]*w:type="default"/);
+  assert.match(document, /<w:headerReference\b[^>]*w:type="default"/);
+
+  const refused = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_header_footer', kind: 'bottom', text: '…' }],
+  }, { cwd });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /kind must be header, footer, default, first, even/);
+
+  // Page numbers answer to the same two words rather than a second convention.
+  const numbered = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'add_page_numbers', kind: 'header', alignment: 'right' }],
+  }, { cwd }));
+  assert.equal(numbered.results[0].header, true);
+  assert.match(numbered.results[0].part, /^word\/header\d+\.xml$/);
+  assert.match(await (await parts(target)).text(numbered.results[0].part), /PAGE/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+// Fit and ink are about what a reader sees. A hidden column shows nothing, so a
+// truncation reported on one sends the next fix round to widen a column the
+// workbook withholds on purpose.
+test('appearance checks stop at the rows and columns the sheet withholds', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'plan.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [{
+      op: 'set_range',
+      range: 'A1:D3',
+      values: [
+        ['허브', '건수', '작업메모', '담당'],
+        ['대전', 1240, '야간 인력 12명 증원 검토 중이며 단가 재협상 필요', '물류팀'],
+        ['광주', 880, '보류 — 3분기 물량 확정 후 재검토 예정입니다', '운영팀'],
+      ],
+    }],
+  }, { cwd }));
+  const codes = async () => (value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [])
+    .map((entry) => entry.code);
+  assert.ok((await codes()).includes('label_truncated'), 'a visible cut label is still reported');
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_column_visibility', column: 'C', visible: false }],
+  }, { cwd }));
+  assert.equal((await codes()).includes('label_truncated'), false, 'a hidden column is not measured');
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+// Word hides a run and keeps its words in the file; a snapshot that reports them
+// as ordinary body text invites an edit to quote or rewrite an internal remark
+// the page never showed.
+test('a Word snapshot names the text the page hides', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'contract.docx');
+  const WORD = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const run = (text, hidden) => `<w:r>${hidden ? '<w:rPr><w:vanish/></w:rPr>' : ''}<w:t xml:space="preserve">${text}</w:t></w:r>`;
+  await writeZip(target, {
+    '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/document.xml': `<?xml version="1.0"?><w:document xmlns:w="${WORD}"><w:body>`
+      + `<w:p>${run('계약 금액은 ')}${run('38,400,000원')}${run('입니다.')}</w:p>`
+      + `<w:p>${run('검토 후 ')}${run('(법무 확인 전)', true)}${run(' 회신 바랍니다.')}</w:p>`
+      + '</w:body></w:document>',
+  });
+  const opened = value(await executeOfficeTool({ action: 'open', path: target, mode: 'portable' }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
+  const paragraphs = snapshot.document.paragraphs;
+  assert.equal(paragraphs[0].hiddenText, undefined, 'visible prose carries no hidden part');
+  assert.equal(paragraphs[1].hiddenText, '(법무 확인 전)');
+  assert.match(paragraphs[1].text, /검토 후 .*회신 바랍니다\./);
+  value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
 });
 
 test('portable slides align, distribute, reorder, and duplicate', async (t) => {
@@ -625,6 +951,83 @@ test('portable workbook copies sheets and adds images, links, validation, and pr
   assert.match(workbook, /name="Backup"/);
 });
 
+test('a protected form keeps its entry cells typable and reports the ones it locks', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'intake.xlsx');
+  const operations = (unlock) => [
+    { op: 'set_range', range: 'A1:B3', values: [['항목', '값'], ['담당 허브', ''], ['야간 증원 인원', '']] },
+    { op: 'add_validation', range: 'B2', formula1: '"서울,부산"' },
+    { op: 'add_validation', range: 'B3', type: 'whole', formula1: '0', formula2: '50' },
+    ...(unlock ? [{ op: 'set_style', range: 'B2:B3', properties: { fillColor: 'FFF7E0', locked: false } }] : []),
+    { op: 'protect_sheet' },
+  ];
+  const locked = value(await executeOfficeTool({
+    action: 'create', path: target, mode: 'portable', operations: operations(false),
+  }, { cwd }));
+  const lockedIssues = value(await executeOfficeTool({ action: 'issues', session: locked.session }, { cwd })).issues || [];
+  const reported = lockedIssues.find((issue) => issue.code === 'protected_input_locked');
+  assert.ok(reported, JSON.stringify(lockedIssues).slice(0, 400));
+  assert.match(reported.message, /B2, B3/);
+
+  const open = join(cwd, 'intake-open.xlsx');
+  const unlocked = value(await executeOfficeTool({
+    action: 'create', path: open, mode: 'portable', operations: operations(true),
+  }, { cwd }));
+  const openIssues = value(await executeOfficeTool({ action: 'issues', session: unlocked.session }, { cwd })).issues || [];
+  assert.equal(openIssues.filter((issue) => issue.code === 'protected_input_locked').length, 0, JSON.stringify(openIssues).slice(0, 400));
+  const styles = await (await parts(open)).text('xl/styles.xml');
+  assert.match(styles, /applyProtection="1"><protection locked="0"\/>/);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: unlocked.session }, { cwd }));
+  const sheet = snapshot.document.sheets[0];
+  assert.equal(sheet.protection.protected, true);
+  assert.equal(sheet.cells.find((cell) => cell.ref === 'B2').style.locked, false);
+  // A list validation is a dropdown, and a bounded number keeps its operator.
+  assert.deepEqual(sheet.validations.map((entry) => [entry.type, entry.operator]), [['list', ''], ['whole', 'between']]);
+});
+
+// Thousands of rows are written in one pass over the sheet, so the values, the
+// styles the cells already carried, and the row order all have to survive it.
+test('a bulk range write keeps cell styles, order, and the next append row', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'volume.xlsx');
+  const rows = Array.from({ length: 400 }, (_, index) => ([`2026-10-${(index % 28) + 1}`, '대전', 1000 + index, (index % 10) / 10]));
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:D1', values: [['일자', '허브', '처리량', '정시율']] },
+      { op: 'set_style', range: 'A1:D1', properties: { bold: true, fillColor: '1F4E78', color: 'FFFFFF' } },
+      { op: 'set_range', range: `A2:D${rows.length + 1}`, values: rows },
+      { op: 'set_style', range: `D2:D${rows.length + 1}`, properties: { numberFormat: '0.0%' } },
+      { op: 'set_range', range: 'A1:D1', values: [['일자', '허브', '처리량', '정시 출고율']] },
+      { op: 'append_row', values: ['2026-10-29', '대전', 9999, 0.5] },
+    ],
+  }, { cwd }));
+  assert.equal(created.batch.results.every((entry) => entry.changed), true);
+  // A snapshot is paged, so each check asks for the rows it reads.
+  const read = async (range) => value(await executeOfficeTool({
+    action: 'snapshot', session: created.session, sheet: 'Sheet1', range,
+  }, { cwd })).document.sheets[0].cells;
+  const head = await read('A1:D2');
+  const tail = await read('A401:D401');
+  const at = (ref) => [...head, ...tail].find((cell) => cell.ref === ref);
+  // A rewritten header keeps the style it was given before the rewrite.
+  assert.equal(at('D1').value, '정시 출고율');
+  assert.equal(at('D1').style.bold, true);
+  assert.equal(at('D1').style.fillColor, '1F4E78');
+  assert.equal(at('D2').style.numberFormat, '0.0%');
+  assert.equal(at('C2').value, 1000);
+  assert.equal(at('C401').value, 1399);
+  // The appended row lands after the last written row, not inside it.
+  const appended = await read('A402:D402');
+  assert.equal(appended.find((cell) => cell.ref === 'C402').value, 9999);
+  const xml = await (await parts(target)).text('xl/worksheets/sheet1.xml');
+  const order = [...xml.matchAll(/<row r="(\d+)"/g)].map((match) => Number(match[1]));
+  assert.deepEqual(order, [...order].sort((left, right) => left - right), 'rows stay in order');
+  assert.equal(new Set(order).size, order.length, 'each row is written once');
+});
+
 test('portable workbook writes and clears conditional formatting rules', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'rules.xlsx');
@@ -649,6 +1052,160 @@ test('portable workbook writes and clears conditional formatting rules', async (
   assert.match(styles, /<bgColor rgb="FFFFC7CE"\/>/);
 });
 
+test('a second footer replaces the first in place instead of leaving it behind', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'footers.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '10월 운영 보고', style: 'Heading1' },
+      { op: 'add_page_numbers', kind: 'footer', alignment: 'center', includeTotal: true },
+      { op: 'set_header_footer', kind: 'footer', text: '대외비 · 물류기획팀' },
+      { op: 'set_header_footer', kind: 'header', variant: 'first', text: '' },
+    ],
+  }, { cwd }));
+  const [numbers, footer, firstHeader] = created.batch.results.slice(-3);
+  assert.equal(numbers.replaced, undefined);
+  // The section already referenced that footer, so the text lands in the part
+  // it points at — and the result says the page number is gone, not beside it.
+  assert.equal(footer.replaced, true);
+  assert.equal(footer.part, numbers.part);
+  assert.equal(firstHeader.replaced, undefined);
+  const packaged = await parts(target);
+  assert.equal(packaged.has('word/footer1.xml'), true);
+  assert.equal(packaged.has('word/footer2.xml'), false, 'the replaced footer must not stay in the package');
+  assert.match(await packaged.text('word/footer1.xml'), /대외비/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('a printed sheet keeps every header slot and numbers its pages', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'ledger.xlsx');
+  value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B2', values: [['허브', '정시율'], ['서울', 0.928]] },
+      { op: 'set_header_footer', kind: 'header', alignment: 'left', text: '10월 출고 대장' },
+      { op: 'set_header_footer', kind: 'footer', alignment: 'center', text: '{page} / {pages}' },
+      { op: 'set_header_footer', kind: 'footer', alignment: 'right', text: 'R&D 검토용' },
+    ],
+    finalize: true,
+  }, { cwd }));
+  const sheet = await (await parts(target)).text('xl/worksheets/sheet1.xml');
+  // One story holds three slots: writing the right slot must not drop the page
+  // number written into the centre, and {page} must reach Excel's own field.
+  assert.match(sheet, /<oddHeader>&amp;L10월 출고 대장<\/oddHeader>/);
+  assert.match(sheet, /<oddFooter>&amp;C&amp;P \/ &amp;N&amp;RR&amp;&amp;D 검토용<\/oddFooter>/);
+});
+
+test('portable workbook sorts a range and carries each row\'s formats with it', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'hubs.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:C5', values: [['허브', '정시율', '처리량'], ['광주', 0.845, 640], ['서울', 0.928, 1240], ['강릉', 0.901, 320], ['부산', 0.883, 880]] },
+      { op: 'set_style', range: 'A3:C3', properties: { bold: true } },
+      { op: 'sort_range', range: 'A1:C5', by: '정시율', order: 'desc' },
+    ],
+  }, { cwd }));
+  const sort = created.batch.results.at(-1);
+  assert.deepEqual([sort.by, sort.order, sort.rows], ['B', 'desc', 4]);
+  const read = async (range) => value(await executeOfficeTool({
+    action: 'snapshot', session: created.session, sheet: 'Sheet1', range,
+  }, { cwd })).document.sheets[0].cells;
+  const cells = await read('A1:C5');
+  const at = (ref) => cells.find((cell) => cell.ref === ref);
+  // The header stays put, the rows arrive in value order, and the row that
+  // carried a format still carries it after the move.
+  assert.deepEqual(['A1', 'A2', 'A3', 'A4', 'A5'].map((ref) => at(ref).value), ['허브', '서울', '강릉', '부산', '광주']);
+  assert.equal(at('C2').value, 1240);
+  assert.equal(at('A2').style.bold, true);
+  assert.notEqual(at('A3').style?.bold, true);
+
+  const withFormula = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_formula', cell: 'D2', formula: '=B2*C2' },
+      { op: 'sort_range', range: 'A1:D5', by: 'B' },
+    ],
+  }, { cwd });
+  assert.equal(withFormula.isError, true);
+  assert.match(withFormula.content[0].text, /D2 holds a formula/);
+
+  // A filtered row keeps its number while the values move, and a merged cell
+  // cannot travel with one row: both would misreport the sheet, so both fail.
+  const withHidden = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_row_visibility', row: 3, visible: false },
+      { op: 'sort_range', range: 'A1:C5', by: 'B' },
+    ],
+  }, { cwd });
+  assert.equal(withHidden.isError, true);
+  assert.match(withHidden.content[0].text, /hidden row 3/);
+  const withMerge = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_row_visibility', row: 3, visible: true },
+      { op: 'merge_cells', range: 'A2:A3' },
+      { op: 'sort_range', range: 'A1:C5', by: 'B' },
+    ],
+  }, { cwd });
+  assert.equal(withMerge.isError, true);
+  assert.match(withMerge.content[0].text, /merged cell A2:A3/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('portable workbook shades a range by value with a color scale and data bars', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'heatmap.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:C4', values: [['허브', '정시율', '처리량'], ['서울', 0.928, 1240], ['부산', 0.883, 880], ['광주', 0.845, 640]] },
+      { op: 'add_conditional_format', range: 'B2:B4', type: 'colorScale', minColor: '#F8696B', midColor: '#FFEB84', maxColor: '#63BE7B' },
+      { op: 'add_conditional_format', range: 'C2:C4', type: 'dataBar', color: '#2E7D32' },
+    ],
+  }, { cwd }));
+  assert.deepEqual(created.batch.results.slice(-2).map((result) => result.type), ['colorScale', 'dataBar']);
+  const sheet = await (await parts(target)).text('xl/worksheets/sheet1.xml');
+  // The scale states its three stops, the bar its one color, and neither
+  // borrows a differential format: the cells are shaded by their own values.
+  assert.match(sheet, /<cfRule type="colorScale"[^>]*>[\s\S]*?<color rgb="FFF8696B"\/><color rgb="FFFFEB84"\/><color rgb="FF63BE7B"\/>/);
+  assert.match(sheet, /<cfRule type="dataBar"[^>]*>[\s\S]*?<color rgb="FF2E7D32"\/>/);
+  assert.doesNotMatch(sheet, /<cfRule type="(colorScale|dataBar)"[^>]*dxfId=/);
+
+  // The two shapes exclude each other: a scale carries no formula, and a rule
+  // that picks cells cannot be stated without one.
+  const withFormula = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'add_conditional_format', range: 'B2:B4', type: 'colorScale', formula: 'B2<0.9' }],
+  }, { cwd });
+  assert.equal(withFormula.isError, true);
+  assert.match(withFormula.content[0].text, /takes no formula/);
+  const withoutFormula = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'add_conditional_format', range: 'B2:B4' }],
+  }, { cwd });
+  assert.equal(withoutFormula.isError, true);
+  assert.match(withoutFormula.content[0].text, /colorScale.*dataBar/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
 test('portable Word adds a table of contents, bookmarks, and comments', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'toc.docx');
@@ -667,9 +1224,24 @@ test('portable Word adds a table of contents, bookmarks, and comments', async (t
   }, { cwd }));
   const citation = created.batch.results.find((entry) => entry.op === 'add_provenance');
   assert.equal(citation.citation, 'Source: internal model#Q3');
+  // A citation is read on the page, so a Korean source is labelled in Korean.
+  const korean = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'add_provenance', paragraph: 3, source: { document: '실적원장.xlsx', target: 'Raw!B8' } }],
+  }, { cwd }));
+  assert.equal(korean.results[0].citation, '출처: 실적원장.xlsx#Raw!B8');
   const packaged = await parts(target);
   const document = await packaged.text('word/document.xml');
   assert.match(document, /w:instr=" TOC/);
+  // Until Word rebuilds the field, its cached result is what a preview, a PDF
+  // export, or a render shows: the outline the document already carries.
+  const field = /<w:fldSimple\b[^>]*w:instr=" TOC[\s\S]*?<\/w:fldSimple>/.exec(document)?.[0] || '';
+  assert.match(field, /<w:t[^>]*>Contents<\/w:t>/);
+  assert.doesNotMatch(field, /Update this field/);
+  // A contents list is written before the sections it lists; saving rebuilds
+  // its cache from the body, so the later heading is in it too.
+  assert.match(field, /<w:t[^>]*>Section one<\/w:t>/);
   assert.match(document, /<w:bookmarkStart w:id="1" w:name="section_one"\/>/);
   assert.match(document, /<w:commentRangeStart w:id="1"\/>/);
   const comments = await packaged.text('word/comments.xml');
@@ -684,6 +1256,45 @@ test('portable Word adds a table of contents, bookmarks, and comments', async (t
   assert.equal(removed.results[0].changed, true);
   const after = await (await parts(target)).text('word/document.xml');
   assert.doesNotMatch(after, /<w:commentRangeStart w:id="1"\/>/);
+});
+
+// A localized or converted Word file names its headings 제목 1 under its own
+// style id: a contents list that only knew "Heading1" listed nothing and the
+// page showed the English "update this field" placeholder instead.
+test('a contents list reads the headings this document declares, not only Word style ids', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'korean-styles.docx');
+  const heading = (style, text) => `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
+  await writeZip(source, {
+    '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      + '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+      + '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>',
+    'word/styles.xml': '<?xml version="1.0"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+      + '<w:style w:type="paragraph" w:styleId="10"><w:name w:val="제목 1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style>'
+      + '<w:style w:type="paragraph" w:styleId="20"><w:name w:val="제목 2"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr></w:style></w:styles>',
+    'word/document.xml': '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+      + heading('10', '1. 운영 현황')
+      + '<w:p><w:r><w:t>야간 전환 이후 정시 출고율이 떨어졌습니다.</w:t></w:r></w:p>'
+      + heading('20', '1.1 대전 허브')
+      + heading('10', '2. 요청 사항')
+      + '</w:body></w:document>',
+  });
+  const output = join(cwd, 'korean-toc.docx');
+  const opened = value(await executeOfficeTool({ action: 'open', path: source, mode: 'portable', output }, { cwd }));
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: opened.session,
+    operations: [{ op: 'insert_toc', paragraph: 1, upperHeadingLevel: 3 }],
+  }, { cwd }));
+  value(await executeOfficeTool({ action: 'save', session: opened.session }, { cwd }));
+  value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
+  const field = /<w:fldSimple\b[^>]*w:instr=" TOC[\s\S]*?<\/w:fldSimple>/
+    .exec(await (await parts(output)).text('word/document.xml'))?.[0] || '';
+  assert.doesNotMatch(field, /Update this field/);
+  for (const entry of ['1. 운영 현황', '1.1 대전 허브', '2. 요청 사항']) {
+    assert.ok(field.includes(entry), `${entry} is missing from ${field}`);
+  }
 });
 
 test('portable slides crop pictures, set transitions, and swap layouts', async (t) => {
@@ -707,6 +1318,41 @@ test('portable slides crop pictures, set transitions, and swap layouts', async (
   const slide = await (await parts(target)).text('ppt/slides/slide1.xml');
   assert.match(slide, /<a:srcRect l="10000" t="0" r="10000" b="0"\/>/);
   assert.match(slide, /<p:transition spd="med"><p:fade\/><\/p:transition>/);
+});
+
+// An appendix travels with its deck as a hidden slide: PowerPoint keeps the page
+// and skips it when presenting. Without the operation there was no way to say so,
+// and without the snapshot field a deck could not tell which pages it withholds.
+test('a slide can be hidden and shown again, and the snapshot reports which', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'appendix.pptx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_slide' },
+      { op: 'add_textbox', slide: 1, text: '야간 운영 전환', left: 60, top: 60, width: 600, height: 80 },
+      { op: 'add_textbox', slide: 2, text: '부록 — 계산 근거', left: 60, top: 60, width: 600, height: 80 },
+      { op: 'set_slide_visibility', slide: 2, visible: false },
+    ],
+  }, { cwd }));
+  assert.equal(created.batch.results.at(-1).visible, false);
+  const packaged = await parts(target);
+  assert.match(await packaged.text('ppt/slides/slide2.xml'), /<p:sld\b[^>]*\bshow="0"/);
+  assert.doesNotMatch(await packaged.text('ppt/slides/slide1.xml'), /\bshow="0"/);
+  const hidden = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.deepEqual(hidden.document.slides.map((slide) => slide.hidden), [false, true]);
+
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_slide_visibility', slide: 2, visible: true }],
+  }, { cwd }));
+  assert.doesNotMatch(await (await parts(target)).text('ppt/slides/slide2.xml'), /\bshow="0"/);
+  const shown = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.deepEqual(shown.document.slides.map((slide) => slide.hidden), [false, false]);
 });
 
 test('portable workbook notes carry assumptions and provenance', async (t) => {
@@ -772,6 +1418,44 @@ test('portable slides tune chart axes, labels, footers, and numbering', async (t
   const slide = await packaged.text('ppt/slides/slide1.xml');
   assert.match(slide, /<p:ph type="ftr"/);
   assert.match(slide, /type="slidenum"/);
+});
+
+// A footer is quiet, but the deck's own audit asks 4.5:1 of every piece of
+// text — including the one the runtime writes itself, on a dark slide too.
+test('footer and slide number take their ink from the field the slide shows', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'footers.pptx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_slide' },
+      { op: 'set_slide_background', slide: 2, color: '0F1824' },
+      { op: 'add_textbox', slide: 1, text: '밝은 슬라이드', left: 60, top: 60, width: 480, height: 60, fontSize: 28 },
+      { op: 'add_textbox', slide: 2, text: '어두운 슬라이드', left: 60, top: 60, width: 480, height: 60, fontSize: 28, color: 'FFFFFF' },
+      { op: 'set_footer', slide: 1, text: '운영기획팀' },
+      { op: 'set_slide_number', slide: 1, visible: true },
+      { op: 'set_footer', slide: 2, text: '운영기획팀' },
+      { op: 'set_slide_number', slide: 2, visible: true },
+    ],
+  }, { cwd }));
+  const packaged = await parts(target);
+  const ink = async (slide) => {
+    const xml = await packaged.text(`ppt/slides/slide${slide}.xml`);
+    const footer = /<p:ph type="ftr"[\s\S]*?<\/p:sp>/.exec(xml)?.[0] || '';
+    const number = /<p:ph type="sldNum"[\s\S]*?<\/p:sp>/.exec(xml)?.[0] || '';
+    return [footer, number].map((shape) => /<a:srgbClr val="([0-9A-F]{6})"\s*(?:\/>|>)/.exec(shape)?.[1] || '');
+  };
+  const [lightFooter, lightNumber] = await ink(1);
+  const [darkFooter, darkNumber] = await ink(2);
+  for (const [color, background] of [[lightFooter, 'FFFFFF'], [lightNumber, 'FFFFFF'], [darkFooter, '0F1824'], [darkNumber, '0F1824']]) {
+    assert.ok(contrastRatio(color, background) >= 4.5, `${color} on ${background}`);
+  }
+  assert.notEqual(lightFooter, darkFooter, 'a dark slide takes light ink');
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  assert.deepEqual(issues.filter((issue) => issue.code === 'low_contrast'), []);
 });
 
 test('portable slides group and ungroup shapes', async (t) => {
@@ -932,6 +1616,29 @@ test('portable slides report low-contrast text', async (t) => {
   assert.equal(contrast.length, 1, 'only the faint shape is reported');
   assert.match(contrast[0].path, /shape\[1\]$/);
   assert.ok(contrast[0].ratio < 4.5);
+
+  // A caller who fills a shape and says nothing about its text gets ink the
+  // fill can carry: the default dark ink on a dark card was text the runtime's
+  // own contrast check then reported as unreadable.
+  const defaults = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_shape', slide: 2, shapeType: 'rectangle', text: '서울 허브', properties: { left: 60, top: 60, width: 300, height: 120, fillColor: '1F3A5F' } },
+      { op: 'add_shape', slide: 2, shapeType: 'rectangle', text: '대전 허브', properties: { left: 60, top: 220, width: 300, height: 120, fillColor: 'EEF2F6' } },
+    ],
+  }, { cwd }));
+  assert.equal(defaults.results.length, 3);
+  const second = await (await parts(target)).text('ppt/slides/slide2.xml');
+  assert.match(second, /1F3A5F[\s\S]*?<a:srgbClr val="FFFFFF">[\s\S]*?서울 허브/);
+  assert.match(second, /EEF2F6[\s\S]*?<a:srgbClr val="1F2429">[\s\S]*?대전 허브/);
+  const readable = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.equal(
+    (readable.issues || []).filter((entry) => entry.code === 'low_contrast' && /slide\[2\]/.test(entry.path)).length,
+    0,
+    JSON.stringify(readable.issues),
+  );
 });
 
 test('portable workbook flags percentages stored as whole numbers', async (t) => {
@@ -978,6 +1685,30 @@ test('portable workbook audits column fit and formula consistency', async (t) =>
   const inconsistent = (issues.issues || []).filter((entry) => entry.code === 'formula_inconsistency');
   assert.equal(inconsistent.length, 1, 'the lone hardcoded cell mid-row is reported');
   assert.match(inconsistent[0].path, /cell\[C4\]$/);
+
+  // A label only spills into an empty neighbour: once the next cell holds a
+  // value, the reader sees the text cut at the column edge.
+  const labelled = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'labels.xlsx'),
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B1', values: [['상반기 매출 합계', 5317]] },
+      { op: 'set_cell', cell: 'A2', value: '상반기 매출 합계' },
+    ],
+  }, { cwd }));
+  const clipped = (value(await executeOfficeTool({ action: 'issues', session: labelled.session }, { cwd })).issues || [])
+    .filter((entry) => entry.code === 'label_truncated');
+  assert.deepEqual(clipped.map((entry) => entry.path), ['/sheet[Sheet1]/cell[A1]']);
+  assert.match(clipped[0].message, /column A is 8\.4 wide and B1 has content/);
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: labelled.session,
+    operations: [{ op: 'autofit_range', range: 'A:B' }],
+  }, { cwd }));
+  const widened = (value(await executeOfficeTool({ action: 'issues', session: labelled.session }, { cwd })).issues || [])
+    .filter((entry) => entry.code === 'label_truncated');
+  assert.deepEqual(widened, []);
 });
 
 test('portable Word records and resolves tracked revisions', async (t) => {
@@ -1142,6 +1873,131 @@ test('portable Word measures table columns in points and keeps borders through f
   assert.equal(Number(spanned[1]), 9026, 'the merged cell spans both column widths');
 });
 
+// The audit asks every picture for alternative text, so the operations that
+// place one must be able to carry it — and a build trigger is spelled the way
+// every other multiword value in this runtime is.
+test('a picture carries the alternative text the audit asks for', async (t) => {
+  const cwd = await workspace(t);
+  const picture = join(cwd, 'hub.png');
+  await writeFile(picture, PNG_PIXEL);
+  const target = join(cwd, 'described.pptx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_image', slide: 1, path: picture, altText: '대전 허브 야간 작업 사진', left: 60, top: 120, width: 240, height: 180 },
+      { op: 'add_image', slide: 1, path: picture, left: 360, top: 120, width: 240, height: 180 },
+      { op: 'add_textbox', slide: 1, text: '현장', left: 60, top: 40, width: 300, height: 50, fontSize: 24 },
+      { op: 'add_animation', slide: 1, shape: 3, effect: 'fade', trigger: 'after_previous', duration: 0.5 },
+    ],
+  }, { cwd }));
+  assert.equal(created.batch.results.at(-1).trigger, 'afterprevious');
+  const slide = await (await parts(target)).text('ppt/slides/slide1.xml');
+  assert.match(slide, /descr="대전 허브 야간 작업 사진"/);
+  assert.match(slide, /nodeType="afterEffect"/);
+  const described = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  const missing = described.filter((issue) => issue.code === 'missing_alt_text');
+  assert.equal(missing.length, 1, JSON.stringify(described).slice(0, 300));
+  assert.equal(missing[0].path, '/slide[1]/picture[2]');
+
+  // The description can also be added afterwards, on the picture that lacks it.
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_shape', slide: 1, shape: 2, properties: { altText: '같은 허브의 주간 사진' } }],
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.deepEqual(
+    snapshot.document.slides[0].shapes.filter((shape) => shape.type === 'p:pic').map((shape) => shape.altText),
+    ['대전 허브 야간 작업 사진', '같은 허브의 주간 사진'],
+  );
+  const after = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  assert.deepEqual(after.filter((issue) => issue.code === 'missing_alt_text'), []);
+
+  // A file name is what a writer stores when nobody described the picture, so
+  // it cannot satisfy the rule: a reader hears "hub.png" and learns nothing.
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'add_image', slide: 1, path: picture, altText: 'hub.png', left: 60, top: 340, width: 120, height: 90 }],
+  }, { cwd }));
+  const named = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  assert.deepEqual(
+    named.filter((issue) => issue.code === 'missing_alt_text').map((issue) => issue.path),
+    ['/slide[1]/picture[3]'],
+    JSON.stringify(named).slice(0, 400),
+  );
+
+  // Swapping the picture in a template frame leaves the old description behind,
+  // so the new photo is announced as the one it replaced until it is renamed.
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'replace_image', slide: 1, shape: 4, path: picture, altText: '증설 후 같은 도크' }],
+  }, { cwd }));
+  const swapped = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.deepEqual(
+    swapped.document.slides[0].shapes.filter((shape) => shape.type === 'p:pic').map((shape) => shape.altText),
+    ['대전 허브 야간 작업 사진', '같은 허브의 주간 사진', '증설 후 같은 도크'],
+  );
+  const settled = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  assert.deepEqual(settled.filter((issue) => issue.code === 'missing_alt_text'), []);
+});
+
+// The same reader opens the Word report and the workbook. Both placed pictures
+// with no way to describe them, so the accessibility rule the deck already
+// enforces simply did not exist there.
+test('a Word and an Excel picture carry — and are audited for — alternative text', async (t) => {
+  const cwd = await workspace(t);
+  const picture = join(cwd, 'hub.png');
+  await writeFile(picture, PNG_PIXEL);
+  for (const [format, operations] of Object.entries({
+    docx: [
+      { op: 'append_text', text: '10월 운영 현황' },
+      { op: 'add_image', path: picture, width: 120, height: 60 },
+    ],
+    xlsx: [
+      { op: 'set_cell', cell: 'A1', value: '현황' },
+      { op: 'add_image', path: picture, sheet: 'Sheet1', left: 10, top: 10, width: 120, height: 60 },
+    ],
+  })) {
+    const bare = value(await executeOfficeTool({
+      action: 'create',
+      format,
+      mode: 'portable',
+      path: join(cwd, `bare.${format}`),
+      operations,
+    }, { cwd }));
+    const bareIssues = (value(await executeOfficeTool({ action: 'issues', session: bare.session }, { cwd })).issues || [])
+      .filter((issue) => issue.code === 'missing_alt_text');
+    assert.equal(bareIssues.length, 1, `${format}: an undescribed picture is reported`);
+    assert.match(bareIssues[0].message, /altText/);
+
+    const description = '10월 출고율 추이 꺾은선';
+    const described = value(await executeOfficeTool({
+      action: 'create',
+      format,
+      mode: 'portable',
+      path: join(cwd, `described.${format}`),
+      operations: operations.map((op) => (op.op === 'add_image' ? { ...op, altText: description } : op)),
+    }, { cwd }));
+    const describedIssues = (value(await executeOfficeTool({ action: 'issues', session: described.session }, { cwd })).issues || [])
+      .filter((issue) => issue.code === 'missing_alt_text');
+    assert.deepEqual(describedIssues, [], `${format}: a described picture is clean`);
+    // Each file reads its pictures back, so a review sees what they say. The
+    // Word session already listed /body/image[N]; the portable reader did not.
+    const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: described.session }, { cwd }));
+    const images = format === 'xlsx' ? snapshot.document.sheets[0].images : snapshot.document.images;
+    assert.deepEqual(images.map((image) => image.altText), [description], `${format}: the picture reads back`);
+    if (format === 'docx') {
+      assert.equal(images[0].path, '/body/image[1]');
+      assert.deepEqual([images[0].width, images[0].height], [120, 60]);
+    }
+  }
+});
+
 test('portable slides build an entrance animation timeline', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'anim.pptx');
@@ -1206,6 +2062,22 @@ test('portable slides flag table cells whose text cannot fit the row', async (t)
   assert.equal(outcomes[0].length, 0, 'short cell text stays clean');
   assert.equal(outcomes[1].length, 1);
   assert.equal(outcomes[1][0].path, '/slide[1]/table[1]/row[2]/cell[1]');
+  // Every cell fits its row, and the ten rows together (260 pt) still run off a 540 pt canvas from top 420,
+  // which the per-cell read alone never says.
+  const tall = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'tall.pptx'),
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_table', slide: 1, values: Array.from({ length: 10 }, (_, i) => [`Row ${i + 1}`, `${i * 12}ms`]), left: 40, top: 420, width: 320, height: 260 },
+    ],
+  }, { cwd }));
+  const tallIssues = value(await executeOfficeTool({ action: 'issues', session: tall.session }, { cwd })).issues || [];
+  const exceeds = tallIssues.find((issue) => issue.code === 'table_exceeds_canvas');
+  assert.ok(exceeds, JSON.stringify(tallIssues.map((issue) => issue.code)));
+  assert.equal(exceeds.path, '/slide[1]/table[1]');
+  assert.equal(outcomes[0].some((issue) => issue.code === 'table_exceeds_canvas'), false);
 });
 
 test('portable slides flag stretched images but pass proportional ones', async (t) => {
@@ -1519,6 +2391,54 @@ test('portable workbooks build a refreshable pivot table', async (t) => {
   const workbook = await packaged.text('xl/workbook.xml');
   assert.match(workbook, /<pivotCaches><pivotCache cacheId="1" r:id="rId\d+"\/><\/pivotCaches>/);
 
+  // The grid itself is in the sheet, so Excel shows the pivot before any
+  // refresh and every cell-reading check (snapshot, autofit, fit audit) sees it.
+  const summarised = value(await executeOfficeTool({ action: 'snapshot', session: created.session, sheet: 'Pivot' }, { cwd }));
+  const grid = new Map((summarised.document.sheets.find((sheet) => sheet.name === 'Pivot')?.cells || [])
+    .map((cell) => [cell.ref, cell.value]));
+  assert.equal(grid.get('A3'), 'Sum of Revenue');
+  assert.deepEqual(['A4', 'B4', 'C4', 'D4'].map((ref) => grid.get(ref)), ['Region', 'Alpha', 'Beta', 'Grand Total']);
+  assert.deepEqual(['A5', 'B5', 'C5', 'D5'].map((ref) => grid.get(ref)), ['Japan', 150, 60, 210]);
+  assert.deepEqual(['A6', 'B6', 'C6', 'D6'].map((ref) => grid.get(ref)), ['Korea', 120, 80, 200]);
+  assert.deepEqual(['A7', 'B7', 'C7', 'D7'].map((ref) => grid.get(ref)), ['Grand Total', 270, 140, 410]);
+
+  // Excel's own way of naming a source — sheet and range in one string — and a
+  // value field written as an object both reach the same pivot.
+  const qualified = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{
+      op: 'add_pivot_table',
+      source: 'Sheet1!A1:C5',
+      destination: 'Pivot!F3',
+      name: 'RevenueByProduct',
+      rows: ['Product'],
+      values: [{ field: 'Revenue', function: 'sum' }],
+    }],
+  }, { cwd }));
+  assert.equal(qualified.results[0].name, 'RevenueByProduct');
+  const second = value(await executeOfficeTool({ action: 'snapshot', session: created.session, sheet: 'Pivot' }, { cwd }));
+  const cells = new Map((second.document.sheets.find((sheet) => sheet.name === 'Pivot')?.cells || [])
+    .map((cell) => [cell.ref, cell.value]));
+  assert.deepEqual(['F3', 'G3'].map((ref) => cells.get(ref)), ['Product', 'Sum of Revenue']);
+  assert.deepEqual(['F6', 'G6'].map((ref) => cells.get(ref)), ['Grand Total', 410]);
+
+  const mismatched = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'add_pivot_table', sheet: 'Pivot', source: 'Sheet1!A1:C5', destination: 'H3', rows: ['Region'], values: ['Revenue'] }],
+  }, { cwd });
+  assert.equal(mismatched.isError, true);
+  assert.match(mismatched.content[0].text, /names sheet "Sheet1" but sheet is "Pivot"/);
+
+  const averaged = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'add_pivot_table', sheet: 'Sheet1', source: 'A1:C5', destination: 'J3', destinationSheet: 'Pivot', rows: ['Region'], values: [{ field: 'Revenue', function: 'average' }] }],
+  }, { cwd });
+  assert.equal(averaged.isError, true);
+  assert.match(averaged.content[0].text, /totals its value fields; "average" is not available/);
+
   await assert.rejects(
     executeOfficeTool({
       action: 'batch',
@@ -1564,6 +2484,18 @@ test('portable slides embed media and swap the theme', async (t) => {
   assert.match(slide, /action="ppaction:\/\/media"/);
   const theme = await packaged.text('ppt/theme/theme1.xml');
   assert.match(theme, /Georgia|Arial/, 'the bundled brand theme replaced the default');
+
+  // Applying the theme the deck already carries restyles nothing. Reporting a
+  // change there sends the caller looking for a difference the file does not
+  // hold — and the render cache, which reuses pages whose resources are
+  // unchanged, would disagree with that answer.
+  const again = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'apply_theme', path: 'src/runtime/office/design/library/templates/mixdog-executive.pptx' }],
+  }, { cwd: process.cwd() });
+  assert.equal(again.isError, true);
+  assert.match(again.content[0].text, /apply_theme \(the deck already uses this theme\)/);
 });
 
 test('portable slides report shapes that crowd each other', async (t) => {
@@ -1678,6 +2610,10 @@ test('portable text metrics flag overflow and fit_text repairs it', async (t) =>
   }, { cwd }));
   assert.equal(fitted.results[0].changed, true);
   assert.ok(fitted.results[0].scale < 1, 'fit_text must shrink the run size');
+  // The repair lands on a type ladder step and says what the copy now reads at:
+  // a percentage search left 24 pt copy at 14.88 pt beside the deck's own sizes.
+  assert.equal(Number.isInteger(fitted.results[0].fontSize), true, JSON.stringify(fitted.results[0]));
+  assert.ok(fitted.results[0].fontSize < 24 && fitted.results[0].fontSize >= 6);
   const after = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
   assert.equal((after.issues || []).filter((entry) => entry.code === 'text_overflow').length, 0);
 });

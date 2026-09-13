@@ -84,6 +84,21 @@ export function isMarkedInputStyle(style) {
   return coloredFont || filled;
 }
 
+// Styling a reader can actually see: a colour, a fill, bold, or a chosen size.
+// A workbook that went through a recalculation engine carries a style record on
+// every cell, so "has a style object" stopped separating a designed sheet from a
+// plain dump — and a rule gated on it fired on exactly the sheets it spared.
+export function hasVisibleStyle(style) {
+  if (!style || typeof style !== 'object') return false;
+  if (isMarkedInputStyle(style)) return true;
+  if (style.bold === true || style.italic === true || style.underline === true) return true;
+  // A chosen number format is a formatting decision; the General one every
+  // recalculated cell carries is not.
+  if (String(style.numberFormat || '').trim() && !generalFormat(style)) return true;
+  const size = Number(style.fontSize);
+  return Number.isFinite(size) && size > 0 && size !== 11;
+}
+
 // The Excel tables a sheet lists (both readers: `tables` [{ range }]), as
 // areas; the body rows are records the table sources, not assumptions.
 export function tableAreas(sheet) {
@@ -97,6 +112,26 @@ export function tableAreas(sheet) {
     }
   }
   return areas;
+}
+
+// Merged blocks are display: a banner, a metric tile, a panel caption. They are
+// never a column anyone sums, so the grid rules do not apply inside them.
+export function mergedAreas(sheet) {
+  const areas = [];
+  for (const range of sheet?.mergedRanges || []) {
+    try {
+      const area = parseAreaRange(String(range || '').replace(/\$/g, ''));
+      if (area.startRow && area.startCol) areas.push(area);
+    } catch {
+      // A malformed range excludes nothing.
+    }
+  }
+  return areas;
+}
+
+export function insideArea(areas, at) {
+  return areas.some((area) => at.row >= area.startRow && at.row <= area.endRow
+    && at.column >= area.startCol && at.column <= area.endCol);
 }
 
 export function insideTableBody(areas, at) {

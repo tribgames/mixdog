@@ -50,7 +50,9 @@ export class DesktopServiceRegistry {
   #servicesById = new Map();
   #servicesByModule = new Map();
   #servicePromises = new Map();
+  #pendingIds = new Map();
   #closed = false;
+  #disposePromise = null;
 
   constructor({
     runtime = null,
@@ -85,6 +87,14 @@ export class DesktopServiceRegistry {
     return service;
   }
 
+  async #discard(instance, reason) {
+    if (typeof instance?.dispose !== 'function') return;
+    try { await instance.dispose(reason); }
+    catch (error) {
+      this.#log(`desktop service dispose failed: ${error?.message || error}`);
+    }
+  }
+
   async #initialize({ desktopId, moduleUrl, options = {} } = {}) {
     if (this.#closed) throw new Error('session service is closed');
     const requestedId = String(desktopId || '').trim();
@@ -98,39 +108,47 @@ export class DesktopServiceRegistry {
     if (parsed.protocol !== 'file:') {
       throw new TypeError('desktop service moduleUrl must be a file URL');
     }
+    const existingById = this.#servicesById.get(requestedId);
+    const pendingId = this.#pendingIds.get(requestedId);
+    const boundModule = existingById?.moduleUrl || pendingId?.moduleUrl;
+    if (boundModule && boundModule !== requestedModule) {
+      throw new Error(`desktopId ${requestedId} is already bound to another service module`);
+    }
+    if (existingById) return existingById;
+    if (pendingId) return pendingId.promise;
     const existingByModule = this.#servicesByModule.get(requestedModule);
     if (existingByModule) return existingByModule;
-    const existingById = this.#servicesById.get(requestedId);
-    if (existingById) {
-      if (existingById.moduleUrl !== requestedModule) {
-        throw new Error(`desktopId ${requestedId} is already bound to another service module`);
-      }
-      return existingById;
-    }
     const pending = this.#servicePromises.get(requestedModule);
     if (pending) return pending;
     const loading = (async () => {
       const loaded = await loadDesktopServiceModule(requestedModule);
+      if (this.#closed) throw new Error('session service is closed');
       if (typeof loaded.createDesktopService !== 'function') {
         throw new TypeError('desktop service module has no createDesktopService export');
       }
+      let record = null;
+      const ownsRecord = () => record !== null && this.#servicesById.get(requestedId) === record;
       const instance = await loaded.createDesktopService({
         options: sanitizeForWire(options) || {},
         runtime: this.#runtime,
-        emit: (message) => this.#publish(requestedId, message),
+        emit: (message) => {
+          if (ownsRecord()) this.#publish(requestedId, message);
+        },
         onClientCountChanged: () => {
+          if (!ownsRecord()) return;
           try { this.#onExternalClientsChanged(); } catch {}
         },
       });
       if (!instance || typeof instance.invoke !== 'function'
         || typeof instance.control !== 'function') {
+        await this.#discard(instance, 'desktop service adapter is invalid');
         throw new TypeError('desktop service adapter is invalid');
       }
       if (this.#closed) {
-        try { await instance.dispose?.('session service is closed'); } catch {}
+        await this.#discard(instance, 'session service is closed');
         throw new Error('session service is closed');
       }
-      const record = {
+      record = {
         desktopId: requestedId,
         moduleUrl: requestedModule,
         instance,
@@ -142,17 +160,20 @@ export class DesktopServiceRegistry {
       return record;
     })();
     this.#servicePromises.set(requestedModule, loading);
+    this.#pendingIds.set(requestedId, { moduleUrl: requestedModule, promise: loading });
     try {
       return await loading;
     } finally {
       if (this.#servicePromises.get(requestedModule) === loading) {
         this.#servicePromises.delete(requestedModule);
       }
+      if (this.#pendingIds.get(requestedId)?.promise === loading) this.#pendingIds.delete(requestedId);
     }
   }
 
   async init(params = {}, ctx = null) {
     const service = await this.#initialize(params);
+    if (this.#closed) throw new Error('session service is closed');
     const token = subscriberToken(ctx);
     if (token) service.subscribers.add(token);
     return { desktopId: service.desktopId };
@@ -214,18 +235,17 @@ export class DesktopServiceRegistry {
   }
 
   async dispose(reason = 'service stop') {
+    if (this.#disposePromise) return this.#disposePromise;
     this.#closed = true;
     const services = [...new Set(this.#servicesById.values())];
     this.#servicesById.clear();
     this.#servicesByModule.clear();
     this.#servicePromises.clear();
-    for (const service of services) {
-      if (!service?.instance?.dispose) continue;
-      try { await service.instance.dispose(reason); }
-      catch (error) {
-        this.#log(`desktop service dispose failed: ${error?.message || error}`);
-      }
-    }
+    this.#pendingIds.clear();
+    this.#disposePromise = Promise.resolve().then(async () => {
+      for (const service of services) await this.#discard(service.instance, reason);
+    });
+    return this.#disposePromise;
   }
 
   get externalClientCount() {

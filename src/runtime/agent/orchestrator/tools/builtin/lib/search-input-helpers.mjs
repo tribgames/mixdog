@@ -8,12 +8,6 @@ import {
     splitGrepLinePrefix,
 } from '../grep-formatting.mjs';
 
-export function expandLegacyEscapedAlternationPattern(rawPattern) {
-    if (typeof rawPattern !== 'string' || !rawPattern.includes('\\|')) return null;
-    const parts = rawPattern.split('\\|').map((part) => part.trim()).filter(Boolean);
-    return parts.length > 1 ? parts : null;
-}
-
 export function relativeGrepLine(line, workDir, pathOnly = false, outputMode = 'content', filenameOmitted = false) {
     const normalized = normalizeGrepLine(line, pathOnly, outputMode, filenameOmitted);
     if (!workDir) return normalized;
@@ -36,26 +30,6 @@ export function uniqueStrings(values) {
     return Array.from(new Set(values.filter((value) => typeof value === 'string' && value)));
 }
 
-export function isRgRegexParseError(err) {
-    const msg = `${err?.stderr || ''}\n${err?.message || err || ''}`;
-    return /regex parse error/i.test(msg);
-}
-
-export function regexPatternToFixedTerms(pattern) {
-    const raw = String(pattern || '');
-    if (!raw) return [];
-    return raw
-        .split(/\\?\|/g)
-        .map((part) => part.trim())
-        .map((part) => part
-            .replace(/\\[bB]/g, '')
-            .replace(/^\^/, '')
-            .replace(/\$$/, '')
-            .replace(/\\([\\.^$*+?()[\]{}|/-])/g, '$1')
-            .trim())
-        .filter((part) => part.length > 0);
-}
-
 export function coerceNonNegInt(value) {
     if (value === undefined || value === null || value === '') return null;
     const n = Number(value);
@@ -66,33 +40,6 @@ export function coerceNonNegInt(value) {
 export function globMtimeTiePath(entry) {
     const p = String(entry?.path ?? entry?.full ?? '');
     return process.platform === 'win32' ? p.toLocaleLowerCase() : p;
-}
-
-export function splitGlobString(value) {
-    const out = [];
-    const str = String(value);
-    let depth = 0;
-    let token = '';
-    const flush = () => {
-        const trimmed = token.trim();
-        if (trimmed) out.push(trimmed);
-        token = '';
-    };
-    for (const ch of str) {
-        if (ch === '{') {
-            depth++;
-            token += ch;
-        } else if (ch === '}') {
-            if (depth > 0) depth--;
-            token += ch;
-        } else if (depth === 0 && (ch === ',' || /\s/.test(ch))) {
-            flush();
-        } else {
-            token += ch;
-        }
-    }
-    flush();
-    return out;
 }
 
 export function isRedundantAllFilesGlob(value) {

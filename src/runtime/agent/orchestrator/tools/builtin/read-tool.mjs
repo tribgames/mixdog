@@ -325,12 +325,9 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         args.mode = undefined; args.n = undefined; args.offset = undefined; args.limit = undefined; args.full = undefined;
     }
     if (Array.isArray(args.path)) {
-        // Schema is `path: string | string[]` — array entries are
-        // strings only. Top-level mode / n / offset / limit / full
-        // apply uniformly to every entry in the batch (the only
-        // caller is the manager prefetch helper, which already
-        // shapes its calls that way). When _readsEntries is set,
-        // per-entry options override the uniform set.
+        // Public file_path batches arrive as normalized zero-based regions.
+        // Legacy string batches use uniform top-level windows. When
+        // _readsEntries is set, per-entry options override the uniform set.
         const overrides = Array.isArray(args._readsEntries) ? args._readsEntries : null;
         const entries = args.path.map((p, i) => {
             if (overrides && overrides[i]) return overrides[i];

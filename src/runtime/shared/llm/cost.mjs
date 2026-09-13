@@ -26,19 +26,53 @@ import { getModelMetadataSync } from '../../agent/orchestrator/providers/model-c
 export function isInclusiveProvider(provider) {
     if (!provider) return false;
     const p = String(provider).toLowerCase();
-    // 'grok' covers grok-oauth, which delegates inference to the xai compat
-    // provider (inclusive input_tokens) but reports its own provider id on
-    // usage rows — without it, cached tokens would be double-billed in the
-    // cost fallback and prompt totals.
-    return p.includes('openai') || p.includes('codex') || p.includes('gemini') || p.includes('google') || p.includes('xai') || p.includes('grok')
-        || p.includes('deepseek') || p.includes('mixdog-local') || p.includes('groq') || p.includes('openrouter')
-        || p.includes('opencode-go');
+    // Matches the registry's cold-start convention. Live accounting passes
+    // the provider constructor's explicit convention, including custom routes.
+    return p !== 'anthropic' && p !== 'anthropic-oauth';
 }
 
 export function billableInputTokensForProvider(provider, inputTokens, cacheReadTokens = 0, cacheWriteTokens = 0) {
     const input = Number(inputTokens) || 0;
     if (!isInclusiveProvider(provider)) return input;
     return Math.max(input - (Number(cacheReadTokens) || 0) - (Number(cacheWriteTokens) || 0), 0);
+}
+
+/**
+ * Price normalized token slots once. Null means unknown, not a free request.
+ * Rates are returned so a durable record keeps the price applied at ingestion.
+ * Historical imports use current catalog rates as estimates, not old invoices.
+ */
+export function priceUsage(args) {
+    const n = (value) => Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0;
+    const cached = n(args.cacheReadTokens);
+    const written = n(args.cacheWriteTokens);
+    const inclusive = args.inputTokensInclusive ?? isInclusiveProvider(args.provider);
+    const input = args.uncachedInputTokens != null ? n(args.uncachedInputTokens)
+        : inclusive ? Math.max(0, n(args.inputTokens) - cached - written) : n(args.inputTokens);
+    const meta = getModelMetadataSync(args.model, args.provider);
+    if (!meta) return { input, costUsd: null, rates: null };
+    let multiplier = 1;
+    if (meta.longContextThreshold && input + cached + written >= meta.longContextThreshold) {
+        multiplier *= meta.longContextMultiplier || 1;
+    }
+    // DeepSeek's published peak/off-peak schedule is UTC, not the UI timezone.
+    // Without an exact timestamp (legacy sessions), retain the list/peak rate.
+    if (meta.offPeakMultiplier && Number.isFinite(args.ts) && !args.historical) {
+        const date = new Date(args.ts);
+        const h = date.getUTCHours();
+        const peak = date.getUTCDay() >= 1 && date.getUTCDay() <= 5
+            && ((h >= 1 && h < 4) || (h >= 6 && h < 10));
+        if (!peak) multiplier *= meta.offPeakMultiplier;
+    }
+    if (args.model === 'claude-opus-4-8' && (args.fast || args.serviceTier === 'fast')) multiplier *= 2;
+    const keys = ['inputCostPerM', 'outputCostPerM', 'cacheReadCostPerM', 'cacheWriteCostPerM'];
+    const tokens = [input, n(args.outputTokens), cached, written];
+    const rates = Object.fromEntries(keys.map((key) => [key, meta[key] == null ? null : meta[key] * multiplier]));
+    if (tokens.some((amount, i) => amount > 0 && rates[keys[i]] === null)) {
+        return { input, costUsd: null, rates };
+    }
+    const costUsd = tokens.reduce((sum, amount, i) => sum + amount * (rates[keys[i]] ?? 0), 0) / 1_000_000;
+    return { input, costUsd: Number(costUsd.toFixed(6)), rates };
 }
 
 /**
@@ -52,25 +86,5 @@ export function billableInputTokensForProvider(provider, inputTokens, cacheReadT
  * @returns {number} USD, rounded to 6 decimal places.
  */
 export function computeCostUsd(args) {
-    const meta = getModelMetadataSync(args?.model, args?.provider);
-    if (!meta) return 0;
-    const inputTokens = args.inputTokens || 0;
-    const outputTokens = args.outputTokens || 0;
-    const cacheReadTokens = args.cacheReadTokens || 0;
-    const cacheWriteTokens = args.cacheWriteTokens || 0;
-    const billableInput = billableInputTokensForProvider(
-        args.provider,
-        inputTokens,
-        cacheReadTokens,
-        cacheWriteTokens,
-    );
-    const parts = [
-        billableInput * (meta.inputCostPerM || 0),
-        outputTokens * (meta.outputCostPerM || 0),
-        cacheReadTokens * (meta.cacheReadCostPerM || 0),
-        cacheWriteTokens * (meta.cacheWriteCostPerM || 0),
-    ];
-    const total = parts.reduce((s, x) => s + x, 0) / 1_000_000;
-    if (!Number.isFinite(total) || total <= 0) return 0;
-    return Number(total.toFixed(6));
+    return priceUsage(args || {}).costUsd ?? 0;
 }

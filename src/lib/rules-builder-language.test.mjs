@@ -44,3 +44,11 @@ test('Lead prompt keeps the configured response language authoritative', () => {
   const japanese = renderLeadPrompt('ja');
   assert.match(japanese, /Always respond in Japanese \(日本語\),/);
 });
+
+test('unknown language ids use system language, not inherited object properties', () => {
+  const languageBlock = (language) => renderLeadPrompt(language).match(/# Language[\s\S]*$/)?.[0] || '';
+  const expected = languageBlock('system');
+  for (const language of ['unknown-language', '__proto__', 'constructor', 'toString']) {
+    assert.equal(languageBlock(language), expected);
+  }
+});

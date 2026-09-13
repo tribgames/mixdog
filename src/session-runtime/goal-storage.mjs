@@ -1,5 +1,82 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { writeJsonAtomicAsync } from '../runtime/shared/atomic-file.mjs';
+import { clean } from '../runtime/shared/clean.mjs';
+import {
+  DEFAULT_COMPLETED_GOAL_TTL_MS,
+  GOAL_FILE_VERSION,
+  SESSION_ID,
+  assertSessionId,
+  completedGoalExpired,
+  normalizeStoredGoal,
+  publicGoal,
+} from './goal-state.mjs';
+
+function goalFilePath(dataDir, sessionId) {
+  return join(clean(dataDir) || process.cwd(), 'goals', `${assertSessionId(sessionId)}.json`);
+}
+
+export function deleteStoredGoalFile(dataDir, sessionId) {
+  try {
+    rmSync(goalFilePath(dataDir, sessionId), { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readStoredGoalFile(dataDir, sessionId, at = Date.now()) {
+  const id = assertSessionId(sessionId);
+  try {
+    return readGoalRecordFile(goalFilePath(dataDir, id), id, normalizeStoredGoal, at).goal;
+  } catch (error) {
+    reportGoalStorageError(error);
+    return null;
+  }
+}
+
+export function readStoredGoalSnapshot({
+  dataDir,
+  sessionId,
+  now = () => Date.now(),
+  completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
+} = {}) {
+  const at = Math.max(0, Number(now()) || Date.now());
+  const goal = publicGoal(readStoredGoalFile(dataDir, sessionId, at), at);
+  if (completedGoalExpired(goal, at, completedGoalTtlMs)) {
+    deleteStoredGoalFile(dataDir, sessionId);
+    return null;
+  }
+  return goal?.archivedAt ? null : goal;
+}
+
+export function listStoredActiveGoalSessionIds({
+  dataDir,
+  now = () => Date.now(),
+  completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
+} = {}) {
+  const root = join(clean(dataDir) || process.cwd(), 'goals');
+  let entries = [];
+  try {
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const at = Math.max(0, Number(now()) || Date.now());
+  const sessionIds = [];
+  for (const entry of entries) {
+    if (!entry?.isFile?.() || !entry.name.endsWith('.json')) continue;
+    const sessionId = entry.name.slice(0, -'.json'.length);
+    if (!SESSION_ID.test(sessionId)) continue;
+    const goal = publicGoal(readStoredGoalFile(dataDir, sessionId, at), at);
+    if (completedGoalExpired(goal, at, completedGoalTtlMs)) {
+      deleteStoredGoalFile(dataDir, sessionId);
+      continue;
+    }
+    if (goal?.status === 'active' && !goal.archivedAt) sessionIds.push(sessionId);
+  }
+  return sessionIds.sort();
+}
 
 export function reportGoalStorageError(error) {
   process.emitWarning(error?.message || String(error), { code: 'GOAL_STORAGE_ERROR' });
@@ -10,16 +87,16 @@ export function readGoalRecordFile(path, sessionId, normalizeGoal, at) {
   try {
     text = readFileSync(path, 'utf8');
   } catch (error) {
-    if (error?.code === 'ENOENT') return { version: 1, goal: null };
+    if (error?.code === 'ENOENT') return { version: GOAL_FILE_VERSION, goal: null };
     throw error;
   }
   try {
     const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== 'object' || !Object.hasOwn(parsed, 'goal') || parsed.version !== 1) {
+    if (!parsed || typeof parsed !== 'object' || !Object.hasOwn(parsed, 'goal') || parsed.version !== GOAL_FILE_VERSION) {
       throw new Error('unsupported or invalid Goal record');
     }
     if (parsed.goal !== null && (typeof parsed.goal !== 'object' || Array.isArray(parsed.goal))) throw new Error('invalid Goal value');
-    return { version: 1, goal: normalizeGoal(parsed.goal, sessionId, at) };
+    return { version: GOAL_FILE_VERSION, goal: normalizeGoal(parsed.goal, sessionId, at) };
   } catch (cause) {
     throw new Error(`cannot read Goal record ${path}: ${cause.message}; original file preserved, repair or explicitly clear it before creating a Goal`, { cause });
   }
@@ -43,14 +120,17 @@ export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = w
     // the committed state until that write lands. Do not touch the disk.
     if (cached && writing.has(id)) return structuredClone(cached.record);
     const path = pathFor(id);
-    let mtimeMs = 0;
+    let stamp = null;
     try {
-      mtimeMs = statSync(path).mtimeMs;
+      const stat = statSync(path, { bigint: true });
+      // Atomic replacements may preserve mtime and size. File identity and
+      // change time distinguish them without treating an epoch mtime as absent.
+      stamp = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
     } catch (error) {
       if (cached && TRANSIENT_READ_CODES.has(error?.code)) return structuredClone(cached.record);
       if (error?.code !== 'ENOENT') throw error;
     }
-    if (cached && cached.mtimeMs === mtimeMs) return structuredClone(cached.record);
+    if (cached && stamp !== null && cached.stamp === stamp) return structuredClone(cached.record);
     let record;
     try {
       record = readGoalRecordFile(path, id, normalizeGoal, now());
@@ -60,7 +140,7 @@ export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = w
       }
       throw error;
     }
-    cache.set(id, { record, mtimeMs });
+    cache.set(id, { record, stamp });
     return structuredClone(record);
   };
   return {
@@ -71,9 +151,9 @@ export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = w
       writing.add(id);
       try {
         await writeRecord(pathFor(id), snapshot, { lock: true, secret: true, fsync: false, timeoutMs: 2_000 });
-        let mtimeMs = 0;
-        try { mtimeMs = statSync(pathFor(id)).mtimeMs; } catch {}
-        cache.set(id, { record: snapshot, mtimeMs });
+        // The write lock has already been released. A subsequent stat could
+        // belong to another writer, so validate the file on the next read.
+        cache.set(id, { record: snapshot, stamp: null });
       } finally {
         writing.delete(id);
       }

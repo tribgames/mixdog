@@ -1,18 +1,15 @@
-import { existsSync } from 'node:fs';
-import { spawn, spawnSync } from 'node:child_process';
 import { readResponseBuffer } from '../../runtime/shared/bounded-download.mjs';
+import { runAbortable, throwIfAborted } from '../../runtime/shared/abort-race.mjs';
 import { assertPublicUrl, pinnedFetch } from '../../runtime/web-search/lib/ssrf-guard.mjs';
+import { handlerTimeoutS } from './handler-timeout.mjs';
+export { handlerTimeoutS } from './handler-timeout.mjs';
+export { defaultShellKind, runCommandHandler } from './command-handler.mjs';
 import {
-  DEFAULT_AGENT_TIMEOUT_S,
-  DEFAULT_COMMAND_TIMEOUT_S,
-  DEFAULT_PROMPT_TIMEOUT_S,
   EXIT2_BLOCK_EVENTS,
   MAX_BUFFER_BYTES,
-  MESSAGE_DISPLAY_TIMEOUT_S,
   PLAIN_STDOUT_CONTEXT_EVENTS,
   TOOL_IF_EVENTS,
   TOP_LEVEL_DECISION_EVENTS,
-  USER_PROMPT_TIMEOUT_S,
   limitText,
 } from './constants.mjs';
 
@@ -48,232 +45,6 @@ export function ifConditionPasses(ifExpr, eventName, toolName, toolInput) {
   } catch {
     return true;
   }
-}
-
-function resolvePlaceholders(str, projectDir, pluginData, pluginRoot = null) {
-  if (typeof str !== 'string') return str;
-  const resolvedProject = projectDir || process.cwd();
-  const resolvedPluginRoot = pluginRoot || resolvedProject;
-  const resolvedPluginData = pluginData || resolvedProject;
-  return str
-    .replace(/\$\{CLAUDE_PROJECT_DIR\}/g, resolvedProject)
-    .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, resolvedPluginRoot)
-    .replace(/\$\{CLAUDE_PLUGIN_DATA\}/g, resolvedPluginData)
-    .replace(/\$\{MIXDOG_PROJECT_DIR\}/g, resolvedProject)
-    .replace(/\$\{MIXDOG_PLUGIN_ROOT\}/g, resolvedPluginRoot)
-    .replace(/\$\{MIXDOG_PLUGIN_DATA\}/g, resolvedPluginData);
-}
-
-export function handlerTimeoutS(handler, eventName) {
-  if (Number.isFinite(handler.timeout) && handler.timeout > 0) return handler.timeout;
-  if (handler.type === 'prompt') return DEFAULT_PROMPT_TIMEOUT_S;
-  if (handler.type === 'agent') return DEFAULT_AGENT_TIMEOUT_S;
-  if (handler.type === 'mcp_tool') return DEFAULT_COMMAND_TIMEOUT_S;
-  if (eventName === 'UserPromptSubmit') return USER_PROMPT_TIMEOUT_S;
-  if (eventName === 'MessageDisplay') return MESSAGE_DISPLAY_TIMEOUT_S;
-  return DEFAULT_COMMAND_TIMEOUT_S;
-}
-
-export function defaultShellKind() {
-  return process.platform === 'win32' ? 'powershell' : 'bash';
-}
-
-// Kill a spawned hook's ENTIRE process tree, not just the immediate shell.
-// A bare child.kill() only SIGTERMs the shell (bash -lc / powershell), leaving
-// grandchildren orphaned. On POSIX we spawn detached and signal the negative
-// pgid; on Windows we use taskkill /T /F to walk the tree.
-function killProcessTree(child, signal = 'SIGTERM') {
-  if (!child || child.pid == null) return;
-  if (process.platform === 'win32') {
-    try {
-      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
-    } catch {
-      try { child.kill(signal); } catch {}
-    }
-    return;
-  }
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    try { child.kill(signal); } catch {}
-  }
-}
-
-// SIGTERM the tree, then escalate to SIGKILL after a short grace so a child
-// that ignores/traps SIGTERM cannot linger.
-const KILL_GRACE_MS = 2000;
-function terminateTree(child) {
-  killProcessTree(child, 'SIGTERM');
-  const t = setTimeout(() => killProcessTree(child, 'SIGKILL'), KILL_GRACE_MS);
-  t.unref?.();
-}
-
-// POSIX: detached=true creates a new process group so the negative-pid signal
-// reaches grandchildren. Windows uses taskkill /T and ignores this flag.
-function withProcessGroup(opts) {
-  return process.platform === 'win32' ? opts : { ...opts, detached: true };
-}
-
-function commandSpawnSpec(handler, projectDir, pluginData) {
-  const command = resolvePlaceholders(handler.command, projectDir, pluginData, handler._pluginRoot || null);
-  if (Array.isArray(handler.args)) {
-    return {
-      command,
-      args: handler.args.map((a) => resolvePlaceholders(String(a), projectDir, pluginData, handler._pluginRoot || null)),
-      shellKind: 'exec',
-    };
-  }
-  const shellKind = handler.shell === 'powershell' || handler.shell === 'bash'
-    ? handler.shell
-    : defaultShellKind();
-  if (shellKind === 'powershell') {
-    return {
-      command: process.platform === 'win32' ? 'powershell.exe' : 'pwsh',
-      args: ['-NoProfile', '-NonInteractive', '-Command', command],
-      shellKind,
-    };
-  }
-  return {
-    command: process.platform === 'win32' ? 'bash.exe' : 'bash',
-    args: ['-lc', command],
-    shellKind,
-  };
-}
-
-function hookEnv(projectDir, pluginData, payload, pluginRoot = null) {
-  const resolvedProject = projectDir || process.cwd();
-  const resolvedPluginRoot = pluginRoot || resolvedProject;
-  const resolvedPluginData = pluginData || resolvedProject;
-  const env = {
-    ...process.env,
-    MIXDOG_PROJECT_DIR: resolvedProject,
-    MIXDOG_PLUGIN_ROOT: resolvedPluginRoot,
-    MIXDOG_PLUGIN_DATA: resolvedPluginData,
-    CLAUDE_PROJECT_DIR: resolvedProject,
-    CLAUDE_PLUGIN_ROOT: resolvedPluginRoot,
-    CLAUDE_PLUGIN_DATA: resolvedPluginData,
-  };
-  const effortLevel = payload?.effort?.level || payload?.effort;
-  if (effortLevel) env.CLAUDE_EFFORT = String(effortLevel);
-  return env;
-}
-
-export function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null) {
-  const projectDir = payload.cwd || process.cwd();
-  const effectivePluginData = handler._pluginData || pluginData || null;
-  const stdin = JSON.stringify(payload);
-  const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
-  const spec = commandSpawnSpec(handler, projectDir, effectivePluginData);
-  const baseOpts = {
-    cwd: existsSync(projectDir) ? projectDir : undefined,
-    env: hookEnv(projectDir, effectivePluginData, payload, handler._pluginRoot || null),
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  };
-
-  if (handler.async === true) {
-    try {
-      const child = spawn(spec.command, spec.args, withProcessGroup({
-        ...baseOpts,
-        stdio: ['pipe', 'ignore', 'ignore'],
-      }));
-      // Detached async hooks were previously fire-and-forget with no timeout,
-      // orphaning long-running/hung children. Enforce the same timeout and
-      // reap the whole tree on expiry.
-      let reaped = false;
-      const killTimer = setTimeout(() => {
-        reaped = true;
-        terminateTree(child);
-      }, timeoutMs);
-      killTimer.unref?.();
-      child.on('error', () => clearTimeout(killTimer));
-      child.on('close', () => clearTimeout(killTimer));
-      child.on('error', (error) => {
-        if (typeof onSpawnError === 'function') onSpawnError(error);
-      });
-      child.stdin?.end(stdin);
-      child.unref?.();
-      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', async: true });
-    } catch (error) {
-      return Promise.resolve({
-        exitCode: -1,
-        stdout: '',
-        stderr: error?.message || String(error),
-        timedOut: false,
-        spawnError: error,
-      });
-    }
-  }
-
-  return new Promise((resolveRun) => {
-    let child;
-    let settled = false;
-    let stdout = '';
-    let stderr = '';
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let timedOut = false;
-    let timer = null;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      resolveRun(result);
-    };
-    try {
-      child = spawn(spec.command, spec.args, withProcessGroup(baseOpts));
-    } catch (error) {
-      finish({
-        exitCode: -1,
-        stdout: '',
-        stderr: error?.message || String(error),
-        timedOut: false,
-        spawnError: error,
-      });
-      return;
-    }
-    timer = setTimeout(() => {
-      timedOut = true;
-      terminateTree(child);
-      finish({
-        exitCode: -1,
-        stdout,
-        stderr: stderr || `hook command timed out after ${timeoutMs}ms`,
-        timedOut,
-        spawnError: null,
-      });
-    }, timeoutMs);
-    timer.unref?.();
-    child.stdout?.on('data', (chunk) => {
-      stdoutBytes += chunk.length;
-      if (stdoutBytes <= MAX_BUFFER_BYTES) stdout += chunk.toString('utf8');
-    });
-    child.stderr?.on('data', (chunk) => {
-      stderrBytes += chunk.length;
-      if (stderrBytes <= MAX_BUFFER_BYTES) stderr += chunk.toString('utf8');
-    });
-    child.on('error', (error) => {
-      finish({
-        exitCode: -1,
-        stdout,
-        stderr: stderr || error?.message || String(error),
-        timedOut: false,
-        spawnError: error,
-      });
-    });
-    child.on('close', (code) => {
-      finish({
-        exitCode: timedOut ? -1 : (typeof code === 'number' ? code : 0),
-        stdout,
-        stderr,
-        timedOut,
-        spawnError: null,
-      });
-    });
-    try {
-      child.stdin?.end(stdin);
-    } catch {}
-  });
 }
 
 function resolveHeaderValue(value, allowed) {
@@ -339,7 +110,9 @@ export const MAX_HTTP_HOOK_RESPONSE_BYTES = MAX_BUFFER_BYTES;
 export async function runHttpHandler(handler, payload, eventName, {
   publicFetch = pinnedFetch,
   privateFetch = globalThis.fetch,
+  signal,
 } = {}) {
+  throwIfAborted(signal);
   const checked = validateHttpUrl(handler);
   if (checked.error) {
     return { exitCode: -1, stdout: '', stderr: checked.error, timedOut: false, spawnError: new Error(checked.error) };
@@ -350,6 +123,7 @@ export async function runHttpHandler(handler, payload, eventName, {
   }
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
   const controller = new AbortController();
+  const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   timer.unref?.();
   try {
@@ -364,7 +138,7 @@ export async function runHttpHandler(handler, payload, eventName, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
-      signal: controller.signal,
+      signal: requestSignal,
       redirect: 'error',
     });
     const text = (await readResponseBuffer(response, {
@@ -376,7 +150,7 @@ export async function runHttpHandler(handler, payload, eventName, {
     }
     return { exitCode: 0, stdout: text, stderr: '', timedOut: false, spawnError: null };
   } catch (error) {
-    const aborted = error?.name === 'AbortError';
+    const aborted = controller.signal.aborted;
     return {
       exitCode: -1,
       stdout: '',
@@ -389,7 +163,8 @@ export async function runHttpHandler(handler, payload, eventName, {
   }
 }
 
-export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunner) {
+export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunner, { signal } = {}) {
+  throwIfAborted(signal);
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
   let name = String(handler.tool || '').trim();
   if (handler.server && !name.startsWith('mcp__')) {
@@ -402,17 +177,18 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
   // Losing the race is not cancellation: without this signal the tool call kept
   // running (and holding its MCP slot) long after the hook gave up on it.
   const controller = new AbortController();
+  const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   try {
     const runPromise = Promise.resolve(mcpToolRunner({
       name,
       args: payload,
-      signal: controller.signal,
+      signal: requestSignal,
       timeoutMs,
     }));
     // The abandoned call still settles somewhere; keep its rejection handled.
     runPromise.catch(() => {});
     const text = await Promise.race([
-      runPromise,
+      runAbortable(signal, () => runPromise),
       new Promise((_r, reject) => {
         timer = setTimeout(() => {
           try { controller.abort(new Error(`mcp_tool hook timed out: ${name}`)); } catch {}
@@ -424,26 +200,34 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
     ]);
     return { exitCode: 0, stdout: limitText(String(text ?? '')), stderr: '', timedOut: false, spawnError: null };
   } catch (error) {
-    const timedOut = /timed out/i.test(error?.message || '');
+    const timedOut = !signal?.aborted && /timed out/i.test(error?.message || '');
     return { exitCode: -1, stdout: '', stderr: error?.message || String(error), timedOut, spawnError: null };
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
-export async function runPromptHandler(handler, payload, eventName, promptRunner) {
+export async function runPromptHandler(handler, payload, eventName, promptRunner, { signal } = {}) {
+  throwIfAborted(signal);
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
   const prompt = String(handler.prompt || '');
   if (!prompt) {
     return { exitCode: -1, stdout: '', stderr: 'prompt handler missing prompt', timedOut: false, spawnError: null };
   }
   let timer = null;
+  const controller = new AbortController();
+  const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   try {
-    const runPromise = Promise.resolve(promptRunner({ prompt, payload, timeoutMs }));
+    const runPromise = Promise.resolve(promptRunner({ prompt, payload, timeoutMs, signal: requestSignal }));
+    runPromise.catch(() => {});
     const text = await Promise.race([
-      runPromise,
+      runAbortable(signal, () => runPromise),
       new Promise((_r, reject) => {
-        timer = setTimeout(() => reject(new Error(`prompt hook timed out: ${eventName}`)), timeoutMs);
+        timer = setTimeout(() => {
+          const error = new Error(`prompt hook timed out: ${eventName}`);
+          controller.abort(error);
+          reject(error);
+        }, timeoutMs);
         // No unref: this timer must keep the event loop alive so the race can
         // settle even when the runner promise never resolves. Cleared in finally.
       }),
@@ -467,7 +251,7 @@ export async function runPromptHandler(handler, payload, eventName, promptRunner
     if (['no', 'false', 'deny', 'block'].includes(lowered)) return deny(raw || `blocked by ${eventName} prompt hook`);
     return allow();
   } catch (error) {
-    const timedOut = /timed out/i.test(error?.message || '');
+    const timedOut = !signal?.aborted && /timed out/i.test(error?.message || '');
     return { exitCode: -1, stdout: '', stderr: error?.message || String(error), timedOut, spawnError: null };
   } finally {
     if (timer) clearTimeout(timer);

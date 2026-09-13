@@ -54,7 +54,7 @@ export interface DesktopService {
   renameSession(sessionId: string, title: string): unknown;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   deleteSession(sessionId: string): unknown;
-  prefetchSession(sessionId: string, transcriptItemLimit?: number): Promise<boolean>;
+  prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** Transport-only recovery: capture current projections after refreshing
    * every requested lane, even when the daemon reports unchanged content. */
   replaySessionStates?(

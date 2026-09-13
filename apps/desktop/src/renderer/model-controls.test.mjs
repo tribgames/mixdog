@@ -253,6 +253,85 @@ test("an installed Local Provider model appears without remounting the picker", 
   }
 });
 
+for (const outcome of ["success", "failure"]) {
+  test(`model selection closes immediately and a late ${outcome} cannot disturb a newer menu or preference`, async () => {
+    const second = { ...model, model: "gpt-second-menu-test", display: "Second menu test" };
+    const third = { ...model, model: "gpt-third-menu-test", display: "Third menu test" };
+    availableModels = [model, second, third];
+    const oldSetRoute = window.mixdogDesktop.setModelRoute;
+    const writes = [];
+    const remembered = [];
+    window.mixdogDesktop.setModelRoute = (selection) => {
+      const request = deferred();
+      writes.push({ selection, request });
+      return request.promise;
+    };
+    const initial = {
+      provider: model.provider, model: model.model, effort: "high", fast: false,
+      modelParameters: {},
+    };
+    let paint;
+    function Harness() {
+      const [snapshot, setSnapshot] = useState(initial);
+      paint = setSnapshot;
+      return React.createElement(ModelSelector, {
+        ...snapshot, sessionId: "session-model-menu", fastCapable: true,
+        modelDisabled: false, tuningDisabled: false,
+        invokeResult: async (action) => {
+          try { return await action(); } catch { return undefined; }
+        },
+        applySnapshot: setSnapshot, onOpenSettings() {},
+        onRoutePreferenceApplied: (selection) => remembered.push(selection.model),
+      });
+    }
+    const host = document.createElement("main");
+    document.body.append(host);
+    const root = createRoot(host);
+    const row = (label) => [...document.querySelectorAll(".route-sheet-row")]
+      .find((button) => button.textContent.includes(label));
+    const choose = async (entry) => {
+      await act(async () => row("Model").click());
+      const button = [...document.querySelectorAll('.model-group--provider [role="option"]')]
+        .find((candidate) => candidate.textContent.includes(entry.display));
+      assert.ok(button);
+      await act(async () => button.click());
+      assert.equal(document.querySelector(".route-sheet-flyout--model").hidden, true,
+        "catalog closes on selection, not on acknowledgement");
+      assert.ok(document.querySelector(".model-trigger").textContent.includes(entry.display));
+    };
+    try {
+      await act(async () => root.render(React.createElement(Harness)));
+      await act(async () => document.querySelector(".model-trigger").click());
+      const sheet = document.querySelector(".route-sheet");
+      await choose(second);
+      await choose(third);
+      await act(async () => paint({ ...initial, busy: true, commandBusy: true }));
+      assert.ok(document.querySelector(".model-trigger").textContent.includes(third.display));
+      await act(async () => writes[1].request.resolve({ ...initial, ...writes[1].selection }));
+      await act(async () => row("Reasoning effort").click());
+      const effort = option("High");
+      assert.ok(effort);
+      await act(async () => {
+        if (outcome === "success") {
+          writes[0].request.resolve({ ...initial, ...writes[0].selection });
+        } else {
+          writes[0].request.reject(new Error("old selection failed"));
+        }
+      });
+      assert.equal(document.querySelector(".route-sheet"), sheet);
+      assert.equal(option("High"), effort, "late replies must leave the newly opened menu intact");
+      assert.ok(document.querySelector(".model-trigger").textContent.includes(third.display));
+      assert.deepEqual(remembered, [third.model]);
+      assert.deepEqual(JSON.parse(window.localStorage.getItem("mixdog.desktop-recent-models")),
+        [`model:${third.provider}:${third.model}`]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.mixdogDesktop.setModelRoute = oldSetRoute;
+    }
+  });
+}
+
 for (const field of ["model", "effort"]) {
   test(`${field} selection survives busy snapshots and delayed acknowledgement, but rolls back on failure`, async () => {
     const secondModel = { ...model, model: "gpt-second-handoff-test", display: "Second handoff test" };

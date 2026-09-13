@@ -1,4 +1,4 @@
-import { strings } from '../design-tokens.mjs';
+import { presetLabels, strings } from '../design-tokens.mjs';
 import { columnLabel } from '../../portable/portable-cells.mjs';
 
 
@@ -47,6 +47,7 @@ export function addXlsxDecisionPanel(output, {
   decision,
   gates,
   actions,
+  label = '',
 }) {
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
@@ -60,7 +61,7 @@ export function addXlsxDecisionPanel(output, {
     startColumn: firstColumn,
     endColumn: finalColumn,
     row: cursor,
-    value: 'DECISION WINDOW',
+    value: label || presetLabels([decision, gates, actions]).decision,
     properties: {
       fontName: type.data,
       fontSize: 10,

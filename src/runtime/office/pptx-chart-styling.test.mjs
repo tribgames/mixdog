@@ -47,7 +47,8 @@ await pres.writeFile({fileName:OUTPUT});`;
   assert.match(table, /<a:tbl>/);
   assert.ok(table.includes('120.810') && table.includes('106.265'));
   assert.match(table, /algn="r"/);
-  assert.match(table, /sz="1800"/, 'default table content uses the balanced body size, not tiny chart captions');
+  // The balanced body is 15 pt (the reference IR tables run 10-16 pt type); a table cell reads at body, never at a caption.
+  assert.match(table, /sz="1500"/, 'default table content uses the balanced body size, not tiny chart captions');
   assert.ok(table.includes('102030') && table.includes('FFFFFF'));
   const dom = new JSDOM(table, { contentType: 'application/xml' });
   const rows = [...dom.window.document.getElementsByTagName('a:tr')];

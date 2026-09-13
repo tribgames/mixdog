@@ -137,6 +137,12 @@ export function createHttpRouter({
   // upstream handleToolCall actually stops when the fork-proxy parent cancels.
   const _ownerInFlightHttpCalls = new Map()
 
+  function rejectDrainingToolCall(res) {
+    if (!getDraining?.()) return false
+    sendJson(res, { content: [{ type: 'text', text: 'memory worker draining' }], isError: true }, 503)
+    return true
+  }
+
   const requestHandler = async (req, res) => {
     // Apply the loopback Host/Origin policy before every route, including
     // read-only admin/core-memory responses that DNS rebinding could exfiltrate.
@@ -470,10 +476,7 @@ export function createHttpRouter({
       // Reject tool calls that arrive after shutdown has begun. The error text
       // carries the "draining" token so the proxy treats it as transient,
       // respawns a fresh daemon, and retries the RPC (including write RPCs).
-      if (getDraining?.()) {
-        sendJson(res, { content: [{ type: 'text', text: 'memory worker draining' }], isError: true }, 503)
-        return
-      }
+      if (rejectDrainingToolCall(res)) return
       // Owner-side cancel plumbing: the fork-proxy worker forwards parent
       // 'cancel' IPC by issuing POST /api/cancel with the same callId. Track
       // each in-flight /api/tool by its caller-supplied X-Mixdog-Call-Id so
@@ -491,19 +494,23 @@ export function createHttpRouter({
       // the response finishes, leaving writableFinished===false.
       res.on('close', () => {
         if (res.writableFinished) return
-        try { ac.abort() } catch {}
+        ac.abort()
       })
       if (callId) _ownerInFlightHttpCalls.set(callId, ac)
       try {
         // Raised cap: ingest_session ships whole-session transcripts (see
         // TOOL_HTTP_BODY_MAX_BYTES in http-wire.mjs).
         const body = await readBody(req, { maxBytes: TOOL_HTTP_BODY_MAX_BYTES })
+        // Body parsing can outlive cancellation or shutdown. Do not acquire
+        // new runtime resources after either boundary has been crossed.
+        ac.signal.throwIfAborted()
+        if (rejectDrainingToolCall(res)) return
         const result = await handleToolCall(body.name, body.arguments ?? {}, ac.signal)
         sendJson(res, result)
       } catch (e) {
         sendJson(res, { content: [{ type: 'text', text: `api/tool error: ${e.message}` }], isError: true }, Number(e?.statusCode) || 500)
       } finally {
-        if (callId) _ownerInFlightHttpCalls.delete(callId)
+        if (callId && _ownerInFlightHttpCalls.get(callId) === ac) _ownerInFlightHttpCalls.delete(callId)
       }
       return
     }
@@ -519,7 +526,7 @@ export function createHttpRouter({
         if (!id) { sendJson(res, { ok: false, error: 'callId required' }, 400); return }
         const ac = _ownerInFlightHttpCalls.get(id)
         if (ac) {
-          try { ac.abort() } catch {}
+          ac.abort()
           _ownerInFlightHttpCalls.delete(id)
           sendJson(res, { ok: true, cancelled: true })
         } else {

@@ -23,7 +23,7 @@ export type ConversationHandoff = {
   selection: Extract<NavigationSelection, { kind: "session" | "new" }>;
 };
 
-interface EditorSaveHandle {
+export interface EditorSaveHandle {
   save(): Promise<boolean>;
   discard(): Promise<void>;
 }

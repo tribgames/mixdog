@@ -19,6 +19,7 @@ import { sanitizeForWire } from './session-wire-values.mjs';
 import { createAgentTree, SESSION_ID_PATTERN } from './session-service/agent-tree.mjs';
 import { createProjectCatalog } from './session-service/project-catalog.mjs';
 import { createSessionProjection } from './session-service/projection.mjs';
+import { createStoredSessionReader } from './session-service/stored-reader.mjs';
 import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
@@ -73,6 +74,7 @@ export function createSessionService({
   // addressed by clients; sessionId is the only identity outside this module.
   const sessions = new Set();
   const sessionsById = new Map();
+  const pendingDisposals = new Set();
   const desktopServices = new DesktopServiceRegistry({
     runtime: desktopRuntime,
     onFrame,
@@ -81,8 +83,9 @@ export function createSessionService({
     onReady: onDesktopReady,
   });
   let closed = false;
+  let stopPromise = null;
   // A turn belongs to the DAEMON, not to whoever is watching it: closing the
-  // desktop window or restarting the TUI must never interrupt work. An session runtime
+  // desktop window or restarting the TUI must never interrupt work. A session runtime
   // whose last view left is RETAINED while it is busy and evicted only after it
   // has been idle and unwatched for this long. With a view release no longer
   // destroying anything, this sweep is the ONLY reclaim path besides shutdown.
@@ -104,10 +107,10 @@ export function createSessionService({
   let evictTimer = null;
 
   // ── Cross-client subscriptions ──────────────────────────────────────────────
-  // An session runtime is shared by construction (terminal + desktop converge on one
+  // A session runtime is shared by construction (terminal + desktop converge on one
   // session runtime per session), but each client process only refcounts the mirrors it
   // holds ITSELF. Without a daemon-side viewer set, the first client to quit
-  // destroyed an session runtime the other one was still streaming — the turn cut out
+  // destroyed a session runtime the other one was still streaming — the turn cut out
   // mid-answer and the surviving view stalled. Viewers are keyed by daemon
   // CLIENT token, so "the last view left" is a machine-wide fact.
   function subscriberToken(ctx) {
@@ -326,7 +329,7 @@ export function createSessionService({
       : () => {};
 
   async function createEntry(params = {}, ctx = null) {
-    if (closed) throw new Error('session service is closed');
+    assertAvailable();
     const runtime = await createRuntime({
       sessionId: params.sessionId,
       cwd: params.cwd || process.cwd(),
@@ -347,30 +350,50 @@ export function createSessionService({
       headless: !subscriberToken(ctx), retainedAt: null,
       revision: revisionEpoch,
     };
-    sessions.add(entry);
     try {
-      const initialState = runtime.getState?.() || {};
+      assertAvailable(entry);
+      sessions.add(entry);
+      let initialState;
+      try { initialState = runtime.getState?.() || {}; }
+      catch { initialState = { busy: true }; }
       indexSessionEntry(entry, initialState.sessionId);
       updateEntryBusy(entry, initialState);
-    } catch {
-      updateEntryBusy(entry, { busy: true });
+      addSubscriber(entry, ctx);
+      try {
+        entry.unsubscribe = runtime.subscribe?.(() => schedulePublish(entry)) ?? null;
+      } catch (err) {
+        log(`session subscribe failed: ${err?.message || err}`);
+      }
+      return entry;
+    } catch (error) {
+      await destroy(entry, 'session creation failed', { keepBackgroundWork: !closed, announce: false });
+      throw error;
     }
-    addSubscriber(entry, ctx);
-    try {
-      entry.unsubscribe = runtime.subscribe?.(() => schedulePublish(entry)) ?? null;
-    } catch (err) {
-      log(`session subscribe failed: ${err?.message || err}`);
-    }
-    return entry;
+  }
+
+  function assertAvailable(entry) {
+    if (closed) throw new Error('session service is closed');
+    if (entry?.disposed) throw new Error('session runtime is disposed');
   }
 
   // ── Session-addressed calls ─────────────────────────────────────────────────
   // Views are RENDERERS: a desktop pane (or a TUI tab) must be able to hand the
-  // service a prompt for any session it can see, without owning an session runtime for
-  // it first. The daemon resolves the session to its session runtime — LOADING one when
-  // nothing hosts it — so "that session is not live here" can never reject user
-  // input (user: 채팅이 안 쳐짐).
+  // service a prompt for any session it can see, without owning a session runtime for
+  // it first. The daemon loads an existing durable session when it has no live
+  // owner, so opening a cold view does not prevent addressed execution.
   const sessionLoads = new Map(); // sessionId -> Promise<entry>
+
+  function getOrCreateSessionEntry(sessionId, create) {
+    const owner = sessionOwner(sessionId);
+    if (owner) return Promise.resolve(owner);
+    const inFlight = sessionLoads.get(sessionId);
+    if (inFlight) return inFlight;
+    const loading = Promise.resolve().then(create).finally(() => {
+      if (sessionLoads.get(sessionId) === loading) sessionLoads.delete(sessionId);
+    });
+    sessionLoads.set(sessionId, loading);
+    return loading;
+  }
 
   async function loadSessionRuntime(sessionId, hints) {
     const entry = await createEntry({
@@ -387,6 +410,7 @@ export function createSessionService({
     let resumed = false;
     try {
       resumed = await entry.runtime.resume?.(sessionId, hints.resumeOptions || undefined) === true;
+      assertAvailable(entry);
     } catch (err) {
       await destroy(entry, 'session load failed');
       throw err;
@@ -463,14 +487,14 @@ export function createSessionService({
   /** The runtime hosting sessionId: the existing owner, or a fresh load. One
    *  load per session at a time — concurrent panes converge on one session runtime. */
   async function entryForSession(sessionId, hints = {}) {
+    assertAvailable();
     const owner = sessionOwner(sessionId);
     if (owner) return owner;
     const external = await bindExternalSessionView(sessionId);
+    const acquiredOwner = sessionOwner(sessionId);
+    if (acquiredOwner) return acquiredOwner;
     if (external?.runtime?.externalAction === true) return external;
-    const inFlight = sessionLoads.get(sessionId);
-    if (inFlight) return inFlight;
-    let loading;
-    loading = (async () => {
+    return getOrCreateSessionEntry(sessionId, async () => {
       if (typeof sessionExists === 'function'
         && await sessionExists(sessionId) !== true) {
         // A session may have been created while the durable check was in
@@ -481,11 +505,7 @@ export function createSessionService({
         throw new Error(`session ${sessionId} is not available`);
       }
       return loadSessionRuntime(sessionId, hints);
-    })().finally(() => {
-      if (sessionLoads.get(sessionId) === loading) sessionLoads.delete(sessionId);
     });
-    sessionLoads.set(sessionId, loading);
-    return loading;
   }
 
   /** Entry that is live NOW. Views never start a load themselves, and they
@@ -500,87 +520,22 @@ export function createSessionService({
     return sessionOwner(sessionId) || null;
   }
 
-  // A cold read that misses its cache is the one place a pane open pays real
-  // CPU on this thread; anything past the threshold is worth a log line so a
-  // slow open can be attributed instead of guessed at.
-  const SLOW_STORED_PROJECTION_MS = 250;
-  function traceStoredProjectionRead({ sessionId, hit, ms, chars, items }) {
-    // A waiter that shared an in-flight parse reports as a hit; the parse
-    // itself is the line worth having.
-    if (hit || ms < SLOW_STORED_PROJECTION_MS) return;
-    log(`slow stored projection session=${sessionId} ${Math.round(ms)}ms`
-      + ` chars=${chars} items=${items}`);
-  }
-
-  async function storedSessionProjection(sessionId, hints) {
-    if (typeof readStoredSession !== 'function') return null;
-    const requested = Number(hints?.resumeOptions?.transcriptItemLimit);
-    let snapshot = null;
-    try {
-      snapshot = await readStoredSession(sessionId, {
-        transcriptItemLimit: Number.isFinite(requested) && requested > 0 ? requested : 512,
-        trace: traceStoredProjectionRead,
-      });
-    } catch (err) {
-      log(`stored session projection failed session=${sessionId}: ${err?.message || err}`);
-      return null;
-    }
-    if (!snapshot || typeof snapshot !== 'object') return null;
-    let goal;
-    if (typeof readStoredGoal === 'function') {
-      try {
-        goal = await readStoredGoal(sessionId) ?? null;
-      } catch (err) {
-        log(`stored Goal projection failed session=${sessionId}: ${err?.message || err}`);
-        goal = null;
-      }
-    }
-    return sanitizeForWire({
-      ...snapshot,
-      sessionId,
-      ...(typeof readStoredGoal === 'function' ? { goal } : {}),
-      queued: Array.isArray(snapshot.queued) ? snapshot.queued : [],
-    });
-  }
-
-  async function requestedMessageSlice(params, sessionId) {
-    if (!Number.isInteger(params?.messageStart)) return {};
-    const start = Math.max(0, params.messageStart);
-    // Live sessions answer from the runtime (read-your-writes): the worker's
-    // debounced disk save can lag a just-finished turn, and a disk read here
-    // returned a transcript WITHOUT the final assistant message — remote
-    // agent waiters then handed off an empty result for completed work.
-    const live = sessionOwner(sessionId);
-    if (live && typeof live.runtime?.readModelMessages === 'function') {
-      try {
-        const result = await live.runtime.readModelMessages(start);
-        if (result && Array.isArray(result.messages)) {
-          return {
-            messageCount: Math.max(0, Number(result.messageCount) || result.messages.length),
-            messages: sanitizeForWire(result.messages),
-          };
-        }
-      } catch { /* cold fallback below */ }
-    }
-    if (typeof readStoredSession !== 'function') {
-      throw new Error('session transcript reader is unavailable');
-    }
-    const stored = await readStoredSession(sessionId, { includeMessages: true });
-    const messages = Array.isArray(stored?.messages) ? stored.messages : [];
-    return {
-      messageCount: messages.length,
-      messages: sanitizeForWire(start > 0 ? messages.slice(start) : messages),
-    };
-  }
+  const { storedSessionProjection, requestedMessageSlice } = createStoredSessionReader({
+    readStoredSession,
+    readStoredGoal,
+    sessionOwner,
+    log,
+  });
 
   async function runSessionAction({
     sessionId, action, args = [], open: openHints = {}, baseRevision = null,
   } = {}, allowedActions) {
-    if (closed) throw new Error('session service is closed');
+    assertAvailable();
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const name = requireSessionAction(action, allowedActions);
     const entry = await entryForSession(id, openHints || {});
+    assertAvailable(entry);
     const target = entry.runtime[name];
     if (typeof target !== 'function') throw new TypeError(`session action ${name} is unavailable`);
     const value = await target.apply(entry.runtime, Array.isArray(args) ? args : []);
@@ -592,6 +547,7 @@ export function createSessionService({
         log(`project recency update failed (non-fatal): ${error?.message || error}`);
       }
     }
+    assertAvailable(entry);
     // Keep one compact record that the action reached the service without
     // serializing transcripts/catalogs into the daemon log.
     const valueSummary = value === null || value === undefined
@@ -686,30 +642,31 @@ export function createSessionService({
   }
 
   async function createSession(params = {}, ctx = null) {
-    if (closed) throw new Error('session service is closed');
+    assertAvailable();
     const requestedId = String(params.sessionId || '').trim();
-    if (requestedId) {
-      if (!/^[A-Za-z0-9_-]+$/.test(requestedId)) throw new TypeError('sessionId is invalid');
-      const owner = sessionOwner(requestedId);
-      if (owner) {
-        addSubscriber(owner, ctx);
-        const step = advance(owner);
-        return sessionResult(owner, step);
-      }
-    }
+    if (requestedId && !SESSION_ID_PATTERN.test(requestedId)) throw new TypeError('sessionId is invalid');
     const reservedSessionId = requestedId
       || `sess_daemon_${Date.now()}_${randomUUID().replaceAll('-', '')}`;
+    const entry = await getOrCreateSessionEntry(reservedSessionId, () =>
+      createReservedSession(params, ctx, reservedSessionId));
+    assertAvailable(entry);
+    addSubscriber(entry, ctx);
+    return sessionResult(entry, advance(entry));
+  }
+
+  async function createReservedSession(params, ctx, reservedSessionId) {
     const entry = await createEntry({ ...params, sessionId: reservedSessionId }, ctx);
     try {
       let sessionId = currentSessionId(entry);
       if (!sessionId) {
         sessionId = reservedSessionId;
-        if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('sessionId is invalid');
+        if (!SESSION_ID_PATTERN.test(sessionId)) throw new TypeError('sessionId is invalid');
         const target = entry.runtime.reserveSession;
         if (typeof target !== 'function') {
           throw new TypeError('session action reserveSession is unavailable');
         }
         await target.call(entry.runtime, sessionId);
+        assertAvailable(entry);
         entry.reservedOnly = true;
         sessionId = currentSessionId(entry);
       }
@@ -719,14 +676,24 @@ export function createSessionService({
       if (step.changed) publishStep(entry, step);
       log(`session created session=${sessionId}`);
       retainUnwatched(entry, 'headless session create');
-      return sessionResult(entry, step);
+      return entry;
     } catch (error) {
       await destroy(entry, 'session creation failed', { keepBackgroundWork: true });
       throw error;
     }
   }
 
+  async function liveSessionReadResult(entry, params, sessionId, baseRevision) {
+    assertAvailable(entry);
+    const step = advance(entry);
+    retainUnwatched(entry, 'headless session read');
+    const messages = await requestedMessageSlice(params, sessionId);
+    assertAvailable(entry);
+    return sessionResult(entry, step, baseRevision, messages);
+  }
+
   async function readSession(params = {}, ctx = null) {
+    assertAvailable();
     const {
       sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null,
       baseProjectionStamp = null,
@@ -737,27 +704,19 @@ export function createSessionService({
     }
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const live = await liveEntryForView(id)
+    const live = liveEntryForView(id)
       || externalEntryForView(id)
       || await bindExternalSessionView(id);
+    assertAvailable(live);
     if (live) {
-      const step = advance(live);
-      retainUnwatched(live, 'headless session read');
-      return sessionResult(live, step, baseRevision, await requestedMessageSlice(
-        params,
-        id,
-      ));
+      return liveSessionReadResult(live, params, id, baseRevision);
     }
     if (typeof readStoredSession === 'function') {
       const projection = await storedSessionProjection(id, openHints);
+      assertAvailable();
       const lateOwner = sessionOwner(id) || externalEntryForView(id);
       if (lateOwner) {
-        const step = advance(lateOwner);
-        retainUnwatched(lateOwner, 'headless session read');
-        return sessionResult(lateOwner, step, baseRevision, await requestedMessageSlice(
-          params,
-          id,
-        ));
+        return liveSessionReadResult(lateOwner, params, id, baseRevision);
       }
       if (!projection) throw new Error(`session ${id} is not available`);
       // Allocate the snapshot's revision before an optional history read can
@@ -768,16 +727,13 @@ export function createSessionService({
         baseProjectionStamp,
         allowUnchanged: !Number.isInteger(params.messageStart),
       });
-      return { ...result, ...await requestedMessageSlice(params, id) };
+      const messages = await requestedMessageSlice(params, id);
+      assertAvailable();
+      return { ...result, ...messages };
     }
     // Embedders without a store reader keep the legacy load-on-read seam.
     const entry = await entryForSession(id, openHints || {});
-    const step = advance(entry);
-    retainUnwatched(entry, 'headless session read');
-    return sessionResult(entry, step, baseRevision, await requestedMessageSlice(
-      params,
-      id,
-    ));
+    return liveSessionReadResult(entry, params, id, baseRevision);
   }
 
   async function subscribeSession(
@@ -786,11 +742,13 @@ export function createSessionService({
     } = {},
     ctx = null,
   ) {
+    assertAvailable();
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const live = await liveEntryForView(id)
+    const live = liveEntryForView(id)
       || externalEntryForView(id)
       || await bindExternalSessionView(id);
+    assertAvailable(live);
     if (live) {
       addSubscriber(live, ctx);
       const step = advance(live);
@@ -802,6 +760,7 @@ export function createSessionService({
       // guarantees either adoption or the live re-check below.
       trackPendingViewer(id, ctx);
       const projection = await storedSessionProjection(id, openHints);
+      assertAvailable();
       const lateOwner = sessionOwner(id) || externalEntryForView(id);
       if (lateOwner) {
         dropPendingViewer(id, ctx);
@@ -816,6 +775,7 @@ export function createSessionService({
       return { ...projectionResult(id, projection), subscribed: true };
     }
     const entry = await entryForSession(id, openHints || {});
+    assertAvailable(entry);
     addSubscriber(entry, ctx);
     const step = advance(entry);
     return sessionResult(entry, step, baseRevision, { subscribed: true });
@@ -1026,8 +986,10 @@ export function createSessionService({
     reason,
     { keepBackgroundWork = false, announce = true } = {},
   ) {
-    if (!entry || entry.disposed) return { ok: true };
-    const sessionId = currentSessionId(entry);
+    if (!entry || entry.disposed) return entry?.disposePromise || { ok: true };
+    // Disposal must use the address already owned by this entry, not ask a
+    // failed runtime for fresh state or accidentally address its replacement.
+    const sessionId = String(entry.addressedSessionId || entry.indexedSessionId || '');
     entry.disposed = true;
     releaseProjection(entry);
     if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
@@ -1041,8 +1003,6 @@ export function createSessionService({
     // Publish before asynchronous disposal: a newly resumed incarnation must
     // never receive a delayed teardown belonging to this old runtime.
     if (sessionId) desktopServices.notifySessionRuntimeReleased(sessionId, reason);
-    try { await entry.runtime.dispose?.(reason, { keepBackgroundWork }); }
-    catch (err) { log(`session dispose failed session=${sessionId}: ${err?.message || err}`); }
     if (announce && sessionId) {
       onFrame({
         type: 'session-gone',
@@ -1051,20 +1011,35 @@ export function createSessionService({
         reason,
       }, entry.subscribers);
     }
-    log(`session disposed session=${sessionId || '(creating)'} (${reason})`);
-    return { ok: true };
+    const disposal = (async () => {
+      try { await entry.runtime.dispose?.(reason, { keepBackgroundWork }); }
+      catch (err) { log(`session dispose failed session=${sessionId}: ${err?.message || err}`); }
+      log(`session disposed session=${sessionId || '(creating)'} (${reason})`);
+      return { ok: true };
+    })();
+    entry.disposePromise = disposal;
+    pendingDisposals.add(disposal);
+    const released = () => pendingDisposals.delete(disposal);
+    void disposal.then(released, released);
+    return disposal;
   }
 
-  async function stop(reason = 'service stop') {
+  function stop(reason = 'service stop') {
+    if (stopPromise) return stopPromise;
     closed = true;
-    try { unsubscribeExternalSessionStates(); } catch {}
-    externalViewEntries.clear();
-    agentTree.clear();
-    if (evictTimer) { clearInterval(evictTimer); evictTimer = null; }
-    await desktopServices.dispose(reason);
-    for (const entry of [...sessions]) {
-      await destroy(entry, reason);
-    }
+    stopPromise = Promise.resolve().then(async () => {
+      try { unsubscribeExternalSessionStates(); } catch {}
+      externalViewEntries.clear();
+      pendingViewers.clear();
+      agentTree.clear();
+      if (evictTimer) { clearInterval(evictTimer); evictTimer = null; }
+      await desktopServices.dispose(reason);
+      for (const entry of [...sessions]) await destroy(entry, reason);
+      // Retired entries have already left the address map, but their resource
+      // release remains part of this service's shutdown barrier.
+      await Promise.allSettled([...pendingDisposals]);
+    });
+    return stopPromise;
   }
 
   return createSessionServiceApi({

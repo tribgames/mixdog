@@ -12,6 +12,7 @@ import {
   type SessionSnapshot,
 } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
+import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
 import {
   createSnapshotDeltaEncoder,
@@ -116,6 +117,7 @@ export class DesktopStateBridge {
     const sessionId = String(update.sessionId || '');
     if (!sessionId
       || !shouldPublishSessionState(sessionId, update.snapshot, this.visibleSessionIds)) {
+      reportTranscriptRead(sessionId, update.readTraceId, 'ipc-hidden');
       return;
     }
     let encoder = this.sessionEncoders.get(sessionId);
@@ -145,10 +147,13 @@ export class DesktopStateBridge {
         : {}),
     });
     const wire = encoder.encode(update.snapshot);
+    reportTranscriptRead(sessionId, update.readTraceId,
+      isNoDelta(wire) ? 'ipc-unchanged' : 'ipc-send');
     if (isNoDelta(wire)) return;
     this.send(DESKTOP_IPC.sessionState, {
       sessionId,
       wire,
+      ...(update.readTraceId ? { readTraceId: update.readTraceId } : {}),
       frameSource: update.frameSource,
       ...(typeof update.contentRevision === 'number'
         ? { contentRevision: update.contentRevision }

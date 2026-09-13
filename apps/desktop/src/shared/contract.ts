@@ -369,6 +369,8 @@ export type SessionSnapshot = Readonly<DesktopSessionState> | null;
 export type DesktopSessionStateUpdate = {
   sessionId: string;
   snapshot: SessionSnapshot;
+  /** Diagnostic correlation only; never participates in snapshot identity. */
+  readTraceId?: string;
   /** Publication boundary this frame came from. "live" is an owner
    *  publication; "replay" is a re-emitted retained/durable projection. */
   frameSource: DesktopSessionFrameSource;
@@ -425,6 +427,7 @@ export type DesktopStateWire = (DesktopSessionState & {
 export type DesktopSessionStateWireUpdate = {
   sessionId: string;
   wire: DesktopStateWire;
+  readTraceId?: string;
   frameSource: DesktopSessionFrameSource;
   contentRevision?: number;
   laneEnd?: DesktopSessionLaneEnd;
@@ -637,6 +640,7 @@ export const DESKTOP_CAPABILITIES = [
   'removePlugin',
   'enablePluginMcp',
   'contextStatus',
+  'inheritancePreflight',
   'getSessionReviewDiff',
   'getTurnReviewDiff',
   'revertTurnReview',
@@ -675,6 +679,7 @@ export const DESKTOP_CAPABILITIES = [
   'getProviderAccounts',
   'updateProviderAccounts',
   'getUsageDashboard',
+  'getUsageStats',
   'consumeCodexRateLimitResetCredit',
   'getOnboardingStatus',
   'getOAuthProviderLoginStatus',
@@ -737,6 +742,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'skillContent',
   'pluginsStatus',
   'contextStatus',
+  'inheritancePreflight',
   'getSessionReviewDiff',
   'getTurnReviewDiff',
   'listPresets',
@@ -754,6 +760,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'listProviderModels',
   'getProviderSetup',
   'getUsageDashboard',
+  'getUsageStats',
   'getProviderAccounts',
   'getOnboardingStatus',
   'getOAuthProviderLoginStatus',
@@ -1372,7 +1379,8 @@ export interface DesktopRendererComposerActionDiagnostic {
 export type DesktopRendererDiagnostic =
   | DesktopRendererFailureDiagnostic
   | DesktopRendererLongTaskDiagnostic
-  | DesktopRendererComposerActionDiagnostic;
+  | DesktopRendererComposerActionDiagnostic
+  | import('./transcript-read-diagnostics').TranscriptReadDiagnostic;
 
 export interface DesktopBootContext {
   bootId: string;
@@ -1830,7 +1838,7 @@ export interface DesktopApi {
   ): () => void;
   listRemoteClientClaims?(): Promise<DesktopRemoteClientClaim[]>;
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
-  prefetchSession?(sessionId: string, transcriptItemLimit?: number): Promise<boolean>;
+  prefetchSession?(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;

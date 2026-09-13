@@ -52,6 +52,7 @@ export function ActivityRail({
   onCloseActiveSurface,
   onOpenSettings,
   onOpenProviders,
+  onOpenUsageStats,
   onPrefetchSettings,
   usageApi,
   viewGroups,
@@ -72,6 +73,8 @@ export function ActivityRail({
   onCloseActiveSurface(): void;
   onOpenSettings(): void;
   onOpenProviders?(): void;
+  /** Opens the token-usage statistics dialog from the usage flyout header. */
+  onOpenUsageStats?(): void;
   onPrefetchSettings?(): void;
   /** Overridable only for tests; the rail warms usage through the host API. */
   usageApi?: UsageApi;
@@ -355,6 +358,9 @@ export function ActivityRail({
             hits the same store entry the rail already prewarmed. */}
         <SidebarUsage sidebarOpen api={usageApi}
           onAddProviders={() => { setUsageOpen(false); (onOpenProviders || onOpenSettings)(); }}
+          onOpenStats={onOpenUsageStats
+            ? () => { setUsageOpen(false); onOpenUsageStats(); }
+            : undefined}
           pinned={usagePinned} onTogglePin={toggleUsagePin} />
       </div>}
       {menu}

@@ -37,6 +37,27 @@ for (const [format, checks] of Object.entries(DOCUMENT_VISUAL_CHECKS)) {
   });
 }
 
+// The deck critique scores `hierarchy` and `legibility` 1-5; a page review names
+// the same checks as booleans. A score is read on its own scale, and a refusal
+// says which page and which check, instead of repeating the instructions.
+test('a page check answered as a score passes at 4, and a refusal names its reason', () => {
+  const base = { reviewed: true, reviewToken: 'current' };
+  const scored = (score) => ({
+    ...base,
+    critique: [1, 2].map((page) => ({ page, verdict: 'pass', note: `page ${page}`, hierarchy: score, legibility: score })),
+  });
+  assert.equal(reviewDocumentPages('docx', scored(4), state).acknowledged, true);
+  const low = reviewDocumentPages('docx', scored(3), state);
+  assert.equal(low.acknowledged, false);
+  assert.match(low.blockers.join(' '), /page 1: hierarchy, legibility not passed/);
+  assert.deepEqual(reviewDocumentPages('docx', { ...scored(5), reviewToken: 'old' }, state).blockers, ['reviewToken is not the current render token']);
+  assert.deepEqual(reviewDocumentPages('docx', { ...scored(5), reviewed: false }, state).blockers, ['design.reviewed is not true']);
+  const short = reviewDocumentPages('pdf', { ...base, critique: [{ page: 1, verdict: 'pass', note: 'ok' }] }, state);
+  assert.equal(short.blockers[0], '1 critique entries for 2 rendered pages');
+  assert.equal(short.blockers[1], 'page 2: no critique entry for this page');
+  assert.equal(reviewDocumentPages('docx', scored(5), state).blockers, undefined);
+});
+
 test('tabular exports do not acquire a paginated review requirement', () => {
   assert.equal(reviewDocumentPages('csv', {}, {}), null);
   assert.equal(reviewDocumentPages('tsv', {}, {}), null);

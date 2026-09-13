@@ -15,12 +15,39 @@ const WORKSHEET_SECTIONS = Object.freeze([
 ]);
 
 
+// Excel names take letters of any script, digits, underscores and periods, but
+// no spaces or punctuation, and may not start with a digit or read as a cell
+// reference. Keeping only ASCII erased 허브실적 entirely and the table was
+// silently called Table1 — the name the caller asked for, gone without a word.
 export function safeWorkbookTableName(value) {
-  const cleaned = String(value || '').replace(/[^A-Za-z0-9_]/g, '');
-  const named = /^[A-Za-z_]/.test(cleaned) ? cleaned : `Table${cleaned}`;
-  return named.slice(0, 255) || 'Table1';
+  const cleaned = String(value || '')
+    .replace(/\s+/g, '_')
+    .replace(/[^\p{L}\p{N}_.]/gu, '');
+  const named = /^[\p{L}_]/u.test(cleaned) ? cleaned : (cleaned ? `_${cleaned}` : '');
+  const bounded = named.slice(0, 255);
+  if (!bounded) return 'Table1';
+  // R, C, and anything shaped like A1 are reserved; Excel refuses the workbook.
+  return /^(?:[RrCc]|[A-Za-z]{1,3}\d{1,7})$/.test(bounded) ? `_${bounded}` : bounded;
 }
 
+
+
+// Why a name Excel refuses is refused here. A defined name is written into
+// formulas by the caller, so repairing it silently would break those formulas:
+// the rule is reported instead. Excel will not open a workbook whose defined
+// name carries a space (verified against Excel), and reads A1 or R/C as a
+// reference rather than a name.
+export function workbookDefinedNameFault(value) {
+  const name = String(value || '');
+  if (!name.trim()) return 'a name is required';
+  if (name.length > 255) return `it is ${name.length} characters; Excel allows 255`;
+  if (/\s/.test(name)) return `it contains a space; use an underscore (${name.replace(/\s+/g, '_')})`;
+  if (!/^[\p{L}_\\]/u.test(name)) return 'it must start with a letter, underscore, or backslash';
+  const offending = [...new Set([...name].filter((char) => !/[\p{L}\p{N}_.\\]/u.test(char)))];
+  if (offending.length) return `it contains ${offending.join(' ')}; use letters, digits, underscores, or periods`;
+  if (/^(?:[RrCc]|\$?[A-Za-z]{1,3}\$?\d{1,7})$/.test(name)) return 'Excel reads it as a cell reference, not a name';
+  return '';
+}
 
 
 export function worksheetSection(xml, name) {
@@ -138,6 +165,29 @@ export function appendWorksheetSection(xml, name, element) {
 
 
 
+// A scale or a bar states its own colors inside the rule: the low end, the
+// optional middle, and the high end for a scale; one bar color otherwise.
+// Excel's defaults are a red-to-green scale and a blue bar; a caller that
+// names colors gets those instead.
+export function conditionalScaleRule(kind, options = {}, priority = 1) {
+  const color = (value, fallback) => normalizeColor(value) || fallback;
+  if (kind === 'dataBar') {
+    return `<cfRule type="dataBar" priority="${priority}"><dataBar>`
+      + '<cfvo type="min"/><cfvo type="max"/>'
+      + `<color rgb="${color(options.color || options.fillColor, 'FF638EC6')}"/>`
+      + '</dataBar></cfRule>';
+  }
+  const middle = normalizeColor(options.midColor);
+  return `<cfRule type="colorScale" priority="${priority}"><colorScale>`
+    + '<cfvo type="min"/>'
+    + (middle ? '<cfvo type="percentile" val="50"/>' : '')
+    + '<cfvo type="max"/>'
+    + `<color rgb="${color(options.minColor, 'FFF8696B')}"/>`
+    + (middle ? `<color rgb="${middle}"/>` : '')
+    + `<color rgb="${color(options.maxColor, 'FF63BE7B')}"/>`
+    + '</colorScale></cfRule>';
+}
+
 export function appendDifferentialFormat(stylesXml, { color = '', fillColor = '' }) {
   const font = normalizeColor(color);
   const fill = normalizeColor(fillColor);
@@ -245,6 +295,11 @@ export function parseAreaRange(range) {
     const column = columnNumber(single.col);
     return { startCol: column, endCol: column, startRow: single.row, endRow: single.row };
   }
+  // A sheet-qualified reference is a near miss, not a malformed range: say
+  // where the sheet belongs instead of reporting the whole string as unusable.
+  if (String(range).includes('!')) {
+    throw new Error(`Range "${range}" carries a sheet name; pass the cells alone (A1:D25) and name the sheet in the operation's sheet field`);
+  }
   throw new Error(`Unsupported range: ${range}`);
 }
 
@@ -262,6 +317,157 @@ export function displayWidth(text) {
 
 
 
+// Excel prints a number through its format, so the characters a column has to
+// hold are the digits it renders plus every literal the format carries — a ₩
+// sign, a "원" suffix, the space an _) reserves. A column narrower than this
+// shows ### instead of the value, which is why both the fit audit and
+// autofit_range measure the formatted text rather than the stored number.
+const DATE_TOKENS = /(?:^|[^\\"'])[ymdhs]/i;
+
+function formatSections(code) {
+  const sections = [];
+  let current = '';
+  for (let index = 0; index < code.length; index += 1) {
+    const char = code[index];
+    if (char === '"') {
+      const close = code.indexOf('"', index + 1);
+      const end = close < 0 ? code.length : close;
+      current += code.slice(index, end + 1);
+      index = end;
+      continue;
+    }
+    if (char === '\\') {
+      current += code.slice(index, index + 2);
+      index += 1;
+      continue;
+    }
+    if (char === ';') {
+      sections.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  sections.push(current);
+  return sections;
+}
+
+// Roughly what a date format prints: each token as the characters it renders.
+function dateWidth(section) {
+  let width = 0;
+  for (const token of section.matchAll(/(y+|m+|d+|h+|s+|am\/pm|a\/p)|"([^"]*)"|\\(.)|\[[^\]]*\]|(.)/gi)) {
+    const [, repeated, quoted, escaped, other] = token;
+    if (repeated) {
+      const size = repeated.length;
+      const letter = repeated[0].toLowerCase();
+      if (letter === 'a') width += 2;
+      else if (size >= 4) width += letter === 'y' ? 4 : 9;
+      else if (size === 3) width += 3;
+      else width += 2;
+      continue;
+    }
+    if (quoted !== undefined) width += displayWidth(quoted);
+    else if (escaped !== undefined) width += displayWidth(escaped);
+    else if (other !== undefined) width += displayWidth(other);
+  }
+  return width;
+}
+
+export function formattedNumberWidth(value, format = '') {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return displayWidth(String(value ?? ''));
+  const code = String(format || '').trim();
+  if (!code || /^general$/i.test(code) || code === '@') return displayWidth(String(number));
+  const sections = formatSections(code);
+  const chosen = number < 0 ? (sections[1] ?? sections[0]) : (number === 0 ? (sections[2] ?? sections[0]) : sections[0]);
+  const section = chosen ?? '';
+  if (DATE_TOKENS.test(section.replace(/"[^"]*"/g, ''))) return dateWidth(section);
+  let literals = '';
+  let zeroPlaces = 0;
+  let decimals = 0;
+  let grouped = false;
+  let percent = 0;
+  let thousands = 0;
+  let fraction = false;
+  let seenDot = false;
+  let seenPlaceholder = false;
+  for (let index = 0; index < section.length; index += 1) {
+    const char = section[index];
+    if (char === '"') {
+      const close = section.indexOf('"', index + 1);
+      literals += section.slice(index + 1, close < 0 ? section.length : close);
+      index = close < 0 ? section.length : close;
+      continue;
+    }
+    if (char === '\\') {
+      literals += section[index + 1] ?? '';
+      index += 1;
+      continue;
+    }
+    // _x reserves the width of x; *x repeats a fill character that never
+    // widens the column.
+    if (char === '_') {
+      literals += ' ';
+      index += 1;
+      continue;
+    }
+    if (char === '*') {
+      index += 1;
+      continue;
+    }
+    if (char === '[') {
+      const close = section.indexOf(']', index + 1);
+      const body = section.slice(index + 1, close < 0 ? section.length : close);
+      // [$₩-412] carries a currency symbol; a colour or condition prints nothing.
+      if (body.startsWith('$')) literals += body.slice(1).split('-')[0];
+      index = close < 0 ? section.length : close;
+      continue;
+    }
+    if (char === '0' || char === '#' || char === '?') {
+      seenPlaceholder = true;
+      if (seenDot) decimals += 1;
+      else if (char === '0') zeroPlaces += 1;
+      continue;
+    }
+    if (char === '.') {
+      seenDot = true;
+      continue;
+    }
+    if (char === '/') {
+      fraction = true;
+      continue;
+    }
+    if (char === ',') {
+      // A comma between digit placeholders groups thousands; one after the last
+      // placeholder divides the value by a thousand per comma.
+      if (!seenDot && '0#?'.includes(section[index + 1] || '')) grouped = true;
+      else if (seenPlaceholder) thousands += 1;
+      continue;
+    }
+    if (char === '%') {
+      percent += 1;
+      literals += '%';
+      continue;
+    }
+    if (char === '@') {
+      literals += String(number);
+      continue;
+    }
+    literals += char;
+  }
+  const scaled = Math.abs(number) * (100 ** percent) / (1000 ** thousands);
+  const rounded = Number(scaled.toFixed(Math.min(20, decimals)));
+  const digits = Math.max(String(Math.trunc(rounded)).length, zeroPlaces, 1);
+  let width = digits + displayWidth(literals);
+  if (grouped && digits > 3) width += Math.floor((digits - 1) / 3);
+  if (decimals) width += decimals + 1;
+  // A fraction format prints its numerator and denominator after the integer.
+  if (fraction) width += 3;
+  // Without a section of its own, a negative value carries the sign Excel adds.
+  if (number < 0 && sections.length < 2) width += 1;
+  return width;
+}
+
 export function writeColumnWidths(xml, widths) {
   if (!widths.size) return xml;
   const entries = new Map();
@@ -276,7 +482,12 @@ export function writeColumnWidths(xml, widths) {
     }
   }
   for (const [column, width] of widths) {
-    entries.set(column, ` min="${column}" max="${column}" width="${width}" customWidth="1"`);
+    // A column declaration carries more than its width: hidden keeps a working
+    // column out of the sheet, and the outline level and style belong to it
+    // too. Replacing the declaration to fit the text put a withheld column back
+    // on the page, so the width is written onto what the column already says.
+    const previous = entries.get(column) ?? ` min="${column}" max="${column}"`;
+    entries.set(column, setXmlAttribute(setXmlAttribute(previous, 'width', width), 'customWidth', 1));
   }
   const body = [...entries.entries()]
     .sort((left, right) => left[0] - right[0])
@@ -285,6 +496,58 @@ export function writeColumnWidths(xml, widths) {
   return upsertWorksheetSection(xml, 'cols', `<cols>${body}</cols>`);
 }
 
+
+
+// What the sheet does not show: a filtered or outlined row, a working column.
+// An appearance check that measures one reports a defect no reader can see, and
+// a reader that quotes one answers with data the workbook withheld.
+export function hiddenSheetAreas(xml) {
+  const rows = new Set();
+  for (const [, attributes] of String(xml || '').matchAll(/<row\b([^>]*?)(?:\/>|>)/g)) {
+    if (!/\bhidden="(?:1|true)"/.test(attributes)) continue;
+    const row = Number(xmlAttribute(attributes, 'r')) || 0;
+    if (row > 0) rows.add(row);
+  }
+  const columns = new Set();
+  const declarations = /<cols\b[^>]*>([\s\S]*?)<\/cols>/.exec(String(xml || ''))?.[1] || '';
+  for (const [, attributes] of declarations.matchAll(/<col\b([^>]*?)\/?>/g)) {
+    if (!/\bhidden="(?:1|true)"/.test(attributes)) continue;
+    const first = Number(xmlAttribute(attributes, 'min')) || 0;
+    const last = Number(xmlAttribute(attributes, 'max')) || first;
+    if (!first) continue;
+    for (let index = first; index <= last && index - first < 2048; index += 1) columns.add(index);
+  }
+  return { rows, columns };
+}
+
+
+// A hidden column keeps its width and its values; only the sheet stops showing
+// it. The declarations are stored per range, so each target column is written
+// as its own entry rather than splitting someone else's range by hand.
+export function writeColumnVisibility(xml, columns, visible) {
+  if (!columns.length) return xml;
+  const entries = new Map();
+  const existing = worksheetSection(xml, 'cols');
+  if (existing) {
+    for (const match of existing[0].matchAll(/<col\b([^>]*?)\/>/g)) {
+      const min = Number(xmlAttribute(match[1], 'min')) || 0;
+      const max = Number(xmlAttribute(match[1], 'max')) || min;
+      for (let column = min; column >= 1 && column <= max && column - min < 2048; column += 1) {
+        entries.set(column, match[1]);
+      }
+    }
+  }
+  for (const column of columns) {
+    const attrs = (entries.get(column) || ` min="${column}" max="${column}" width="9.14" customWidth="1"`)
+      .replace(/\s*\bhidden="[^"]*"/, '');
+    entries.set(column, visible ? attrs : setXmlAttribute(attrs, 'hidden', '1'));
+  }
+  const body = [...entries.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([column, attrs]) => `<col${setXmlAttribute(setXmlAttribute(attrs, 'min', column), 'max', column)}/>`)
+    .join('');
+  return upsertWorksheetSection(xml, 'cols', `<cols>${body}</cols>`);
+}
 
 
 export function quoteSheetName(name) {

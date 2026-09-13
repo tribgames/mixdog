@@ -1786,8 +1786,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
     // Cold session lanes fill through a host-side read; the replay frame
     // arrives on the broadcast sessionState event like any live push.
-    prefetchSession: (sessionId, transcriptItemLimit) =>
-      call<boolean>('prefetchSession', [sessionId, transcriptItemLimit]),
+    prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
+      call<boolean>('prefetchSession', [
+        sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : []),
+      ]),
     setVisibleSessions: (sessionIds) => {
       lastVisibleSessionIds = [...sessionIds];
       try {

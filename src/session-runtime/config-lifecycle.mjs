@@ -18,6 +18,7 @@
 const CONFIG_SAVE_DEBOUNCE_MS = 150;
 
 import { withGrandfatheredBuiltins } from './builtin-features.mjs';
+import { createDebouncedWriter } from '../runtime/shared/debounced-writer.mjs';
 
 export function createConfigLifecycle({
   // config mutable-state injection
@@ -92,57 +93,40 @@ export function createConfigLifecycle({
     return config;
   }
 
-  // --- debounced config save --------------------------------------------------
-  // Coexistence strategy (sync vs async flush):
-  //  * The debounce TIMER fires the ASYNC flush (async lock wait + async icacls
-  //    + async backup + async atomic write) so a toggle never blocks the UI
-  //    event loop.
-  //  * Per-channel serialization: each channel keeps ONE in-flight promise tail;
-  //    a new async flush chains after it so flushes never interleave. The pending
-  //    payload is re-read at write time (identity guard), so a burst collapses to
-  //    the last writer without dropping a newer toggle.
-  //  * The SYNC flush is retained for reloadFullConfig/teardown (they need the
-  //    write durable before continuing). It nulls the pending payload and writes
-  //    synchronously; that sync write takes the SAME cross-process lock file as
-  //    any in-flight async write, so it serializes AFTER it (lock contention),
-  //    and the async loop's identity guard then finds a null/superseded payload
-  //    and does not rewrite — never a revert, and no double-write except a rare
-  //    idempotent same-content window if a sync flush lands mid async disk-write.
-  let pendingConfigToSave = null;
-  let configSaveTimer = null;
+  // Synchronous reload remains a synchronous API. It may flush an idle writer,
+  // but must retain its in-memory overlay while an asynchronous write is active.
+  const configWriter = createDebouncedWriter({
+    delayMs: CONFIG_SAVE_DEBOUNCE_MS,
+    write: (snapshot) => cfgMod.saveConfigAsync(snapshot),
+    onError: (error, sync) => process.stderr.write(
+      `[config] ${sync ? 'debounced' : 'async'} saveConfig failed: ${error?.message || error}\n`,
+    ),
+  });
+  const skillsWriter = createDebouncedWriter({
+    delayMs: CONFIG_SAVE_DEBOUNCE_MS,
+    write: (names) => cfgMod.patchSkillsDisabledAsync(names),
+    onError: (error, sync) => process.stderr.write(
+      `[config] ${sync ? 'debounced' : 'async'} patchSkillsDisabled failed: ${error?.message || error}\n`,
+    ),
+  });
+  const outputStyleWriter = createDebouncedWriter({
+    delayMs: CONFIG_SAVE_DEBOUNCE_MS,
+    write: (styleId) => sharedCfgMod.updateConfigAsync(outputStyleUpdater(styleId)),
+    onError: (error) => process.stderr.write(`[config] async outputStyle save failed: ${error?.message || error}\n`),
+  });
   let configFlushInFlight = null;
 
   async function runConfigFlushAsync() {
-    // Drain config, then skills, and RE-CHECK config. A config snapshot queued
-    // after the skills patch may carry a stale snapshot.skills (the snapshot
-    // captured an older config object ref, before the skills toggle replaced it)
-    // that would overwrite the just-patched skills.disabled. Looping until BOTH
-    // channels are quiescent keeps the skills patch the last writer relative to
-    // EVERY pending/queued config snapshot.
+    // Whole-config snapshots precede the more specific skills.disabled patch.
     do {
-      let configFailed = false;
-      while (pendingConfigToSave !== null) {
-        const snapshot = pendingConfigToSave;
-        try {
-          await cfgMod.saveConfigAsync(snapshot);
-        } catch (err) {
-          process.stderr.write(`[config] async saveConfig failed: ${err?.message || err}\n`);
-          // Keep the payload: a failed write must not drop the pending change.
-          configFailed = true;
-          break;
-        }
-        if (pendingConfigToSave === snapshot) pendingConfigToSave = null;
-      }
-      // Ordering invariant: skills.disabled patch lands AFTER the config save.
-      await flushSkillsSaveAsync();
-      if (configFailed) break; // avoid a hot spin on a persistently failing write
-    } while (pendingConfigToSave !== null);
+      if (!await configWriter.flush()) break;
+      await skillsWriter.flush();
+    } while (configWriter.hasPending());
   }
 
   function flushConfigSaveAsync() {
-    if (configSaveTimer) { clearTimeout(configSaveTimer); configSaveTimer = null; }
-    const start = () => runConfigFlushAsync();
-    const p = configFlushInFlight ? configFlushInFlight.then(start, start) : start();
+    if (configFlushInFlight) return configFlushInFlight;
+    const p = runConfigFlushAsync();
     configFlushInFlight = p;
     const clear = () => { if (configFlushInFlight === p) configFlushInFlight = null; };
     p.then(clear, clear);
@@ -150,32 +134,9 @@ export function createConfigLifecycle({
   }
 
   function flushConfigSave() {
-    if (configSaveTimer) {
-      clearTimeout(configSaveTimer);
-      configSaveTimer = null;
+    if (configWriter.flushSyncIfIdle((snapshot) => cfgMod.saveConfig(snapshot))) {
+      skillsWriter.flushSyncIfIdle((names) => cfgMod.patchSkillsDisabled(names));
     }
-    if (pendingConfigToSave !== null) {
-      const snapshot = pendingConfigToSave;
-      try {
-        cfgMod.saveConfig(snapshot);
-        // Clear ONLY after a durable write. saveConfig blocks on the same
-        // cross-process lock an async flush may hold, so it serializes after it;
-        // if it still fails (e.g. lock timeout) we keep the payload so a later
-        // flush / reloadFullConfig retries instead of reverting to stale disk.
-        if (pendingConfigToSave === snapshot) pendingConfigToSave = null;
-      } catch (err) {
-        process.stderr.write(`[config] debounced saveConfig failed: ${err?.message || err}\n`);
-      }
-    }
-    // Config-save flush points (reloadFullConfig re-read, runtime teardown) are
-    // exactly where a pending skills.disabled patch must also land, so piggyback
-    // the skills flush here — AFTER saveConfig: the whole-section snapshot may
-    // predate the latest skills toggle (stale snapshot.skills), so the in-lock
-    // skills patch must be the last writer. When the snapshot is newer than the
-    // toggle it already carries the same skills value, so the order is always
-    // safe. Runs even when no config snapshot is pending (early return above
-    // must not skip it).
-    flushSkillsSave();
   }
 
   function saveConfigAndAdopt(nextConfig, { hasSecrets = getConfigHasSecrets() } = {}) {
@@ -184,71 +145,13 @@ export function createConfigLifecycle({
     const adopted = adoptConfig(nextConfig, { hasSecrets });
     // Persist the adopted object; coalesce rapid successive changes into one
     // disk write after CONFIG_SAVE_DEBOUNCE_MS of quiet.
-    pendingConfigToSave = getConfig();
-    if (configSaveTimer) clearTimeout(configSaveTimer);
-    configSaveTimer = setTimeout(() => { flushConfigSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
-    configSaveTimer.unref?.();
+    configWriter.schedule(getConfig(), flushConfigSaveAsync);
     return adopted;
   }
 
-  // --- debounced skills.disabled persist -------------------------------------
-  // In-memory skills state is adopted synchronously by setDisabledSkills; the
-  // heavy in-lock file RMW (cfgMod.patchSkillsDisabled) is deferred here so a
-  // burst of settings-toggle key presses collapses into one disk write.
-  let pendingSkillsNames = null;
-  let skillsSaveTimer = null;
-  let skillsFlushInFlight = null;
-
-  async function runSkillsFlushAsync() {
-    while (pendingSkillsNames !== null) {
-      const names = pendingSkillsNames;
-      try {
-        await cfgMod.patchSkillsDisabledAsync(names);
-      } catch (err) {
-        process.stderr.write(`[config] async patchSkillsDisabled failed: ${err?.message || err}\n`);
-        if (pendingSkillsNames === names) pendingSkillsNames = null;
-        break;
-      }
-      if (pendingSkillsNames === names) pendingSkillsNames = null;
-    }
-  }
-
-  function flushSkillsSaveAsync() {
-    if (skillsSaveTimer) { clearTimeout(skillsSaveTimer); skillsSaveTimer = null; }
-    const start = () => runSkillsFlushAsync();
-    const p = skillsFlushInFlight ? skillsFlushInFlight.then(start, start) : start();
-    skillsFlushInFlight = p;
-    const clear = () => { if (skillsFlushInFlight === p) skillsFlushInFlight = null; };
-    p.then(clear, clear);
-    return p;
-  }
-
-  function flushSkillsSave() {
-    if (skillsSaveTimer) {
-      clearTimeout(skillsSaveTimer);
-      skillsSaveTimer = null;
-    }
-    if (pendingSkillsNames === null) return;
-    const names = pendingSkillsNames;
-    pendingSkillsNames = null;
-    try {
-      cfgMod.patchSkillsDisabled(names);
-    } catch (err) {
-      process.stderr.write(`[config] debounced patchSkillsDisabled failed: ${err?.message || err}\n`);
-    }
-  }
-
   function scheduleSkillsSave(names) {
-    pendingSkillsNames = names;
-    if (skillsSaveTimer) clearTimeout(skillsSaveTimer);
-    skillsSaveTimer = setTimeout(() => { flushSkillsSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
-    skillsSaveTimer.unref?.();
+    skillsWriter.schedule(names, flushConfigSaveAsync);
   }
-
-  // --- debounced top-level outputStyle persist -------------------------------
-  let pendingOutputStyleId = null;
-  let outputStyleSaveTimer = null;
-  let outputStyleFlushInFlight = null;
 
   function outputStyleUpdater(styleId) {
     return (root) => {
@@ -262,30 +165,6 @@ export function createConfigLifecycle({
     };
   }
 
-  async function runOutputStyleFlushAsync() {
-    while (pendingOutputStyleId !== null) {
-      const styleId = pendingOutputStyleId;
-      try {
-        await sharedCfgMod.updateConfigAsync(outputStyleUpdater(styleId));
-      } catch (err) {
-        process.stderr.write(`[config] async outputStyle save failed: ${err?.message || err}\n`);
-        if (pendingOutputStyleId === styleId) pendingOutputStyleId = null;
-        break;
-      }
-      if (pendingOutputStyleId === styleId) pendingOutputStyleId = null;
-    }
-  }
-
-  function flushOutputStyleSaveAsync() {
-    if (outputStyleSaveTimer) { clearTimeout(outputStyleSaveTimer); outputStyleSaveTimer = null; }
-    const start = () => runOutputStyleFlushAsync();
-    const p = outputStyleFlushInFlight ? outputStyleFlushInFlight.then(start, start) : start();
-    outputStyleFlushInFlight = p;
-    const clear = () => { if (outputStyleFlushInFlight === p) outputStyleFlushInFlight = null; };
-    p.then(clear, clear);
-    return p;
-  }
-
   // Teardown barrier for every in-process writer that can hold the shared
   // mixdog-config lock. Start/drain all debounce channels through their async
   // variants, then resolve only when every promise tail (including skills,
@@ -293,33 +172,15 @@ export function createConfigLifecycle({
   async function flushAllConfigSavesAsync() {
     await Promise.all([
       flushConfigSaveAsync(),
-      flushOutputStyleSaveAsync(),
+      outputStyleWriter.flush(),
     ]);
     // The shared config layer also tracks writes started directly by channel,
     // webhook, voice, and future async RMW callers.
     await sharedCfgMod.pendingConfigWrites();
   }
 
-  function flushOutputStyleSave() {
-    if (outputStyleSaveTimer) {
-      clearTimeout(outputStyleSaveTimer);
-      outputStyleSaveTimer = null;
-    }
-    if (pendingOutputStyleId === null) return;
-    const styleId = pendingOutputStyleId;
-    pendingOutputStyleId = null;
-    try {
-      sharedCfgMod.updateConfig(outputStyleUpdater(styleId));
-    } catch (err) {
-      process.stderr.write(`[config] debounced outputStyle save failed: ${err?.message || err}\n`);
-    }
-  }
-
   function scheduleOutputStyleSave(styleId) {
-    pendingOutputStyleId = styleId;
-    if (outputStyleSaveTimer) clearTimeout(outputStyleSaveTimer);
-    outputStyleSaveTimer = setTimeout(() => { flushOutputStyleSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
-    outputStyleSaveTimer.unref?.();
+    outputStyleWriter.schedule(styleId);
   }
 
   // --- reload / ensure --------------------------------------------------------
@@ -330,7 +191,8 @@ export function createConfigLifecycle({
     // on-disk snapshot.
     flushConfigSave();
     const loaded = cfgMod.loadConfig();
-    if (pendingConfigToSave !== null) {
+    let next = loaded;
+    if (configWriter.hasPending()) {
       // The debounced write could not land (e.g. lock timeout), so on-disk is
       // stale. Prefer the freshest in-memory state and re-overlay the keychain
       // provider secrets that only the disk load carries, so a failed flush
@@ -350,9 +212,13 @@ export function createConfigLifecycle({
           };
         }
       }
-      return adoptConfig(merged, { hasSecrets: true });
+      next = merged;
     }
-    return adoptConfig(loaded, { hasSecrets: true });
+    const pendingSkills = skillsWriter.getPending();
+    if (pendingSkills !== null) {
+      next = { ...next, skills: { ...(next.skills || {}), disabled: pendingSkills } };
+    }
+    return adoptConfig(next, { hasSecrets: true });
   }
 
   function ensureFullConfig() {
@@ -382,13 +248,9 @@ export function createConfigLifecycle({
     // adopt / save
     adoptConfig,
     saveConfigAndAdopt,
-    flushConfigSave,
-    // Every lifecycle flush uses the async lock path. A synchronous waiter on
-    // the same lock would block the event loop needed by an in-flight async
-    // writer, so callers must await this before a dependent read/start.
-    flushSkillsSave,
+    // Skills publication also drains older whole-config snapshots first.
+    flushSkillsSave: flushConfigSaveAsync,
     scheduleSkillsSave,
-    flushOutputStyleSave,
     scheduleOutputStyleSave,
     flushAllConfigSavesAsync,
     // reload / ensure

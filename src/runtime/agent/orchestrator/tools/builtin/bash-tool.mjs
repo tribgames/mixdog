@@ -121,7 +121,7 @@ import {
 } from './shell-output.mjs';
 import {
     compactShellOutputLosslessly,
-    renderLosslessRecoveryHint,
+    renderShellOutputBody,
 } from './shell-lossless-compact.mjs';
 import { normalizeOutputPath } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
@@ -281,7 +281,7 @@ export function _shellFailureStatus(result, timeout) {
     const causeDetail = killCause ? ` cause: ${killCause}` : '';
     const signalDetail = signal ? ` signal: ${signal}` : '';
     const timeoutHint = result.timedOut
-        ? ` — command killed after ${timeout} ms; if it legitimately needs longer, retry with a larger timeout`
+        ? ` — command killed after ${timeout} ms; partial effects may remain`
         : '';
     const statusDetail = shellToolFailed
         ? `[${result.outputCaptureError ? 'output capture failed' : (result.failureReason || 'tool failed')}${causeDetail}${signalDetail}]`
@@ -868,17 +868,14 @@ export async function executeBashTool(args, workDir, options = {}) {
             hasExistingRecovery: Boolean(result.stdoutPath || result.stderrPath),
             sessionId: options?.sessionId,
             toolCallId: options?.toolCallId,
+            resultTelemetry: options?.resultTelemetry,
         });
         const visibleStdout = losslessCompaction?.stdout ?? stdout;
         const visibleStderr = losslessCompaction?.stderr ?? stderr;
-        const compactHint = renderLosslessRecoveryHint(losslessCompaction, normalizeOutputPath);
         // stdout and stderr are captured on separate fds and pasted as one
         // body. Without a boundary a stdout tail with no trailing newline
         // glued itself onto the first stderr line and corrupted both.
-        const streamGap = visibleStdout && visibleStderr && !visibleStdout.endsWith('\n') ? '\n' : '';
-        const body = `${visibleStdout}${streamGap}${visibleStderr}` || '(no output)';
-        const compactBlock = compactHint ? `\n\n${compactHint}` : '';
-        const payload = `${body}${compactBlock}${_rescueNote}`;
+        const payload = `${renderShellOutputBody(visibleStdout, visibleStderr, losslessCompaction)}${_rescueNote}`;
         // warningBlock states that the text which RAN is not the text the
         // caller sent (wmic → Get-CimInstance). It reached neither shape while
         // the merged branch short-circuited above, so it now rides both.

@@ -4,7 +4,6 @@ import { trueCasePath } from './path-utils.mjs';
 import {
     canonicalizeGlobSlashes,
     coerceReadFamilyPathArg,
-    coerceShapeFlex,
     extractGlobBaseDirectory,
     GREP_AUTO_CONTEXT_LINES,
     hasGlobMagic,
@@ -18,12 +17,10 @@ import {
     basePathDiagnostic,
     buildNotFoundHint,
     finalizeReadFamilyEnoentTail,
-    tryReadFamilyEnoentRedirect,
     isUncOrSmbPath,
     relativePathPrefix,
     relativeSearchResultPath,
     resolveSearchScope,
-    stripEmbeddedPathQuotes,
     uncRefusalMessage,
 } from './search-path-diagnostics.mjs';
 // Facade re-export: path-diagnostic helpers moved to search-path-diagnostics.mjs;
@@ -36,7 +33,6 @@ export {
     relativePathPrefix,
     relativeSearchResultPath,
     resolveSearchScope,
-    stripEmbeddedPathQuotes,
     uncRefusalMessage,
 } from './search-path-diagnostics.mjs';
 import {
@@ -54,11 +50,8 @@ import {
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from './arg-guard.mjs';
 import {
-    expandLegacyEscapedAlternationPattern,
     uniqueStrings,
-    isRgRegexParseError,
     coerceNonNegInt,
-    splitGlobString,
     isRedundantAllFilesGlob,
     parseGrepCountLine,
 } from './lib/search-input-helpers.mjs';
@@ -68,16 +61,10 @@ import { statReachable } from './fs-reachability.mjs';
 import { runGrepPathFanout } from './lib/grep-path-fanout.mjs';
 import { runGrepPatternFanout } from './lib/grep-pattern-fanout.mjs';
 import { runGrepChunkMerge } from './lib/grep-chunk-merge.mjs';
-import { runGrepFixedStringFallback } from './lib/grep-fixed-fallback.mjs';
 import {
     MAX_RESCUE_BYTES as GREP_RESCUE_MAX_BYTES,
     runGrepSingleFileRescue,
 } from './lib/grep-single-file-rescue.mjs';
-
-// A single glob string may pack multiple filters
-// separated by whitespace or commas, e.g. "*.ts,*.tsx" or "*.ts *.tsx". Split
-// each into its own --glob. Brace patterns ("*.{ts,tsx}") are left intact so
-// their internal commas are not torn apart.
 
 // Grep output rendering (context-block windowing, fan-out dedupe, notices)
 // lives in lib/grep-output.mjs.
@@ -134,13 +121,11 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     // Lead-direct MCP path and direct executeGrepTool callers on the same
     // policy even if they bypass or race the outer builtin arg guard.
     applyGrepContextLeadPolicy(args);
-    args.path = stripEmbeddedPathQuotes(normalizeInputPath(args.path));
-    args.pattern = coerceShapeFlex(args.pattern);
-    args.glob = coerceShapeFlex(args.glob);
+    args.path = normalizeInputPath(args.path);
     const rawPattern = args.pattern;
     const rawPatterns = Array.isArray(rawPattern)
         ? rawPattern.filter(p => typeof p === 'string' && p)
-        : (rawPattern ? (expandLegacyEscapedAlternationPattern(String(rawPattern)) || [String(rawPattern)]) : []);
+        : (rawPattern ? [String(rawPattern)] : []);
     let patterns = uniqueStrings(rawPatterns.map(normalizeSearchPattern));
     const GREP_PATTERN_ARRAY_CAP = 10;
     let patternCapNote = '';
@@ -200,7 +185,6 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     const rawGlobs = uniqueStrings((Array.isArray(rawGlob)
         ? rawGlob.filter(g => typeof g === 'string' && g)
         : (rawGlob ? [String(rawGlob)] : []))
-        .flatMap(splitGlobString)
         .map(normalizeInputPath));
     if (hasGlobMagic(searchPath)) {
         // Literal-first: {slug}.md and [id].tsx are REAL filenames in web
@@ -399,6 +383,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     const forceGrepFilename = !!options._grepChunkMerge || !!options._grepPatternFanout;
     const cacheKey = buildGrepCacheKey({
         patterns,
+        includeNoise: args.include_noise === true,
+        text: args.text === true,
         searchPath: normalizeOutputPath(grepResolvedPath),
         globPatterns: normalizedGlobPatterns,
         outputMode,
@@ -445,45 +431,6 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     try { grepStat = await statReachable(grepResolvedPath); }
     catch (err) {
         const enoentCache = {};
-        const redirected = await tryReadFamilyEnoentRedirect({
-            workDir,
-            resolvedPath: grepResolvedPath,
-            requestedPath: searchPath,
-            errCode: err?.code,
-            options,
-            cache: enoentCache,
-            rerun: (target, opts) => executeGrepTool(
-                { ...args, path: target },
-                workDir,
-                executeChildBuiltinTool,
-                readStateScope,
-                opts,
-            ),
-        });
-        if (redirected) return redirected;
-        // Guessed-scope fallback: a RELATIVE single-segment scope ("test",
-        // "docs") with no redirect candidate is a guessed directory name.
-        // Search the project root instead of erroring — the notice keeps the
-        // remap visible. Absolute and multi-segment paths keep the error+hint
-        // contract (a wrong deep path usually flags a wrong assumption).
-        const rawScope = String(searchPath || '');
-        if (!options?._grepRootFallback
-            && (err?.code === 'ENOENT' || err?.code === 'ENOTDIR')
-            && rawScope
-            && rawScope !== '.'
-            && !isAbsolute(rawScope)
-            && !/[\\/:]/.test(rawScope)) {
-            const body = await executeGrepTool(
-                { ...args, path: '.' },
-                workDir,
-                executeChildBuiltinTool,
-                readStateScope,
-                { ...options, _grepRootFallback: true },
-            );
-            if (typeof body === 'string' && !/^\s*Error[\s:[]/i.test(body)) {
-                return `[notice] path "${rawScope}" does not exist — searched the project root instead.\n${body}`;
-            }
-        }
         const msg = `Error: path does not exist: ${normalizeOutputPath(grepResolvedPath)} (${err?.code || 'ENOENT'})`;
         let hint = buildNotFoundHint(workDir, grepResolvedPath, 'Search', err?.code, enoentCache);
         if (!hint) hint = await _suggestIndexedPaths(grepResolvedPath, executeChildBuiltinTool, workDir);
@@ -528,6 +475,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         try {
             const probeArgs = buildGrepRgArgs({
                 patterns,
+                includeNoise: args.include_noise === true,
+                text: args.text === true,
                 searchPath,
                 globPatterns: normalizedGlobPatterns,
                 outputMode: 'files_with_matches',
@@ -577,6 +526,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             : headLimit;
         const rgArgs = buildGrepRgArgs({
             patterns,
+            includeNoise: args.include_noise === true,
+            text: args.text === true,
             searchPath,
             globPatterns: normalizedGlobPatterns,
             outputMode,
@@ -608,6 +559,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             if (adaptiveContextMode) {
                 const anchorArgs = buildGrepRgArgs({
                     patterns,
+                    includeNoise: args.include_noise === true,
+                    text: args.text === true,
                     searchPath,
                     globPatterns: normalizedGlobPatterns,
                     outputMode,
@@ -894,35 +847,6 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 grepResolvedPath,
                 patternCapNote,
                 globPatterns: normalizedGlobPatterns,
-            });
-            if (rescued !== null) return rescued;
-        }
-        if (isRgRegexParseError(err) && !multilineMode) {
-            // Fixed-string rescue lives in lib/grep-fixed-fallback.mjs;
-            // null falls through to the original rg error below.
-            const rescued = await runGrepFixedStringFallback({
-                args,
-                patterns,
-                patternCapNote,
-                searchPath,
-                grepResolvedPath,
-                workDir,
-                normalizedGlobPatterns,
-                outputMode,
-                caseInsensitive,
-                showLineNumbers,
-                beforeN,
-                afterN,
-                contextN,
-                fileType,
-                forceGrepFilename,
-                filenameOmitted,
-                scopedCandidateFiles,
-                headLimit,
-                offset,
-                contentHardCap: GREP_CONTENT_HARD_CAP,
-                rgSpawnCwd,
-                signal: sharedSignal,
             });
             if (rescued !== null) return rescued;
         }

@@ -604,6 +604,16 @@ export async function runHeadlessExec({
       } catch (error) {
         errors.push(error);
       }
+      try {
+        if (boundary) {
+          // Explicit CLI exit cannot finish an asynchronous append. Drain both
+          // in-flight and queued rows before services or the runtime root go away.
+          const { drainAgentTrace } = await import('./runtime/agent/orchestrator/agent-trace.mjs');
+          await drainAgentTrace();
+        }
+      } catch (error) {
+        errors.push(error);
+      }
       let resourceCleanupFailed = false;
       if (boundary?.runtimeRoot) {
         try {

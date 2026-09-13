@@ -1,7 +1,7 @@
 import { presentationSlides, renumberPresentationSlides } from './portable-pptx-package.mjs';
 import { resolvePptxTargets } from './pptx-targets.mjs';
 import { handleAddChart, handleSetChartAxis, handleSetChartData, handleSetChartDataLabels, handleSetChartSeries, handleSetChartTrendlineOrSetChartErrorBars } from './portable-pptx-charts.mjs';
-import { handleAddCommentOrDeleteComment, handleAddProvenance, handleAddSlide, handleApplyTheme, handleDeleteSlide, handleDuplicateSlide, handleFillTemplate, handleImportSlides, handleKeepSlides, handleMoveSlide, handleReplaceText, handleSetFooterOrSetSlideNumber, handleSetLayout, handleSetNotes, handleSetSlideBackground, handleSetTransition } from './portable-pptx-deck.mjs';
+import { handleAddCommentOrDeleteComment, handleAddProvenance, handleAddSlide, handleApplyTheme, handleDeleteSlide, handleDuplicateSlide, handleFillTemplate, handleImportSlides, handleKeepSlides, handleMoveSlide, handleReplaceText, handleSetFooterOrSetSlideNumber, handleSetLayout, handleSetNotes, handleSetSlideBackground, handleSetSlideVisibility, handleSetTransition } from './portable-pptx-deck.mjs';
 import { handleAddAnimation, handleAddImage, handleAddMedia, handleAddTable, handleAddTextboxOrAddShape, handleAlignShapesOrDistributeShapes, handleCropImage, handleDeleteShape, handleFitText, handleGroupShapesOrUngroupShape, handleSetHyperlink, handleSetShape, handleSetTableDataOrReplaceImage, handleSetText, handleZOrder } from './portable-pptx-shapes.mjs';
 export { inspectPptxTextBoxes } from './portable-pptx-core.mjs';
 
@@ -49,6 +49,7 @@ const PPTX_OPERATIONS = Object.freeze({
   crop_image: handleCropImage,
   add_animation: handleAddAnimation,
   set_transition: handleSetTransition,
+  set_slide_visibility: handleSetSlideVisibility,
   set_shape: handleSetShape,
 });
 

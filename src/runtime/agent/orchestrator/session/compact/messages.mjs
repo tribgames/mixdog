@@ -39,12 +39,18 @@ export function isSummaryMessage(m) {
 
 export function isProtectedContextUserMessage(m) {
     if (m?.role !== 'user' || typeof m.content !== 'string') return false;
-    const content = m.content.trim();
+    let content = m.content.trim();
     if (!content.toLowerCase().startsWith('<system-reminder>')) return false;
     const closingTag = '</system-reminder>';
-    const closingIndex = content.toLowerCase().indexOf(closingTag);
-    return closingIndex < 0
-        || content.slice(closingIndex + closingTag.length).trim() === '';
+    // A runtime turn may carry several reminders (Goal, clock, tool delta).
+    // Only text outside those envelopes is a human instruction. Keep this
+    // compatible with stored turns that predate explicit source metadata.
+    while (content.toLowerCase().startsWith('<system-reminder>')) {
+        const closingIndex = content.toLowerCase().indexOf(closingTag);
+        if (closingIndex < 0) return true;
+        content = content.slice(closingIndex + closingTag.length).trim();
+    }
+    return content === '';
 }
 
 // An injected Skill-body user message (the general newMessages channel carries
@@ -62,6 +68,9 @@ export function isInjectedSkillBodyMessage(m) {
 }
 
 const SYNTHETIC_USER_SOURCES = new Set([
+    'goal-continuation',
+    'goal-closeout',
+    'compact-context',
     'compact-active-turn-continuation',
     'compact-execution-recovery',
     'max-output-recovery',

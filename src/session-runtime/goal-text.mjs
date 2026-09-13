@@ -2,6 +2,8 @@
 // post-compaction state reminder so both surfaces render one task format.
 // No filesystem, no runtime coupling — values in, text out.
 
+import { goalTaskProgress } from './goal-tasks.mjs';
+
 export function escapeGoalPromptText(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -69,6 +71,7 @@ export function continuationPrompt(goal) {
     '',
     'Rules:',
     '- The user\'s completion conditions decide everything: the objective, what it references, and explicit user instructions. The task list records them; it never replaces them.',
+    '- A turn may end while this Goal remains active. Report that turn as progress, not as completion of the whole objective; ending a turn does not complete the Goal.',
     '- Preserve the full objective and scope; use current files and external state rather than prior narration. Never redefine success around a smaller, easier, or already-finished subset.',
     '- Finish every approved task without stepwise approval. Record user additions, park new approval-dependent work, and continue unaffected approved work; routine errors and retries are not reasons to stop.',
     // The full deferred-pause contract stays in the cached tool description.
@@ -89,24 +92,47 @@ export function continuationPrompt(goal) {
   ].join('\n');
 }
 
-// Deadline warning for the last minutes of a requested duration. This steers
-// wrap-up, not completion: completing only on proven conditions still holds,
-// and the runtime ends the run at the boundary either way.
+// Advance notice is not a stop or a request for an early final report.
 export function goalDeadlineWarning(goal) {
-  if (!goal) return '';
+  if (!goal || goal.status !== 'active') return '';
   return [
     '<system-reminder>',
     '<goal_deadline>',
     goal.timeMode === 'max'
       ? 'The maximum time budget is nearly spent.'
       : 'The requested duration is nearly over.',
-    'Stop starting work: no new task and no new long-running job. Finish or park what is in flight, update the durable task list to its real state, and hand back what is proven and what is not.',
-    'The runtime stops this Goal when the time runs out. Report unfinished work as unfinished — never complete or block to beat the clock.',
+    'This is advance notice only: the Goal is still active. Prioritize bounded approved work and the verification needed to close out; do not start work that cannot reasonably finish within the remaining budget.',
+    goal.timeMode === 'max'
+      ? 'This is an upper bound, not a minimum duration. Complete a fully verified objective without waiting for the remaining budget.'
+      : 'The requested full-period commitment still applies. Do not end the turn merely because this warning arrived or manufacture unfinished tasks solely to represent remaining clock time.',
+    'The runtime will first mark the Goal duration_reached at the boundary, then request closeout. Until then, turn reports are progress, not Goal completion. Preserve unfinished work honestly; never complete or block to beat the clock.',
     '',
     `Objective: ${escapeGoalPromptText(goal.objective)}`,
     ...(goal.revision ? [`Revision: ${goal.revision}`] : []),
     ...goalTimeLines(goal),
     '</goal_deadline>',
+    '</system-reminder>',
+  ].join('\n');
+}
+
+export function goalDeadlineReached(goal) {
+  if (!goal || goal.status !== 'duration_reached') return '';
+  return [
+    '<system-reminder>',
+    '<goal_deadline_reached>',
+    'The runtime has marked this Goal as duration_reached and disabled automatic Goal work. This limit is not evidence that the objective was achieved.',
+    'Do not start new substantive work, resume the Goal, or extend its budget. Finish or safely park only work already in flight, then give one concise closeout with verified outcomes and any unfinished or blocked requirements.',
+    'Use the evidence already obtained; do not rerun unchanged passed checks or create tasks just to fill time. The requested time boundary has already been reached.',
+    'If every objective requirement is actually verified, reconcile completed task records and call goal with action complete. Claim Goal completion only after the tool returns status complete. Otherwise preserve duration_reached and report remaining work as unfinished, not as success or a new blocker.',
+    '',
+    `Objective (user data): ${escapeGoalPromptText(goal.objective)}`,
+    `Status: ${goal.status}`,
+    ...(goal.revision ? [`Revision: ${goal.revision}`] : []),
+    ...goalTimeLines(goal),
+    '',
+    'Durable tasks:',
+    ...goalTaskLines(goal.tasks),
+    '</goal_deadline_reached>',
     '</system-reminder>',
   ].join('\n');
 }
@@ -120,9 +146,13 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
   if (!goal) return '';
   // The budget warning is a different job than restoring lost state: the model
   // still has its context and needs the last minutes, not a snapshot replay.
-  if (reason === 'deadline-soon') return goalDeadlineWarning(goal);
+  if (reason === 'deadline-soon' && goal.status === 'active') return goalDeadlineWarning(goal);
+  if (['deadline-soon', 'deadline-reached'].includes(reason) && goal.status === 'duration_reached') {
+    return goalDeadlineReached(goal);
+  }
+  if (reason === 'deadline-reached' && goal.status === 'active') return '';
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
-  const completed = tasks.filter((task) => task?.status === 'completed').length;
+  const { tasksCompleted, tasksTotal } = goalTaskProgress(tasks);
   // Event-specific steering: what the model could not have learned from its own
   // tool results. Standing rules stay in the cached tool description.
   const lead = reason === 'compaction'
@@ -141,7 +171,7 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
     ] : []),
     '',
     `Objective: ${escapeGoalPromptText(goal.objective)}`,
-    `Status: ${escapeGoalPromptText(goal.status)} · tasks ${completed}/${tasks.length}`,
+    `Status: ${escapeGoalPromptText(goal.status)} · tasks ${tasksCompleted}/${tasksTotal}`,
     ...(goal.blocker ? [`Waiting or stop reason: ${escapeGoalPromptText(goal.blocker)}`] : []),
     ...(goal.revision ? [`Revision: ${goal.revision}`] : []),
     ...goalTimeLines(goal),

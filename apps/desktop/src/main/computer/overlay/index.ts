@@ -44,6 +44,7 @@ export function createComputerUseOverlay(
   /** One overlay window per display, keyed by Electron display id. */
   const windows = new Map<number, OverlayWindowEntry>();
   const creatingWindows = new Map<number, Promise<BrowserWindow>>();
+  const rendererCrashes = new Map<number, number>();
   let disposed = false;
   let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
   let latestPresentation = computerUseOverlayPresentation(latestSnapshot, locale);
@@ -97,6 +98,12 @@ export function createComputerUseOverlay(
     }
     next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     next.webContents.on('will-navigate', (event) => event.preventDefault());
+    next.webContents.on('render-process-gone', () => {
+      if (disposed) return;
+      rendererCrashes.set(display.id, (rendererCrashes.get(display.id) || 0) + 1);
+      if (!next.isDestroyed()) next.destroy();
+      void controller.invoke('pause', latestPresentation.generation, latestPresentation.sessionIds);
+    });
     bindComputerOverlayControls(next.webContents, controller, controls, () => latestPresentation);
     next.on('closed', () => {
       unregisterInternalWindow();
@@ -119,6 +126,11 @@ export function createComputerUseOverlay(
   };
 
   const ensureWindowForDisplay = async (display: Display): Promise<BrowserWindow> => {
+    // Recover controls once while paused. Repeated renderer failure must not
+    // spawn an automatic crash loop; a subsequent user resume can try again.
+    if ((rendererCrashes.get(display.id) || 0) > 1) {
+      throw new Error('computer_control_surface_unavailable: overlay renderer repeatedly exited');
+    }
     const existing = windows.get(display.id);
     if (existing && !existing.window.isDestroyed()) return existing.window;
     const pending = creatingWindows.get(display.id);
@@ -209,6 +221,7 @@ export function createComputerUseOverlay(
   };
 
   const unsubscribe = computerUseCoordinator.subscribe((snapshot) => {
+    if (latestSnapshot.userControlActive && !snapshot.userControlActive) rendererCrashes.clear();
     latestSnapshot = snapshot;
     void render().catch(() => {});
   });

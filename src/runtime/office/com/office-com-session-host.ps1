@@ -460,6 +460,11 @@ function Create-OwnedDocument($app, [string]$format, [string]$path, [bool]$visib
   switch ($format) {
     'docx' {
       $document = $app.Documents.Add()
+      # A Hangul word stays whole at the line end: Korean Word's Normal style
+      # ships with WordWrap off ("한글 단어 잘림 허용") and breaks 내려갔다 as
+      # 내려/갔다 at the margin; WordWrap on wraps by word (verified in Word
+      # 2026-09-12). The portable template writes the same default.
+      try { $document.Styles.Item(-1).ParagraphFormat.WordWrap = $true } catch {}
       try { $document.SaveAs2($path, $saveFormat) } catch { $document.SaveAs($path, $saveFormat) }
     }
     'xlsx' {

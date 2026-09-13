@@ -1,11 +1,13 @@
 import { basename, join, posix } from 'node:path';
-import { booleanXmlAttribute, cellRecords, formulaReferences, sharedStrings, workbookCalculation, workbookSheets } from './portable-cells.mjs';
+import { booleanXmlAttribute, cellRecords, columnLabel, formulaReferences, sharedStrings, sheetFormulaTotals, workbookCalculation, workbookSheets } from './portable-cells.mjs';
 import { loadPackage, partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
-import { blockText, containerInner, paragraphTexts, textNodes, topLevelElements, xmlDecode } from './portable-xml.mjs';
+import { TRAILING_SECTION_PATTERN, blockText, containerInner, paragraphTexts, settingsTrackChanges, textNodes, topLevelElements, xmlAttribute, xmlDecode } from './portable-xml.mjs';
+import { worksheetDrawings } from './portable-sheet-page.mjs';
 import { presentationSlides } from './portable-pptx-package.mjs';
 import { resolveCellStyles } from './portable-sheet-styles.mjs';
-import { mergedRanges } from './portable-sheet-xml.mjs';
+import { hiddenSheetAreas, mergedRanges } from './portable-sheet-xml.mjs';
 import { shapeIdentity } from './pptx-relations.mjs';
+import { detectChartType } from './portable-pptx-chart.mjs';
 import { countDocxPropertyChanges, docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
 
 const REVISION_TYPES = Object.freeze({
@@ -25,12 +27,22 @@ function paragraphMarkup(paragraphXml) {
   // `text` is the accepted view (w:t only); the words a reviewer still sees
   // struck through are listed beside it.
   const deletedText = tracked ? blockText(paragraphXml, 'w:delText') : '';
+  // Word can hide a run: the words stay in the file and the page does not show
+  // them. Reported like ordinary body text they are edited and quoted as what
+  // the document says, so the hidden part is named beside the paragraph.
+  const hiddenText = /<w:vanish\b/.test(paragraphXml)
+    ? [...paragraphXml.matchAll(/<w:r\b(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)]
+      .filter(([run]) => /<w:vanish\b(?![^>]*\bw:val="(?:false|0)")/.test(/<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/.exec(run)?.[0] || ''))
+      .map(([run]) => blockText(run, 'w:t'))
+      .join('')
+    : '';
   return {
     ...(Number.isFinite(numId) && numId > 0
       ? { list: { numId, level: Number(/<w:ilvl\b[^>]*\bw:val="(\d+)"/.exec(numbering)?.[1]) || 0 } }
       : {}),
     ...(tracked ? { tracked: true } : {}),
     ...(deletedText ? { deletedText } : {}),
+    ...(hiddenText ? { hiddenText } : {}),
   };
 }
 
@@ -71,6 +83,12 @@ export function docxBodyModel(documentXml) {
         // Office reader reports it that way. Answering with an empty string made
         // the same paragraph look unstyled to one backend and styled to the other.
         style: xmlDecode(/<w:pStyle\b[^>]*\bw:val="([^"]+)"/.exec(block.xml)?.[1] || 'Normal'),
+        // A soft break reads back as a newline like a typed one does, but Word
+        // draws it as a line break instead of a space. Counting them lets a
+        // review tell a deliberate break from a newline left inside a run.
+        ...((block.xml.match(/<w:br\b(?![^>]*\bw:type=)/g) || []).length
+          ? { softBreaks: (block.xml.match(/<w:br\b(?![^>]*\bw:type=)/g) || []).length }
+          : {}),
         runs,
         ...paragraphMarkup(block.xml),
       });
@@ -105,23 +123,60 @@ export function docxBodyModel(documentXml) {
 
 
 export function appendDocxBlock(documentXml, block) {
-  const model = docxBodyModel(documentXml);
-  if (!model.body) throw new Error('DOCX document body is missing');
-  const onlyEmptyParagraph = model.blocks.length === 1
-    && model.blocks[0].name === 'w:p'
-    && !paragraphTexts(model.blocks[0].xml, 'w:t').length
-    && !/<w:drawing\b/.test(model.blocks[0].xml);
+  const body = containerInner(documentXml, 'w:body');
+  if (!body) throw new Error('DOCX document body is missing');
+  // Appending reads the body's tail, never its whole model: parsing every
+  // existing paragraph for each appended one turns a long document into
+  // quadratic work. A fresh file's single empty paragraph is the one case that
+  // needs the blocks, and there is exactly one of them to inspect.
+  const trailing = TRAILING_SECTION_PATTERN.exec(body.inner);
+  const content = trailing ? body.inner.slice(0, trailing.index) : body.inner;
+  const onlyEmptyParagraph = content.length < 2000
+    && (content.match(/<w:p\b/g) || []).length === 1
+    && !/<w:tbl\b/.test(content)
+    && !/<w:t[ >]/.test(content)
+    && !/<w:drawing\b/.test(content);
   if (onlyEmptyParagraph) {
-    const placeholder = model.blocks[0];
-    const replaced = `${model.body.inner.slice(0, placeholder.start)}${block}${model.body.inner.slice(placeholder.end)}`;
-    return `${documentXml.slice(0, model.body.start)}${replaced}${documentXml.slice(model.body.end)}`;
+    const inner = `${block}${body.inner.slice(content.length)}`;
+    return `${documentXml.slice(0, body.start)}${inner}${documentXml.slice(body.end)}`;
   }
-  const trailingSection = /<w:sectPr(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/w:sectPr>)\s*$/.exec(model.body.inner);
-  const position = trailingSection ? trailingSection.index : model.body.inner.length;
-  const inner = `${model.body.inner.slice(0, position)}${block}${model.body.inner.slice(position)}`;
-  return `${documentXml.slice(0, model.body.start)}${inner}${documentXml.slice(model.body.end)}`;
+  // Only the document's own trailing sectPr, never the one a section break
+  // paragraph carries: content appends before the former and after the latter.
+  const inner = `${content}${block}${body.inner.slice(content.length)}`;
+  return `${documentXml.slice(0, body.start)}${inner}${documentXml.slice(body.end)}`;
 }
 
+
+// The thread facts a comment carries: whether it is resolved, and the comment
+// it replies to (by the id the snapshot reports, not Word's internal paraId).
+function commentThread(threads, paraIds, idByParaId) {
+  const entry = paraIds.map((paraId) => threads.get(paraId)).find(Boolean);
+  if (!entry) return {};
+  const replyTo = entry.parentParaId ? idByParaId.get(entry.parentParaId.toUpperCase()) || '' : '';
+  return {
+    ...(entry.resolved ? { resolved: true } : {}),
+    ...(replyTo ? { replyTo } : {}),
+  };
+}
+
+/** The pictures a Word story carries, as a Word session reports them: the name,
+ *  the description a reader who cannot see it is given, and the placed size in
+ *  points. One reading serves the snapshot and the accessibility audit. */
+export function docxPictures(xml) {
+  const pictures = [];
+  for (const match of String(xml || '').matchAll(/<w:drawing\b[\s\S]*?<\/w:drawing>/g)) {
+    if (!/<pic:pic[\s>]/.test(match[0])) continue;
+    const properties = /<wp:docPr\b[^>]*>/.exec(match[0])?.[0] || '';
+    const extent = /<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(match[0]);
+    pictures.push({
+      name: xmlDecode(/\bname="([^"]*)"/.exec(properties)?.[1] || ''),
+      altText: xmlDecode(/\bdescr="([^"]*)"/.exec(properties)?.[1] || ''),
+      width: extent ? Math.round(Number(extent[1]) / 127) / 100 : 0,
+      height: extent ? Math.round(Number(extent[2]) / 127) / 100 : 0,
+    });
+  }
+  return pictures;
+}
 
 export async function snapshotDocx(zip, options = {}) {
   const parts = Object.keys(zip.files)
@@ -172,6 +227,30 @@ export async function snapshotDocx(zip, options = {}) {
   const storyParts = parts.filter((name) => !/\/comments\.xml$/i.test(name));
   const comments = [];
   const commentsXml = await zipText(zip, 'word/comments.xml');
+  // Word keeps a thread's state beside the comments: whether it was marked
+  // resolved, and which comment a reply answers. A reader that ignores this
+  // reports a settled thread as outstanding and a reply as its own comment.
+  const commentThreadRecords = [];
+  const threads = new Map();
+  for (const match of (await zipText(zip, 'word/commentsExtended.xml')).matchAll(/<w15:commentEx\b([^>]*?)\/?>/g)) {
+    const record = {
+      paraId: xmlDecode(xmlAttribute(match[1], 'w15:paraId') || ''),
+      parentParaId: xmlDecode(xmlAttribute(match[1], 'w15:paraIdParent') || ''),
+      resolved: /^(?:1|true)$/i.test(xmlAttribute(match[1], 'w15:done') || ''),
+    };
+    commentThreadRecords.push(record);
+    if (record.paraId) threads.set(record.paraId.toUpperCase(), record);
+  }
+  const paraIdsById = new Map();
+  for (const match of commentsXml.matchAll(/<w:comment\b([^>]*)>([\s\S]*?)<\/w:comment>/g)) {
+    const id = xmlDecode(/\bw:id="([^"]+)"/.exec(match[1])?.[1] || '');
+    const paragraphs = [...match[2].matchAll(/<w:p\b([^>]*)/g)]
+      .map((entry) => (xmlAttribute(entry[1], 'w14:paraId') || '').toUpperCase())
+      .filter(Boolean);
+    if (id && paragraphs.length) paraIdsById.set(id, paragraphs);
+  }
+  const idByParaId = new Map();
+  for (const [id, paragraphs] of paraIdsById) for (const paraId of paragraphs) idByParaId.set(paraId, id);
   for (const match of commentsXml.matchAll(/<w:comment\b([^>]*)>([\s\S]*?)<\/w:comment>/g)) {
     const attributes = match[1];
     const id = xmlDecode(/\bw:id="([^"]+)"/.exec(attributes)?.[1] || '');
@@ -197,7 +276,17 @@ export async function snapshotDocx(zip, options = {}) {
       text: blockText(match[2], 'w:t'),
       anchoredText,
       part: anchoredPart,
+      ...commentThread(threads, paraIdsById.get(id) || [], idByParaId),
     });
+  }
+  // A reply inherits the state of the thread it belongs to: Word shows the
+  // whole thread as resolved when its first comment is marked done.
+  const threadRoot = new Map(comments.map((comment) => [comment.id, comment]));
+  for (const comment of comments) {
+    if (!comment.replyTo) continue;
+    let root = threadRoot.get(comment.replyTo);
+    for (let depth = 0; root?.replyTo && depth < 20; depth += 1) root = threadRoot.get(root.replyTo);
+    if (root?.resolved) comment.resolved = true;
   }
   const revisions = [];
   let propertyChangeCount = 0;
@@ -275,7 +364,10 @@ export async function snapshotDocx(zip, options = {}) {
     const pattern = new RegExp(`<${tag}\\b([^>]*)>([\\s\\S]*?)<\\/${tag}>`, 'g');
     for (const match of xml.matchAll(pattern)) {
       const id = xmlDecode(/\bw:id="([^"]+)"/.exec(match[1])?.[1] || '');
-      if (Number(id) < 0) continue;
+      // The separator and continuation-separator entries are the rule Word
+      // draws above the note area, not notes: counting them would report a
+      // source the document does not carry.
+      if (Number(id) < 1 || /\bw:type="/.test(match[1])) continue;
       notes.push({
         path: `/body/${kind}[${notes.filter((entry) => entry.kind === kind).length + 1}]`,
         kind,
@@ -301,20 +393,30 @@ export async function snapshotDocx(zip, options = {}) {
       });
     }
   }
-  const commentThreads = [];
-  const commentsExtended = await zipText(zip, 'word/commentsExtended.xml');
-  for (const match of commentsExtended.matchAll(/<w15:commentEx\b([^>]*?)\/?>/g)) {
-    commentThreads.push({
-      path: `/body/comment-thread[${commentThreads.length + 1}]`,
-      index: commentThreads.length + 1,
-      paraId: xmlDecode(/\bw15:paraId="([^"]*)"/.exec(match[1])?.[1] || ''),
-      parentParaId: xmlDecode(/\bw15:paraIdParent="([^"]*)"/.exec(match[1])?.[1] || ''),
-      resolved: /^(?:1|true)$/i.test(/\bw15:done="([^"]*)"/.exec(match[1])?.[1] || ''),
-    });
+  const commentThreads = commentThreadRecords.map((record, index) => ({
+    path: `/body/comment-thread[${index + 1}]`,
+    index: index + 1,
+    ...record,
+  }));
+  const images = [];
+  for (const part of storyParts) {
+    for (const picture of docxPictures(await zipText(zip, part))) {
+      images.push({
+        path: `/body/image[${images.length + 1}]`,
+        index: images.length + 1,
+        ...picture,
+        part,
+      });
+    }
   }
   return {
     format: 'docx',
     path: '/',
+    // Whether this document records new edits as revisions. A reviewer's file
+    // often arrives with it already on, and the same edit means something
+    // different in each state, so the reader reports it instead of leaving the
+    // caller to discover it from the revisions its own batch produced.
+    trackChanges: settingsTrackChanges(await zipText(zip, 'word/settings.xml') || ''),
     paragraphCount: model.paragraphs.length,
     tableCount: model.tables.length,
     paragraphs: paged ? model.paragraphs.filter((paragraph) => paragraphIndexes.has(paragraph.index)) : model.paragraphs,
@@ -349,6 +451,8 @@ export async function snapshotDocx(zip, options = {}) {
     endnotes: notes.filter((entry) => entry.kind === 'endnote'),
     contentControlCount: contentControls.length,
     contentControls,
+    imageCount: images.length,
+    images,
     commentThreadCount: commentThreads.length,
     commentThreads,
     ...(paged ? {
@@ -422,6 +526,137 @@ async function worksheetTables(zip, sheet) {
   return tables;
 }
 
+// The part a relationship id points at, used to walk worksheet → drawing → chart.
+async function relatedPartById(zip, part, id) {
+  if (!id) return '';
+  const relationshipPath = partRelationshipPath(part);
+  const relationships = await zipText(zip, relationshipPath);
+  if (!relationships) return '';
+  for (const match of relationships.matchAll(/<Relationship\b[^>]*?\/?>/g)) {
+    if (xmlAttribute(match[0], 'Id') !== id) continue;
+    if (/\bTargetMode="External"/i.test(match[0])) return '';
+    const target = xmlAttribute(match[0], 'Target');
+    return target ? relationshipTarget(relationshipPath, target) : '';
+  }
+  return '';
+}
+
+/** What a chart part carries, in the shape a review reads: its plot kind, title,
+ *  and the series with the ranges they pull from. */
+function chartPartSnapshot(xml) {
+  const series = [...xml.matchAll(/<c:ser>([\s\S]*?)<\/c:ser>/g)].map((match, index) => {
+    const body = match[1];
+    const reference = (tag) => xmlDecode(new RegExp(`<c:${tag}>[\\s\\S]*?<c:f>([\\s\\S]*?)<\\/c:f>`).exec(body)?.[1] || '');
+    return {
+      index: index + 1,
+      name: xmlDecode(/<c:tx>[\s\S]*?<c:v>([\s\S]*?)<\/c:v>/.exec(body)?.[1] || ''),
+      formula: reference('tx'),
+      categoryFormula: reference('cat'),
+      valueFormula: reference('val'),
+      pointCount: Number(/<c:val>[\s\S]*?<c:ptCount\b[^>]*\bval="(\d+)"/.exec(body)?.[1] || 0),
+    };
+  });
+  return {
+    // A column and a bar are both barChart; only the direction (and the
+    // grouping) tells them apart, so the reader uses the same names the writer
+    // takes rather than the element name alone.
+    chartType: /<c:\w+Chart\b/.test(xml) ? detectChartType(xml) : '',
+    title: blockText(/<c:title>([\s\S]*?)<\/c:title>/.exec(xml)?.[1] || '', 'a:t'),
+    seriesCount: series.length,
+    series,
+  };
+}
+
+/** Charts and pictures a worksheet carries, each placed on the cell grid so a
+ *  review can compare them with the print area the sheet actually declares. */
+async function worksheetVisuals(zip, sheet, xml) {
+  const charts = [];
+  const images = [];
+  let drawings = [];
+  try {
+    drawings = await worksheetDrawings(zip, sheet, xml);
+  } catch (error) {
+    return { charts, images, drawingsUnreadable: error.message };
+  }
+  for (const drawing of drawings) {
+    const anchor = {
+      from: `${columnLabel(drawing.startColumn)}${drawing.startRow}`,
+      to: `${columnLabel(drawing.endColumn)}${drawing.endRow}`,
+      startColumn: drawing.startColumn,
+      startRow: drawing.startRow,
+      endColumn: drawing.endColumn,
+      endRow: drawing.endRow,
+      ...(Number.isFinite(drawing.left) ? {
+        left: Math.round(drawing.left * 100) / 100,
+        top: Math.round(drawing.top * 100) / 100,
+        width: Math.round(drawing.width * 100) / 100,
+        height: Math.round(drawing.height * 100) / 100,
+      } : {}),
+    };
+    const chartId = /<c:chart\b[^>]*\br:id="([^"]+)"/.exec(drawing.body)?.[1] || '';
+    if (chartId) {
+      const part = await relatedPartById(zip, drawing.part, chartId);
+      charts.push({
+        path: `/sheet[${sheet.name}]/chart[${charts.length + 1}]`,
+        index: charts.length + 1,
+        part,
+        anchor,
+        ...chartPartSnapshot(part ? await zipText(zip, part) || '' : ''),
+      });
+      continue;
+    }
+    if (/<xdr:pic\b/.test(drawing.body)) {
+      images.push({
+        path: `/sheet[${sheet.name}]/image[${images.length + 1}]`,
+        index: images.length + 1,
+        name: xmlDecode(/<xdr:cNvPr\b[^>]*\bname="([^"]*)"/.exec(drawing.body)?.[1] || ''),
+        // What a reader who cannot see the picture is told about it.
+        altText: xmlDecode(/<xdr:cNvPr\b[^>]*\bdescr="([^"]*)"/.exec(drawing.body)?.[1] || ''),
+        anchor,
+      });
+    }
+  }
+  return { charts, images };
+}
+
+/** Print setup in the shape Excel reports it: fit-to-page counts hold only while
+ *  the sheet is set to fit, and the print area comes from the workbook name. */
+function worksheetPageSetup(xml, printArea) {
+  const setup = /<pageSetup\b([^>]*?)\/?>/.exec(xml)?.[1] || '';
+  const options = /<printOptions\b([^>]*?)\/?>/.exec(xml)?.[1] || '';
+  const fitToPage = /<pageSetUpPr\b[^>]*\bfitToPage="1"/.test(xml);
+  return {
+    orientation: xmlAttribute(setup, 'orientation') || '',
+    zoom: Number(xmlAttribute(setup, 'scale')) || 100,
+    fitToPage,
+    fitToPagesWide: fitToPage ? Number(xmlAttribute(setup, 'fitToWidth')) || 1 : 0,
+    fitToPagesTall: fitToPage ? Number(xmlAttribute(setup, 'fitToHeight')) || 0 : 0,
+    centerHorizontally: booleanXmlAttribute(options, 'horizontalCentered'),
+    centerVertically: booleanXmlAttribute(options, 'verticalCentered'),
+    // What every printed page of this sheet says, beside what the grid holds.
+    header: xmlDecode(/<oddHeader>([\s\S]*?)<\/oddHeader>/.exec(xml)?.[1] || ''),
+    footer: xmlDecode(/<oddFooter>([\s\S]*?)<\/oddFooter>/.exec(xml)?.[1] || ''),
+    printArea,
+  };
+}
+
+// _xlnm.Print_Area is a sheet-local defined name; Excel writes it absolute and
+// comma-separated when the sheet prints several areas.
+function sheetPrintArea(definedNames, sheetIndex) {
+  const entry = definedNames.find((item) => item.name === '_xlnm.Print_Area' && item.localSheetId === sheetIndex);
+  if (!entry) return '';
+  return String(entry.refersTo || '')
+    .split(',')
+    .map((part) => part.split('!').pop().replace(/\$/g, '').trim())
+    .filter(Boolean)
+    .join(',');
+}
+
+// How many populated cells one whole-sheet read carries. It bounds the work a
+// single call does; past it the reading says how far it got.
+export const FULL_READ_CELL_LIMIT = 200_000;
+
+
 export async function snapshotXlsx(zip, options = {}) {
   const sheets = await workbookSheets(zip);
   const strings = await sharedStrings(zip);
@@ -444,10 +679,20 @@ export async function snapshotXlsx(zip, options = {}) {
   let formulaCount = 0;
   let formulaCacheMissing = 0;
   const paged = options.paged === true;
+  // A snapshot read for a person is trimmed to a readable page. A reader that
+  // audits, diffs, or searches the workbook asks for the whole sheet instead
+  // (full): with the display cap in force every such check silently stops at
+  // the same boundary and still answers as if it had read the sheet.
+  const cellLimit = Number.isFinite(Number(options.cellLimit))
+    ? Math.max(1, Number(options.cellLimit))
+    : options.full === true ? FULL_READ_CELL_LIMIT : 2_000;
+  // A paged read walks the workbook one sheet at a time; without a named sheet
+  // it starts where the cursor left off, so every sheet is reachable.
+  const sheetOffset = Math.max(0, Math.min(sheets.length - 1, Number(options.sheetOffset) || 0));
   const selectedSheets = paged
     ? [options.sheet
         ? sheets.find((sheet) => sheet.name.toLowerCase() === String(options.sheet).toLowerCase())
-        : sheets[0]].filter(Boolean)
+        : sheets[sheetOffset]].filter(Boolean)
     : sheets;
   if (paged && options.sheet && !selectedSheets.length) throw new Error(`XLSX sheet not found: ${options.sheet}`);
   let page = null;
@@ -457,6 +702,8 @@ export async function snapshotXlsx(zip, options = {}) {
     const cells = paged ? cellResult.records : cellResult;
     const notes = await worksheetNotes(zip, sheet);
     const tables = await worksheetTables(zip, sheet);
+    const visuals = await worksheetVisuals(zip, sheet, xml);
+    const pageSetup = worksheetPageSetup(xml, sheetPrintArea(definedNames, sheets.findIndex((entry) => entry.name === sheet.name)));
     // The same shape Excel reports: which rows and columns stay put.
     const pane = /<pane\b([^>]*)\/?>/.exec(xml)?.[1] || '';
     const freezePanes = {
@@ -471,6 +718,20 @@ export async function snapshotXlsx(zip, options = {}) {
         if (text) cell.note = text;
       }
     }
+    // Protection decides whether a locked cell is actually read-only, so the
+    // sheet reports it beside the cells that carry the flag.
+    const guard = /<sheetProtection\b([^>]*?)\/?>/.exec(xml)?.[1] || '';
+    const protection = {
+      protected: Boolean(/<sheetProtection\b/.test(xml)),
+      ...(guard
+        ? {
+          password: /\b(?:password|hashValue)="[^"]+"/.test(guard),
+          allowFormattingCells: /\bformatCells="0"/.test(guard),
+          allowSorting: /\bsort="0"/.test(guard),
+          allowFiltering: /\bautoFilter="0"/.test(guard),
+        }
+        : {}),
+    };
     const validations = [];
     for (const match of xml.matchAll(/<dataValidation\b([^>]*?)(?:\/>|>([\s\S]*?)<\/dataValidation>)/g)) {
       const attributes = match[1];
@@ -511,24 +772,39 @@ export async function snapshotXlsx(zip, options = {}) {
       formula: cell.formula,
       precedents: formulaReferences(cell.formula, sheet.name),
     }));
-    formulaCount += paged ? cellResult.formulaCount : cells.filter((cell) => cell.formula).length;
-    formulaCacheMissing += paged ? cellResult.formulaCacheMissing : cells.filter((cell) => cell.formula && cell.cacheState === 'missing').length;
+    if (!paged) {
+      formulaCount += cells.filter((cell) => cell.formula).length;
+      formulaCacheMissing += cells.filter((cell) => cell.formula && cell.cacheState === 'missing').length;
+    }
     if (paged) page = cellResult;
     output.push({
       path: `/sheet[${sheet.name}]`,
       name: sheet.name,
+      visibility: sheet.visibility || 'visible',
+      // Rows and columns the sheet withholds: a filtered view or a working
+      // column still holds values, and an edit written into one lands where the
+      // user never looks.
+      hiddenRows: [...hiddenSheetAreas(xml).rows],
+      hiddenColumns: [...hiddenSheetAreas(xml).columns].map((column) => columnLabel(column)),
       cellCount: paged ? cellResult.total : cells.length,
-      cells: (paged ? cells : cells.slice(0, 2000)).map((cell) => ({
+      cells: (paged ? cells : cells.slice(0, cellLimit)).map((cell) => ({
         path: `/sheet[${sheet.name}]/cell[${cell.ref}]`,
         ...cell,
       })),
-      truncated: paged ? cellResult.total > cells.length : cells.length > 2000,
+      truncated: paged ? cellResult.total > cells.length : cells.length > cellLimit,
       noteCount: notes.length,
       notes,
       tableCount: tables.length,
       tables,
       mergedRanges: mergedRanges(xml),
       freezePanes,
+      protection,
+      pageSetup,
+      chartCount: visuals.charts.length,
+      charts: visuals.charts,
+      imageCount: visuals.images.length,
+      images: visuals.images,
+      ...(visuals.drawingsUnreadable ? { drawingsUnreadable: visuals.drawingsUnreadable } : {}),
       validationCount: validations.length,
       validations,
       conditionalFormatCount: conditionalFormats.length,
@@ -537,9 +813,25 @@ export async function snapshotXlsx(zip, options = {}) {
       formulaLineage: lineage,
     });
   }
+  // A paged snapshot returns one sheet, but the calculation state it reports
+  // belongs to the workbook: a caller must not read needsRecalculation:false
+  // merely because the single sheet it received happens to be settled.
+  if (paged) {
+    for (const sheet of sheets) {
+      const totals = sheetFormulaTotals(await zipText(zip, sheet.path));
+      formulaCount += totals.formulaCount;
+      formulaCacheMissing += totals.formulaCacheMissing;
+    }
+  }
+  const nextOffset = page && (Math.max(0, Number(options.offset) || 0) + page.records.length < page.total)
+    ? Math.max(0, Number(options.offset) || 0) + page.records.length
+    : null;
   return {
     format: 'xlsx',
     sheetCount: sheets.length,
+    // Which sheets the workbook holds, whichever one this page carries: a
+    // paged read otherwise hides every sheet but the one it returned.
+    ...(paged ? { sheetNames: sheets.map((sheet) => sheet.name) } : {}),
     sheets: output,
     // The workbook default (cellXfs 0): what every unstyled cell renders with.
     defaultStyle: styles[0] || null,
@@ -557,9 +849,12 @@ export async function snapshotXlsx(zip, options = {}) {
         limit: Math.max(1, Number(options.limit) || 2_000),
         returned: page?.records.length || 0,
         total: page?.total || 0,
-        nextOffset: page && (Math.max(0, Number(options.offset) || 0) + page.records.length < page.total)
-          ? Math.max(0, Number(options.offset) || 0) + page.records.length
-          : null,
+        nextOffset,
+        // With this sheet read out and no sheet named by the caller, the next
+        // page is the next sheet rather than the end of the workbook.
+        ...(nextOffset === null && !options.sheet && sheetOffset + 1 < sheets.length
+          ? { nextSheetOffset: sheetOffset + 1 }
+          : {}),
       },
     } : {}),
   };
@@ -620,7 +915,7 @@ async function pptxSlideNotes(zip, slidePath) {
 }
 
 
-async function snapshotPptx(zip, options = {}) {
+export async function snapshotPptx(zip, options = {}) {
   const roster = await presentationSlides(zip);
   const slidePaths = roster.map((slide) => slide.path);
   const paged = options.paged === true;
@@ -641,6 +936,9 @@ async function snapshotPptx(zip, options = {}) {
       path: `/slide[${index}]`,
       index,
       slideId: roster[index - 1].id,
+      // A hidden slide stays in the file and is skipped when the deck is shown;
+      // read as an ordinary page it puts a withdrawn page back in the argument.
+      hidden: /<p:sld\b[^>]*\bshow="0"/.test(xml),
       background: await pptxSlideBackground(zip, path, xml),
       notes: await pptxSlideNotes(zip, path),
       text: paragraphTexts(xml, 'a:t'),
@@ -682,6 +980,16 @@ async function snapshotPptx(zip, options = {}) {
           ...shapeIdentity(shape.xml),
           type: shape.name,
           ...(shapeName ? { name: shapeName } : {}),
+          // PowerPoint's selection pane can hide a shape: it stays in the file
+          // and the slide does not show it, so it is neither measured nor read
+          // as what the page says.
+          ...(/<p:cNvPr\b[^>]*\bhidden="(?:1|true)"/i.test(shape.xml) ? { hidden: true } : {}),
+          // What a reader who cannot see the picture is told about it; the
+          // audit asks for it, so the snapshot shows whether it is there.
+          ...((() => {
+            const description = xmlDecode(/<p:cNvPr\b[^>]*\bdescr="([^"]*)"/i.exec(shape.xml)?.[1] || '');
+            return description ? { altText: description } : {};
+          })()),
           ...(geometry ? { geometry } : {}),
           ...(fill ? { fill: { color: fill } } : {}),
           // A table's cells are separate strings a reader never runs together

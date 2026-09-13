@@ -27,9 +27,7 @@ export interface ComputerWindowTransition {
     | 'launched_process_window'
     | 'launched_app_opened'
     | 'launched_app_focused'
-    | 'launched_app_existing'
-    | 'launched_focused_window'
-    | 'launched_existing_window_changed';
+    | 'launched_app_existing';
 }
 
 const CONFIRMED_LAUNCH_TRANSITIONS = new Set<
@@ -38,8 +36,6 @@ const CONFIRMED_LAUNCH_TRANSITIONS = new Set<
   'launched_process_window',
   'launched_app_opened',
   'launched_app_focused',
-  'launched_focused_window',
-  'launched_existing_window_changed',
 ]);
 
 function text(value: unknown): string {
@@ -130,20 +126,6 @@ function changed(before: ComputerWindowRecord, after: ComputerWindowRecord): boo
   return before.title !== after.title
     || before.ownerId !== after.ownerId
     || before.focused !== after.focused
-    || before.minimized !== after.minimized
-    || before.maximized !== after.maximized
-    || before.x !== after.x
-    || before.y !== after.y
-    || before.width !== after.width
-    || before.height !== after.height;
-}
-
-function changedBeyondFocus(
-  before: ComputerWindowRecord,
-  after: ComputerWindowRecord,
-): boolean {
-  return before.title !== after.title
-    || before.ownerId !== after.ownerId
     || before.minimized !== after.minimized
     || before.maximized !== after.maximized
     || before.x !== after.x
@@ -247,25 +229,6 @@ export function computeComputerWindowTransition(
       transition.next_target = existingAppTarget;
       transition.next_target_reason = 'launched_app_existing';
       return transition;
-    }
-    const focusedOpened = allOpened.filter((window) =>
-      window.focused && window.id !== transition.focused_before);
-    if (focusedOpened.length === 1) {
-      transition.next_target = focusedOpened[0];
-      transition.next_target_reason = 'launched_focused_window';
-      return transition;
-    }
-    const focusedChanged = after.filter((window) => {
-      const previous = beforeById.get(window.id);
-      return window.focused
-        && window.id !== transition.focused_before
-        && Boolean(previous)
-        && changedBeyondFocus(previous as ComputerWindowRecord, window);
-    });
-    if (focusedChanged.length === 1) {
-      transition.next_target = focusedChanged[0];
-      transition.next_target_reason = 'launched_existing_window_changed';
-      transition.changed_windows = focusedChanged;
     }
     return transition;
   }

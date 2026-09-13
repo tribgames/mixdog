@@ -175,6 +175,7 @@
 }
 .schedules-composer-footer .mx-select-trigger:hover:not(:disabled) { background: var(--mx-hover); }
 .schedules-frequency { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.schedules-field > .mx-select-root .mx-select-trigger,
 .schedules-frequency .mx-select-trigger { height: 32px; border-radius: var(--mx-radius-md); }
 .schedules-frequency input { flex: 1; min-width: 130px; }
 .schedules-frequency input[type="number"] { flex: 0 0 90px; min-width: 90px; }

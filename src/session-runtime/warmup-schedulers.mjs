@@ -2,7 +2,8 @@
 // mixdog-session-runtime.mjs. Dependency-injected factory: the timer handles
 // live in a caller-owned `timers` object (so the facade's clearTimeout teardown
 // still sees them) and all route/config/state reads go through supplied
-// accessors. Returns the schedule* functions plus a clearAll() teardown helper.
+// accessors. Teardown clears the caller-owned timers; resumed async work checks
+// the same close state before starting another operation.
 import { performance } from 'node:perf_hooks';
 import { clean } from './session-text.mjs';
 
@@ -67,15 +68,17 @@ export function createWarmupSchedulers({
       const providersStartedAt = performance.now();
       try {
         await awaitKeychainPrewarm();
+        if (isCloseRequested()) return;
         reloadFullConfig();
       } catch (error) {
         bootProfile('config:full-failed', { error: error?.message || String(error) });
       }
+      if (isCloseRequested()) return;
       void ensureProvidersReady(getConfig().providers || {})
         .then(() => {
-          bootProfile('providers:init:ready', { ms: (performance.now() - providersStartedAt).toFixed(1) });
-          if (isCloseRequested()) return null;
-          return true;
+          if (!isCloseRequested()) {
+            bootProfile('providers:init:ready', { ms: (performance.now() - providersStartedAt).toFixed(1) });
+          }
         })
         .catch((error) => bootProfile('providers:warm-failed', { error: error?.message || String(error) }));
     }, delayMs);
@@ -149,6 +152,19 @@ export function createWarmupSchedulers({
     timers.modelCatalogWarmupTimer.unref?.();
   }
 
+  async function refreshIdleStatuslineUsage() {
+    await awaitKeychainPrewarm();
+    if (isCloseRequested()) return null;
+    ensureConfigForRouteProvider();
+    const route = getRoute();
+    await ensureProvidersReady(ensureProviderEnabled(getConfig(), route.provider));
+    if (isCloseRequested()) return null;
+    // Refresh the route whose provider was prepared, not a replacement route
+    // selected while provider initialization was pending.
+    refreshStatuslineUsageSnapshot(route);
+    return route;
+  }
+
   function scheduleStatuslineUsageWarmup(delayMs = statuslineUsageWarmupDelayMs) {
     const route = getRoute();
     const providerId = clean(route?.provider);
@@ -166,12 +182,8 @@ export function createWarmupSchedulers({
         return;
       }
       try {
-        await awaitKeychainPrewarm();
-        ensureConfigForRouteProvider();
-        await ensureProvidersReady(ensureProviderEnabled(getConfig(), getRoute().provider));
-        if (isCloseRequested()) return;
-        refreshStatuslineUsageSnapshot(getRoute());
-        bootProfile('statusline-usage:warm-ready', { provider: clean(getRoute()?.provider) });
+        const warmedRoute = await refreshIdleStatuslineUsage();
+        if (warmedRoute) bootProfile('statusline-usage:warm-ready', { provider: clean(warmedRoute.provider) });
       } catch (error) {
         bootProfile('statusline-usage:warm-failed', { error: error?.message || String(error) });
       } finally {
@@ -199,11 +211,7 @@ export function createWarmupSchedulers({
         return;
       }
       try {
-        await awaitKeychainPrewarm();
-        ensureConfigForRouteProvider();
-        await ensureProvidersReady(ensureProviderEnabled(getConfig(), getRoute().provider));
-        if (isCloseRequested()) return;
-        refreshStatuslineUsageSnapshot(getRoute());
+        await refreshIdleStatuslineUsage();
       } catch {
         // Usage display must never affect the session runtime.
       } finally {

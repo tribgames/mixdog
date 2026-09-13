@@ -3,8 +3,9 @@
 // disk. The service keeps the live maps while this module owns the file shape:
 // validation, the pre-v2 reset, and the atomic
 // owner-only write.
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 
 import { generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 
@@ -46,7 +47,7 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) {
-      throw new Error('Desktop session metadata could not be loaded.');
+      throw new Error('Desktop session metadata could not be loaded.', { cause: error });
     }
   }
   let rewritten = false;
@@ -109,9 +110,7 @@ export async function writeSessionMetadata(
     reads: Record<string, SessionReadCursor>;
   },
 ): Promise<void> {
-  await mkdir(root, { recursive: true });
   const target = join(root, FILE_NAME);
-  const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
   const payload = {
     version: 2 as const,
     titles: maps.titles,
@@ -119,11 +118,5 @@ export async function writeSessionMetadata(
     ...(Object.keys(maps.archived).length ? { archived: maps.archived } : {}),
     ...(Object.keys(maps.reads).length ? { reads: maps.reads } : {}),
   };
-  try {
-    await writeFile(temporary, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await rename(temporary, target);
-  } catch (error) {
-    await unlink(temporary).catch(() => undefined);
-    throw error;
-  }
+  await writeJsonAtomicAsync(target, payload, { secret: true });
 }

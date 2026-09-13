@@ -32,9 +32,6 @@ export function createProviderReadiness({
         clearTimeout(timeoutId);
         rt.keychainPrewarmWaitDone = true;
       }
-    // Invoked here: the assignment used to store the async FUNCTION, so every
-    // `await awaitKeychainPrewarm()` resolved instantly (awaiting a function is
-    // a no-op) and callers silently skipped the wait they asked for.
     })();
     return rt.keychainPrewarmWaitPromise;
   }
@@ -71,6 +68,7 @@ export function createProviderReadiness({
 
   async function ensureProvidersReady(providerConfig = rt.config.providers || {}) {
     await awaitKeychainPrewarm();
+    if (rt.closeRequested) throw new Error('runtime is closing');
     const initKey = providerInitCacheKey(providerConfig);
     const existing = providerInitPromises.get(initKey);
     if (existing) return await existing;
@@ -95,10 +93,11 @@ export function createProviderReadiness({
       try {
         void Promise.resolve(getReg().refreshProviderCatalogsOnStartup())
           .then(() => {
+            rt.startupProviderCatalogRefreshPending = false;
+            if (rt.closeRequested) return;
             // Fresh catalog rows invalidate model-derived caches, but the
             // already initialized provider registry remains valid.
             invalidateProviderCaches({ preserveProviderInit: true });
-            rt.startupProviderCatalogRefreshPending = false;
             // Secrets-aware: a no-secrets rewarm bumps the load sequence and
             // is never adopted, so it discarded the in-flight authoritative
             // load and left the picker cache empty — every later consumer then

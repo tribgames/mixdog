@@ -72,3 +72,32 @@ for (const stage of ['load', 'script']) {
     assert.ok(windows.slice(start).every(window => window.isDestroyed()));
   });
 }
+
+test('a crashed control renderer pauses input and is replaced with live controls', async () => {
+  fault = '';
+  const start = windows.length;
+  const overlay = createComputerUseOverlay({
+    stop: async () => {},
+    resume: async () => {},
+    pause: async () => coordinator.pauseForUser('user_pause'),
+  });
+  try {
+    coordinator.beginCommand({ sessionId: 'crash-fixture', action: 'capture', mode: 'background' });
+    await settle();
+    windows[start].webContents.emit('render-process-gone', {}, { reason: 'crashed' });
+    await settle();
+    await settle();
+    assert.equal(windows[start].isDestroyed(), true);
+    assert.equal(coordinator.snapshot().userControlActive, true);
+    assert.equal(windows.length, start + 2);
+    assert.equal(windows[start + 1].isVisible(), true);
+    windows[start + 1].webContents.emit('render-process-gone', {}, { reason: 'crashed' });
+    await settle();
+    await settle();
+    assert.equal(windows.length, start + 2);
+    assert.equal(coordinator.snapshot().userControlActive, true);
+  } finally {
+    overlay.dispose();
+    coordinator.reset();
+  }
+});

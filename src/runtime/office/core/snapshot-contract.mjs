@@ -44,6 +44,11 @@ function checkDocx(document, violations) {
       violations.push({ path: '/', message: `${key} must be a non-negative integer` });
     }
   }
+  // The same edit is a revision or a plain rewrite depending on this flag, so
+  // both backends owe it rather than leaving the caller to infer the state.
+  if (typeof document.trackChanges !== 'boolean') {
+    violations.push({ path: '/', message: 'trackChanges must be a boolean' });
+  }
   for (const paragraph of Array.isArray(document.paragraphs) ? document.paragraphs : []) {
     const index = paragraph?.index;
     if (!Number.isInteger(index) || index < 1) {
@@ -98,6 +103,11 @@ function checkXlsx(document, violations) {
     const at = `/sheet[${sheet.name}]`;
     if (sheet.path !== at) {
       violations.push({ path: at, message: `sheet path ${sheet.path} does not match its name` });
+    }
+    // Whether Excel shows a sheet is the caller's decision to make, not a code
+    // to translate: both readers answer with the word set_sheet_visibility takes.
+    if ('visibility' in sheet && !['visible', 'hidden', 'very_hidden'].includes(sheet.visibility)) {
+      violations.push({ path: at, message: 'sheet.visibility must be visible, hidden, or very_hidden' });
     }
     if (!Array.isArray(sheet.cells)) continue;
     for (const cell of sheet.cells) {

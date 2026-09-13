@@ -1,4 +1,4 @@
-import { applyDocx } from './portable-docx.mjs';
+import { applyDocx, refreshDocxTableOfContents } from './portable-docx.mjs';
 import { loadPackage, savePackage } from './portable-opc.mjs';
 import { applyPptx } from './portable-pptx.mjs';
 import { removeOrphanPackageParts } from './portable-validation.mjs';
@@ -30,6 +30,9 @@ export async function applyPortableOoxmlBatch(path, format, operations) {
   if (operations.some((operation) => ['delete_slide', 'replace_image', 'delete_shape'].includes(operation.op))) {
     await removeOrphanPackageParts(zip).catch(() => ({ removed: [] }));
   }
+  // The body is complete at save time, which is the only moment a table of
+  // contents written before its sections can list them.
+  if (format === 'docx') await refreshDocxTableOfContents(zip);
   await savePackage(zip, path);
   return results;
 }

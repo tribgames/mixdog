@@ -5,6 +5,7 @@
 // helper it used in manager.mjs is now imported from its split module.
 import { createHash, randomUUID } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
+import { prepareExplicitSkills } from '../explicit-skills.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { readStreamOutcome } from '../../providers/lib/stream-outcome.mjs';
 import { cloneProviderReplay } from '../../providers/lib/provider-replay.mjs';
@@ -248,6 +249,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     // return value (the queued tail turns supersede the original prompt's
     // result, mirroring how a live chat returns the latest turn).
     let _result;
+    let _initialPromptSource = ['goal-continuation', 'goal-closeout'].includes(askOpts.promptSource)
+        ? { source: askOpts.promptSource, synthetic: true }
+        : null;
     // Local FIFO of follow-up prompts drained from the pending-message queue
     // after each turn — keeps queued `agent type=send` messages in order.
     const _pendingTail = [];
@@ -270,7 +274,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         // Provenance of a queue-fed turn: a task notification served as its
         // own turn is stored as such (meta.source/execution), never as the
         // user speaking.
-        let _turnPromptSource = null;
+        let _turnPromptSource = _initialPromptSource;
+        _initialPromptSource = null;
         const _tailTurnFor = (group) => ({
             content: group.content,
             entries: group.entries,
@@ -756,6 +761,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
             let result;
             try {
+            if (!_turnPromptSource) {
+                await prepareExplicitSkills(prompt, outgoing, session, { cwd: effectiveCwd, signal: turnSignal });
+                session.messages = filterModelVisibleSessionMessages(outgoing);
+                _scheduleTurnCheckpoint(true);
+            }
             result = await _api_call_with_interrupt(sessionId, (signal) =>
                 agentLoop(provider, outgoing, session.model, session.tools, _trackedOnToolCall, effectiveCwd, {
                     effort: turnEffort,

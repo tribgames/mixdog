@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
     compactOffloadedToolResultText,
     maybeOffloadToolResult,
+    persistToolResultArtifactSync,
+    _internals,
 } from './tool-result-offload.mjs';
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { pruneToolOutputsUnanchored } from './compact/budget.mjs';
@@ -122,4 +124,66 @@ test('completed shell output is not middle-truncated at 400 lines', async () => 
     assert.doesNotMatch(result.result, /lines omitted|tool-output truncated/);
     assert.match(result.result, /(?:^|\n)line-0\n/);
     assert.match(result.result, /(?:^|\n)line-449(?:\n|$)/);
+});
+
+test('preview excerpts never split a Unicode surrogate pair', () => {
+    const cases = [
+        {
+            text: `${'a'.repeat(306)}😀${'b'.repeat(700)}`,
+            head: 'a'.repeat(306),
+            tail: 'b'.repeat(205),
+        },
+        {
+            text: `${'a'.repeat(700)}😀${'z'.repeat(204)}`,
+            head: 'a'.repeat(307),
+            tail: 'z'.repeat(204),
+        },
+    ];
+    for (const { text, head, tail } of cases) {
+        const { preview, truncated } = _internals.buildPreview(text);
+        assert.equal(truncated, true);
+        assert.equal(Buffer.from(preview, 'utf8').toString('utf8'), preview);
+        assert.ok(preview.startsWith(`${head}\n\n`));
+        assert.ok(preview.endsWith(`\n\n${tail}`));
+        assert.ok(text.startsWith(head));
+        assert.ok(text.endsWith(tail));
+    }
+});
+
+test('mismatched stored objects preserve inline evidence in sync and async paths', async () => {
+    const originalDataDir = process.env.MIXDOG_DATA_DIR;
+    const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-artifact-shape-'));
+    process.env.MIXDOG_DATA_DIR = dataDir;
+    try {
+        const content = 'original evidence\n'.repeat(3_000);
+        const sha256 = createHash('sha256').update(content).digest('hex');
+        for (const [kind, stored] of [
+            ['larger', `${content}extra`],
+            ['shorter', content.slice(1)],
+            ['same-size-corruption', content.replace('original', 'modified')],
+            ['directory', null],
+        ]) {
+            const sessionId = `session-artifact-${kind}`;
+            const dir = join(dataDir, 'tool-results', sessionId);
+            const artifactPath = join(dir, `${sha256}.txt`);
+            mkdirSync(dir, { recursive: true });
+            if (stored === null) mkdirSync(artifactPath);
+            else writeFileSync(artifactPath, stored);
+            assert.equal(
+                await maybeOffloadToolResult(sessionId, `async-${kind}`, 'shell', content),
+                content,
+                kind,
+            );
+            assert.equal(
+                persistToolResultArtifactSync({ sessionId, toolCallId: `sync-${kind}`, content }),
+                null,
+                kind,
+            );
+            if (stored !== null) assert.equal(readFileSync(artifactPath, 'utf8'), stored);
+        }
+    } finally {
+        if (originalDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+        else process.env.MIXDOG_DATA_DIR = originalDataDir;
+        rmSync(dataDir, { recursive: true, force: true });
+    }
 });

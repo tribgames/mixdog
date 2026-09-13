@@ -38,10 +38,12 @@ The rules the overlays must keep:
   UNCLIPPED, with more than two characters (`TEXT`); icon and label coexist at
   every width. The label degrades in whole pieces, never by truncation: the
   remote NAME goes below 420px (`Push origin` → `Push`). Ahead/behind lives on
-  its OWN full-width band UNDER the toolbar — never as a chip straddling the
-  button: every count shows its digits plus its own direction arrow, the
-  capsule always stays wider than it is tall, and the floating badge must not
-  come back. Below the 300px floor only gaps and side padding tighten — action
+  the TOP-RIGHT CORNER of the button that clears it — ahead on Push, behind on
+  Fetch, so a diverged branch never crowds one corner with both counts. Each
+  badge hangs on its own section's corner, on the toolbar row, shows its digits
+  (`99+` above 99) plus its own direction arrow, stays wider than it is tall
+  and stays inside the dock panel; the old band under the toolbar must not come
+  back. Below the 300px floor only gaps and side padding tighten — action
   icons stay 14px, nothing hides and nothing overlaps,
 - the toolbar is marked `data-i18n-skip`, so branch names and the fixed
   `Push`/`Fetch` Git action labels remain unchanged in every UI language,

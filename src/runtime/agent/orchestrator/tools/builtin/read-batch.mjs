@@ -77,13 +77,9 @@ export function sliceReadBodyByLines(body, origOffset, origLimit) {
     const emittedLast = keptLast !== null ? Math.min(requestedLast, keptLast) : requestedLast;
     const totalPart = haveTotal ? ` of ${totalNum}` : '';
     const moreToRead = haveTotal ? emittedLast < totalNum : finiteLast;
-    // Anti-fragmentation: modest remainders get the exact one-window
-    // continuation (offset+limit) instead of an open-ended "continue".
-    const _remaining = haveTotal ? totalNum - emittedLast : null;
+    // Report the next public coordinate without prescribing another read.
     const continuationPart = moreToRead && Number.isFinite(emittedLast)
-        ? (_remaining !== null && _remaining > 0 && _remaining <= 600
-            ? `; ${_remaining} left — ONE window: offset:${emittedLast} limit:${_remaining}`
-            : `; pass offset:${emittedLast} to continue`)
+        ? `; pass offset:${emittedLast + 1} to continue`
         : '';
     const newFooter = `[lines ${emittedStart}-${emittedLast}${totalPart}${continuationPart}]`;
     return kept.join('\n') + (kept.length ? '\n' : '') + newFooter;

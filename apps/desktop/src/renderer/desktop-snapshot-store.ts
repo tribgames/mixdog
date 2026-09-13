@@ -60,6 +60,15 @@ const CHROME_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
 
 const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "sessionId",
+  // The context card acts on the session's CURRENT route: a model switch is
+  // what turns its action into "Inherit session". Leaving the route out held
+  // the gauge on the previous model whenever the new one shared the old
+  // context window and nothing else moved — an idle phone after a model
+  // change never offered the carry (user: 모바일에서 모델 바꿨는데 세션승계가
+  // 안 나와), while the composer's own label already showed the new model.
+  "provider",
+  "model",
+  "effort",
   "busy",
   "commandBusy",
   "toolApproval",

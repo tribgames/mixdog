@@ -18,6 +18,16 @@
       "prove-plus-comm"
     ],
     "full": [],
+    "fast8-2": [
+      "cancel-async-tasks",
+      "configure-git-webserver",
+      "extract-elf",
+      "kv-store-grpc",
+      "mteb-retrieve",
+      "pytorch-model-cli",
+      "pytorch-model-recovery",
+      "sqlite-with-gcov"
+    ],
     "readprobe": [
       "kv-store-grpc",
       "mteb-retrieve",
@@ -124,6 +134,14 @@
     "opus5-solo": {
       "suite": "core",
       "routeProfile": "opus5-solo"
+    },
+    "fast8-2-opus5-solo": {
+      "suite": "fast8-2",
+      "routeProfile": "opus5-solo"
+    },
+    "fast8-2-sol-xhigh-fast": {
+      "suite": "fast8-2",
+      "routeProfile": "sol-xhigh-fast"
     },
     "full-sol-xhigh": {
       "suite": "full",

@@ -109,9 +109,52 @@ function buildFill(color) {
     : '<fill><patternFill patternType="none"/></fill>';
 }
 
+// A cell's four edges: the rule under a header, the rule over a total, the frame of an input block.
+// Each side is { style, color }; a side the caller does not name keeps what the cell had.
+const BORDER_SIDES = Object.freeze(['left', 'right', 'top', 'bottom']);
+const BORDER_STYLES = Object.freeze(['none', 'hair', 'thin', 'medium', 'thick', 'dashed', 'dotted', 'double']);
+
+function parseBorder(xml) {
+  const border = {};
+  for (const side of BORDER_SIDES) {
+    const element = new RegExp(`<${side}\\b([^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/${side}>)`).exec(xml || '');
+    const style = element ? attribute(element[1], 'style') : '';
+    border[side] = style && style !== 'none'
+      ? { style, color: normalizeColor(attribute(/<color\b([^>]*?)\/>/.exec(element[2] || '')?.[1], 'rgb')) }
+      : null;
+  }
+  return border;
+}
+
+function buildBorder(border) {
+  const side = (name) => {
+    const edge = border[name];
+    if (!edge) return `<${name}/>`;
+    return `<${name} style="${edge.style}">${edge.color ? `<color rgb="${edge.color}"/>` : '<color auto="1"/>'}</${name}>`;
+  };
+  return `<border>${side('left')}${side('right')}${side('top')}${side('bottom')}<diagonal/></border>`;
+}
+
+function mergeBorders(base, requested) {
+  const next = { ...base };
+  const sides = requested && typeof requested === 'object' && !Array.isArray(requested) ? requested : {};
+  // One spec for every side (`borders: { style: 'thin', color }`) or a spec per side.
+  const uniform = BORDER_SIDES.every((name) => sides[name] === undefined) && (sides.style || sides.color);
+  for (const name of BORDER_SIDES) {
+    const spec = uniform ? sides : sides[name];
+    if (spec === undefined) continue;
+    if (spec === null || spec === false || spec === 'none' || spec?.style === 'none' || spec?.enabled === false) { next[name] = null; continue; }
+    const style = String(spec?.style || 'thin').toLowerCase();
+    if (!BORDER_STYLES.includes(style)) throw new Error(`set_style borders.${name}.style "${style}" is not one of ${BORDER_STYLES.join(', ')}`);
+    next[name] = { style, color: normalizeColor(spec?.color) };
+  }
+  return next;
+}
+
 function parseXf(xml) {
   const attrs = /^<xf\b([^>]*?)(?:\/>|>)/.exec(xml)?.[1] || '';
   const alignment = /<alignment\b([^>]*?)\/?>/.exec(xml)?.[1] || '';
+  const protection = /<protection\b([^>]*?)\/?>/.exec(xml)?.[1] || '';
   return {
     numFmtId: Number(attribute(attrs, 'numFmtId')) || 0,
     fontId: Number(attribute(attrs, 'fontId')) || 0,
@@ -121,6 +164,9 @@ function parseXf(xml) {
     horizontal: attribute(alignment, 'horizontal'),
     vertical: attribute(alignment, 'vertical'),
     wrapText: attribute(alignment, 'wrapText') === '1',
+    // Every cell is locked until told otherwise; the flag only takes effect
+    // once the sheet itself is protected.
+    locked: attribute(protection, 'locked') !== '0',
   };
 }
 
@@ -131,14 +177,18 @@ function buildXf(xf) {
       + `${xf.vertical ? ` vertical="${xf.vertical}"` : ''}`
       + `${xf.wrapText ? ' wrapText="1"' : ''}/>`
     : '';
+  // An unlocked cell is how a protected sheet keeps its entry fields typable.
+  const protection = xf.locked === false ? '<protection locked="0"/>' : '';
   const head = `<xf numFmtId="${xf.numFmtId}" fontId="${xf.fontId}" fillId="${xf.fillId}"`
     + ` borderId="${xf.borderId}" xfId="${xf.xfId}"`
     + `${xf.numFmtId ? ' applyNumberFormat="1"' : ''}`
     + `${xf.fontId ? ' applyFont="1"' : ''}`
     + `${xf.fillId ? ' applyFill="1"' : ''}`
     + `${xf.borderId ? ' applyBorder="1"' : ''}`
-    + `${aligned ? ' applyAlignment="1"' : ''}`;
-  return aligned ? `${head}>${alignment}</xf>` : `${head}/>`;
+    + `${aligned ? ' applyAlignment="1"' : ''}`
+    + `${protection ? ' applyProtection="1"' : ''}`;
+  const body = `${alignment}${protection}`;
+  return body ? `${head}>${body}</xf>` : `${head}/>`;
 }
 
 function register(items, candidate) {
@@ -218,6 +268,11 @@ export function applyCellStyle(stylesXml, baseIndex, properties = {}) {
     next.fillId = register(sections.fills, buildFill(fill));
   }
 
+  if (Object.hasOwn(properties, 'borders')) {
+    const merged = mergeBorders(parseBorder(sections.borders[base.borderId] || ''), properties.borders);
+    next.borderId = BORDER_SIDES.some((name) => merged[name]) ? register(sections.borders, buildBorder(merged)) : 0;
+  }
+
   if (Object.hasOwn(properties, 'numberFormat')) {
     next.numFmtId = registerNumberFormat(sections.numFmts, properties.numberFormat);
   }
@@ -228,6 +283,7 @@ export function applyCellStyle(stylesXml, baseIndex, properties = {}) {
     next.vertical = VERTICAL[String(properties.verticalAlignment).toLowerCase()] || '';
   }
   if (Object.hasOwn(properties, 'wrapText')) next.wrapText = properties.wrapText === true;
+  if (Object.hasOwn(properties, 'locked')) next.locked = properties.locked !== false;
 
   const index = register(sections.cellXfs, buildXf(next));
   return { xml: serialize(stylesXml, sections), index };
@@ -299,6 +355,7 @@ export function resolveCellStyles(stylesXml) {
       ...(font.color ? { color: font.color.slice(-6) } : {}),
       ...(fill ? { fillColor: fill.slice(-6) } : {}),
       ...(xf.horizontal ? { horizontalAlignment: xf.horizontal } : {}),
+      ...(xf.locked === false ? { locked: false } : {}),
     };
   });
 }

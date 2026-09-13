@@ -1,7 +1,7 @@
 // Transport-neutral method table for the remote Relay client: the
 // same desktop service surface registerDesktopIpc exposes, minus desktop-only OS
 // integrations (dialogs, shell reveal/open, zoom, updater, quit). Validation
-// reuses the ipc.ts validators so the remote surface can never accept a shape
+// shares transport-neutral validators so the remote surface cannot accept a shape
 // the in-process IPC surface would reject.
 import { randomUUID } from 'node:crypto';
 import {
@@ -48,8 +48,6 @@ import {
   requiredTranscriptItemLimit,
   requiredToolApprovalDecision,
   sessionDisplayName,
-} from './ipc';
-import {
   requiredGitGlobalConfigKey,
   requiredInstructionsContent,
   requiredLspDocumentInput,
@@ -359,10 +357,11 @@ export function createRemoteMethods(
     },
     // Cold-lane fill for the remote surface: a canonical session.read whose
     // replay frame returns through the broadcast sessionState lane.
-    prefetchSession: ([sessionId, itemLimit]) =>
+    prefetchSession: ([sessionId, itemLimit, readTraceId]) =>
       host.prefetchSession?.(
         requiredSessionId(sessionId),
         requiredTranscriptItemLimit(itemLimit),
+        typeof readTraceId === 'string' ? readTraceId : undefined,
       ) ?? false,
     searchProjectFiles: ([projectIdOrWorkspaceId, query, limit]) => {
       if (typeof query !== 'string' || query.length > 1_024) {

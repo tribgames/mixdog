@@ -23,6 +23,11 @@ const CHECKLIST_RULES = Object.freeze({
       label: 'Rendered pages do not contain accidental blank or sparse pages.',
       codes: ['blank_page', 'sparse_page'],
     },
+    {
+      id: 'ink-legibility',
+      label: 'Text is readable against the field it sits on.',
+      codes: ['low_contrast'],
+    },
   ],
   xlsx: [
     {
@@ -43,7 +48,17 @@ const CHECKLIST_RULES = Object.freeze({
     {
       id: 'print-readability',
       label: 'Rendered worksheets use the page area at a readable scale.',
-      codes: ['worksheet_print_too_small', 'worksheet_print_fit_missing'],
+      codes: ['worksheet_print_too_small', 'worksheet_print_fit_missing', 'drawing_outside_print_area', 'drawing_overlap'],
+    },
+    {
+      id: 'ink-legibility',
+      label: 'Cell text is readable against its fill.',
+      codes: ['low_contrast', 'label_truncated'],
+    },
+    {
+      id: 'input-usability',
+      label: 'Entry cells stay editable once the sheet is protected.',
+      codes: ['protected_input_locked'],
     },
   ],
   pptx: [

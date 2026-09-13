@@ -143,6 +143,112 @@ test('provider popup preserves meters and opens only an account list beside the 
   assert.equal(document.querySelector('.provider-account-picker-trigger').getAttribute('aria-expanded'), 'true');
 });
 
+test('switching accounts repaints that provider at once and confirms it with a scoped refresh', async (t) => {
+  const render = harness(t);
+  publishUsageDashboard({
+    rows: [{ id: 'openai-oauth', group: 'oauth', authenticated: true, windows: [{ label: '7D', usedPct: 80 }] }],
+  });
+  const pool = { selectedId: 'a', auto: true, accounts: [
+    { id: 'a', label: 'Personal', authenticated: true, usage: { windows: [{ label: '7D', usedPct: 80 }] } },
+    { id: 'b', label: 'Work', authenticated: true, usage: { windows: [{ label: '7D', usedPct: 12 }] } },
+  ] };
+  const dashboardArgs = [];
+  const api = { async invokeCapability({ capability, args }) {
+    if (capability === 'getUsageDashboard') {
+      dashboardArgs.push(args[0]);
+      // The confirming request stays outstanding: the meters must already show
+      // the account the user just picked.
+      return await new Promise(() => {});
+    }
+    if (capability === 'updateProviderAccounts') pool.selectedId = args[1].selectedId;
+    return { value: structuredClone(pool) };
+  } };
+  await render(React.createElement(SidebarUsage, { api }));
+  assert.equal(document.querySelector('.sidebar-usage-meter b').textContent, '80%');
+  await act(async () => document.querySelector('.provider-account-picker-trigger').click());
+  await act(async () => document.querySelector('[data-account-id="b"] .provider-account-choice').click());
+  assert.equal(pool.selectedId, 'b');
+  assert.equal(document.querySelector('.sidebar-usage-meter b').textContent, '12%');
+  assert.equal(dashboardArgs.length, 1);
+  assert.deepEqual(dashboardArgs[0].refreshProviders, ['openai-oauth']);
+  assert.equal(dashboardArgs[0].refresh, true);
+});
+
+test('settings isolate OpenCode Go between OAuth and API providers while preserving authentication actions', async (t) => {
+  const render = harness(t);
+  const originalFormData = globalThis.FormData;
+  globalThis.FormData = window.FormData;
+  t.after(() => { globalThis.FormData = originalFormData; });
+  const calls = [];
+  const opened = [];
+  const confirmations = [];
+  window.mixdogDesktop = { async openExternal(url) { opened.push(url); } };
+  const provider = { id: 'opencode-go', name: 'OpenCode Go API', url: 'https://opencode.ai', authenticated: false };
+  const props = {
+    api: {}, pending: '',
+    run: async (...args) => { calls.push(args); },
+    confirm: (options) => { confirmations.push(options); },
+  };
+  const show = (current, pending = '') => render(React.createElement(ProvidersPanel, {
+    ...props, pending,
+    data: { providerSetup: { oauth: [], api: [
+      { id: 'openai-api', name: 'OpenAI API' },
+      current,
+      { id: 'anthropic-api', name: 'Anthropic API' },
+    ] } },
+  }));
+  await show(provider);
+  const [oauth, go, api] = document.querySelectorAll('main > section');
+  assert.equal(document.querySelectorAll('main > section').length, 3);
+  assert.equal(oauth.querySelector('h3').textContent, 'OAuth providers');
+  assert.equal(go.querySelector('.settings-resource-title b').textContent, 'OpenCode Go API');
+  assert.equal(api.querySelector('h3').textContent, 'API-key providers');
+  assert.doesNotMatch(oauth.textContent, /OpenCode Go/);
+  assert.deepEqual([...api.querySelectorAll('.settings-resource-title b')].map((name) => name.textContent),
+    ['OpenAI API', 'Anthropic API']);
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  const action = (label) => [...go.querySelectorAll('button')].find((button) => button.textContent === label);
+  await act(async () => action('Usage sign-in').click());
+  assert.deepEqual(calls.at(-1), ['loginOpenCodeGoUsage']);
+  await act(async () => action('Get API key ↗').click());
+  assert.deepEqual(opened, ['https://opencode.ai']);
+  const input = go.querySelector('input');
+  assert.equal(input.type, 'password');
+  input.value = 'test-opencode-key';
+  await act(async () => go.querySelector('form').dispatchEvent(
+    new window.Event('submit', { bubbles: true, cancelable: true }),
+  ));
+  assert.deepEqual(calls.at(-1), ['saveProviderApiKey', ['opencode-go', 'test-opencode-key'], 'provider-key-opencode-go']);
+  assert.equal(input.value, '');
+
+  const connected = { ...provider, authenticated: true, stored: true, status: 'valid' };
+  await show(connected);
+  assert.equal(go.querySelector('.settings-status').textContent, 'Connected');
+  assert.equal(go.querySelector('form'), null);
+  assert.equal(action('Get API key ↗'), undefined);
+  assert.ok(action('Usage sign-in'));
+  await act(async () => action('Forget').click());
+  assert.equal(confirmations.length, 1);
+  assert.equal(calls.some(([capability]) => capability === 'forgetProviderAuth'), false);
+  await act(async () => confirmations[0].onConfirm());
+  assert.deepEqual(calls.at(-1), ['forgetProviderAuth', ['opencode-go']]);
+
+  await show(connected, 'provider-auth');
+  assert.ok([...go.querySelectorAll('button')].every((button) => button.disabled));
+});
+
+test('settings omit the separate OpenCode Go card when the provider is unavailable', async (t) => {
+  const render = harness(t);
+  await render(React.createElement(ProvidersPanel, {
+    api: {}, pending: '', run: async () => {}, confirm: () => {},
+    data: { providerSetup: { oauth: [], api: [{ id: 'openai-api', name: 'OpenAI API' }] } },
+  }));
+  const sections = [...document.querySelectorAll('main > section')];
+  assert.deepEqual(sections.map((section) => section.querySelector('h3').textContent),
+    ['OAuth providers', 'API-key providers']);
+  assert.doesNotMatch(document.querySelector('main').textContent, /OpenCode Go|Usage sign-in/);
+});
+
 test('settings show only removal for healthy accounts, reconnect for expired accounts and a header add action', async (t) => {
   const render = harness(t);
   const calls = [];

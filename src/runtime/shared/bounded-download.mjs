@@ -1,24 +1,47 @@
 import { createWriteStream, rmSync } from 'node:fs';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { sleep } from './sleep.mjs';
 
 export const MAX_NATIVE_BINARY_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 const DEFAULT_RETRY_DELAYS_MS = [1000, 3000, 9000];
 
-export async function readResponseBuffer(
-  response,
-  { maxBytes, label = 'download' } = {},
-) {
+function downloadBounds(maxBytes, expectedBytes, label) {
   const maximum = Number(maxBytes);
+  const expected = Number(expectedBytes);
   if (!Number.isSafeInteger(maximum) || maximum <= 0) {
     throw new TypeError(`${label}: a positive byte limit is required`);
   }
+  if (!Number.isSafeInteger(expected) || expected < 0 || expected > maximum) {
+    throw new TypeError(`${label}: expected byte size is invalid`);
+  }
+  return { maximum, expected };
+}
+
+function responseByteLength(response, maximum, label) {
   if (!response?.body) throw new Error(`${label}: response has no body`);
   const lengthValue = String(response.headers?.get?.('content-length') || '').trim();
   const advertised = /^\d+$/.test(lengthValue) ? Number(lengthValue) : 0;
   if (advertised > maximum) {
     throw new Error(`${label}: response exceeds the ${maximum} byte limit`);
   }
+  return advertised;
+}
+
+class DownloadHttpError extends Error {
+  constructor(status, label, url) {
+    const terminal = status >= 400 && status < 500;
+    super(`${label} HTTP ${status}${terminal ? ' (terminal)' : ''} — ${url}`);
+    this.terminal = terminal;
+  }
+}
+
+export async function readResponseBuffer(
+  response,
+  { maxBytes, label = 'download' } = {},
+) {
+  const { maximum } = downloadBounds(maxBytes, 0, label);
+  responseByteLength(response, maximum, label);
   const chunks = [];
   let total = 0;
   for await (const value of response.body) {
@@ -42,21 +65,8 @@ export async function streamResponseToFile(
     onProgress = null,
   } = {},
 ) {
-  const maximum = Number(maxBytes);
-  const expected = Number(expectedBytes);
-  if (!Number.isSafeInteger(maximum) || maximum <= 0) {
-    throw new TypeError(`${label}: a positive byte limit is required`);
-  }
-  if (expected && (!Number.isSafeInteger(expected) || expected <= 0 || expected > maximum)) {
-    throw new TypeError(`${label}: expected byte size is invalid`);
-  }
-  if (!response?.body) throw new Error(`${label}: response has no body`);
-
-  const lengthValue = String(response.headers?.get?.('content-length') || '').trim();
-  const advertised = /^\d+$/.test(lengthValue) ? Number(lengthValue) : 0;
-  if (advertised > maximum) {
-    throw new Error(`${label}: response exceeds the ${maximum} byte limit`);
-  }
+  const { maximum, expected } = downloadBounds(maxBytes, expectedBytes, label);
+  const advertised = responseByteLength(response, maximum, label);
   if (expected && advertised && advertised !== expected) {
     throw new Error(`${label}: expected ${expected} bytes, server advertised ${advertised}`);
   }
@@ -114,26 +124,32 @@ export async function downloadToFileWithRetry(
     onRetry = null,
   } = {},
 ) {
+  const { maximum, expected } = downloadBounds(maxBytes, expectedBytes, label);
   let lastError;
   for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
     try {
       const response = await fetchFn(url, { signal: AbortSignal.timeout(timeoutMs) });
-      const terminal = response.status >= 400 && response.status < 500;
-      if (!response.ok) {
-        throw new Error(`${httpLabel} HTTP ${response.status}${terminal ? ' (terminal)' : ''} — ${url}`);
+      try {
+        if (!response.ok) throw new DownloadHttpError(response.status, httpLabel, url);
+        return await streamResponseToFile(response, destPath, {
+          maxBytes: maximum,
+          expectedBytes: expected,
+          label,
+        });
+      } finally {
+        if (!response.bodyUsed) {
+          // This attempt owns the response. Dispose an unread body before any
+          // retry, without letting cleanup delay or replace the download outcome.
+          try { void Promise.resolve(response.body?.cancel?.()).catch(() => {}); } catch {}
+        }
       }
-      return await streamResponseToFile(response, destPath, {
-        maxBytes,
-        expectedBytes,
-        label,
-      });
     } catch (error) {
       lastError = error;
-      if (String(error?.message || error).includes('(terminal)')) throw error;
+      if (error instanceof DownloadHttpError && error.terminal) throw error;
       const delayMs = retryDelaysMs[attempt];
       if (delayMs === undefined) break;
       onRetry?.({ attempt: attempt + 1, delayMs, error });
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await sleep(delayMs);
     }
   }
   throw lastError;

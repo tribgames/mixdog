@@ -99,8 +99,7 @@ export function createSessionTurnApi(deps) {
       if (attachedSession?.remoteAttached) {
         // Carry the submission id into the spool: the owner reuses it for the
         // queue entry and the settled user row, so the submitting surface's
-        // optimistic bubble is released instead of standing beside the
-        // mirrored twin (user: 같은 세션에서 메세지가 두 개로 보인다).
+        // optimistic bubble is reconciled with the mirrored row.
         const submissionId = String(options.id || '').trim();
         const delivered = enqueueRemoteAttachedPrompt(
           submissionId ? { content: prompt, id: submissionId } : prompt,
@@ -337,6 +336,7 @@ export function createSessionTurnApi(deps) {
           {
             beforeToolExecution: () => turnSnapshotPromise || Promise.resolve(),
             transcriptMeta: options.transcriptMeta,
+            promptSource: options.promptSource,
             onTextDelta: options.onTextDelta,
             onTextReset: options.onTextReset,
             onReasoningDelta: options.onReasoningDelta,

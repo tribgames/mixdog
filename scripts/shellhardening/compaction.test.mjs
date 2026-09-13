@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { renderShellOutputBody } from '../../src/runtime/agent/orchestrator/tools/builtin/shell-lossless-compact.mjs';
 import {
   path,
   createHash,
@@ -147,6 +148,21 @@ test('lossless shell compaction summarizes successful test runners only with com
     });
     assert.equal(nodePlan.stdout, 'Node tests: 80 passed in 42.5ms');
 
+    for (const diagnostic of [
+        '# Warning: certificate verification disabled',
+        '# Error: background worker did not initialize',
+        '# fatal: diagnostic output must remain visible',
+    ]) {
+        assert.equal(planLosslessShellCompaction({
+            command: 'node --test test/unit.test.mjs',
+            stdout: tap.replace('1..80', `${diagnostic}\n1..80`),
+            stderr: '',
+            exitCode: 0,
+            signal: null,
+            timedOut: false,
+        }), null, diagnostic);
+    }
+
     const cargo = `${'test case ... ok\n'.repeat(80)}test result: ok. 80 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s\n`;
     const cargoPlan = planLosslessShellCompaction({
         command: 'cargo test',
@@ -229,4 +245,93 @@ test('lossless shell compaction folds overwritten progress frames but never diag
         signal: null,
         timedOut: false,
     }), null);
+});
+
+test('shell compaction savings include the complete recovery envelope', () => {
+    const originalDataDir = process.env.MIXDOG_DATA_DIR;
+    const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-shell-net-savings-'));
+    process.env.MIXDOG_DATA_DIR = dataDir;
+    try {
+        for (const [repeats, shouldCompact] of [[40, false], [240, true]]) {
+            const stdout = 'progress step\n'.repeat(repeats);
+            const resultTelemetry = {};
+            const input = {
+                command: 'node worker.mjs',
+                rawStdout: stdout,
+                rawStderr: '',
+                stdout,
+                stderr: '',
+                exitCode: 0,
+                signal: null,
+                timedOut: false,
+                sessionId: 'session-shell-net-savings',
+                toolCallId: `call-${repeats}`,
+                resultTelemetry,
+            };
+            assert.ok(planLosslessShellCompaction(input), 'the body alone pays for compaction');
+            const compacted = compactShellOutputLosslessly(input);
+            assert.equal(compacted !== null, shouldCompact);
+            assert.deepEqual(resultTelemetry.losslessCompaction, {
+                applied: shouldCompact,
+                reason: shouldCompact ? null : 'insufficient_savings',
+                kind: 'consecutive-duplicates',
+            });
+            if (compacted) {
+                const rendered = renderShellOutputBody(compacted.stdout, compacted.stderr, compacted);
+                const before = Buffer.byteLength(stdout);
+                const saved = before - Buffer.byteLength(rendered);
+                assert.ok(saved >= 384, 'the final response saves the minimum byte count');
+                assert.ok(saved / before >= 0.2, 'the final response saves at least 20%');
+            }
+        }
+    } finally {
+        if (originalDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+        else process.env.MIXDOG_DATA_DIR = originalDataDir;
+        rmSync(dataDir, { recursive: true, force: true });
+    }
+});
+
+test('shell compaction records skip reasons without changing its null-result contract', () => {
+    const previousEnabled = process.env.MIXDOG_SHELL_LOSSLESS_COMPACT;
+    try {
+        const repeated = 'repeated output\n'.repeat(240);
+        const cases = [
+            { reason: 'disabled', enabled: '0' },
+            { reason: 'timed_out', timedOut: true, exitCode: 1, signal: 'SIGTERM' },
+            { reason: 'interrupted', signal: 'SIGTERM' },
+            { reason: 'unsuccessful_exit', exitCode: 1 },
+            { reason: 'existing_recovery', hasExistingRecovery: true },
+            { reason: 'unsupported_command', command: 'node worker.mjs\nnode other.mjs' },
+            { reason: 'diagnostic_content', stdout: `${repeated}warning: retain this evidence\n` },
+            { reason: 'insufficient_savings', stdout: 'line\n'.repeat(20) },
+            { reason: 'no_reduction_candidate', stdout: 'ordinary output\n' },
+            { reason: 'archive_unavailable' },
+        ];
+        for (const { reason, enabled = '1', ...overrides } of cases) {
+            process.env.MIXDOG_SHELL_LOSSLESS_COMPACT = enabled;
+            const stdout = overrides.stdout ?? repeated;
+            const resultTelemetry = {};
+            const result = compactShellOutputLosslessly({
+                command: 'node worker.mjs',
+                stdout,
+                rawStdout: stdout,
+                stderr: '',
+                rawStderr: '',
+                exitCode: 0,
+                signal: null,
+                timedOut: false,
+                ...overrides,
+                resultTelemetry,
+            });
+            assert.equal(result, null, reason);
+            assert.deepEqual(resultTelemetry.losslessCompaction, {
+                applied: false,
+                reason,
+                kind: reason === 'archive_unavailable' ? 'consecutive-duplicates' : null,
+            });
+        }
+    } finally {
+        if (previousEnabled === undefined) delete process.env.MIXDOG_SHELL_LOSSLESS_COMPACT;
+        else process.env.MIXDOG_SHELL_LOSSLESS_COMPACT = previousEnabled;
+    }
 });

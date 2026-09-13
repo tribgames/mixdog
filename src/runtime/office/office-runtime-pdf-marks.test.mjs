@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PDFDocument, PDFName, PDFString, degrees } from 'pdf-lib';
 import { executeOfficeTool } from './index.mjs';
-import { findPdfText } from './pdf/pdf-analysis.mjs';
+import { extractPdfTextLayout, findPdfText } from './pdf/pdf-analysis.mjs';
 import { unicodeFontPath, value, workspace } from './office-test-support.mjs';
 
 // Reading positions and marking an existing PDF: text search, highlight,
@@ -41,6 +41,44 @@ test('PDF text search joins runs on a line and maps a match back to its box', ()
   assert.ok(narrow.x < 25 && Math.abs(narrow.x + narrow.width - 100) < 0.01, JSON.stringify(narrow));
   const [hangul] = findPdfText({ pages: [{ page: 1, items: [{ text: '이번 분기 총매출', x: 0, top: 0, width: 100, height: 10 }] }] }, '총매출').matches;
   assert.ok(Math.abs(hangul.x + hangul.width - 100) < 0.01 && hangul.width > 35 && hangul.width < 43, JSON.stringify(hangul));
+});
+
+test('PDF text search reads a phrase across a line break and measures each line', () => {
+  const layout = {
+    pageCount: 1,
+    pages: [{
+      page: 1,
+      width: 300,
+      height: 200,
+      items: [
+        { text: 'the quarter closed with total', x: 10, top: 20, width: 180, height: 10 },
+        { text: 'due in March 정시 출고율은 소폭', x: 10, top: 40, width: 200, height: 10 },
+        { text: '내려갔습니다 그리고 매출총', x: 10, top: 60, width: 170, height: 10 },
+        { text: '이익은 늘었습니다', x: 10, top: 80, width: 110, height: 10 },
+      ],
+    }],
+  };
+  // The wrap ate the space between the words, so the phrase reads as one string.
+  const wrapped = findPdfText(layout, 'total due');
+  assert.equal(wrapped.matchCount, 1);
+  const [latin] = wrapped.matches;
+  assert.equal(latin.rects.length, 2);
+  assert.deepEqual(latin.rects.map((rect) => rect.top), [20, 40]);
+  assert.ok(Math.abs(latin.rects[0].x + latin.rects[0].width - 190) < 0.01, JSON.stringify(latin.rects[0]));
+  assert.equal(latin.rects[1].x, 10);
+  assert.deepEqual({ x: latin.x, top: latin.top }, { x: latin.rects[0].x, top: 20 });
+  // Korean wraps at the space the same way…
+  const hangul = findPdfText(layout, '소폭 내려갔습니다');
+  assert.equal(hangul.matchCount, 1);
+  assert.deepEqual(hangul.matches[0].rects.map((rect) => rect.top), [40, 60]);
+  // …and between two wide glyphs, where the wrap left no space at all.
+  const tight = findPdfText(layout, '매출총이익은');
+  assert.equal(tight.matchCount, 1);
+  assert.deepEqual(tight.matches[0].rects.map((rect) => rect.top), [60, 80]);
+  // A phrase that never runs on is still one box, and a wrap is not a wildcard.
+  assert.equal(findPdfText(layout, 'in March').matches[0].rects, undefined);
+  assert.equal(findPdfText(layout, 'total in March').matchCount, 0);
+  assert.equal(findPdfText(layout, 'closed due', { wholeWord: true }).matchCount, 0);
 });
 
 test('PDF search, highlight, links, and page-number placeholders work on an existing document', async (t) => {
@@ -312,6 +350,70 @@ test('PDF marks by find land on the text when the page box does not start at the
   assert.deepEqual(layout.pages[0].origin, { x: 100, y: 50 });
   const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
   assert.deepEqual(snapshot.document.pages[0].origin, { x: 100, y: 50 });
+});
+
+test('a stamp on a rotated page is placed and turned the way the page is read', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'rotated-stamp.pdf');
+  const pdf = await PDFDocument.create();
+  for (let index = 0; index < 2; index += 1) {
+    const page = pdf.addPage([400, 600]);
+    page.drawText(`Sheet ${index + 1}`, { x: 40, y: 540, size: 12 });
+    if (index === 1) page.setRotation(degrees(90));
+  }
+  await writeFile(path, await pdf.save());
+  const opened = value(await executeOfficeTool({ action: 'open', path, mode: 'portable' }, { cwd }));
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: opened.session,
+    operations: [{ op: 'add_text', text: '{page} / {pages}', align: 'center', y: 24, size: 10 }],
+  }, { cwd }));
+  const saved = await PDFDocument.load(await readFile(opened.output));
+  const layout = await extractPdfTextLayout(await readFile(opened.output), { shapes: false });
+  assert.equal(saved.getPage(1).getRotation().angle, 90);
+  for (const page of layout.pages) {
+    const stamp = page.items.find((item) => item.text.includes('/'));
+    assert.ok(stamp, `page ${page.page} carries the stamp`);
+    // Measured on the page as displayed: near the bottom, centred across it.
+    const fromBottom = page.height - (stamp.top + stamp.height);
+    assert.ok(fromBottom > 10 && fromBottom < 45, JSON.stringify({ page: page.page, fromBottom, height: page.height }));
+    const centre = stamp.x + (stamp.width / 2);
+    assert.ok(Math.abs(centre - (page.width / 2)) < 12, JSON.stringify({ page: page.page, centre, width: page.width }));
+    // The rotated page reads landscape, and the stamp reads along with it.
+    assert.equal(page.width > page.height, page.page === 2);
+  }
+});
+
+test('PDF marks follow a phrase that wraps, one box per line', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'wrapped.pdf');
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([400, 200]);
+  page.drawText('confirmed at the October', { x: 20, y: 150, size: 11 });
+  page.drawText('planning review this week', { x: 20, y: 130, size: 11 });
+  await writeFile(path, await pdf.save());
+  const opened = value(await executeOfficeTool({ action: 'open', path, mode: 'portable' }, { cwd }));
+  const batch = value(await executeOfficeTool({
+    action: 'batch',
+    session: opened.session,
+    operations: [
+      { op: 'highlight', find: 'October planning review' },
+      // One match spans two lines: `first` keeps the whole phrase, not half of it.
+      { op: 'add_link', find: 'October planning review', url: 'https://mix.dog/ops', first: true },
+    ],
+  }, { cwd }));
+  const [marked, linked] = batch.results;
+  assert.equal(marked.marks, 2);
+  assert.deepEqual(marked.boxes.map((box) => box.page), [1, 1]);
+  assert.ok(marked.boxes[0].y > marked.boxes[1].y, JSON.stringify(marked.boxes));
+  // The tail of line one and the head of line two, each on the words it names.
+  assert.ok(Math.abs(marked.boxes[0].x + marked.boxes[0].width - 141) < 3, JSON.stringify(marked.boxes[0]));
+  assert.ok(Math.abs(marked.boxes[1].x - 20) < 3 && marked.boxes[1].width > 60, JSON.stringify(marked.boxes[1]));
+  assert.equal(linked.links, 2);
+  const saved = await PDFDocument.load(await readFile(batch.output));
+  const uris = (saved.getPage(0).node.Annots()?.asArray() || [])
+    .map((ref) => saved.context.lookup(ref).get(PDFName.of('A')).get(PDFName.of('URI')).decodeText());
+  assert.deepEqual(uris, ['https://mix.dog/ops', 'https://mix.dog/ops']);
 });
 
 test('PDF marks accept a pattern, stop at the first match, and link URLs to themselves', async (t) => {

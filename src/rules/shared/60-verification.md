@@ -1,20 +1,20 @@
 # Verification
 
-- Once all planned work is complete, verify its essential behaviors and
-  invariants.
-- Use an umbrella suite only when explicitly requested or required by the
-  documented project or release process.
-- Blocking checks cover only essential integrity, security, compatibility, and
-  buildability invariants. Treat mutable behavior, UX, exact text, snapshots,
-  and implementation shape as advisory specifications; update them when the
-  requested behavior changes instead of preserving obsolete behavior.
-- A new test asserts observable behavior, never source text or implementation
-  shape, and never re-asserts a contract another test already owns.
-- A check runs at the strictness the task requires; never raise a tool's own
-  severity beyond it.
-- If verification fails, collect all failures, leave Verification, complete all
-  determinable fixes, then run the affected checks for the resulting state.
-- A successful verification closes the task unless later changes affect it;
-  failed actions follow the retry policy in Tool Workflow, otherwise report
-  them unresolved.
+- Check required behavior, exact outputs and essential integrity/security/
+  compatibility/buildability. Before computation, establish source-based expected
+  values or independent invariants; output-derived expectations are not validation.
+- Finish implementation, then cover each required check once. Combine related
+  output checks only when they use the same runtime and required tools, and one
+  runner reports every outcome despite failures. Otherwise use separate calls;
+  parallelize independent calls. Missing dependencies must not prevent other
+  runnable checks. Reuse observed source values.
+- A passed check settles only that check; finish the remaining required checks.
+  No extra read/list/diff merely to confirm successful writes or checks.
+  Collect failures, finish fixes, and rerun only failed or invalidated checks.
+- Use supplied commands unchanged except inputs, otherwise documented defaults.
+  No stricter flags or unrequested umbrella suites.
+- Warnings or blocked checks alone do not justify editing passing code. Correct obsolete
+  expectations, not valid requirements. New tests assert unowned behavior, not code shape.
+- Missing dependencies block verification; use only evidenced recovery routes,
+  never guessed executables or locations. Report verified results and blockers.
 

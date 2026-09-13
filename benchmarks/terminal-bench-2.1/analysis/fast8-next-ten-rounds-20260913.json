@@ -1,0 +1,2937 @@
+{
+  "schemaVersion": 1,
+  "selected": "T12",
+  "baseline": "T9",
+  "selection": "Provisional: lowest output, recorded cost, wall time and calls among the three two-run candidates; T7 has lower agent time. Replays regress, so stable improvement is unproven. Full-source replay equality failed; unrelated source differences are preserved below. T20 time is affected by an incorrect optional Fibonacci assertion and warning-driven edits.",
+  "totals": {
+    "rounds": 10,
+    "passed": 80,
+    "trials": 80,
+    "recordedUsd": 9.2957056,
+    "harborErrors": 0,
+    "harborRetries": 0,
+    "modelFailedRequests": 0,
+    "rawTraceMatchedTrials": 80
+  },
+  "means": [
+    {
+      "candidate": "T12",
+      "rounds": [
+        12,
+        18
+      ],
+      "output": 24960,
+      "input": 321730.5,
+      "usd": 0.9006948,
+      "wallSeconds": 154.626,
+      "agentSeconds": 524.81,
+      "requests": 43.5,
+      "calls": 40
+    },
+    {
+      "candidate": "T7",
+      "rounds": [
+        7,
+        19
+      ],
+      "output": 25310.5,
+      "input": 318022.5,
+      "usd": 0.9198296,
+      "wallSeconds": 155.923,
+      "agentSeconds": 512.152,
+      "requests": 42,
+      "calls": 41
+    },
+    {
+      "candidate": "T9",
+      "rounds": [
+        9,
+        20
+      ],
+      "output": 25608,
+      "input": 348744.5,
+      "usd": 0.9097364,
+      "wallSeconds": 219.3485,
+      "agentSeconds": 563.3145,
+      "requests": 43.5,
+      "calls": 44
+    }
+  ],
+  "t12VsT9MeanDeltaPercent": {
+    "output": -2.5304592314901564,
+    "input": -7.746071981063496,
+    "cost": -0.9938703123234527,
+    "wall": -29.506698245030172,
+    "agent": -6.835346862187997,
+    "requests": 0,
+    "calls": -9.090909090909093
+  },
+  "relatedChecks": {
+    "T11": 17,
+    "T12": 6,
+    "T13": 11,
+    "T14": 11,
+    "T15": 11,
+    "T16": 6,
+    "T17": 6,
+    "T18": "reuse T12",
+    "T19": "reuse T7",
+    "T20": "reuse T9"
+  },
+  "recoveredAnalysisFailures": [
+    "T11 cost command had an incorrect relative path; corrected input passed 8/8.",
+    "T15 non-description comparison included freeformDescription; corrected classification passed while keeping grammar/schema/annotations checks."
+  ],
+  "failedChecks": [
+    {
+      "check": "Full-source replay equality",
+      "status": "failed",
+      "artifact": "C:/Users/tempe/.mixdog/data/tool-results/sess_desktop_752cf848226494fc4a354d1086a6dda09c525e063e2bf2c07e3cfc4e4a9478e2/ee40cf82c9ba65350a19bec9ceb64e2c88c31950b2db4ca1a0a6be18a51eaac2.txt"
+    }
+  ],
+  "replaySourceComparisons": [
+    {
+      "rounds": [
+        12,
+        18
+      ],
+      "trackedFilesMatch": true,
+      "fullSourceMatch": false,
+      "changed": [
+        "src/defaults/skills/pptx/references/kit.md"
+      ]
+    },
+    {
+      "rounds": [
+        7,
+        19
+      ],
+      "trackedFilesMatch": true,
+      "fullSourceMatch": false,
+      "changed": [
+        "src/defaults/skills/pptx/references/kit.md"
+      ]
+    },
+    {
+      "rounds": [
+        9,
+        20
+      ],
+      "trackedFilesMatch": true,
+      "fullSourceMatch": false,
+      "changed": [
+        "src/defaults/skills/pptx/references/kit.md"
+      ]
+    }
+  ],
+  "finalSourceMatches": "T12: all 11 tracked files",
+  "contextBytes": {
+    "baseline": 22162,
+    "selected": 22292,
+    "delta": 130
+  },
+  "provenance": [
+    {
+      "round": 11,
+      "changed": [
+        "src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs"
+      ],
+      "missing": [],
+      "trackedMatch": 11
+    },
+    {
+      "round": 12,
+      "trackedMatch": 11,
+      "changed": [
+        "src/rules/shared/60-verification.md"
+      ],
+      "outsideTrackedTargets": []
+    },
+    {
+      "round": 13,
+      "trackedMatch": 11,
+      "changed": [
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs"
+      ],
+      "outsideTrackedTargets": []
+    },
+    {
+      "round": 14,
+      "trackedMatch": 11,
+      "changed": [
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/git-command-tool.mjs"
+      ],
+      "outsideTrackedTargets": []
+    },
+    {
+      "round": 15,
+      "trackedMatch": 11,
+      "changed": [
+        "src/defaults/skills/pptx/references/kit.md",
+        "src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs"
+      ],
+      "outsideTrackedTargets": [
+        "src/defaults/skills/pptx/references/kit.md"
+      ]
+    },
+    {
+      "round": 16,
+      "trackedMatch": 11,
+      "changed": [
+        "src/rules/shared/10-tool-workflow.md"
+      ],
+      "outsideTrackedTargets": []
+    },
+    {
+      "round": 17,
+      "trackedMatch": 11,
+      "changed": [
+        "src/rules/shared/10-tool-workflow.md",
+        "src/rules/shared/30-exploration.md",
+        "src/runtime/agent/orchestrator/tools/builtin/git-command-tool.mjs",
+        "src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs"
+      ],
+      "outsideTrackedTargets": []
+    },
+    {
+      "round": 18,
+      "trackedMatch": 11,
+      "changed": [
+        "src/rules/shared/30-exploration.md"
+      ],
+      "outsideTrackedTargets": []
+    },
+    {
+      "round": 19,
+      "trackedMatch": 11,
+      "changed": [
+        "src/rules/shared/60-verification.md",
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+        "src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs"
+      ],
+      "outsideTrackedTargets": []
+    },
+    {
+      "round": 20,
+      "trackedMatch": 11,
+      "changed": [
+        "src/rules/shared/60-verification.md",
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs"
+      ],
+      "outsideTrackedTargets": []
+    }
+  ],
+  "runs": [
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t11",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:19:14.641326",
+        "finishedAt": "2026-09-13T13:22:10.713688",
+        "wallSeconds": 176.072,
+        "agentTotalSeconds": 513.791,
+        "environmentSetupTotalSeconds": 20.467,
+        "agentSetupTotalSeconds": 80.315,
+        "verifierTotalSeconds": 108.26600000000002,
+        "teardownTotalSeconds": 93.78299999999999,
+        "apiTotalSeconds": 442.16700000000003
+      },
+      "tokens": {
+        "input": 330513,
+        "cached": 244224,
+        "cacheWrite": 0,
+        "output": 25592
+      },
+      "cost": {
+        "usd": 0.9546856,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.11148723118933573,
+      "activity": {
+        "providerRequests": 47,
+        "toolCalls": 45
+      },
+      "finalContext": {
+        "medianTokens": 8616.5,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 0,
+          "beforeBytes": 0,
+          "afterBytes": 0,
+          "savedBytes": 0,
+          "rowSavedBytes": 0,
+          "exactSavedBytes": 0,
+          "reusedRows": 0,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 21,
+          "rawBytes": 29729,
+          "visibleBytes": 4600,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 47,
+          "toolBatches": 39,
+          "toolCalls": 45,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 330513,
+          "cached": 244224,
+          "output": 25592
+        },
+        "totalSavedBytes": 25736
+      },
+      "contract": {
+        "promptBytes": 9801,
+        "toolBytes": 12445
+      },
+      "thinking": 15783,
+      "finalThinking": 1161,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 31.555,
+          "input": 29594,
+          "cached": 19968,
+          "output": 1028,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 590,
+          "finalThinking": 0,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 94.791,
+          "input": 40913,
+          "cached": 30976,
+          "output": 5529,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 3367,
+          "finalThinking": 71,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 41.734,
+          "input": 47346,
+          "cached": 34048,
+          "output": 1500,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 7,
+          "thinking": 842,
+          "finalThinking": 127,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 65.348,
+          "input": 50470,
+          "cached": 38016,
+          "output": 3239,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 2443,
+          "finalThinking": 224,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 34.156,
+          "input": 18903,
+          "cached": 10880,
+          "output": 1515,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 2,
+          "thinking": 615,
+          "finalThinking": 76,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 76.875,
+          "input": 29688,
+          "cached": 14208,
+          "output": 5033,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 2098,
+          "finalThinking": 49,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 126.478,
+          "input": 76032,
+          "cached": 68352,
+          "output": 6428,
+          "cacheWrite": 0,
+          "requests": 9,
+          "usageResponses": 9,
+          "failedRequests": 0,
+          "calls": 9,
+          "thinking": 4991,
+          "finalThinking": 464,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 42.854,
+          "input": 37567,
+          "cached": 27776,
+          "output": 1320,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 6,
+          "thinking": 837,
+          "finalThinking": 150,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t9",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -77,
+          "secondsDelta": -1,
+          "callsDelta": 1
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 1879,
+          "secondsDelta": 28.174999999999997,
+          "callsDelta": 1
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -812,
+          "secondsDelta": -25.764000000000003,
+          "callsDelta": -8
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -753,
+          "secondsDelta": -14.667000000000002,
+          "callsDelta": 0
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": -5,
+          "secondsDelta": 2.2489999999999988,
+          "callsDelta": 0
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 296,
+          "secondsDelta": -1.2870000000000061,
+          "callsDelta": 0
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 1583,
+          "secondsDelta": 30.177999999999997,
+          "callsDelta": 6
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 568,
+          "secondsDelta": -1.7340000000000018,
+          "callsDelta": 3
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t12",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:23:14.029047",
+        "finishedAt": "2026-09-13T13:25:43.995994",
+        "wallSeconds": 149.966,
+        "agentTotalSeconds": 486.3440000000001,
+        "environmentSetupTotalSeconds": 25.61,
+        "agentSetupTotalSeconds": 96.42600000000002,
+        "verifierTotalSeconds": 118.87700000000001,
+        "teardownTotalSeconds": 92.00000000000001,
+        "apiTotalSeconds": 415.15700000000004
+      },
+      "tokens": {
+        "input": 277973,
+        "cached": 206336,
+        "cacheWrite": 0,
+        "output": 22207
+      },
+      "cost": {
+        "usd": 0.8132223999999999,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.10032681394239465,
+      "activity": {
+        "providerRequests": 38,
+        "toolCalls": 38
+      },
+      "finalContext": {
+        "medianTokens": 9791.5,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 0,
+          "beforeBytes": 0,
+          "afterBytes": 0,
+          "savedBytes": 0,
+          "rowSavedBytes": 0,
+          "exactSavedBytes": 0,
+          "reusedRows": 0,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 15,
+          "rawBytes": 29238,
+          "visibleBytes": 3876,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 38,
+          "toolBatches": 30,
+          "toolCalls": 38,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 277973,
+          "cached": 206336,
+          "output": 22207
+        },
+        "totalSavedBytes": 25736
+      },
+      "contract": {
+        "promptBytes": 9847,
+        "toolBytes": 12445
+      },
+      "thinking": 13214,
+      "finalThinking": 1285,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 21.09,
+          "input": 16340,
+          "cached": 11904,
+          "output": 526,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 2,
+          "thinking": 291,
+          "finalThinking": 24,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 87.556,
+          "input": 26920,
+          "cached": 16896,
+          "output": 4355,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 2667,
+          "finalThinking": 235,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 44.989,
+          "input": 70326,
+          "cached": 56960,
+          "output": 1550,
+          "cacheWrite": 0,
+          "requests": 8,
+          "usageResponses": 8,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 880,
+          "finalThinking": 299,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 76.151,
+          "input": 55661,
+          "cached": 45568,
+          "output": 3785,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 2745,
+          "finalThinking": 262,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 69.376,
+          "input": 33332,
+          "cached": 24448,
+          "output": 2642,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 1577,
+          "finalThinking": 103,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 75.196,
+          "input": 29572,
+          "cached": 14720,
+          "output": 4842,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 2004,
+          "finalThinking": 61,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 87.114,
+          "input": 26048,
+          "cached": 19584,
+          "output": 3829,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 2626,
+          "finalThinking": 266,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 24.872,
+          "input": 19774,
+          "cached": 16256,
+          "output": 678,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 424,
+          "finalThinking": 35,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t9",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -579,
+          "secondsDelta": -11.465,
+          "callsDelta": -1
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 705,
+          "secondsDelta": 20.939999999999998,
+          "callsDelta": 1
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -762,
+          "secondsDelta": -22.509000000000007,
+          "callsDelta": -7
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -207,
+          "secondsDelta": -3.8640000000000043,
+          "callsDelta": 0
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 1122,
+          "secondsDelta": 37.46900000000001,
+          "callsDelta": 2
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 105,
+          "secondsDelta": -2.966000000000008,
+          "callsDelta": 0
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": -1016,
+          "secondsDelta": -9.185999999999993,
+          "callsDelta": 1
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": -74,
+          "secondsDelta": -19.716,
+          "callsDelta": 0
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t13",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:26:48.713238",
+        "finishedAt": "2026-09-13T13:30:03.494511",
+        "wallSeconds": 194.781,
+        "agentTotalSeconds": 509.253,
+        "environmentSetupTotalSeconds": 24.568,
+        "agentSetupTotalSeconds": 76.697,
+        "verifierTotalSeconds": 101.58800000000001,
+        "teardownTotalSeconds": 93.37900000000003,
+        "apiTotalSeconds": 438.143
+      },
+      "tokens": {
+        "input": 355907,
+        "cached": 272896,
+        "cacheWrite": 0,
+        "output": 25631
+      },
+      "cost": {
+        "usd": 0.9538224,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.11237900218555413,
+      "activity": {
+        "providerRequests": 45,
+        "toolCalls": 47
+      },
+      "finalContext": {
+        "medianTokens": 9100,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 3,
+          "beforeBytes": 60252,
+          "afterBytes": 60186,
+          "savedBytes": 66,
+          "rowSavedBytes": 66,
+          "exactSavedBytes": 0,
+          "reusedRows": 132,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 21,
+          "rawBytes": 32680,
+          "visibleBytes": 7898,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 45,
+          "toolBatches": 37,
+          "toolCalls": 47,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 355907,
+          "cached": 272896,
+          "output": 25631
+        },
+        "totalSavedBytes": 25802
+      },
+      "contract": {
+        "promptBytes": 9847,
+        "toolBytes": 12581
+      },
+      "thinking": 14043,
+      "finalThinking": 974,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 26.304,
+          "input": 22936,
+          "cached": 15872,
+          "output": 814,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 369,
+          "finalThinking": 20,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 86.691,
+          "input": 34583,
+          "cached": 23552,
+          "output": 5028,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 2653,
+          "finalThinking": 122,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 46.241,
+          "input": 46585,
+          "cached": 33536,
+          "output": 1750,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 9,
+          "thinking": 845,
+          "finalThinking": 207,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 73.256,
+          "input": 37890,
+          "cached": 30336,
+          "output": 2806,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 2021,
+          "finalThinking": 199,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 34.358,
+          "input": 20444,
+          "cached": 15872,
+          "output": 1555,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 2,
+          "thinking": 746,
+          "finalThinking": 41,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 63.34,
+          "input": 19899,
+          "cached": 6912,
+          "output": 4127,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 1659,
+          "finalThinking": 91,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 150.648,
+          "input": 142907,
+          "cached": 126848,
+          "output": 8742,
+          "cacheWrite": 0,
+          "requests": 13,
+          "usageResponses": 13,
+          "failedRequests": 0,
+          "calls": 12,
+          "thinking": 5320,
+          "finalThinking": 180,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 28.415,
+          "input": 30663,
+          "cached": 19968,
+          "output": 809,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 430,
+          "finalThinking": 114,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t9",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -291,
+          "secondsDelta": -6.251000000000001,
+          "callsDelta": 0
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 1378,
+          "secondsDelta": 20.075000000000003,
+          "callsDelta": 0
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -562,
+          "secondsDelta": -21.257000000000005,
+          "callsDelta": -6
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -1186,
+          "secondsDelta": -6.759,
+          "callsDelta": 0
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 35,
+          "secondsDelta": 2.450999999999997,
+          "callsDelta": 0
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": -610,
+          "secondsDelta": -14.822000000000003,
+          "callsDelta": 0
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 3897,
+          "secondsDelta": 54.348,
+          "callsDelta": 9
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 57,
+          "secondsDelta": -16.173000000000002,
+          "callsDelta": 2
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t14",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:31:42.400157",
+        "finishedAt": "2026-09-13T13:34:44.882566",
+        "wallSeconds": 182.482,
+        "agentTotalSeconds": 525.672,
+        "environmentSetupTotalSeconds": 24.816,
+        "agentSetupTotalSeconds": 82.041,
+        "verifierTotalSeconds": 115.77799999999999,
+        "teardownTotalSeconds": 92.41000000000003,
+        "apiTotalSeconds": 451.63200000000006
+      },
+      "tokens": {
+        "input": 289829,
+        "cached": 207872,
+        "cacheWrite": 0,
+        "output": 24745
+      },
+      "cost": {
+        "usd": 0.9058767999999999,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.10339642971282471,
+      "activity": {
+        "providerRequests": 42,
+        "toolCalls": 36
+      },
+      "finalContext": {
+        "medianTokens": 9444.5,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 0,
+          "beforeBytes": 0,
+          "afterBytes": 0,
+          "savedBytes": 0,
+          "rowSavedBytes": 0,
+          "exactSavedBytes": 0,
+          "reusedRows": 0,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 18,
+          "rawBytes": 30399,
+          "visibleBytes": 5315,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 42,
+          "toolBatches": 34,
+          "toolCalls": 36,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 289829,
+          "cached": 207872,
+          "output": 24745
+        },
+        "totalSavedBytes": 25736
+      },
+      "contract": {
+        "promptBytes": 9847,
+        "toolBytes": 12496
+      },
+      "thinking": 14692,
+      "finalThinking": 774,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 30.543,
+          "input": 22846,
+          "cached": 15872,
+          "output": 815,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 446,
+          "finalThinking": 21,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 95.189,
+          "input": 42755,
+          "cached": 26240,
+          "output": 4954,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 3277,
+          "finalThinking": 55,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 26.984,
+          "input": 23837,
+          "cached": 19072,
+          "output": 860,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 447,
+          "finalThinking": 111,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 65.32,
+          "input": 43926,
+          "cached": 35456,
+          "output": 3149,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 6,
+          "thinking": 2513,
+          "finalThinking": 183,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 74.199,
+          "input": 41353,
+          "cached": 33920,
+          "output": 3960,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 1857,
+          "finalThinking": 124,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 68.208,
+          "input": 27715,
+          "cached": 12672,
+          "output": 3919,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 1396,
+          "finalThinking": 38,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 133.649,
+          "input": 57032,
+          "cached": 45568,
+          "output": 6361,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 6,
+          "thinking": 4394,
+          "finalThinking": 164,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 31.58,
+          "input": 30365,
+          "cached": 19072,
+          "output": 727,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 362,
+          "finalThinking": 78,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t9",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -290,
+          "secondsDelta": -2.0120000000000005,
+          "callsDelta": 0
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 1304,
+          "secondsDelta": 28.572999999999993,
+          "callsDelta": 1
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -1452,
+          "secondsDelta": -40.514,
+          "callsDelta": -12
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -843,
+          "secondsDelta": -14.695000000000007,
+          "callsDelta": -2
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 2440,
+          "secondsDelta": 42.292,
+          "callsDelta": 2
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": -818,
+          "secondsDelta": -9.954000000000008,
+          "callsDelta": 0
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 1516,
+          "secondsDelta": 37.349000000000004,
+          "callsDelta": 3
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": -25,
+          "secondsDelta": -13.008000000000003,
+          "callsDelta": 2
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t15",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:36:28.179318",
+        "finishedAt": "2026-09-13T13:39:01.626337",
+        "wallSeconds": 153.447,
+        "agentTotalSeconds": 481.829,
+        "environmentSetupTotalSeconds": 24.355999999999998,
+        "agentSetupTotalSeconds": 76.421,
+        "verifierTotalSeconds": 103.62100000000001,
+        "teardownTotalSeconds": 91.92599999999999,
+        "apiTotalSeconds": 403.226
+      },
+      "tokens": {
+        "input": 327637,
+        "cached": 252032,
+        "cacheWrite": 0,
+        "output": 23056
+      },
+      "cost": {
+        "usd": 0.8643527999999998,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.10763396972784949,
+      "activity": {
+        "providerRequests": 42,
+        "toolCalls": 46
+      },
+      "finalContext": {
+        "medianTokens": 9225,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 3,
+          "beforeBytes": 118370,
+          "afterBytes": 116750,
+          "savedBytes": 1620,
+          "rowSavedBytes": 1620,
+          "exactSavedBytes": 0,
+          "reusedRows": 45,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 16,
+          "rawBytes": 27961,
+          "visibleBytes": 2728,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 42,
+          "toolBatches": 34,
+          "toolCalls": 46,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 327637,
+          "cached": 252032,
+          "output": 23056
+        },
+        "totalSavedBytes": 27356
+      },
+      "contract": {
+        "promptBytes": 9847,
+        "toolBytes": 12561
+      },
+      "thinking": 13422,
+      "finalThinking": 2639,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 25.833,
+          "input": 22557,
+          "cached": 15744,
+          "output": 605,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 240,
+          "finalThinking": 25,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 62.483,
+          "input": 44615,
+          "cached": 34304,
+          "output": 3376,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 6,
+          "thinking": 1638,
+          "finalThinking": 48,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 45.945,
+          "input": 82003,
+          "cached": 64128,
+          "output": 1734,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 9,
+          "thinking": 957,
+          "finalThinking": 331,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 73.183,
+          "input": 51196,
+          "cached": 38144,
+          "output": 3532,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 9,
+          "thinking": 2716,
+          "finalThinking": 257,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 51.526,
+          "input": 28970,
+          "cached": 19328,
+          "output": 2119,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 1129,
+          "finalThinking": 45,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 83.55,
+          "input": 39549,
+          "cached": 32512,
+          "output": 5343,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 6,
+          "thinking": 2039,
+          "finalThinking": 111,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 107.462,
+          "input": 39145,
+          "cached": 31744,
+          "output": 5573,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 6,
+          "thinking": 4161,
+          "finalThinking": 1552,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 31.847,
+          "input": 19602,
+          "cached": 16128,
+          "output": 774,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 542,
+          "finalThinking": 270,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t9",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -500,
+          "secondsDelta": -6.722000000000001,
+          "callsDelta": 0
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": -274,
+          "secondsDelta": -4.133000000000003,
+          "callsDelta": 2
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -578,
+          "secondsDelta": -21.553000000000004,
+          "callsDelta": -6
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -460,
+          "secondsDelta": -6.831999999999994,
+          "callsDelta": 1
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 599,
+          "secondsDelta": 19.619000000000003,
+          "callsDelta": 2
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 606,
+          "secondsDelta": 5.387999999999991,
+          "callsDelta": 2
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 728,
+          "secondsDelta": 11.162000000000006,
+          "callsDelta": 3
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 22,
+          "secondsDelta": -12.741,
+          "callsDelta": 0
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t16",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:40:09.839821",
+        "finishedAt": "2026-09-13T13:42:52.009118",
+        "wallSeconds": 162.17,
+        "agentTotalSeconds": 509.638,
+        "environmentSetupTotalSeconds": 24.047,
+        "agentSetupTotalSeconds": 74.159,
+        "verifierTotalSeconds": 96.923,
+        "teardownTotalSeconds": 94.12400000000002,
+        "apiTotalSeconds": 438.228
+      },
+      "tokens": {
+        "input": 355711,
+        "cached": 281984,
+        "cacheWrite": 0,
+        "output": 25291
+      },
+      "cost": {
+        "usd": 0.9135216,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.10754946844623048,
+      "activity": {
+        "providerRequests": 45,
+        "toolCalls": 49
+      },
+      "finalContext": {
+        "medianTokens": 10103.5,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 0,
+          "beforeBytes": 0,
+          "afterBytes": 0,
+          "savedBytes": 0,
+          "rowSavedBytes": 0,
+          "exactSavedBytes": 0,
+          "reusedRows": 0,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 18,
+          "rawBytes": 31044,
+          "visibleBytes": 6066,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 45,
+          "toolBatches": 37,
+          "toolCalls": 49,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 355711,
+          "cached": 281984,
+          "output": 25291
+        },
+        "totalSavedBytes": 25736
+      },
+      "contract": {
+        "promptBytes": 9856,
+        "toolBytes": 12561
+      },
+      "thinking": 14212,
+      "finalThinking": 985,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 24.949,
+          "input": 22806,
+          "cached": 16128,
+          "output": 675,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 284,
+          "finalThinking": 12,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 98.974,
+          "input": 61230,
+          "cached": 52352,
+          "output": 6077,
+          "cacheWrite": 0,
+          "requests": 8,
+          "usageResponses": 8,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 2864,
+          "finalThinking": 254,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 45.298,
+          "input": 99952,
+          "cached": 85120,
+          "output": 1470,
+          "cacheWrite": 0,
+          "requests": 8,
+          "usageResponses": 8,
+          "failedRequests": 0,
+          "calls": 13,
+          "thinking": 617,
+          "finalThinking": 83,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 82.398,
+          "input": 55412,
+          "cached": 42368,
+          "output": 3988,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 3171,
+          "finalThinking": 228,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 38.525,
+          "input": 19438,
+          "cached": 13184,
+          "output": 1894,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 2,
+          "thinking": 925,
+          "finalThinking": 49,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 71.976,
+          "input": 29203,
+          "cached": 20608,
+          "output": 4421,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 1634,
+          "finalThinking": 64,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 117.707,
+          "input": 36847,
+          "cached": 27776,
+          "output": 5965,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 4253,
+          "finalThinking": 229,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 29.811,
+          "input": 30823,
+          "cached": 24448,
+          "output": 801,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 464,
+          "finalThinking": 66,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t9",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -430,
+          "secondsDelta": -7.605999999999998,
+          "callsDelta": 0
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 2427,
+          "secondsDelta": 32.358000000000004,
+          "callsDelta": 4
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -842,
+          "secondsDelta": -22.200000000000003,
+          "callsDelta": -2
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -4,
+          "secondsDelta": 2.3829999999999956,
+          "callsDelta": 0
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 374,
+          "secondsDelta": 6.6179999999999986,
+          "callsDelta": 0
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": -316,
+          "secondsDelta": -6.186000000000007,
+          "callsDelta": 1
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 1120,
+          "secondsDelta": 21.406999999999996,
+          "callsDelta": 2
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 49,
+          "secondsDelta": -14.777000000000001,
+          "callsDelta": 2
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t17",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:44:16.338399",
+        "finishedAt": "2026-09-13T13:46:55.729290",
+        "wallSeconds": 159.391,
+        "agentTotalSeconds": 551.246,
+        "environmentSetupTotalSeconds": 24.921,
+        "agentSetupTotalSeconds": 71.399,
+        "verifierTotalSeconds": 101.787,
+        "teardownTotalSeconds": 91.485,
+        "apiTotalSeconds": 482.75300000000004
+      },
+      "tokens": {
+        "input": 364795,
+        "cached": 283264,
+        "cacheWrite": 0,
+        "output": 24861
+      },
+      "cost": {
+        "usd": 0.9366496,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.10194899554826702,
+      "activity": {
+        "providerRequests": 43,
+        "toolCalls": 40
+      },
+      "finalContext": {
+        "medianTokens": 9390,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 5,
+          "beforeBytes": 235152,
+          "afterBytes": 223975,
+          "savedBytes": 11177,
+          "rowSavedBytes": 11177,
+          "exactSavedBytes": 0,
+          "reusedRows": 466,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 16,
+          "rawBytes": 27610,
+          "visibleBytes": 2483,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 43,
+          "toolBatches": 35,
+          "toolCalls": 40,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 364795,
+          "cached": 283264,
+          "output": 24861
+        },
+        "totalSavedBytes": 36913
+      },
+      "contract": {
+        "promptBytes": 9683,
+        "toolBytes": 12445
+      },
+      "thinking": 13646,
+      "finalThinking": 1990,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 57.59,
+          "input": 22694,
+          "cached": 17920,
+          "output": 760,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 365,
+          "finalThinking": 22,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 69.006,
+          "input": 32121,
+          "cached": 21120,
+          "output": 3546,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 2199,
+          "finalThinking": 416,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 70.908,
+          "input": 116497,
+          "cached": 97920,
+          "output": 1441,
+          "cacheWrite": 0,
+          "requests": 8,
+          "usageResponses": 8,
+          "failedRequests": 0,
+          "calls": 11,
+          "thinking": 646,
+          "finalThinking": 78,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 97.337,
+          "input": 76139,
+          "cached": 66048,
+          "output": 4592,
+          "cacheWrite": 0,
+          "requests": 9,
+          "usageResponses": 9,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 3740,
+          "finalThinking": 183,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 42.397,
+          "input": 28569,
+          "cached": 21504,
+          "output": 2134,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 1065,
+          "finalThinking": 170,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 73.747,
+          "input": 29252,
+          "cached": 21120,
+          "output": 4803,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 2163,
+          "finalThinking": 66,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 115.76,
+          "input": 40095,
+          "cached": 26496,
+          "output": 6995,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 3177,
+          "finalThinking": 1034,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 24.501,
+          "input": 19428,
+          "cached": 11136,
+          "output": 590,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 291,
+          "finalThinking": 21,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t9",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -345,
+          "secondsDelta": 25.035000000000004,
+          "callsDelta": 0
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": -104,
+          "secondsDelta": 2.3900000000000006,
+          "callsDelta": 0
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -871,
+          "secondsDelta": 3.4099999999999966,
+          "callsDelta": -4
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": 600,
+          "secondsDelta": 17.322000000000003,
+          "callsDelta": 0
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 614,
+          "secondsDelta": 10.489999999999998,
+          "callsDelta": 1
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 66,
+          "secondsDelta": -4.415000000000006,
+          "callsDelta": 0
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 2150,
+          "secondsDelta": 19.460000000000008,
+          "callsDelta": 1
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": -162,
+          "secondsDelta": -20.087,
+          "callsDelta": 0
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t18",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:48:16.911068",
+        "finishedAt": "2026-09-13T13:50:56.197884",
+        "wallSeconds": 159.286,
+        "agentTotalSeconds": 563.2759999999998,
+        "environmentSetupTotalSeconds": 23.998999999999995,
+        "agentSetupTotalSeconds": 78.425,
+        "verifierTotalSeconds": 108.04100000000001,
+        "teardownTotalSeconds": 91.66900000000003,
+        "apiTotalSeconds": 494.387
+      },
+      "tokens": {
+        "input": 365488,
+        "cached": 285568,
+        "cacheWrite": 0,
+        "output": 27713
+      },
+      "cost": {
+        "usd": 0.9881671999999999,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.10525929029463355,
+      "activity": {
+        "providerRequests": 49,
+        "toolCalls": 42
+      },
+      "finalContext": {
+        "medianTokens": 9939,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 3,
+          "beforeBytes": 45182,
+          "afterBytes": 41639,
+          "savedBytes": 3543,
+          "rowSavedBytes": 3543,
+          "exactSavedBytes": 0,
+          "reusedRows": 99,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 20,
+          "rawBytes": 29096,
+          "visibleBytes": 3836,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 49,
+          "toolBatches": 41,
+          "toolCalls": 42,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 365488,
+          "cached": 285568,
+          "output": 27713
+        },
+        "totalSavedBytes": 29279
+      },
+      "contract": {
+        "promptBytes": 9847,
+        "toolBytes": 12445
+      },
+      "thinking": 17955,
+      "finalThinking": 1128,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 24.798,
+          "input": 22556,
+          "cached": 20096,
+          "output": 654,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 340,
+          "finalThinking": 12,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 98.767,
+          "input": 48782,
+          "cached": 32000,
+          "output": 5646,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 3283,
+          "finalThinking": 78,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 49.148,
+          "input": 64526,
+          "cached": 47744,
+          "output": 1633,
+          "cacheWrite": 0,
+          "requests": 8,
+          "usageResponses": 8,
+          "failedRequests": 0,
+          "calls": 7,
+          "thinking": 1011,
+          "finalThinking": 245,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 104.481,
+          "input": 66794,
+          "cached": 49920,
+          "output": 5138,
+          "cacheWrite": 0,
+          "requests": 8,
+          "usageResponses": 8,
+          "failedRequests": 0,
+          "calls": 7,
+          "thinking": 4422,
+          "finalThinking": 364,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 58.281,
+          "input": 28547,
+          "cached": 20992,
+          "output": 3094,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 1809,
+          "finalThinking": 94,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 67.996,
+          "input": 32542,
+          "cached": 25344,
+          "output": 3776,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 1598,
+          "finalThinking": 58,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 116.115,
+          "input": 69444,
+          "cached": 61696,
+          "output": 6411,
+          "cacheWrite": 0,
+          "requests": 8,
+          "usageResponses": 8,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 4512,
+          "finalThinking": 222,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 43.69,
+          "input": 32297,
+          "cached": 27776,
+          "output": 1361,
+          "cacheWrite": 0,
+          "requests": 6,
+          "usageResponses": 6,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 980,
+          "finalThinking": 55,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t12",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": 128,
+          "secondsDelta": 3.7079999999999984,
+          "callsDelta": 1
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 1291,
+          "secondsDelta": 11.210999999999999,
+          "callsDelta": 0
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": 83,
+          "secondsDelta": 4.159000000000006,
+          "callsDelta": -1
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": 1353,
+          "secondsDelta": 28.33,
+          "callsDelta": -1
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 452,
+          "secondsDelta": -11.095000000000006,
+          "callsDelta": -1
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": -1066,
+          "secondsDelta": -7.200000000000003,
+          "callsDelta": 0
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 2582,
+          "secondsDelta": 29.00099999999999,
+          "callsDelta": 4
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 683,
+          "secondsDelta": 18.817999999999998,
+          "callsDelta": 2
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t19",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:52:17.014464",
+        "finishedAt": "2026-09-13T13:55:05.215911",
+        "wallSeconds": 168.201,
+        "agentTotalSeconds": 572.582,
+        "environmentSetupTotalSeconds": 24.165999999999997,
+        "agentSetupTotalSeconds": 67.913,
+        "verifierTotalSeconds": 96.856,
+        "teardownTotalSeconds": 91.79599999999994,
+        "apiTotalSeconds": 503.177
+      },
+      "tokens": {
+        "input": 364604,
+        "cached": 295808,
+        "cacheWrite": 0,
+        "output": 29109
+      },
+      "cost": {
+        "usd": 0.9756872000000001,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.10224078297955577,
+      "activity": {
+        "providerRequests": 46,
+        "toolCalls": 42
+      },
+      "finalContext": {
+        "medianTokens": 10386.5,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 7,
+          "beforeBytes": 151564,
+          "afterBytes": 146207,
+          "savedBytes": 5357,
+          "rowSavedBytes": 5357,
+          "exactSavedBytes": 0,
+          "reusedRows": 168,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 18,
+          "rawBytes": 30434,
+          "visibleBytes": 5465,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 46,
+          "toolBatches": 38,
+          "toolCalls": 42,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 364604,
+          "cached": 295808,
+          "output": 29109
+        },
+        "totalSavedBytes": 31093
+      },
+      "contract": {
+        "promptBytes": 10064,
+        "toolBytes": 12312
+      },
+      "thinking": 16112,
+      "finalThinking": 716,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 22.811,
+          "input": 16321,
+          "cached": 9728,
+          "output": 459,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 2,
+          "thinking": 219,
+          "finalThinking": 0,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 83.1,
+          "input": 35146,
+          "cached": 27264,
+          "output": 4754,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 2781,
+          "finalThinking": 102,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 57.914,
+          "input": 111250,
+          "cached": 92928,
+          "output": 1949,
+          "cacheWrite": 0,
+          "requests": 11,
+          "usageResponses": 11,
+          "failedRequests": 0,
+          "calls": 10,
+          "thinking": 1237,
+          "finalThinking": 132,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 82.194,
+          "input": 51686,
+          "cached": 42112,
+          "output": 4568,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 3037,
+          "finalThinking": 147,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 57.002,
+          "input": 21712,
+          "cached": 15872,
+          "output": 2720,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 2,
+          "thinking": 1571,
+          "finalThinking": 34,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 111.355,
+          "input": 34038,
+          "cached": 24832,
+          "output": 7649,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 5,
+          "thinking": 2563,
+          "finalThinking": 55,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 126.507,
+          "input": 74096,
+          "cached": 66560,
+          "output": 6033,
+          "cacheWrite": 0,
+          "requests": 9,
+          "usageResponses": 9,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 3996,
+          "finalThinking": 198,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 31.699,
+          "input": 20355,
+          "cached": 16512,
+          "output": 977,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 708,
+          "finalThinking": 48,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t7",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -559,
+          "secondsDelta": -9.334000000000003,
+          "callsDelta": -2
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 1697,
+          "secondsDelta": 20.690999999999995,
+          "callsDelta": 0
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": 433,
+          "secondsDelta": 14.795000000000002,
+          "callsDelta": -1
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": 1275,
+          "secondsDelta": 9.838000000000008,
+          "callsDelta": 1
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 188,
+          "secondsDelta": 8.256,
+          "callsDelta": 0
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 3673,
+          "secondsDelta": 45.631,
+          "callsDelta": 1
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 596,
+          "secondsDelta": 26.614000000000004,
+          "callsDelta": 3
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 294,
+          "secondsDelta": 4.369000000000003,
+          "callsDelta": 0
+        }
+      ]
+    },
+    {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t20",
+      "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+      "result": {
+        "passed": 8,
+        "total": 8,
+        "completed": 8,
+        "errors": 0,
+        "retries": 0,
+        "cancelled": 0,
+        "pending": 0,
+        "running": 0,
+        "clean": true,
+        "benchmarkExitCode": 0
+      },
+      "timing": {
+        "startedAt": "2026-09-13T13:56:14.528648",
+        "finishedAt": "2026-09-13T14:01:10.734573",
+        "wallSeconds": 296.206,
+        "agentTotalSeconds": 628.9879999999999,
+        "environmentSetupTotalSeconds": 24.366,
+        "agentSetupTotalSeconds": 78.19900000000001,
+        "verifierTotalSeconds": 125.07999999999998,
+        "teardownTotalSeconds": 92.02299999999995,
+        "apiTotalSeconds": 560.909
+      },
+      "tokens": {
+        "input": 385851,
+        "cached": 311040,
+        "cacheWrite": 0,
+        "output": 28303
+      },
+      "cost": {
+        "usd": 0.9897199999999999,
+        "trials": 8,
+        "unsupported": false
+      },
+      "usdPerAgentMinute": 0.09441070417877608,
+      "activity": {
+        "providerRequests": 49,
+        "toolCalls": 46
+      },
+      "finalContext": {
+        "medianTokens": 10175,
+        "trials": 8
+      },
+      "reduction": {
+        "evidence": {
+          "projections": 3,
+          "beforeBytes": 54990,
+          "afterBytes": 49497,
+          "savedBytes": 5493,
+          "rowSavedBytes": 5493,
+          "exactSavedBytes": 0,
+          "reusedRows": 138,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 22,
+          "rawBytes": 30473,
+          "visibleBytes": 5499,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 49,
+          "toolBatches": 41,
+          "toolCalls": 46,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 385851,
+          "cached": 311040,
+          "output": 28303
+        },
+        "totalSavedBytes": 31229
+      },
+      "contract": {
+        "promptBytes": 9801,
+        "toolBytes": 12361
+      },
+      "thinking": 17988,
+      "finalThinking": 1623,
+      "errorKinds": [],
+      "rows": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "agent": 20.575,
+          "input": 16265,
+          "cached": 8704,
+          "output": 540,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 2,
+          "thinking": 298,
+          "finalThinking": 27,
+          "errorKinds": []
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "agent": 64.26,
+          "input": 50207,
+          "cached": 41984,
+          "output": 3285,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 7,
+          "thinking": 1636,
+          "finalThinking": 50,
+          "errorKinds": []
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "agent": 40.866,
+          "input": 62929,
+          "cached": 46848,
+          "output": 1825,
+          "cacheWrite": 0,
+          "requests": 7,
+          "usageResponses": 7,
+          "failedRequests": 0,
+          "calls": 10,
+          "thinking": 950,
+          "finalThinking": 193,
+          "errorKinds": []
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "agent": 86.091,
+          "input": 92604,
+          "cached": 82432,
+          "output": 4511,
+          "cacheWrite": 0,
+          "requests": 11,
+          "usageResponses": 11,
+          "failedRequests": 0,
+          "calls": 10,
+          "thinking": 3441,
+          "finalThinking": 182,
+          "errorKinds": []
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "agent": 51.301,
+          "input": 21132,
+          "cached": 13696,
+          "output": 2651,
+          "cacheWrite": 0,
+          "requests": 3,
+          "usageResponses": 3,
+          "failedRequests": 0,
+          "calls": 2,
+          "thinking": 1717,
+          "finalThinking": 166,
+          "errorKinds": []
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "agent": 85.413,
+          "input": 31629,
+          "cached": 24576,
+          "output": 5608,
+          "cacheWrite": 0,
+          "requests": 4,
+          "usageResponses": 4,
+          "failedRequests": 0,
+          "calls": 3,
+          "thinking": 2691,
+          "finalThinking": 43,
+          "errorKinds": []
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "agent": 246.956,
+          "input": 85303,
+          "cached": 73472,
+          "output": 8819,
+          "cacheWrite": 0,
+          "requests": 9,
+          "usageResponses": 9,
+          "failedRequests": 0,
+          "calls": 8,
+          "thinking": 6486,
+          "finalThinking": 944,
+          "errorKinds": []
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "agent": 33.526,
+          "input": 25782,
+          "cached": 19328,
+          "output": 1064,
+          "cacheWrite": 0,
+          "requests": 5,
+          "usageResponses": 5,
+          "failedRequests": 0,
+          "calls": 4,
+          "thinking": 769,
+          "finalThinking": 18,
+          "errorKinds": []
+        }
+      ],
+      "baseline": "jobs-sol-xhigh-fast-ten-20260913-t9",
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -565,
+          "secondsDelta": -11.98,
+          "callsDelta": -1
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": -365,
+          "secondsDelta": -2.3559999999999945,
+          "callsDelta": 3
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -487,
+          "secondsDelta": -26.632000000000005,
+          "callsDelta": -5
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": 519,
+          "secondsDelta": 6.075999999999993,
+          "callsDelta": 2
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 1131,
+          "secondsDelta": 19.394000000000002,
+          "callsDelta": 0
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 871,
+          "secondsDelta": 7.250999999999991,
+          "callsDelta": -1
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 3974,
+          "secondsDelta": 150.656,
+          "callsDelta": 5
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 312,
+          "secondsDelta": -11.061999999999998,
+          "callsDelta": 1
+        }
+      ]
+    }
+  ]
+}

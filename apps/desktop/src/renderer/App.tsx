@@ -22,10 +22,6 @@ import {
 } from "../shared/session-title.mjs";
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from "../shared/window-layout";
 import {
-  applyDesktopThemePreference,
-  getDesktopThemePreference
-} from "./desktop-theme";
-import {
   DesktopTitlebar,
   SessionSidebar,
   type NavigationSelection,
@@ -34,7 +30,6 @@ import {
 } from "./navigation";
 import {
   canSplitPaneSize,
-  paneActiveSessionIds,
   paneActiveSelection,
   paneLeafIdInVerticalDirection,
   paneTabAcrossVisualBoundary,
@@ -67,23 +62,15 @@ import {
 import { WorkspaceEmptyState } from "./WorkspaceEmptyState";
 
 import { ActivityRail } from "./ActivityRail";
-import { preloadAgentPool } from "./AgentActivityPane";
 import {
   desktopBootPrerequisitesReady,
   markBootStage,
 } from "./boot-metrics";
 import { BottomPanel } from "./BottomPanel";
-import {
-  armBootWarmup,
-  BOOT_WARMUP,
-  BOOT_WARMUP_ARM_DELAY_MS,
-  scheduleBootWarmup,
-} from "./boot-warmup";
 import { bottomPanelOpenForPane } from "./bottom-panel-pane-state";
-import { agentActivitySessionIds, EMPTY_SNAPSHOT, type RecordValue, type Snapshot } from "./desktop-types";
+import { agentActivitySessionIds, EMPTY_SNAPSHOT, type Snapshot } from "./desktop-types";
 import {
   desktopFeatureEnabled,
-  desktopSidebarDestinationEnabled,
   desktopUtilityDockTabEnabled,
 } from "./desktop-feature-config";
 import { primeEditorFileLoad } from "./editor-file-loader";
@@ -98,10 +85,8 @@ import {
   prefetchBrowserPane,
   prefetchDiffView,
   prefetchEditorPane,
-  prefetchSurfaceForSelection,
   prefetchTerminalPane,
 } from "./lazy-widgets";
-import { connectionQuality } from "./network-conditions";
 import {
   DesktopBootGate,
 } from "./PaneSurfaceGate";
@@ -120,6 +105,7 @@ import { useEditorNavigation } from "./use-editor-navigation";
 import {
   usePaneTabClose,
   type ConversationHandoff,
+  type EditorSaveHandle,
 } from "./use-pane-tab-close";
 import { usePaneTabNavigation } from "./use-pane-tab-navigation";
 import { usePushNotificationNavigation } from "./use-push-notification-navigation";
@@ -147,14 +133,13 @@ import { DesktopToastRegion, DesktopUpdateDialog } from "./notifications";
 import { RemoteConnectionBanner } from "./RemoteConnectionBanner";
 import {
   loadSidebarPanelModule,
+  OnboardingWizard,
+  SettingsView,
   StableSessionTitle,
+  warmSettingsView,
   type SidebarPanelKey,
 } from "./app-shell-components";
 import { loadStudioViewModule } from "./studio-loader";
-export {
-  nextHotFileEditorKeys,
-  shouldKeepFileEditorMounted,
-} from "./app-shell-components";
 
 const LAST_PROJECT_KEY = 'mixdog.desktop-last-project.v1';
 const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
@@ -168,27 +153,12 @@ function applySessionLaneResult(sessionId: string, next: SessionSnapshot | null)
     frameSource: "live",
   });
 }
-interface EditorSaveHandle {
-  save(): Promise<boolean>;
-  discard(): Promise<void>;
-}
-let settingsViewModulePromise: Promise<typeof import("./settings/SettingsView")> | null = null;
-function loadSettingsViewModule() {
-  settingsViewModulePromise ||= import("./settings/SettingsView");
-  return settingsViewModulePromise;
-}
-const SettingsView = lazy(() => loadSettingsViewModule()
-  .then((module) => ({ default: module.SettingsView })));
-const loadOnboardingWizardModule = () => import("./settings/OnboardingWizard");
-const OnboardingWizard = lazy(() => loadOnboardingWizardModule()
-  .then((module) => ({ default: module.OnboardingWizard })));
 const CommandSurface = lazy(() => loadCommandSurfaceModule()
   .then((module) => ({ default: module.CommandSurface })));
 // Route chunk warm-up is scheduled after startup settles below.
 import {
   DraftConversation,
   preloadUtilityDock,
-  prewarmUtilityDockGitState,
   selectDesktopSnapshot,
   SnapshotUtilityDock,
   requestSessionRead,
@@ -248,6 +218,17 @@ import { useSessionPaneSurfaces } from "./use-session-pane-surfaces";
 import { useAppProjectCatalog } from "./use-app-project-catalog";
 import { useDesktopUpdater } from "./use-desktop-updater";
 import { useAppSideDocks } from "./use-app-side-docks";
+import {
+  useAppDockWarmup,
+  useAppModuleWarmup,
+  useAppOnboarding,
+  useAppSettingsMount,
+  useAppSettingsPreload,
+  useAppThemePreference,
+  useAppWorkspaceWarmup,
+  useLaunchTabMeasurements,
+  useStartupCommitMeasurement,
+} from "./use-app-boot";
 
 const UI_OPEN_REQUEST_TTL_MS = 15_000;
 
@@ -324,21 +305,8 @@ export function App() {
     trackSidebarPanelModule,
     webhooksOpen,
   } = useAppShellPanels(paneWorkspace.focusedLeafId);
-  const settingsMounted = useRef(false);
+  const { settingsMounted, settingsPrewarmed } = useAppSettingsMount(settingsOpen);
   const mountedCommandSurfaces = useRef(new Set<string>());
-  if (settingsOpen) settingsMounted.current = true;
-  // The dialog stays mounted after its first open for a warm reopen; the
-  // warm-up lane grants that first mount too, once the settings sweep has
-  // landed, so the gear click toggles a live tree (316ms cold → warm).
-  const [settingsPrewarmed, setSettingsPrewarmed] = useState(false);
-  useEffect(() => {
-    if (!desktopFeatureEnabled("settings") || settingsPrewarmed) return undefined;
-    return scheduleBootWarmup({
-      id: "settings:mount",
-      priority: BOOT_WARMUP.settingsMount,
-      run: () => loadSettingsViewModule().then(() => setSettingsPrewarmed(true)).catch(() => {}),
-    });
-  }, [settingsPrewarmed]);
   if (commandSurface) mountedCommandSurfaces.current.add(commandSurface);
   const {
     workbenchSideLayout,
@@ -362,8 +330,6 @@ export function App() {
   // Projects panel section (Project | Workflow): owned here like the
   // Extensions one so /workflow and /websearch can land on the Workflow tab.
   const [projectsSection, setProjectsSection] = useState<ProjectsSection>("projects");
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [onboardingReady, setOnboardingReady] = useState(false);
   const {
     projects,
     projectCatalogReady,
@@ -525,139 +491,11 @@ export function App() {
   useSharedIntakeBoot();
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   usePaneTypingFocus(paneWorkspace.focusedLeafId, focusedPaneSelection?.kind);
-  // Warm route CODE as soon as startup settles, before the stricter desktop
-  // boot gate waits on every catalog. Hidden mounting and reference DATA still
-  // stay behind desktopBootReady below, so this removes click-time downloads
-  // without competing RPC hydration with the opening conversation.
-  // Every warm-up rides ONE idle lane (boot-warmup.ts) that opens once the
-  // window has shown its first frames — see armBootWarmup below.
-  useEffect(() => {
-    if (!startupSettled) return undefined;
-    const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
-    const cancels = [scheduleBootWarmup({
-      id: "module:studio",
-      priority: BOOT_WARMUP.studioModule,
-      run: () => loadStudioViewModule().catch(() => {}),
-    })];
-    if (!nativeWindow) {
-      cancels.push(scheduleBootWarmup({
-        id: "module:command-surface",
-        priority: BOOT_WARMUP.commandSurfaceModule,
-        run: () => loadCommandSurfaceModule().catch(() => {}),
-      }));
-      if (connectionQuality() === "normal") {
-        cancels.push(scheduleBootWarmup({
-          id: "module:utility-dock",
-          priority: BOOT_WARMUP.utilityDockModule,
-          run: () => preloadUtilityDock().catch(() => {}),
-        }));
-        for (const panel of DEFAULT_SIDEBAR_VIEW_ORDER) {
-          if (!desktopSidebarDestinationEnabled(panel)) continue;
-          cancels.push(scheduleBootWarmup({
-            id: `module:sidebar:${panel}`,
-            priority: BOOT_WARMUP.sidebarPanel,
-            run: () => {
-              const module = loadSidebarPanelModule[panel]();
-              trackSidebarPanelModule(panel, module);
-              return module.catch(() => {});
-            },
-          }));
-        }
-      }
-    }
-    return () => { for (const cancel of cancels) cancel(); };
-  }, [startupSettled, trackSidebarPanelModule]);
-  // Callback-safe view of the active selection for tab-promotion decisions.
-  const startupMeasured = useRef(false);
-  useEffect(() => {
-    if (!import.meta.env?.DEV || startupMeasured.current) return;
-    startupMeasured.current = true;
-    performance.mark("mixdog:startup:first-commit");
-    performance.measure(
-      "mixdog:startup:entry-to-first-commit",
-      "mixdog:startup:renderer-entry",
-      "mixdog:startup:first-commit",
-    );
-    const duration = performance.getEntriesByName("mixdog:startup:entry-to-first-commit").at(-1)?.duration;
-    console.info(`[perf] desktop startup first commit: ${duration?.toFixed(1) ?? "?"}ms`);
-  }, []);
-  const warmSettingsView = useCallback(() => {
-    if (!desktopFeatureEnabled("settings")) return;
-    void loadSettingsViewModule().catch(() => {});
-  }, []);
-  useEffect(() => {
-    preloadAgentPool(window.mixdogDesktop);
-  }, []);
-  // The settings sweep (two dozen capability reads plus the full model
-  // catalog) used to start the moment App mounted — inside the boot cover,
-  // ahead of the opening conversation. It is the LAST warm-up now: Settings
-  // opens fine without it (the dialog sweeps on open), so it only has to
-  // beat the user to the gear icon, not to the composer.
-  useEffect(() => {
-    if (!desktopFeatureEnabled("settings")) return undefined;
-    return scheduleBootWarmup({
-      id: "settings:preload",
-      priority: BOOT_WARMUP.settingsPreload,
-      run: () => loadSettingsViewModule().then((module) => {
-        const host = window.mixdogDesktop;
-        return host ? module.preloadSettings(host).catch(() => {}) : undefined;
-      }).catch(() => {}),
-    });
-  }, [warmSettingsView]);
-  useEffect(() => {
-    let live = true;
-    const systemTheme = typeof window.matchMedia === 'function'
-      ? window.matchMedia('(prefers-color-scheme: dark)')
-      : null;
-    // The desktop theme is a LOCAL preference (user decision): it never
-    // reads or writes the engine/TUI theme, so both apps theme independently.
-    const applyStoredPreference = () => {
-      const preference = getDesktopThemePreference();
-      if (!preference) return false;
-      applyDesktopThemePreference(preference);
-      return true;
-    };
-    const handleSystemThemeChange = () => {
-      if (live && getDesktopThemePreference() === 'system') applyStoredPreference();
-    };
-    systemTheme?.addEventListener('change', handleSystemThemeChange);
-    // A fresh install lands on the true-dark surface, not the grey ramp.
-    if (!applyStoredPreference()) applyDesktopThemePreference('dark');
-    return () => {
-      live = false;
-      systemTheme?.removeEventListener('change', handleSystemThemeChange);
-    };
-  }, []);
-  useEffect(() => {
-    const openOnboarding = () => {
-      setSettingsOpen(false);
-      setOnboardingOpen(true);
-    };
-    window.addEventListener('mixdog:open-onboarding', openOnboarding);
-    return () => window.removeEventListener('mixdog:open-onboarding', openOnboarding);
-  }, []);
-  useEffect(() => {
-    let live = true;
-    const invoke = window.mixdogDesktop?.invokeCapability;
-    if (!invoke) {
-      setOnboardingReady(true);
-      return () => { live = false; };
-    }
-    void invoke<RecordValue>({ capability: 'getOnboardingStatus' })
-      .then(async (result) => {
-        if (asRecord(result.value)?.completed !== false) return;
-        // Both chunks preload before the wizard mounts: a lazy import at open
-        // time flashed the dark Suspense overlay (user: 검정 빈 화면).
-        await Promise.all([loadSettingsViewModule(), loadOnboardingWizardModule()])
-          .catch(() => undefined);
-        if (live) setOnboardingOpen(true);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (live) setOnboardingReady(true);
-      });
-    return () => { live = false; };
-  }, []);
+  useAppModuleWarmup(startupSettled, trackSidebarPanelModule);
+  useStartupCommitMeasurement();
+  useAppSettingsPreload();
+  useAppThemePreference();
+  const { onboardingOpen, setOnboardingOpen, onboardingReady } = useAppOnboarding(setSettingsOpen);
   const errors = useMemo(() => [
     error || (!connected ? "Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop." : ""),
   ].filter(Boolean), [connected, error]);
@@ -759,14 +597,6 @@ export function App() {
     }
   }, [sidebarOpen]);
 
-  const invoke = useCallback(async (action: () => unknown): Promise<void> => {
-    setError("");
-    try {
-      await action();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
-  }, [setError]);
   const invokeResult = useCallback(async <T,>(action: () => T | Promise<T>): Promise<T | undefined> => {
     setError("");
     try {
@@ -776,6 +606,9 @@ export function App() {
       return undefined;
     }
   }, [setError]);
+  const invoke = useCallback(async (action: () => unknown): Promise<void> => {
+    await invokeResult(action);
+  }, [invokeResult]);
   const {
     state: updaterState,
     ready: updaterStateReady,
@@ -932,12 +765,8 @@ export function App() {
     }
   };
 
-  // Navigating INTO the workspace keeps the sheet slide: the destination sits
-  // under the drawer, so the exit is part of the gesture. A destination that
-  // COVERS the screen (Settings) must close instantly instead — otherwise the
-  // drawer is still sliding while the new screen paints over it, showing both
-  // at once, and its mount work stutters the very slide it overlaps
-  // (user: 설정창 들어갈 때 접히는 거랑 설정창이랑 둘 다 같이 보인다).
+  // Workspace navigation keeps the drawer's exit animation. Full-screen
+  // destinations close it immediately to avoid overlapping screen transitions.
   const closeSidebarForNavigation = (motion: "animated" | "instant" = "animated") => {
     if (window.innerWidth <= 760) {
       applySidebarOpen(false, motion);
@@ -1034,14 +863,9 @@ export function App() {
     if (navigationEpoch.current !== navigationToken) return;
     const session = sessions.find((item) => item.id === sessionId);
     finishPendingConversationHandoff();
-    // An explicit caller title (agent pool rows: "Reviewer · tag") is PINNED
-    // into the selection so pane moves and catalog refreshes cannot swap the
-    // label for the child session's auto-generated title (user: 이동했다 오면
-    // 네이밍이 이상해진다).
-    // Re-entering an ALREADY OPEN tab (strip click, Ctrl+Tab, close fallback,
-    // resume-on-restart) calls in without a title. The pin the opener stored on
-    // that tab's selection is recovered here, so a worker label survives every
-    // return trip instead of degrading to the catalog placeholder.
+    // Pin explicit titles such as "Reviewer · tag" across pane moves and
+    // catalog refreshes. Re-entering an open tab recovers its pin rather than
+    // replacing it with the session's generated title or a placeholder.
     const openedTab = tabs.find((tab) => tab.selection.kind === "session"
       && tab.selection.id === sessionId);
     const openedPinnedTitle = openedTab && openedTab.selection.kind === "session"
@@ -1132,11 +956,9 @@ export function App() {
     if (command.settingsRow) openSettings(command.settingsRow);
     else if (command.action === "settings") openSettings(null);
   }, [openConversationCommandSurface, openSettings, snapshot.sessionId, snapshot.uiOpenRequest]);
-  /** /clear · /new typed in a session pane: close that session's tab and open
-   *  a New Task draft in its exact strip position, seeded from the cleared
-   *  session's own project/model/workflow and its remote seat (user rule:
-   *  전 세션의 마지막 세팅 승계). The session itself keeps its transcript and
-   *  stays available in the sidebar history. */
+  /** /clear · /new replaces the tab with a New Task draft in the same position,
+   *  carrying forward that session's project/model/workflow and remote-seat
+   *  settings. The original transcript remains available in sidebar history. */
   const clearSessionToNewTask = (sessionId: string) => {
     const sessionKey = navigationKey({ kind: "session", id: sessionId });
     const leaves = paneLeavesRef.current;
@@ -1203,26 +1025,7 @@ export function App() {
     // navigation still uses selectNewTaskProject() to open a fresh draft.
     stageNewTaskProject(path);
   });
-  // Launch-jolt diagnostics (MIXDOG_DESKTOP_PERF=1): the top tab reportedly
-  // pops once right after start. Sample the first tab's rect over the boot
-  // window so the exact moment/delta shows up in the perf log.
-  useEffect(() => {
-    if (!window.mixdogDesktop?.perfLog) return undefined;
-    const startedAt = performance.now();
-    let last = '';
-    const timers = [100, 400, 1000, 2000, 3500].map((delay) => window.setTimeout(() => {
-      const tab = document.querySelector('.workspace-tab');
-      const box = tab?.getBoundingClientRect();
-      const line = box
-        ? `tabs=${document.querySelectorAll('.workspace-tab').length} left=${box.left.toFixed(1)} top=${box.top.toFixed(1)} w=${box.width.toFixed(1)} h=${box.height.toFixed(1)}`
-        : 'tabs=0';
-      if (line !== last) {
-        last = line;
-        window.mixdogDesktop?.perfLog?.(`launch-tab t=${(performance.now() - startedAt).toFixed(0)}ms ${line}`);
-      }
-    }, delay));
-    return () => { for (const timer of timers) window.clearTimeout(timer); };
-  }, []);
+  useLaunchTabMeasurements();
   const { paneDraftSubmitFor, paneSubmitFor, submit } = useAppSubmitRouting({
     selectionRef,
     focusedLeafIdRef,
@@ -1337,16 +1140,17 @@ export function App() {
     catch { /* persistence is a convenience only */ }
   }, []);
   const workbenchWorkspace = useWorkbenchWorkspace(toolProjectPath);
-  const activeProjectSummary = projects.find((project) =>
-    project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() ===
-    activeProjectPath.replace(/[\\/]+/g, "/").toLocaleLowerCase());
-  // Only an explicitly registered project gets project chrome. Historical or
-  // temporary cwd values remain normal Tasks even when a legacy row carries a
-  // project-like path.
-  const activeProjectLabel = activeProjectSummary
-    ? activeProjectSummary.alias?.trim() || activeProjectSummary.name?.trim() ||
-      displayProject(activeProjectSummary.path).name || "Project"
-    : "";
+  // Only registered projects get project chrome, for both the header and panes.
+  const projectChromeLabel = useCallback((path: string): string => {
+    const summary = projects.find((project) =>
+      project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() ===
+      path.replace(/[\\/]+/g, "/").toLocaleLowerCase());
+    return summary
+      ? summary.alias?.trim() || summary.name?.trim() ||
+        displayProject(summary.path).name || "Project"
+      : "";
+  }, [projects]);
+  const activeProjectLabel = projectChromeLabel(activeProjectPath);
   const selectedProjectPath = activeProjectPath || preferredDraftProjectPath;
   const activeTabKey = navigationKey(navigationSelection);
   const paneTranscriptRendererPending = paneWorkspace.leaves.some((leaf) =>
@@ -1510,16 +1314,7 @@ export function App() {
     // Native file selection gives Monaco useful preload time without charging
     // every chat-only window its permanent module heap.
     void prefetchEditorPane().catch(() => {});
-    const picked = window.mixdogDesktop?.chooseFiles
-      ? await window.mixdogDesktop.chooseFiles(activeProjectPath || null)
-      : await window.mixdogDesktop?.chooseFile?.(activeProjectPath || null)
-        .then((entry) => entry ? [{
-          absolutePath: "",
-          name: entry.relPath.split("/").at(-1) || entry.relPath,
-          dir: false,
-          size: 0,
-          ...entry,
-        }] : null);
+    const picked = await window.mixdogDesktop?.chooseFiles?.(activeProjectPath || null);
     if (!picked?.length) return;
     paneWorkspace.focusLeaf(leafId);
     for (const entry of picked) {
@@ -1594,17 +1389,12 @@ export function App() {
     navigateTab,
     closeTab,
     pinPaneTab,
-    // Right-edge strip actions (user: 최종결정은 우상단 — Claude Desktop처럼
-    // PANE 우상단): the ACTIVE session tab docks its status island at the
-    // strip row's right end. Non-session tabs keep the slot empty, and the
-    // projected phone keeps its transcript-floating capsule instead.
+    // Session and New Task tabs share trailing dock controls on desktop and
+    // projected phone; other surfaces leave that strip slot empty.
     stripTrailing: (leaf) => {
       const active = leaf.tabs.find((tab) => navigationKey(tab) === leaf.activeKey);
-      // A conversation surface owns the dock toggles even before its session
-      // exists: a NEW TASK draft keeps the same three slots (session-bound
-      // children inert) so the strip never reflows on commit. Non-conversation
-      // tabs (file/Studio) keep the slot empty. The context gauge rides the
-      // composer footer now; the Agent/Shell readout is retired from chrome.
+      // Keep a draft's three slots stable while its session-bound children are
+      // inactive, avoiding strip reflow when the session is committed.
       if (!active || (active.kind !== "session" && active.kind !== "new")) return null;
       const groups = workbenchSideLayout.layout.right;
       if (groups.length === 0) return null;
@@ -1616,9 +1406,6 @@ export function App() {
         sessionDiffs.get(sessionId) ?? null,
         sessionPanelViews.get(sessionId) ?? null,
       );
-      // The phone draws the SAME strip and the same trailing toggles (user:
-      // PC에 최대한 맞춰서); its old bottom-panel opener is gone with the
-      // Chrome-style toolbar (user: 하단 사이드탭 열리는 거 제거, 기능 없어).
       return <PaneDockToggles
         groups={groups}
         descriptors={sideViewDescriptors}
@@ -1771,9 +1558,9 @@ export function App() {
     window.addEventListener("mixdog:mobile-home", onHome);
     return () => window.removeEventListener("mixdog:mobile-home", onHome);
   }, [applySidebarOpen, sidebarOpen]);
-  // ABB (user: 백버튼 처리): each open transient layer arms one history
-  // sentinel so hardware back closes it instead of leaving the PWA.
-  // registerMobileBack no-ops outside the projected phone surface.
+  // Each transient mobile layer owns a history sentinel so hardware back
+  // closes that layer instead of leaving the PWA. registerMobileBack is
+  // inactive outside the projected phone surface.
   useEffect(() => {
     if (!sidebarOpen) return undefined;
     return registerMobileBack(() => applySidebarOpen(false));
@@ -1855,12 +1642,8 @@ export function App() {
     if (!updateDialogOpen || updaterState.status !== "ready") return undefined;
     return registerMobileBack(closeDesktopUpdate);
   }, [closeDesktopUpdate, updateDialogOpen, updaterState.status]);
-  // Mobile entry starts CLEAN (user: 들어가면 좌우·하단 탭 다 닫힌 상태):
-  // whatever layout the last session or the desktop persisted, the phone
-  // boots with drawer, dock and bottom panel closed — once per load.
-  // Layout effect: the close lands BEFORE first paint, so a persisted-open
-  // terminal/panel can never flash for one frame (user: 열자마자 터미널창이
-  // 한 번 열렸다 닫히네).
+  // Initialize mobile with drawer, docks, and bottom panel closed once per
+  // load. Apply before first paint so a persisted desktop layout never flashes.
   const mobileStartedClosed = useRef(false);
   useLayoutEffect(() => {
     if (mobileStartedClosed.current || !isMobileRemoteSurface()) return;
@@ -1924,9 +1707,8 @@ export function App() {
         setSessionSideSurface(selection.id, id);
       } else if (selection?.kind === "session") {
         setSessionSideSurface(selection.id, null);
-        // The Session Diff list is session-owned too (user: 브라우저랑
-        // 터미널도 마찬가지): opening it remembers the session, landing
-        // anywhere else forgets it for this session.
+        // Session Diff selection belongs to this session, just like its browser
+        // and terminal; another destination clears that session's selection.
         setSessionPanelView(selection.id, id === "session-diff" ? "session-diff" : null);
       }
       paneSideDocks.select(leafId, id);
@@ -2022,15 +1804,6 @@ export function App() {
   // selects the command/snapshot owner. Because the
   // root and picker instances survive that prop change, the pointer event that
   // focuses a pane continues into the control the user actually clicked.
-  const projectChromeLabel = useCallback((path: string): string => {
-    const summary = projects.find((project) =>
-      project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() ===
-      path.replace(/[\\/]+/g, "/").toLocaleLowerCase());
-    return summary
-      ? summary.alias?.trim() || summary.name?.trim() ||
-        displayProject(summary.path).name || "Project"
-      : "";
-  }, [projects]);
   const paneConversationSurface = (
     paneSelection: NavigationSelection,
     focused: boolean,
@@ -2156,106 +1929,12 @@ export function App() {
     startupSettled,
     restorePending: paneWorkspace.restorePending,
   });
-  // PANE tabs are part of the visible workspace: a session tab that is
-  // already open must not cold-load on its first click (user: PANE에 이미
-  // 올라간 게 왜 콜드냐). Once boot settles, idle-prewarm each open tab's
-  // lane. requestSessionRead dedupes (laned/in-flight sessions no-op) and
-  // the lane store's byte budget still owns retention, so this only fronts
-  // the disk read that the first click would otherwise pay behind a cover.
-  useEffect(() => {
-    if (!desktopBootReady) return undefined;
-    // A phone pays for every prewarmed transcript over the relay and only ever
-    // shows one tab, so restored background tabs stay cold until opened
-    // (user: vps라 비용때문에).
-    if (isMobileRemoteSurface()) return undefined;
-    const sessionIds = paneActiveSessionIds(
-      paneWorkspace.leaves,
-      paneWorkspace.focusedLeafId,
-    );
-    if (sessionIds.length === 0) return undefined;
-    // One lane task per tab, focused pane first (paneActiveSessionIds order).
-    const cancels = sessionIds.map((sessionId, index) => scheduleBootWarmup({
-      id: `transcript:${sessionId}`,
-      priority: BOOT_WARMUP.transcript + index,
-      run: () => requestSessionRead(sessionId),
-    }));
-    return () => { for (const cancel of cancels) cancel(); };
-  }, [desktopBootReady, paneWorkspace.focusedLeafId, paneWorkspace.leaves]);
-  // Restored file/terminal/diff/folder tabs are surfaces the user already
-  // chose to keep open, and they own the heaviest chunks in the app — the
-  // first switch to one otherwise paid that entire fetch at open time (user:
-  // 창 들어갈 때 지연). Unlike the transcript prewarm above this is CODE: it
-  // lands in the immutable asset cache once and costs nothing on later visits,
-  // which is why a phone may warm it as well. A metered or slow link still
-  // opts out and pays only for the tabs actually opened.
-  useEffect(() => {
-    if (!desktopBootReady) return undefined;
-    const nativeSurface = Boolean(window.mixdogDesktop?.bootContext?.bootId);
-    if (!nativeSurface && connectionQuality() !== "normal") return undefined;
-    const queue = paneWorkspace.leaves.flatMap((leaf) => [...leaf.tabs]);
-    if (queue.length === 0) return undefined;
-    // Session and draft tabs resolve to no chunk at all; the rest join
-    // whatever load their own surface may already have started. One lane
-    // task per tab keeps them behind the transcript reads.
-    const cancels = queue.map((selection, index) => scheduleBootWarmup({
-      id: `chunk:${navigationKey(selection)}`,
-      priority: BOOT_WARMUP.surfaceChunk + index,
-      run: () => prefetchSurfaceForSelection(selection),
-    }));
-    return () => { for (const cancel of cancels) cancel(); };
-  }, [desktopBootReady, paneWorkspace.leaves]);
-  // The warm-up lane opens once boot is ready AND the window has shown its
-  // first frames (Electron emits mixdog:window-shown after two composed
-  // frames). Until then every scheduled task stays parked, so nothing
-  // competes with the boot cover or the opening conversation.
-  useEffect(() => {
-    if (!desktopBootReady) return undefined;
-    const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
-    const host = window as typeof window & { __mixdogWindowShown?: boolean };
-    let fallbackTimer = 0;
-    const arm = () => {
-      window.removeEventListener("mixdog:window-shown", arm);
-      window.clearTimeout(fallbackTimer);
-      armBootWarmup(BOOT_WARMUP_ARM_DELAY_MS);
-    };
-    if (!nativeWindow || host.__mixdogWindowShown) arm();
-    else {
-      window.addEventListener("mixdog:window-shown", arm, { once: true });
-      // A native window normally emits this after show; keep a bounded
-      // fallback for an abnormal missed event.
-      fallbackTimer = window.setTimeout(arm, 1_200);
-    }
-    return () => {
-      window.removeEventListener("mixdog:window-shown", arm);
-      window.clearTimeout(fallbackTimer);
-    };
-  }, [desktopBootReady]);
-  // Rail panels HIDDEN-mount one per idle slice (user: 메뉴 진입 반응성):
-  // useSidebarReferences coalesces their shared hydration, so rows, route
-  // controls and overflow options are ready before the first click — without
-  // five module loads and five mounts landing in the same 120ms as before.
-  useEffect(() => {
-    if (!desktopBootReady) return undefined;
-    const cancels = [scheduleBootWarmup({
-      id: "module:utility-dock",
-      priority: BOOT_WARMUP.utilityDockModule,
-      run: () => preloadUtilityDock().catch(() => {}),
-    })];
-    const panels: SidebarPanelKey[] = ["schedules", "webhooks", "projects", "extensions"];
-    panels.forEach((panel, index) => {
-      if (!desktopSidebarDestinationEnabled(panel)) return;
-      cancels.push(scheduleBootWarmup({
-        id: `mount:sidebar:${panel}`,
-        priority: BOOT_WARMUP.sidebarPanel + index,
-        run: () => {
-          const module = loadSidebarPanelModule[panel]();
-          trackSidebarPanelModule(panel, module);
-          return module.then(() => mountSidebarPanel(panel)).catch(() => {});
-        },
-      }));
-    });
-    return () => { for (const cancel of cancels) cancel(); };
-  }, [desktopBootReady, mountSidebarPanel, trackSidebarPanelModule]);
+  useAppWorkspaceWarmup({
+    ready: desktopBootReady,
+    workspace: paneWorkspace,
+    mountSidebarPanel,
+    trackSidebarPanelModule,
+  });
   const renderWorkbenchSideView = (
     side: WorkbenchSide,
     id: WorkbenchSideViewId,
@@ -2400,26 +2079,7 @@ export function App() {
   const focusedPaneDockProjectPath = focusedPaneForDockPrewarm
     ? paneProjectPathFor(focusedPaneForDockPrewarm)
     : quickAccessProjectPath;
-  useEffect(() => {
-    if (!desktopBootReady || !focusedPaneDockProjectPath) return undefined;
-    if (isMobileRemoteSurface() || !window.mixdogDesktop?.gitStatus) return undefined;
-    return scheduleBootWarmup({
-      id: "dock:git-state",
-      priority: BOOT_WARMUP.dockGitState,
-      run: () => prewarmUtilityDockGitState(focusedPaneDockProjectPath).catch(() => {}),
-    });
-  }, [desktopBootReady, focusedPaneDockProjectPath]);
-  // The focused pane's dock body hidden-mounts only after the lane reaches it
-  // — a mount that big must not ride the boot-ready render itself.
-  const [dockBodyWarm, setDockBodyWarm] = useState(false);
-  useEffect(() => {
-    if (!desktopBootReady || dockBodyWarm || isMobileRemoteSurface()) return undefined;
-    return scheduleBootWarmup({
-      id: "dock:body",
-      priority: BOOT_WARMUP.dockBody,
-      run: () => setDockBodyWarm(true),
-    });
-  }, [desktopBootReady, dockBodyWarm]);
+  const dockBodyWarm = useAppDockWarmup(desktopBootReady, focusedPaneDockProjectPath);
   const renderPaneSideDock = (leaf: PaneLeaf, focused: boolean) => {
     const active = paneActiveSelection(leaf);
     const sessionId = active?.kind === "session" ? active.id : "";
@@ -2485,7 +2145,7 @@ export function App() {
         })}
     />;
   };
-  // Problems is the SCRIPT's own sub-panel (user: DIFF처럼 스크립트에 종속):
+  // Problems belongs to the file editor, like its diff sub-panel:
   // it docks under the pane's file editor, scoped to that file's project,
   // and exists only while the pane's active tab is a file. Open state stays
   // per pane (openPaneIds), height is shared.
@@ -2551,10 +2211,9 @@ export function App() {
           <ActivityRail
           sidebarOpen={sidebarOpen && !sidebarPanel}
           onToggleSessions={() => {
-            // The right dock is NEVER force-closed here (user: 설정 외의
-            // 강제 닫힘 금지): the narrow-band one-sheet rule already lives
-            // inside openSidebar/toggleSidebar, and wide inline layouts keep
-            // both edges open.
+            // Do not force-close the right dock here. Narrow layouts enforce
+            // one sheet in openSidebar/toggleSidebar; wide layouts keep both
+            // edges open.
             // With a rail panel showing, Sessions first reclaims the panel
             // area; a plain click keeps the normal expand/collapse toggle.
             if (sidebarPanel) {
@@ -2590,6 +2249,8 @@ export function App() {
           onCloseActiveSurface={closeActiveRailPanel}
           onOpenSettings={() => { closeSidebarForNavigation("instant"); openSettings(); }}
           onOpenProviders={() => { closeSidebarForNavigation("instant"); openSettings('providers'); }}
+          // The usage flyout answers what is LEFT; its ℹ️ opens what was SPENT.
+          onOpenUsageStats={() => setCommandSurface("stats")}
           onPrefetchSettings={warmSettingsView}
           navigationItems={workbenchSideLayout.layout.left.flatMap((group) => {
             const descriptor = sideViewDescriptors.get(group[0]);
@@ -2772,7 +2433,7 @@ export function App() {
             window.dispatchEvent(new CustomEvent('mixdog:composer-draft', { detail: text }));
           }}
           onClose={() => setSettingsOpen(false)} />}
-        {(["context", "usage", "doctor", "inherit"] as const).map((surface) =>
+        {(["context", "usage", "doctor", "inherit", "stats"] as const).map((surface) =>
           commandSurface === surface || mountedCommandSurfaces.current.has(surface)
             ? <CommandSurface
                 key={surface === "context" || surface === "inherit"

@@ -16,9 +16,8 @@ export function createInlineSessionRuntimeHost({
     import('../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs'),
   ]).then(([config, registry, dispatch]) => ({ config, registry, dispatch })),
   warmKeychain = async () => {
-    const module = await import('../lib/keychain-cjs.cjs');
-    const keychain = module.default || module;
-    await keychain.prewarmSecrets?.();
+    const { default: keychain } = await import('../lib/keychain-cjs.cjs');
+    await keychain.prewarmSecrets();
   },
   executeAgentControl = null,
 } = {}) {
@@ -28,11 +27,17 @@ export function createInlineSessionRuntimeHost({
   const agentDispatchRuns = new Map();
   let nextRuntimeId = 0;
   let closed = false;
+  let closePromise = null;
   let localModulePromise = null;
   let keychainPrewarmPromise = null;
   let agentGraphPromise = null;
   let preparedProviderSignature = null;
   let providerPreparePromise = null;
+
+  function assertOpen(signal = null) {
+    if (signal?.aborted) throw signal.reason || new Error('agent dispatch canceled');
+    if (closed) throw new Error('session runtime host is closed');
+  }
 
   function measured(phase, task) {
     return Promise.resolve().then(() => measureBootPhase(phase, task));
@@ -46,7 +51,7 @@ export function createInlineSessionRuntimeHost({
         // bounded asynchronous keychain warm-up finish first, otherwise cold
         // DPAPI reads block the daemon's registration and event-stream routes.
         await prewarmKeychain();
-        if (closed) throw new Error('session runtime host is closed');
+        assertOpen();
         return loadLocalModule();
       },
     ).catch((error) => {
@@ -59,7 +64,10 @@ export function createInlineSessionRuntimeHost({
   function agentGraph() {
     agentGraphPromise ??= measured(
       'agent-dispatch-graph-import',
-      () => Promise.resolve().then(loadAgentGraph),
+      () => {
+        assertOpen();
+        return loadAgentGraph();
+      },
     ).then(
       (graph) => graph,
       (error) => {
@@ -70,21 +78,27 @@ export function createInlineSessionRuntimeHost({
     return agentGraphPromise;
   }
 
-  async function prepareAgentProviders() {
+  async function prepareAgentProviders(signal) {
     await prewarmKeychain();
-    if (closed) throw new Error('session runtime host is closed');
+    assertOpen(signal);
     const { config, registry } = await agentGraph();
+    assertOpen(signal);
     const providers = config.loadConfig()?.providers || {};
-    let signature = null;
-    try { signature = JSON.stringify(providers); } catch { /* re-prepare each call */ }
-    if (signature !== null && preparedProviderSignature === signature) return;
+    const signature = JSON.stringify(providers);
+    if (preparedProviderSignature === signature) return;
     if (providerPreparePromise) {
       await providerPreparePromise;
-      if (signature !== null && preparedProviderSignature === signature) return;
-      return prepareAgentProviders();
+      assertOpen(signal);
+      if (preparedProviderSignature === signature) return;
+      return prepareAgentProviders(signal);
     }
     const pending = Promise.resolve()
-      .then(() => registry.initProviders(providers))
+      .then(() => {
+        // Preparation is shared by dispatches once admitted; only host closure
+        // retires that shared work, not an individual waiter's cancellation.
+        assertOpen();
+        return registry.initProviders(providers);
+      })
       .then(() => { preparedProviderSignature = signature; });
     const tracked = pending.finally(() => {
       if (providerPreparePromise === tracked) providerPreparePromise = null;
@@ -114,13 +128,19 @@ export function createInlineSessionRuntimeHost({
   }
 
   async function create(options = {}) {
-    if (closed) throw new Error('session runtime host is closed');
+    assertOpen();
     const module = await localModule();
+    assertOpen();
     const runtime = await module.createLocalSessionRuntime({
       ...options,
       ...(options.cwd ? {} : { cwd }),
       ...(typeof executeAgentControl === 'function' ? { executeAgentControl } : {}),
     });
+    if (closed) {
+      try { await runtime.dispose?.('session runtime host is closed'); }
+      catch (error) { log(`late runtime dispose failed: ${error?.message || error}`); }
+      assertOpen();
+    }
     const record = {
       id: `inline-${process.pid}-${++nextRuntimeId}`,
       runtime,
@@ -144,7 +164,10 @@ export function createInlineSessionRuntimeHost({
 
   function prewarmKeychain() {
     if (closed) return Promise.reject(new Error('session runtime host is closed'));
-    keychainPrewarmPromise ??= measured('keychain-prewarm', warmKeychain)
+    keychainPrewarmPromise ??= measured('keychain-prewarm', () => {
+      assertOpen();
+      return warmKeychain();
+    })
       .then(() => ({ ready: true }))
       .catch((error) => {
         keychainPrewarmPromise = null;
@@ -154,7 +177,7 @@ export function createInlineSessionRuntimeHost({
   }
 
   async function agentDispatch(payload = {}, { signal = null } = {}) {
-    if (closed) throw new Error('session runtime host is closed');
+    assertOpen();
     const dispatchId = String(payload?.dispatchId || '');
     if (!dispatchId) throw new Error('agent dispatch id is required');
     if (agentDispatchRuns.has(dispatchId)) {
@@ -163,17 +186,18 @@ export function createInlineSessionRuntimeHost({
     const controller = new AbortController();
     const abort = () => {
       if (controller.signal.aborted) return;
-      try { controller.abort(signal?.reason); } catch { try { controller.abort(); } catch {} }
+      controller.abort(signal?.reason);
     };
     if (signal?.aborted) abort();
     else signal?.addEventListener?.('abort', abort, { once: true });
     agentDispatchRuns.set(dispatchId, controller);
     try {
-      if (controller.signal.aborted) throw controller.signal.reason || new Error('agent dispatch canceled');
+      assertOpen(controller.signal);
       const agent = String(payload.agent || '');
       const { dispatch } = await agentGraph();
-      await prepareAgentProviders();
-      if (controller.signal.aborted) throw controller.signal.reason || new Error('agent dispatch canceled');
+      assertOpen(controller.signal);
+      await prepareAgentProviders(controller.signal);
+      assertOpen(controller.signal);
       let dispatcher = agentDispatchers.get(agent);
       if (!dispatcher) {
         dispatcher = dispatch.makeAgentDispatch({
@@ -211,6 +235,7 @@ export function createInlineSessionRuntimeHost({
       throw new Error('canonical Agent control is unavailable');
     },
     notifySessionCompletion(ownerSessionId, text, meta = {}) {
+      if (closed) return false;
       const runtime = ownerRuntime(ownerSessionId);
       return runtime?.deliverToolCompletion?.(
         String(ownerSessionId || ''),
@@ -255,16 +280,17 @@ export function createInlineSessionRuntimeHost({
       };
     },
     async close(reason = 'session runtime host closed') {
-      if (closed) return;
+      if (closePromise) return closePromise;
       closed = true;
-      for (const controller of agentDispatchRuns.values()) {
-        try { controller.abort(new Error(reason)); } catch {}
-      }
-      agentDispatchRuns.clear();
-      const active = [...records.values()];
-      await Promise.allSettled(active.map((record) => record.runtime.dispose?.(reason)));
-      records.clear();
-      recordsBySessionId.clear();
+      closePromise = Promise.resolve().then(async () => {
+        for (const controller of agentDispatchRuns.values()) controller.abort(new Error(reason));
+        agentDispatchRuns.clear();
+        const active = [...records.values()];
+        await Promise.allSettled(active.map((record) => record.runtime.dispose?.(reason)));
+        records.clear();
+        recordsBySessionId.clear();
+      });
+      return closePromise;
     },
     get status() {
       return {

@@ -152,9 +152,12 @@ test('finalize uses a complete custom preview and still validates the saved deck
   }, { cwd }));
   const session = sessions.get(authored.session);
   const preview = await renderOfficePreview(session, { output: 'reviewed.pdf', maxWidth: 1600 }, cwd, adapters);
-  const critique = [1, 2].map((slide) => ({
-    slide, verdict: 'pass', hierarchy: 4, balance: 4, legibility: 4, cohesion: 4, evidence: 4,
-    note: `Slide ${slide} has one distinct title with sufficient space around the primary statement.`,
+  const critique = [
+    ['Planning opens on a single statement with the left margin carrying the eye into the sequence.'],
+    ['Delivery closes the pair: the same measure, one statement, and no competing element beside it.'],
+  ].map(([note], index) => ({
+    slide: index + 1, verdict: 'pass', hierarchy: 4, balance: 4, legibility: 4, cohesion: 4, evidence: 4,
+    note,
     fixes: [],
   }));
   const finalized = value(await executeOfficeTool({

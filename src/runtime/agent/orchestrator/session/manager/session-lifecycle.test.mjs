@@ -12,6 +12,7 @@ import {
     toolSchemaSignature,
 } from '../context-utils.mjs';
 import { createContextStatus } from '../../../../../session-runtime/context-status.mjs';
+import { modelToolSchemaAllowlist } from '../../../../../session-runtime/tool-profile.mjs';
 
 test('a cold Cursor route uses 200k instead of inheriting another model window', () => {
     const seed = contextSeedForRouteUpdate({
@@ -38,6 +39,19 @@ test('a cold Cursor route does not use another provider exact-id window', () => 
     );
     assert.equal(meta.contextWindow, 200_000);
     assert.equal(meta.rawContextWindow, 200_000);
+});
+
+test('Cursor backend windows remain authoritative below and above vendor limits', () => {
+    for (const name of ['cursor-oauth', 'cursor-api']) {
+        for (const contextWindow of [200_000, 2_000_000]) {
+            const meta = resolveSessionContextMeta({
+                name,
+                getCachedModelInfo: () => ({ contextWindow }),
+            }, 'gpt-5.4', {});
+            assert.equal(meta.contextWindow, contextWindow, name);
+            assert.equal(meta.rawContextWindow, contextWindow, name);
+        }
+    }
 });
 
 test('an explicitly selected context window survives a route update', () => {
@@ -129,4 +143,19 @@ test('an empty-session route change re-renders the edit-dialect rule variants', 
         model: 'claude-fable-5',
         messages: [{ role: 'system', content: 'custom prompt' }],
     }, 'gpt-5.6-sol'), false);
+});
+
+test('model changes preserve headless rule capabilities across edit dialects', () => {
+    const allowTools = modelToolSchemaAllowlist('headless');
+    const session = {
+        model: 'claude-fable-5',
+        schemaAllowedTools: allowTools,
+        messages: [{
+            role: 'system',
+            content: _buildSharedRules({ omitTools: ['edit'], allowTools }),
+        }],
+    };
+    assert.equal(_refreshSessionRuleVariantsForModel(session, 'gpt-5.6-sol'), true);
+    assert.match(session.messages[0].content, /`edit`/);
+    assert.doesNotMatch(session.messages[0].content, /apply_patch|\bSkills?\b|\bGoals?\b|`goal`|goal-management/);
 });

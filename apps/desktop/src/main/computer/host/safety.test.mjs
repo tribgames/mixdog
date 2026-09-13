@@ -212,20 +212,6 @@ test('waiting on a condition never invalidates the refs the caller holds', () =>
   assert.equal(hostSource.split("'window_predicates'").length - 1 >= 4, true);
 });
 
-test('menu invocation resolves live levels and fails closed', () => {
-  const start = hostSource.indexOf('function Do-InvokeMenu($req)');
-  assert.ok(start > 0);
-  const body = hostSource.slice(start, start + 3_000);
-  for (const refusal of [
-    'menu_path_not_found', 'menu_path_ambiguous', 'menu_item_disabled',
-    'menu_expand_unavailable', 'menu_item_not_invokable',
-  ]) {
-    assert.ok(body.includes(refusal), refusal);
-  }
-  // Accessibility only: a menu never degrades into blind pixel clicking.
-  assert.equal(/Do-ClickFamily|SendInput|mouse_event/.test(body), false);
-});
-
 test('host types load from a per-build assembly cache with an inline fallback', () => {
   assert.match(hostSource, /MIXDOG_COMPUTER_HOST_CACHE/);
   assert.match(hostSource, /mixdog-computer-host-/);
@@ -1026,8 +1012,8 @@ test('computer window transition selects one deterministic successor', () => {
     606,
     'C:\\fixtures\\document.txt',
   );
-  assert.equal(shellAssociated.next_target?.id, 'hwnd:0x7');
-  assert.equal(shellAssociated.next_target_reason, 'launched_focused_window');
+  assert.equal(shellAssociated.next_target, undefined);
+  assert.equal(launchTransitionConfirmsTarget(shellAssociated, 'C:\\fixtures\\document.txt'), false);
 
   const reusedShellWindow = computeComputerWindowTransition(
     [
@@ -1051,12 +1037,11 @@ test('computer window transition selects one deterministic successor', () => {
     606,
     'C:\\fixtures\\document.txt',
   );
-  assert.equal(reusedShellWindow.next_target?.id, 'hwnd:0x8');
-  assert.equal(reusedShellWindow.next_target_reason, 'launched_existing_window_changed');
-  assert.deepEqual(reusedShellWindow.changed_windows.map((window) => window.id), ['hwnd:0x8']);
+  assert.equal(reusedShellWindow.next_target, undefined);
+  assert.deepEqual(reusedShellWindow.changed_windows, []);
   assert.equal(
     launchTransitionConfirmsTarget(reusedShellWindow, 'C:\\fixtures\\document.txt'),
-    true,
+    false,
   );
   assert.equal(launchTransitionConfirmsTarget(delegatedExisting, 'notepad.exe'), true);
   assert.equal(

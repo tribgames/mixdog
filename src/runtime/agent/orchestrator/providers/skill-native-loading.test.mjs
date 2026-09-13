@@ -57,7 +57,7 @@ test('a native skill call preserves its actual identity and remains a delta cont
   assert.deepEqual(after.input.find((item) => item.type === 'tool_search_call'), responseItem);
   const output = after.input.find((item) => item.type === 'tool_search_output');
   assert.equal(output.call_id, call.id);
-  assert.deepEqual(output.tools, [schema]);
+  assert.deepEqual(output.tools, [{ ...schema, strict: false }]);
   assert.equal(after.input.some((item) => item.type === 'function_call_output'), false);
   const previous = process.env.MIXDOG_OAI_TRANSPORT;
   process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';

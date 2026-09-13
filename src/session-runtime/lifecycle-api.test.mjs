@@ -238,3 +238,37 @@ test('canonical child close uses the ordinary durable tombstone barrier', () => 
   assert.equal(current, null);
   assert.equal(invalidations, 1);
 });
+
+for (const detach of [false, true]) {
+  test(`runtime close observes pending Goal persistence before finishing (detach=${detach})`, async () => {
+    const entered = Promise.withResolvers();
+    const persisted = Promise.withResolvers();
+    const api = createLifecycleApi({
+      getSession: () => null,
+      setCloseRequested() {},
+      prewarmTimers: {},
+      warmupTimers: {},
+      flushAllConfigSavesAsync: async () => {},
+      hooks: {},
+      channels: { stop: async () => {} },
+      mcpClient: {},
+      closePatchRuntimeIfLoaded: () => null,
+      getMemoryModPromise: () => null,
+      invalidateContextStatusCache() {},
+      clearRuntimeNotifications() {},
+      withTeardownDeadline: async (pending) => await pending,
+      goalRuntime: { close: () => { entered.resolve(); return persisted.promise; } },
+    });
+    let finished = false;
+    const closing = api.close('test-close', { detach, keepBackgroundWork: true })
+      .then(() => { finished = true; });
+    await entered.promise;
+    try {
+      await new Promise(setImmediate);
+      assert.equal(finished, false);
+    } finally {
+      persisted.resolve();
+      await closing;
+    }
+  });
+}

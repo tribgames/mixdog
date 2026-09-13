@@ -10,17 +10,19 @@ import {
   commandSurfaceSessionId,
 } from './command-surface-state';
 import { t, uiFormatLocale } from './i18n';
-import { uiCurrency } from './ui-format';
 import { acquireModalLayer } from './modal-layer';
 import { useErrorToast } from './notifications';
 import { ErrorNotice } from './ErrorNotice';
 import {
-  inheritanceContextFit,
+  inheritancePreflight,
   sessionModelSelection,
+  type InheritanceFit,
 } from './session-inheritance';
 import { ContextBody } from './ContextBody';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 import { record } from './record-utils';
+import { usageCompact, usageMoney, usageNumber, usageProviderLabel as stripPlanSuffix } from './usage-format';
+import { UsageStatsBody } from './UsageStatsSurface';
 import { displayUsagePercent } from './usage-percent';
 import './settings/settings.css';
 
@@ -40,6 +42,8 @@ function pretty(value: unknown) {
 const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
   context: ['contextStatus'],
   usage: ['getUsageDashboard'],
+  // What was SPENT, next to /usage's what is LEFT.
+  stats: ['getUsageStats'],
   doctor: ['runDoctor'],
   // /inherit decides on the same reading the context gauge uses: a transcript
   // that no longer fits cannot be carried into a fresh session as it is.
@@ -99,7 +103,10 @@ export function CommandSurface({
   // 튐): context payloads cache per session exactly like /usage, so the
   // dialog opens full-size with the last data while a silent refresh runs.
   const cacheKey = commandSurfaceCacheKey(surface, sessionId);
-  const cachedSurface = surface === 'doctor' ? undefined : readSurfaceDataCache(cacheKey);
+  // Statistics open from one completed response, never stale cached figures
+  // followed by a second layout when the fresh rows arrive.
+  const cacheable = surface !== 'doctor' && surface !== 'stats';
+  const cachedSurface = cacheable ? readSurfaceDataCache(cacheKey) : undefined;
   const [data, setData] = useState<Record<string, unknown>>(() => cachedSurface ?? {});
   const [loading, setLoading] = useState(() => !cachedSurface);
   const [pending, setPending] = useState('');
@@ -113,21 +120,21 @@ export function CommandSurface({
     if (loadingSurface.current === surface) return;
     const request = ++loadSequence.current;
     loadingSurface.current = surface;
-    const cached = surface === 'doctor' ? undefined : readSurfaceDataCache(cacheKey);
+    const cached = cacheable ? readSurfaceDataCache(cacheKey) : undefined;
     if (cached) setData(cached);
     setLoading(!cached);
     setError('');
     try {
       const capabilities = LOADERS[surface];
       const results = await Promise.all(capabilities.map((capability) => (
-        api.invokeCapability(capabilityRequest(capability))
+        api.invokeCapability(capabilityRequest(capability, capability === 'getUsageStats' ? [{ view: 'hour' }] : []))
       )));
       if (loadSequence.current === request) {
         const next = {
           ...Object.fromEntries(capabilities.map((capability, index) => [capability, results[index]?.value])),
           ...(surface === 'context' ? { snapshot: results[0]?.snapshot ?? null } : {}),
         };
-        if (surface !== 'doctor') writeSurfaceDataCache(cacheKey, next);
+        if (cacheable) writeSurfaceDataCache(cacheKey, next);
         setData(next);
       }
     } catch (reason) {
@@ -136,13 +143,31 @@ export function CommandSurface({
       }
     } finally {
       if (loadSequence.current === request) setLoading(false);
-      if (loadingSurface.current === surface) loadingSurface.current = null;
+      if (loadSequence.current === request && loadingSurface.current === surface) loadingSurface.current = null;
     }
-  }, [api, cacheKey, capabilityRequest, surface]);
+  }, [api, cacheKey, cacheable, capabilityRequest, surface]);
   useEffect(() => {
     if (open) void load();
-  }, [load, open]);
-  useErrorToast(open ? error : '', `command:${surface}`);
+    else if (surface === 'stats') {
+      ++loadSequence.current;
+      loadingSurface.current = null;
+      setLoading(true);
+      setData({});
+      setError('');
+    }
+  }, [load, open, surface]);
+  useErrorToast(open && surface !== 'stats' ? error : '', `command:${surface}`);
+  const visible = open && (surface !== 'stats' || !loading);
+  useEffect(() => {
+    if (!open || surface !== 'stats' || visible) return undefined;
+    const cancelPending = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', cancelPending);
+    return () => document.removeEventListener('keydown', cancelPending);
+  }, [open, surface, visible]);
   useEffect(() => {
     if (!open || surface !== 'context' || loading
       || typeof api.subscribeState !== 'function') return undefined;
@@ -191,7 +216,7 @@ export function CommandSurface({
     };
   }, [api, cacheKey, capabilityRequest, loading, open, surface]);
   useEffect(() => {
-    if (!open) return undefined;
+    if (!visible) return undefined;
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const shell = document.querySelector<HTMLElement>('.app-shell');
     const isolatedElements = Array.from(shell?.children || [])
@@ -234,7 +259,7 @@ export function CommandSurface({
       layer.release();
       prior?.focus();
     };
-  }, [open]);
+  }, [visible]);
   const run = async (capability: DesktopCapability, args: unknown[] = []) => {
     if (pending) return undefined;
     setPending(capability);
@@ -248,12 +273,23 @@ export function CommandSurface({
       return undefined;
     } finally { setPending(''); }
   };
+  // Period changes belong to the already-visible statistics body. Its previous
+  // figures stay mounted until the replacement response is complete.
+  const requestCapability = useCallback(async (
+    capability: DesktopCapability,
+    args: unknown[] = [],
+  ) => {
+    const result = await api.invokeCapability(capabilityRequest(capability, args));
+    return result.value;
+  }, [api, capabilityRequest]);
   const title = t(({
     context: 'Context',
     usage: 'Provider usage',
     doctor: 'Doctor',
     inherit: 'Inherit session',
+    stats: 'Token usage',
   })[surface]);
+  if (surface === 'stats' && !visible) return null;
   return createPortal(<div ref={surfaceLayer}
     className="mixdog-settings-layer stable-surface-preserved"
     data-surface-active={open ? "true" : "false"}
@@ -284,13 +320,16 @@ export function CommandSurface({
               (user decision). Keep the sentence for screen readers only. */}
           <p id="command-surface-description" className="sr-only">
             {t('{{title}} for the active Mixdog session.', { title })}</p>
-          {loading && surface !== 'inherit'
+          {surface === 'stats' && error
+            ? <p className="stats-error" role="alert">{error}</p>
+            : loading && surface !== 'inherit'
             ? surface === 'usage'
               ? <UsageSkeleton />
               : <p className="settings-loading" role="status">{t('Loading…')}</p>
             : <SurfaceBody surface={surface} data={data} snapshot={snapshot}
                 sessionId={sessionId} onInherit={onInherit} onClose={onClose}
-                loading={loading} pending={pending} run={run} />}
+                loading={loading} pending={pending} run={run}
+                request={requestCapability} />}
           </div>
           </PaneSurfaceGate>
         </div>
@@ -301,7 +340,7 @@ export function CommandSurface({
 
 type SurfaceRun = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
 
-function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, onClose, loading, pending, run }: {
+function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, onClose, loading, pending, run, request }: {
   surface: CommandSurfaceName;
   data: Record<string, unknown>;
   snapshot?: unknown;
@@ -311,14 +350,15 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, onClose, l
   loading?: boolean;
   pending: string;
   run: SurfaceRun;
+  request: SurfaceRun;
 }) {
   const busy = Boolean(pending);
   if (surface === 'context') return <ContextBody status={data.contextStatus}
     snapshot={commandSurfaceDisplaySnapshot(data, snapshot)} />;
   if (surface === 'usage') return <UsageBody data={data} />;
+  if (surface === 'stats') return <UsageStatsBody data={data} request={request} />;
   if (surface === 'inherit') {
-    return <InheritBody status={data.contextStatus}
-      snapshot={commandSurfaceDisplaySnapshot(data, snapshot)}
+    return <InheritBody snapshot={commandSurfaceDisplaySnapshot(data, snapshot)}
       sessionId={sessionId ?? ''} loading={loading} onInherit={onInherit} onClose={onClose} />;
   }
   if (surface === 'doctor') {
@@ -335,11 +375,10 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, onClose, l
  * whether it can happen at all. The heir is a NEW session on the currently
  * selected model holding this conversation; the source is left untouched.
  */
-function InheritBody({ status, snapshot, sessionId, loading, onInherit, onClose }: {
-  status: unknown;
+function InheritBody({ snapshot, sessionId, loading, onInherit, onClose }: {
   snapshot?: unknown;
   sessionId: string;
-  /** The context reading is still in flight; the decision stays locked. */
+  /** The surface payload is still in flight; the decision stays locked. */
   loading?: boolean;
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   onClose?: () => void;
@@ -353,9 +392,29 @@ function InheritBody({ status, snapshot, sessionId, loading, onInherit, onClose 
     return kind === 'user' || kind === 'assistant';
   }).length;
   const route = sessionModelSelection(shell as Snapshot);
-  const fit = inheritanceContextFit(status, shell as Snapshot);
   const provider = String(route?.provider || '').trim();
   const model = String(route?.model || '').trim();
+  // The reading that decides this surface belongs to the HEIR, not to the
+  // session on screen: the same conversation is priced differently on the
+  // route it is carried to. It comes from the runtime that performs the carry,
+  // which is also the one that would refuse it.
+  const [fit, setFit] = useState<InheritanceFit | null>(null);
+  const [checking, setChecking] = useState(true);
+  useEffect(() => {
+    if (!sessionId || !provider || !model) {
+      setFit(null);
+      setChecking(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setChecking(true);
+    void inheritancePreflight(sessionId, { provider, model }).then((value) => {
+      if (cancelled) return;
+      setFit(value);
+      setChecking(false);
+    });
+    return () => { cancelled = true; };
+  }, [sessionId, provider, model]);
   // ONE reason at a time, in the order the user would hit them.
   const blocked = !sessionId
     ? t('This task has not started a session yet.')
@@ -367,26 +426,29 @@ function InheritBody({ status, snapshot, sessionId, loading, onInherit, onClose 
           ? t('Inheritance is unavailable on this surface.')
           : !route
             ? t('Unknown')
-          : fit.known && !fit.fits
+          : fit?.known && !fit.fits && !fit.willCompact
             ? t('This conversation no longer fits the model context. Run /compact first.')
             : '';
   // The dialog frame IS this surface's card: the header already names it, the
   // readings fill the body, and the decision owns its own band under one
   // hairline (user: 세션승계창 이상하다 — the old boxed group repeated the
   // title and pushed its button straight through the card's bottom edge).
-  const waiting = Boolean(loading) && !fit.known;
+  const waiting = checking || Boolean(loading);
   return <div className="inherit-surface">
     <div className="inherit-surface-body">
       <p className="inherit-surface-lede">
         {t('The conversation is copied into a new session that runs on the current model. This session stays exactly as it is.')}
       </p>
+      {fit?.willCompact && <p className="inherit-surface-lede">
+        {t('This conversation is compacted for the new model before it carries over.')}
+      </p>}
       <dl className="command-surface-facts">
         <div><dt>{t('Messages')}</dt><dd>{spoken}</dd></div>
         <div><dt>{t('Model')}</dt>
           <dd title={model ? `${provider}/${model}` : undefined}>
             {model ? `${provider}/${model}` : t('Unknown')}
           </dd></div>
-        <div><dt>{t('Context')}</dt><dd>{fit.percent === null ? '—' : `${fit.percent}%`}</dd></div>
+        <div><dt>{t('Context')}</dt><dd>{fit?.percent == null ? '—' : `${fit.percent}%`}</dd></div>
       </dl>
       {(blocked || failure) && <ErrorNotice error={failure || blocked} role="status" />}
     </div>
@@ -410,22 +472,6 @@ function InheritBody({ status, snapshot, sessionId, loading, onInherit, onClose 
   </div>;
 }
 
-function usageNumber(value: unknown): number | null {
-  const number = Number(value);
-  return value === null || value === undefined || value === '' || !Number.isFinite(number) ? null : number;
-}
-function usageMoney(value: unknown): string {
-  const amount = usageNumber(value);
-  if (amount === null) return '—';
-  return uiCurrency(amount, amount === 0 || amount >= 10 ? 0 : amount >= 1 ? 2 : amount >= 0.01 ? 3 : 4);
-}
-function usageCompact(value: unknown): string {
-  const amount = usageNumber(value);
-  if (amount === null) return '';
-  return new Intl.NumberFormat(uiFormatLocale(), {
-    notation: 'compact', maximumFractionDigits: Math.abs(amount) >= 10_000 ? 0 : 1,
-  }).format(amount);
-}
 function usageClock(value: unknown): string {
   const at = usageNumber(value);
   if (at === null || at <= 0) return '';
@@ -485,8 +531,7 @@ function usagePlanType(provider: Row): 'api' | 'subscription' | '' {
 }
 
 function usageProviderLabel(provider: Row): string {
-  const label = String(provider.label || provider.id || 'Provider');
-  return label.replace(/\s+(?:API|OAuth)$/i, '');
+  return stripPlanSuffix(String(provider.label || provider.id || 'Provider'));
 }
 
 function UsageTableFrame({ children }: React.PropsWithChildren) {

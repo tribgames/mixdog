@@ -63,11 +63,45 @@ test('config migration removes retired local endpoints and persists Local Provid
     assert.equal(persisted.providers.ollama, undefined);
     assert.equal(persisted.providers.lmstudio, undefined);
     assert.equal(loadConfig({ secrets: false }).builtins.localProvider.installed, true);
+
+    // Save is an ingress too: a stale caller must not put retired routes back.
+    saveConfig({
+      ...loaded,
+      providers: { ...loaded.providers, ollama: { enabled: true }, lmstudio: { enabled: true } },
+      presets: [...loaded.presets, { id: 'legacy-local', provider: 'ollama', model: 'old-model' }],
+      default: 'legacy-local',
+      modelSettings: {
+        ...loaded.modelSettings,
+        'ollama/old-model': { contextPercent: 50 },
+        'lmstudio/old-model': { contextPercent: 60 },
+      },
+    });
+    const saved = JSON.parse(readFileSync(path, 'utf8')).agent;
+    assert.deepEqual({
+      ollama: saved.providers.ollama,
+      lmstudio: saved.providers.lmstudio,
+      default: saved.default,
+      ollamaSettings: saved.modelSettings['ollama/old-model'],
+      lmstudioSettings: saved.modelSettings['lmstudio/old-model'],
+      cloudSettings: saved.modelSettings['openai/gpt-test'],
+    }, {
+      ollama: undefined,
+      lmstudio: undefined,
+      default: null,
+      ollamaSettings: undefined,
+      lmstudioSettings: undefined,
+      cloudSettings: { contextPercent: 70 },
+    });
   `;
   try {
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
       cwd: repoRoot,
-      env: { ...process.env, MIXDOG_DATA_DIR: dataDir, MIXDOG_CONFIG_READ_TTL_MS: '0' },
+      env: {
+        ...process.env,
+        MIXDOG_DATA_DIR: dataDir,
+        MIXDOG_CONFIG_READ_TTL_MS: '0',
+        MIXDOG_USER_DATA_BACKUP_ROOT: join(dataDir, 'backups'),
+      },
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);

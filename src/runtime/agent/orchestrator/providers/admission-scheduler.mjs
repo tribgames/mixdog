@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { PRIORITY_RANK, normalizePriority, resourceAdmission } from '../../../shared/resource-admission.mjs';
+import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
 
 // Normal provider traffic is not concurrency-gated. Independent sessions and
 // accounts start immediately; a finite limit exists only when an operator
@@ -588,11 +589,14 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
                 // Queue wait therefore cannot consume first-byte or agent-watchdog
                 // time. Provider-local retry remains the sole retry owner.
                 try { opts.onStageChange?.('requesting'); } catch {}
-                return originalSend.call(this, messages, model, tools, {
+                const admittedOpts = {
                     ...opts,
                     signal: admissionSignal,
                     _providerAdmission: admissionMetrics,
-                });
+                };
+                return accountProviderSend(providerName, this,
+                    () => originalSend.call(this, messages, model, tools, admittedOpts),
+                    model, admittedOpts);
             }, {
                 signal,
                 ownerKey: opts.admissionOwner || opts.sessionId || null,

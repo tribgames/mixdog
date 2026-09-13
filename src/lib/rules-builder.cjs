@@ -41,6 +41,12 @@ const {
   outputStyleMetaFromMarkdown,
   sortOutputStyles,
 } = require('./output-style-meta.cjs');
+const {
+  PROFILE_EXPERIENCE_PROMPTS,
+  normalizeProfileConfig,
+  profileLanguageEntry,
+  profileExperienceLevelEntry,
+} = require('../runtime/shared/profile-config.cjs');
 
 function readOptional(filePath) {
   try { return fs.readFileSync(filePath, 'utf8').trim(); } catch { return ''; }
@@ -72,61 +78,6 @@ function readAgentConfig(dataDir) {
   return unified.agent && typeof unified.agent === 'object' ? unified.agent : unified;
 }
 
-const PROFILE_LANGUAGE_PROMPTS = Object.freeze({
-  en: 'English',
-  ko: 'Korean',
-  ja: 'Japanese (日本語)',
-  'zh-Hans': 'Simplified Chinese (简体中文)',
-  'zh-Hant': 'Traditional Chinese (繁體中文)',
-  es: 'Spanish (Español)',
-  fr: 'French (Français)',
-  de: 'German (Deutsch)',
-  pt: 'Portuguese (Português)',
-  ru: 'Russian (Русский)',
-  it: 'Italian (Italiano)',
-  vi: 'Vietnamese (Tiếng Việt)',
-  th: 'Thai (ภาษาไทย)',
-  id: 'Indonesian (Bahasa Indonesia)',
-  hi: 'Hindi (हिन्दी)',
-  ar: 'Arabic (العربية)',
-  tr: 'Turkish (Türkçe)',
-  pl: 'Polish (Polski)',
-  nl: 'Dutch (Nederlands)',
-  uk: 'Ukrainian (Українська)',
-});
-
-const PROFILE_TITLE_MAX = 64;
-const PROFILE_EXPERIENCE_LEVELS = Object.freeze({
-  beginner: {
-    label: 'Beginner',
-    prompt: 'Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer.',
-  },
-  'vibe-coder': {
-    label: 'Vibe coder',
-    prompt: 'Lead with what the result does and how to use it; briefly unpack implementation jargon when it is needed for understanding.',
-  },
-  junior: {
-    label: 'Junior',
-    prompt: 'Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding.',
-  },
-  expert: {
-    label: 'Expert',
-    prompt: 'Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally.',
-  },
-});
-
-function normalizeProfileConfig(value = {}) {
-  const raw = value && typeof value === 'object' ? value : {};
-  const title = String(raw.title ?? raw.name ?? '').trim().slice(0, PROFILE_TITLE_MAX);
-  const requested = String(raw.language ?? raw.lang ?? 'system').trim();
-  const language = requested === 'system' || PROFILE_LANGUAGE_PROMPTS[requested] ? requested : 'system';
-  const requestedExperienceLevel = String(raw.experienceLevel ?? '')
-    .trim().toLowerCase().replace(/[\s_]+/g, '-');
-  const experienceLevel = Object.prototype.hasOwnProperty.call(PROFILE_EXPERIENCE_LEVELS, requestedExperienceLevel)
-    ? requestedExperienceLevel
-    : '';
-  return { title, language, experienceLevel };
-}
 
 function systemLocaleId(locale) {
   let parsed = null;
@@ -137,20 +88,23 @@ function systemLocaleId(locale) {
     const region = parsed?.region;
     return script === 'Hant' || ['HK', 'MO', 'TW'].includes(region) ? 'zh-Hant' : 'zh-Hans';
   }
-  return PROFILE_LANGUAGE_PROMPTS[language] ? language : null;
+  return profileLanguageEntry(language).prompt ? language : null;
 }
 
 function profileLanguagePrompt(language) {
   const selected = String(language || 'system');
   if (selected !== 'system') {
-    return PROFILE_LANGUAGE_PROMPTS[selected]
-      ? { prompt: PROFILE_LANGUAGE_PROMPTS[selected], source: 'profile', locale: null }
+    const prompt = profileLanguageEntry(selected).prompt;
+    return prompt
+      ? { prompt, source: 'profile', locale: null }
       : null;
   }
   const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
   const id = systemLocaleId(locale);
-  if (!id || !PROFILE_LANGUAGE_PROMPTS[id]) return null;
-  return { prompt: PROFILE_LANGUAGE_PROMPTS[id], source: 'system-locale', locale };
+  if (!id) return null;
+  const prompt = profileLanguageEntry(id).prompt;
+  if (!prompt) return null;
+  return { prompt, source: 'system-locale', locale };
 }
 
 function buildProfilePreferencesContent(dataDir) {
@@ -159,9 +113,9 @@ function buildProfilePreferencesContent(dataDir) {
   if (profile.title) {
     lines.push(`- Address the user as "${profile.title}"; omit the title from routine progress updates and pre-tool preambles.`);
   }
-  const experience = PROFILE_EXPERIENCE_LEVELS[profile.experienceLevel];
+  const experience = profileExperienceLevelEntry(profile.experienceLevel);
   if (experience) {
-    lines.push(`- Development experience: ${experience.label}. ${experience.prompt} Output style controls information depth.`);
+    lines.push(`- Development experience: ${experience.label}. ${PROFILE_EXPERIENCE_PROMPTS[experience.id]} Output style controls information depth.`);
   }
   // No configured preference means no section: a bare heading would ship an
   // empty block to every model that has neither a title nor an experience level.
@@ -193,8 +147,8 @@ function stripFrontmatter(markdown) {
 
 // Tool dependency is declared as metadata, not matched against prose. A
 // `<!-- tools: a, b -->` marker binds the block that follows it: the block
-// survives while any listed tool is on the session surface and disappears
-// once every one of them is omitted. Markers never reach the model.
+// survives while any listed tool is permitted by the allow/deny policy.
+// Unspecified allowlists are unrestricted. Markers never reach the model.
 const TOOL_MARKER_RE = /^[ \t]*<!--[ \t]*tools:[ \t]*([^>]*?)[ \t]*-->[ \t]*$/;
 
 function markerTools(line) {
@@ -223,8 +177,9 @@ function omitKeySet(omitTools) {
 }
 
 /** Drop routing clauses for tools that are not on the session surface. */
-function omitToolRoutes(text, omitTools = []) {
+function omitToolRoutes(text, omitTools = [], allowTools = null) {
   const deny = omitKeySet(omitTools);
+  const allow = Array.isArray(allowTools) ? omitKeySet(allowTools) : null;
   const lines = String(text || '').split(/\r?\n/);
   const kept = [];
   let index = 0;
@@ -238,7 +193,7 @@ function omitToolRoutes(text, omitTools = []) {
     index += 1;
     if (index >= lines.length) break;
     const end = markedBlockEnd(lines, index);
-    if (!tools.length || !tools.every((name) => deny.has(name))) {
+    if (!tools.length || tools.some((name) => !deny.has(name) && (!allow || allow.has(name)))) {
       kept.push(...lines.slice(index, end));
     }
     index = end;
@@ -289,9 +244,9 @@ function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
   return [`# Output Style: ${style.label}`, OUTPUT_STYLE_ANCHOR, common, selected].filter(Boolean).join('\n\n');
 }
 
-function buildSharedToolContent({ PLUGIN_ROOT, omitTools = [] } = {}) {
+function buildSharedToolContent({ PLUGIN_ROOT, omitTools = [], allowTools = null } = {}) {
   const SHARED_DIR = path.join(PLUGIN_ROOT, 'rules', 'shared');
-  return omitToolRoutes(readMarkdownDirectory(SHARED_DIR), omitTools);
+  return omitToolRoutes(readMarkdownDirectory(SHARED_DIR), omitTools, allowTools);
 }
 
 function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }) {

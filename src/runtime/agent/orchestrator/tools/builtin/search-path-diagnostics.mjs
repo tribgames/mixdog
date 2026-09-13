@@ -5,7 +5,7 @@
  */
 import { statSync } from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
-import { findBySuffixStrip, findDirectoryByBasename, findFileByBasename, listSiblings } from './path-diagnostics.mjs';
+import { findDirectoryByBasename, findFileByBasename, listSiblings } from './path-diagnostics.mjs';
 import { normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 
 // Deterministic ENOENT recovery: when a grep path does not exist, surface
@@ -44,20 +44,6 @@ export async function _suggestIndexedPaths(missingPath, executeChildBuiltinTool,
     }
 }
 
-// Models occasionally glue a quoted segment onto an otherwise-unquoted path
-// (e.g. `C:/Project/mixdog/"src/x.mjs"` — prefix bare, trailing segment
-// wrapped in literal quote chars from a mis-escaped interpolation). But
-// quote chars CAN be legit path content (POSIX `src/Bob's/file.mjs`), so
-// stripping is existence-guarded: keep the original if it stats, only fall
-// back to the stripped variant otherwise. Cost is one statSync and only on
-// the rare quote-containing path.
-export function stripEmbeddedPathQuotes(p) {
-    if (typeof p !== 'string' || !p) return p;
-    if (!p.includes('"') && !p.includes("'")) return p;
-    try { statSync(p); return p; } catch { /* fall through to stripped */ }
-    return p.replace(/['"]/g, '');
-}
-
 // Reuse read's own ENOENT recovery (path-diagnostics findBySuffixStrip /
 // findFileByBasename — the exact fs scans read-single-tool.mjs already runs
 // for its "same filename exists at" hint) so a grep/glob path miss redirects
@@ -75,18 +61,8 @@ const ENOENT_FIND_NUDGE = 'Locate with find on the basename before retrying.';
 // cannot succeed. Declare the miss conclusive instead of nudging one.
 const ENOENT_ABSENT = ' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires).';
 
-// Per-invocation memo for the ENOENT recovery fs scans. A single grep/glob
-// ENOENT surfaces the SAME missing path through tryReadFamilyEnoentRedirect
-// (resolveUniqueEnoentRedirect) AND buildNotFoundHint (which re-runs
-// resolveUniqueEnoentRedirect plus its own findFileByBasename). Threading an
-// optional cache object keyed on that single path collapses the repeated
-// suffix-strip / basename BFS into one scan. Absent cache → scan fresh
-// (unchanged behavior for callers that don't pass one).
-function cachedSuffixStrip(workDir, missingPath, cache) {
-    if (!cache) return findBySuffixStrip(workDir, missingPath);
-    if (!('suffixHit' in cache)) cache.suffixHit = findBySuffixStrip(workDir, missingPath);
-    return cache.suffixHit;
-}
+// Share diagnostic lookup results within one invocation without changing
+// the requested operand or executing a replacement operation.
 function cachedFileByBasename(workDir, missingPath, cache) {
     if (!cache) return findFileByBasename(workDir, missingPath);
     if (!('fileHits' in cache)) cache.fileHits = findFileByBasename(workDir, missingPath);
@@ -182,48 +158,6 @@ export function finalizeReadFamilyEnoentTail(hint, requestedPath, errCode = 'ENO
     return appendEnoentFindNudge(String(hint || '') + spaceJoinedPathHint(requestedPath));
 }
 
-function resolveUniqueEnoentRedirect(workDir, missingPath, errCode = 'ENOENT', cache = null) {
-    if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return null;
-    // Redirecting an outside path INTO the project would answer a different
-    // question than the one asked.
-    if (missingPathIsOutsideProject(workDir, missingPath)) return null;
-    const suffixHit = cachedSuffixStrip(workDir, missingPath, cache);
-    if (suffixHit) return suffixHit;
-    const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
-    if (elsewhere.length === 1) return elsewhere[0];
-    if (isDirectoryPathGuess(missingPath)) {
-        const dirHits = findDirectoryByBasename(workDir, missingPath, { limit: 3 });
-        if (dirHits.length === 1) return dirHits[0];
-    }
-    return null;
-}
-
-function redirectedFromPrefix(requestedPath) {
-    return `[redirected from ${normalizeOutputPath(requestedPath)}]\n`;
-}
-
-export async function tryReadFamilyEnoentRedirect({
-    workDir,
-    resolvedPath,
-    requestedPath,
-    errCode,
-    options,
-    rerun,
-    onRedirect,
-    cache = null,
-}) {
-    if (options?._enoentRedirectFrom) return null;
-    const target = resolveUniqueEnoentRedirect(workDir, resolvedPath, errCode, cache);
-    if (!target) return null;
-    const body = await rerun(target, { ...options, _enoentRedirectFrom: resolvedPath });
-    if (!(typeof body === 'string' && /^\s*Error[\s:[]/i.test(body))
-        && typeof onRedirect === 'function') {
-        try { onRedirect(resolvedPath, target); } catch { /* best-effort proof recording */ }
-    }
-    const shown = requestedPath ?? resolvedPath;
-    return redirectedFromPrefix(shown) + body;
-}
-
 export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
     if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return '';
     // `C:tmpsmp` shape: a Windows path whose separators were eaten by JSON
@@ -236,7 +170,6 @@ export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'E
     if (missingPathIsOutsideProject(workDir, missingPath)) {
         return outsideProjectNotFoundHint(missingPath, actionVerb);
     }
-    if (resolveUniqueEnoentRedirect(workDir, missingPath, errCode, cache)) return '';
     const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
     if (elsewhere.length) {
         return ` Not found at this path; the same filename exists at: ${elsewhere.map((p) => `"${normalizeOutputPath(p)}"`).join(', ')}. ${actionVerb} that path directly.`;

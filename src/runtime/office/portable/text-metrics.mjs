@@ -220,6 +220,19 @@ function kinsoku(parts) {
   return bound;
 }
 
+// The longest prefix of a run that still fits the measure, never empty: a run
+// with no break opportunity has to give up characters or the line never ends.
+function headThatFits(text, limit, font) {
+  const characters = [...text];
+  let head = characters[0] ?? '';
+  for (let count = 2; count <= characters.length; count += 1) {
+    const candidate = characters.slice(0, count).join('');
+    if (measureTextWidth(candidate, font) > limit) break;
+    head = candidate;
+  }
+  return head;
+}
+
 export function wrapParagraph(text, width, font = {}) {
   const value = String(text ?? '');
   if (!value) return [''];
@@ -231,9 +244,20 @@ export function wrapParagraph(text, width, font = {}) {
     if (current && measureTextWidth(candidate.trimEnd(), font) > limit) {
       lines.push(current.trimEnd());
       current = part === ' ' ? '' : part;
-      continue;
+    } else {
+      current = candidate;
     }
-    current = candidate;
+    // A run with no break opportunity — a figure like 47,210, a long URL, a
+    // compound Latin word — still does not fit: PowerPoint breaks it between
+    // characters rather than letting it hang out of the box, so a measurement
+    // that keeps it on one line reports a height the render never uses and the
+    // overflow stays invisible.
+    while (current && measureTextWidth(current, font) > limit) {
+      const head = headThatFits(current, limit, font);
+      if (head.length >= current.length) break;
+      lines.push(head);
+      current = current.slice(head.length);
+    }
   }
   lines.push(current.trimEnd());
   return lines.length ? lines : [''];
@@ -260,6 +284,10 @@ export function measureTextBlock(paragraphs = [], {
   let height = 0;
   let lines = 0;
   let widest = 0;
+  // The widest run that cannot be broken at a space or a syllable: once the
+  // wrap breaks such a run between characters, the laid-out width no longer
+  // shows that the measure is narrower than the text it has to carry.
+  let longestRun = 0;
   for (const paragraph of paragraphs) {
     const font = {
       fontName: paragraph.fontName,
@@ -270,6 +298,9 @@ export function measureTextBlock(paragraphs = [], {
     const size = Math.max(1, Number(paragraph.fontSize) || 18);
     const wrapped = width > 0 ? wrapParagraph(paragraph.text, width, font) : [String(paragraph.text ?? '')];
     for (const line of wrapped) widest = Math.max(widest, measureTextWidth(line, font));
+    for (const part of segments(paragraph.text)) {
+      if (part !== ' ') longestRun = Math.max(longestRun, measureTextWidth(part, font));
+    }
     lines += wrapped.length;
     const multiple = Number(paragraph.lineSpacing) > 0 ? Number(paragraph.lineSpacing) : Math.max(0.5, Number(lineSpacing) || 1);
     const pitch = lineHeightRatio > 0 ? lineHeightRatio : naturalLineRatio(paragraph.fontName) * multiple;
@@ -277,7 +308,7 @@ export function measureTextBlock(paragraphs = [], {
     height += Math.max(0, Number(paragraph.spaceBefore) || 0);
     height += Math.max(0, Number(paragraph.spaceAfter) || 0);
   }
-  return { height, lines, width: widest };
+  return { height, lines, width: widest, longestRun };
 }
 
 function channelLuminance(value) {
@@ -385,6 +416,39 @@ export function reviewTextContrast(boxes = []) {
   return issues;
 }
 
+// Hangul and CJK are written without letter gaps: tracking pulls the syllables
+// of one word apart, so the reader sees characters instead of words. Latin small
+// caps are the opposite — a kicker is set with tracking on purpose — which is why
+// the script of the run decides, not the value alone.
+const CJK_TEXT = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/;
+const CJK_TRACKING_RATIO = 0.05;
+
+export function reviewCjkTracking(boxes = []) {
+  const issues = [];
+  for (const box of boxes) {
+    const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
+    let worst = null;
+    for (const paragraph of paragraphs) {
+      const text = String(paragraph.text ?? '');
+      if (!CJK_TEXT.test(text)) continue;
+      const tracking = Number(paragraph.charSpacing) || 0;
+      if (tracking <= 0) continue;
+      const size = Math.max(1, Number(paragraph.fontSize) || 18);
+      const ratio = tracking / size;
+      if (ratio <= CJK_TRACKING_RATIO) continue;
+      if (!worst || ratio > worst.ratio) worst = { ratio, tracking, size };
+    }
+    if (!worst) continue;
+    issues.push({
+      code: 'cjk_letter_spacing',
+      path: `/slide[${box.slide}]/shape[${box.shape}]`,
+      message: `Hangul or CJK text carries ${worst.tracking.toFixed(1)}pt of tracking at ${Math.round(worst.size)}pt (${Math.round(worst.ratio * 100)}% of the size); the syllables of a word read as separate characters.`,
+      tracking: Number(worst.tracking.toFixed(1)),
+    });
+  }
+  return issues;
+}
+
 export function reviewTextBoxFit(boxes = [], {
   slideWidth = 0,
   slideHeight = 0,
@@ -436,11 +500,23 @@ export function reviewTextBoxFit(boxes = [], {
         message: `Unwrapped text is about ${Math.round(measured.width)}pt wide inside a ${Math.round(usableWidth)}pt shape.`,
       });
     }
-    if (box.wrap !== false && measured.width > usableWidth * 1.02 && measured.lines > 1) {
+    // Two readings of the same fault: a box narrower than its longest word
+    // breaks mid-word, and a box only a little wider still leaves a ragged
+    // column of one or two words a line. Both are answered by widening the
+    // measure, so they share one code and report once.
+    const bodySize = Math.max(0, ...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0));
+    const longestRun = Number(measured.longestRun) || measured.width;
+    if (box.wrap !== false && longestRun > usableWidth * 1.02) {
       issues.push({
         code: 'text_box_too_narrow',
         path: `/slide[${box.slide}]/shape[${box.shape}]`,
-        message: `A word needs about ${Math.round(measured.width)}pt but the shape offers ${Math.round(usableWidth)}pt, so the text breaks mid-word.`,
+        message: `A word needs about ${Math.round(longestRun)}pt but the shape offers ${Math.round(usableWidth)}pt, so the text breaks mid-word.`,
+      });
+    } else if (box.wrap !== false && measured.lines >= 3 && bodySize > 0 && usableWidth < bodySize * 7) {
+      issues.push({
+        code: 'text_box_too_narrow',
+        path: `/slide[${box.slide}]/shape[${box.shape}]`,
+        message: `The box offers ${Math.round(usableWidth)}pt of measure for ${Math.round(bodySize)}pt text, so its ${measured.lines} lines carry one or two words each.`,
       });
     }
     const right = (Number(box.left) || 0) + (Number(box.width) || 0);
@@ -483,6 +559,29 @@ function statementSlides(boxes = []) {
   return result;
 }
 
+// A band this deep with content above and below it reads as an unfinished
+// page, not as air: the eye crosses it looking for the missing region.
+const HOLLOW_BAND = 108;   // 1.5in at 72pt per inch
+
+// The deepest empty band between the slide's content, measured on merged
+// intervals so overlapping shapes (a value over its field) never open a gap.
+function hollowBand(content = []) {
+  const intervals = content
+    .map((shape) => [shape.top, shape.top + Math.max(0, shape.height)])
+    .sort((left, right) => left[0] - right[0]);
+  let reach = intervals.length ? intervals[0][1] : 0;
+  let depth = 0;
+  let top = 0;
+  for (const [start, end] of intervals.slice(1)) {
+    if (start - reach > depth) {
+      depth = start - reach;
+      top = reach;
+    }
+    reach = Math.max(reach, end);
+  }
+  return { depth, top };
+}
+
 export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight = 0, boxes = [] } = {}) {
   if (!(slideHeight > 0) || !(slideWidth > 0)) return [];
   const issues = [];
@@ -504,7 +603,22 @@ export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight
     const bottomEmpty = Math.max(0, slideHeight - bottom);
     const heavyBottom = bottomEmpty > slideHeight * 0.3 && bottomEmpty - topEmpty > slideHeight * 0.24;
     const heavyTop = topEmpty > slideHeight * 0.3 && topEmpty - bottomEmpty > slideHeight * 0.24;
-    if (!heavyBottom && !heavyTop) continue;
+    if (!heavyBottom && !heavyTop) {
+      // The footer line and the page number sit at the bottom of every slide,
+      // so a page whose body stops halfway still measures a full canvas from
+      // its margins alone; the hollow band between them is the real reading.
+      const hollow = hollowBand(content);
+      if (hollow.depth > HOLLOW_BAND) {
+        issues.push({
+          code: 'vertical_imbalance',
+          path: `/slide[${slide}]`,
+          message: `An empty band ${Math.round(hollow.depth)}pt deep (${(hollow.depth / 72).toFixed(2)}in) runs from ${Math.round(hollow.top)}pt to ${Math.round(hollow.top + hollow.depth)}pt with content above and below it; extend a region into the band or move the lower block up.`,
+          hollowBand: Math.round(hollow.depth),
+          hollowTop: Math.round(hollow.top),
+        });
+      }
+      continue;
+    }
     issues.push({
       code: 'vertical_imbalance',
       path: `/slide[${slide}]`,
@@ -560,20 +674,36 @@ export function reviewStatLabelProximity(boxes = [], { maximumGap = 36 } = {}) {
   return issues;
 }
 
+// The sizes a shrinking box may land on. A percentage search lands on 14.88 pt
+// beside 24 pt copy, which reads as a mistake on the page; the repair keeps the
+// text on a type ladder, the same rule the authoring kit follows.
+const TYPE_LADDER = Object.freeze([
+  96, 80, 72, 66, 60, 54, 48, 44, 40, 36, 32, 28, 26, 24, 22, 20, 18, 16, 15, 14, 13, 12, 11, 10, 9, 8,
+]);
+
 export function shrinkFontSizeToFit(paragraphs = [], {
   width = 0,
   height = 0,
   minimumFontSize = 8,
+  steps = null,
 } = {}) {
   const sizes = paragraphs.map((paragraph) => Math.max(1, Number(paragraph.fontSize) || 18));
   const largest = Math.max(...sizes, 1);
   const floor = Math.max(1, Number(minimumFontSize) || 8);
-  for (let scale = 100; scale >= 1; scale -= 2) {
-    const factor = scale / 100;
-    if (largest * factor < floor) break;
+  // The caller's floor is the last resort under the ladder: a box that fits
+  // nothing larger still has to be answered, and refusing the repair would
+  // leave the overflow it was called to fix.
+  const ladder = [...new Set([largest, ...(Array.isArray(steps) && steps.length ? steps : TYPE_LADDER), floor])]
+    .map(Number)
+    .filter((size) => Number.isFinite(size) && size <= largest && size >= floor)
+    .sort((left, right) => right - left);
+  for (const candidate of ladder) {
+    const factor = candidate / largest;
     const scaled = paragraphs.map((paragraph, index) => ({
       ...paragraph,
-      fontSize: Math.max(floor, sizes[index] * factor),
+      // A box of mixed sizes keeps its proportions; a half point is the finest
+      // step PowerPoint stores, so the secondary runs stay on real sizes too.
+      fontSize: Math.max(floor, Math.round(sizes[index] * factor * 2) / 2),
     }));
     const measured = measureTextBlock(scaled, { width });
     if (measured.height <= height) {

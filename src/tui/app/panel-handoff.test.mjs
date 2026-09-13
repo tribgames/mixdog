@@ -115,7 +115,7 @@ test('Settings paints its loading destination before the daemon snapshot settles
   }
 });
 
-test('Model save keeps a Settings handoff panel visible until the write settles', async () => {
+test('Model save hands the Settings panel back on the keypress, before the write settles', async () => {
   supersedePanelEpoch();
   const host = createPanelHost();
   const saveGate = deferred();
@@ -137,7 +137,6 @@ test('Model save keeps a Settings handoff panel visible until the write settles'
     },
     webSearchModelsCacheRef: { current: { models: [], at: 0 } },
     modelPickerRequestRef: { current: 0 },
-    clearModelCaches: () => {},
     modelSwitchNotice: () => 'switched',
     openProviderSetupPicker: () => {},
   });
@@ -151,8 +150,9 @@ test('Model save keeps a Settings handoff panel visible until the write settles'
   const models = host.current();
   models.onSelect(models.items[0].value, models.items[0]);
 
-  assert.equal(host.current(), HANDOFF);
-  assert.equal(host.painted.at(-1), HANDOFF);
+  // The write is still in flight: the caller's panel is already back.
+  assert.equal(host.current()?.title, 'Settings');
+  assert.notEqual(host.current(), HANDOFF);
 
   saveGate.resolve(true);
   await flush();

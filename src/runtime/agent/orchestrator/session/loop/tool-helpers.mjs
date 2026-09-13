@@ -103,7 +103,7 @@ export function viewSkill(cwd, name, session = null) {
     // Return the general tool envelope: the model-visible tool_result is the
     // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
     // delivered ONCE as a separate injected role:'user' message (newMessages).
-    return loadSkillToolDependencies(buildSkillToolEnvelope(skillName, res.content, res.dir, res), session);
+    return loadSkillToolDependencies(buildSkillToolEnvelope(skillName, res.content, res.dir, res, session), session);
 }
 
 /** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */

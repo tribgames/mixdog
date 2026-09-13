@@ -15,3 +15,5 @@ partial: true
   literals, useful links, and material risks, limitations, and scope.
 - Follow explicit requests for depth; never pad. Omit tangents, unsolicited
   advice or offers, raw dumps, and process recaps.
+- Apply the selected depth to substantive answers, not preambles or progress
+  updates. Progress reports only new material findings, not a full summary.

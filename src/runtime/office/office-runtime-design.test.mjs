@@ -28,8 +28,111 @@ import {
   reviewPptxVisualCritique,
 } from './quality/design-review.mjs';
 import { workspace } from './office-test-support.mjs';
+import { assertOfficeOperationContracts } from './capabilities.mjs';
+import { finalizeOfficeResult, serializedToolValue } from './core/office-core.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
+
+// Every batch and finalize used to echo the whole design context back, so the
+// catalogue a direction was chosen from cost several times the audit it rode
+// with. The result keeps the design in force and drops the input-side lists.
+// The metric strip shipped operations the runtime's own validation refused
+// (a cell alignment the catalog never declared), so every preset was refused
+// for any caller who asked for metrics. The presets are held to the contract
+// they enforce, across the profiles and purposes that change what they emit.
+test('a preset never emits an operation its own contract refuses', () => {
+  const content = {
+    packageId: 'sweep',
+    objective: 'Night shift decision',
+    decision: 'Approve 12 crew',
+    facts: [
+      { id: 'on-time', label: 'On time', value: 0.928, numberFormat: '0.0%' },
+      { id: 'throughput', label: 'Throughput', value: 47210, unit: 'orders' },
+    ],
+    claims: [{ id: 'approve', text: 'Approve the crew', factIds: ['on-time', 'throughput'] }],
+  };
+  const presets = {
+    docx: [{
+      op: 'compose_document',
+      title: 'Night shift',
+      subtitle: 'Operations',
+      summary: 'Approve the crew.',
+      claimId: 'approve',
+      metrics: [{ factId: 'on-time' }, { factId: 'throughput' }],
+      meta: ['October 2026'],
+      footer: 'Operations',
+      pageNumbers: true,
+      sections: [
+        { heading: 'Decision', kind: 'decision', paragraphs: ['Approve the crew.'], callout: 'Review in 30 days.' },
+        { heading: 'Evidence', paragraphs: ['On-time delivery fell.'], bullets: ['Daejeon at 68%'], table: { headers: ['Item', 'Count'], rows: [['Crew', '12']] } },
+        { heading: 'Voice', quote: 'The night shift is short-handed.', eyebrow: 'Floor', pageBreak: true },
+        { heading: 'Plan', steps: [{ title: 'Hire', detail: 'Nov 1' }, { title: 'Review', detail: 'Dec 1' }] },
+      ],
+    }],
+    xlsx: [{
+      op: 'compose_sheet',
+      title: 'Night shift metrics',
+      kind: 'dashboard',
+      claimId: 'approve',
+      headers: ['Hub', 'Throughput', 'On time'],
+      rows: [['Daejeon', 128400, 0.928], ['Gwangju', 84200, 0.961]],
+      columnFormats: ['', '#,##0', '0.0%'],
+      metrics: [{ factId: 'on-time' }, { factId: 'throughput' }],
+      insights: ['Daejeon explains the drop.'],
+      decision: 'Approve 12 crew',
+      gates: [['Metric', 'Gate'], ['On time', '95%+']],
+      actions: [['Action', 'Due'], ['Hire', 'Nov 1']],
+      chart: { title: 'Throughput by hub', chartType: 'column' },
+      source: { document: 'Ops dashboard', target: 'October' },
+    }],
+  };
+  let checked = 0;
+  for (const profile of ['executive', 'editorial', 'technical', 'data']) {
+    for (const purpose of ['monitor', 'decide', 'compare', 'explain', 'inspect']) {
+      for (const expressionMode of ['conservative', 'strong-fit', 'divergent']) {
+        for (const [format, operations] of Object.entries(presets)) {
+          for (const backend of ['microsoft-office-com', 'mixdog-ooxml']) {
+            const expanded = expandOfficeDesignOperations({
+              format,
+              backend,
+              created: true,
+              design: { profile, purpose, expressionMode, content },
+              operations,
+            });
+            assertOfficeOperationContracts({ format, backend, operations: expanded.operations });
+            checked += 1;
+          }
+        }
+      }
+    }
+  }
+  assert.equal(checked, 240);
+});
+
+test('an office result returns the design in force, not the catalogue it was chosen from', () => {
+  const design = resolveOfficeDesign('pptx', {
+    profile: 'technical',
+    intent: 'Launch a local-first coding harness for product leaders',
+    audience: 'product and engineering leaders',
+    purpose: 'decide',
+    expressionMode: 'strong-fit',
+  });
+  assert.ok(design.artDirection.candidates.length >= 2, 'the resolved design still carries its candidates');
+  const before = serializedToolValue({ design }).length;
+  const result = finalizeOfficeResult({ design, batch: { design } }, { action: 'finalize', startedAt: performance.now() });
+  assert.equal(result.design.layouts, undefined);
+  assert.equal(result.design.recentCompositions, undefined);
+  assert.equal(result.design.artDirection.candidates, undefined);
+  assert.equal(result.design.artDirection.candidateCount, design.artDirection.candidates.length);
+  assert.equal(result.design.artDirection.selected.id, design.artDirection.selected.id);
+  assert.equal(result.design.profile, design.profile);
+  assert.deepEqual(result.design.tokens, design.tokens);
+  assert.equal(result.batch.design.layouts, undefined, 'a finalize that carries its batch trims that design too');
+  // The design the caller resolved is untouched; only the returned copy is trimmed.
+  assert.ok(design.artDirection.candidates.length >= 2);
+  assert.ok(serializedToolValue({ design: result.design }).length * 2 < before, `trimmed ${before} -> ${serializedToolValue({ design: result.design }).length}`);
+  assert.doesNotMatch(serializedToolValue({ a: { b: 1 } }), /\n/, 'results are serialized for a reader that parses them');
+});
 
 test('authored statement slides are read from their shapes so breathing beats are not penalised', () => {
   const statement = {
@@ -133,6 +236,148 @@ test('a composed dashboard keeps its decision gates inside the print area', () =
   assert.ok(column(autofit.range.split(':')[1]) >= column(gateEnd), 'the column autofit covers the panel');
 });
 
+// The table's columns are the canvas's columns: a metric strip that took two
+// columns per card made the title, the strip and the insight band twice the
+// width of the table below them, and fit-to-page (which only scales down) then
+// printed the whole thing as a small block in the corner of the page.
+test('a composed dashboard gives every band the width of its table', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [{
+      op: 'compose_sheet',
+      sheet: '야간',
+      kind: 'dashboard',
+      title: '10월 야간 운영 현황',
+      headers: ['허브', '처리량', '정시 출고율', '지연 건수'],
+      rows: [['대전', 128400, 0.928, 96], ['광주', 84200, 0.961, 42]],
+      metrics: [
+        { label: '정시 출고율', value: 0.928, format: 'percent' },
+        { label: '야간 증원 요청', value: 12, unit: '명' },
+        { label: '지연 건수', value: 210 },
+      ],
+      insights: ['대전 허브의 야간 처리량이 4분기 목표를 좌우합니다.'],
+    }],
+    design: {},
+  });
+  const merges = expanded.operations.filter((entry) => entry.op === 'merge_cells').map((entry) => entry.range);
+  const bandEnds = new Set(merges.map((range) => /:([A-Z]+)\d+$/.exec(range)?.[1]));
+  assert.ok(bandEnds.has('D'), `the bands reach the table's last column: ${[...bandEnds].join(', ')}`);
+  assert.ok(!bandEnds.has('E') && !bandEnds.has('F'), `no band runs past the table: ${[...bandEnds].join(', ')}`);
+  // The leading card carries the spare column, so three cards over four columns
+  // read as a headline metric beside two supporting ones.
+  const headline = merges.filter((range) => range.startsWith('A'));
+  assert.ok(headline.some((range) => /^A\d+:B\d+$/.test(range)), headline.join(', '));
+  const fit = expanded.operations.find((entry) => entry.op === 'autofit_range' && !entry.rows);
+  assert.equal(fit.range, 'A:D');
+  assert.ok(fit.minWidth >= 12, `the columns carry the printed width: ${JSON.stringify(fit)}`);
+});
+
+// A plan section named its steps and the writer drew only the heading: the steps
+// reached the page solely under kind:'roadmap', so the composer produced the
+// orphan heading its own audit then reported.
+test('a section that names steps writes them without declaring a roadmap', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    design: { profile: 'executive', purpose: 'decide' },
+    operations: [{
+      op: 'compose_document',
+      title: '10월 야간 운영 검토',
+      sections: [
+        { heading: '실행 계획', steps: [{ title: '채용 공고', detail: '10월 20일' }, { title: '교육 입과', detail: '11월 1일' }] },
+      ],
+    }],
+  });
+  const table = expanded.operations.find((entry) => entry.op === 'add_table');
+  assert.ok(table, JSON.stringify(expanded.operations.map((entry) => entry.op)));
+  assert.deepEqual(table.values.map((row) => row[1]), ['채용 공고\n10월 20일', '교육 입과\n11월 1일']);
+  // Its first row is a step, not a header: repeating it on a continuation page
+  // showed step one twice and hid the step it replaced.
+  assert.equal(table.properties.repeatHeader, false);
+  assert.ok(
+    table.properties.rowHeights.every((height) => height <= 48),
+    `a step is a row, not a page band: ${JSON.stringify(table.properties.rowHeights)}`,
+  );
+  // Steps the writer cannot read are refused rather than dropped.
+  assert.throws(() => expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [{ op: 'compose_document', title: '계획', sections: [{ heading: '실행', steps: [{ note: '' }] }] }],
+  }), /steps this writer cannot read/);
+});
+
+// Three cards over a two-column table pulled the canvas - and every band on it -
+// half again past the table. The strip wraps instead.
+test('a metric strip wider than the table wraps onto a second strip', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [{
+      op: 'compose_sheet',
+      sheet: '야간',
+      kind: 'dashboard',
+      title: '10월 야간 운영 현황',
+      headers: ['허브', '처리량'],
+      rows: [['대전', 128400], ['광주', 84200]],
+      metrics: [
+        { label: '정시 출고율', value: 0.928, format: 'percent' },
+        { label: '야간 증원 요청', value: 12, unit: '명' },
+        { label: '지연 건수', value: 210 },
+      ],
+    }],
+    design: {},
+  });
+  const merges = expanded.operations.filter((entry) => entry.op === 'merge_cells').map((entry) => entry.range);
+  assert.ok(
+    merges.every((range) => /:B\d+$/.test(range)),
+    `no band runs past the table's last column: ${merges.join(', ')}`,
+  );
+  const cards = expanded.operations
+    .filter((entry) => entry.op === 'set_cell' && ['정시 출고율', '야간 증원 요청', '지연 건수'].includes(entry.value))
+    .map((entry) => Number(/(\d+)$/.exec(entry.cell)[1]));
+  assert.equal(new Set(cards).size, 2, `the three cards sit on two strips: rows ${cards.join(', ')}`);
+  // The sheet that cannot fill a landscape page is printed on the narrow one.
+  const page = expanded.operations.find((entry) => entry.op === 'set_page_setup');
+  assert.equal(page.orientation, 'portrait');
+});
+
+// Every data column became a series, so a count (128,400), a rate (0.928) and a
+// tally (96) shared one axis: the legend named three series and the chart drew
+// one, with the other two flattened onto the baseline.
+test('a composed chart drops series that cannot share its axis', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [{
+      op: 'compose_sheet',
+      sheet: '야간',
+      kind: 'dashboard',
+      title: '10월 야간 운영 현황',
+      headers: ['허브', '처리량', '정시 출고율', '지연 건수'],
+      rows: [['대전', 128400, 0.928, 96], ['광주', 84200, 0.961, 42]],
+      chart: { title: '허브별 처리량', chartType: 'column' },
+    }],
+    design: {},
+  });
+  const chart = expanded.operations.find((entry) => entry.op === 'add_chart');
+  assert.match(chart.range, /^A\d+:B\d+$/, `the chart plots the throughput column alone: ${chart.range}`);
+  // The chart is a band of the same composition: it starts at the canvas edge and
+  // ends where the table ends.
+  const fit = expanded.operations.find((entry) => entry.op === 'autofit_range' && !entry.rows);
+  const columnPoints = ((fit.minWidth * 7) + 5) * 0.75;
+  assert.equal(chart.left, 0);
+  assert.ok(
+    Math.abs(chart.width - (columnPoints * 4)) < 1,
+    `the chart spans the four canvas columns: ${chart.width}pt vs ${columnPoints * 4}pt`,
+  );
+});
+
 test('a composed sheet keeps its chart inside the print area', () => {
   const expanded = expandOfficeDesignOperations({
     format: 'xlsx',
@@ -182,10 +427,14 @@ test('a wide composed dashboard keeps its chart clear of the data table', () => 
     design: {},
   });
   const chart = expanded.operations.find((entry) => entry.op === 'add_chart');
-  const estimatedTableRight = 8 * 60;
+  // The chart clears the rows the table actually occupies. A fixed 300pt floor
+  // read as an empty band between the two on every short dashboard.
+  const lastRow = Math.max(...expanded.operations
+    .flatMap((entry) => [entry.cell, entry.range?.split(':')?.[1]])
+    .map((reference) => Number(/(\d+)$/.exec(String(reference || ''))?.[1] || 0)));
   assert.ok(
-    chart.top >= 300,
-    `chart begins at ${chart.top}pt instead of moving below the ${estimatedTableRight}pt-wide table`,
+    chart.top >= (lastRow + 1) * 20,
+    `chart begins at ${chart.top}pt but the table runs to row ${lastRow}`,
   );
   assert.ok(
     chart.left + chart.width <= 960,
@@ -312,6 +561,36 @@ test('PPTX visual critique requires distinct per-slide evidence across five axes
     ],
   });
   assert.ok(incomplete.issues.some((issue) => issue.code === 'visual_critique_missing_slide'));
+  // A template answer is not a review: swapping the slide number into one
+  // sentence, or asking every slide the same three questions, says nothing
+  // about the page it judges.
+  const numbered = reviewPptxVisualCritique({
+    pageCount: 3,
+    critique: [1, 2, 3].map((slide) => entry(slide, `슬라이드 ${slide}: 계획한 역할대로 읽히고 제목과 근거의 위계가 분리되어 보입니다.`)),
+  });
+  assert.ok(numbered.issues.some((issue) => issue.code === 'visual_critique_repeated_note'));
+  const sameChecks = reviewPptxVisualCritique({
+    pageCount: 2,
+    requireChecks: true,
+    critique: [
+      entry(1, 'Cover establishes one dark focal statement and a clear numeric transition.', {
+        checks: [
+          { item: 'the slide is readable', pass: true },
+          { item: 'the figures match the fact sheet', pass: true },
+          { item: 'the accent marks the conclusion', pass: true },
+        ],
+      }),
+      entry(2, 'Body uses one dominant comparison axis with readable supporting labels.', {
+        checks: [
+          { item: 'the slide is readable', pass: true },
+          { item: 'the figures match the fact sheet', pass: true },
+          { item: 'the accent marks the conclusion', pass: true },
+        ],
+      }),
+    ],
+  });
+  assert.ok(sameChecks.issues.some((issue) => issue.code === 'visual_critique_repeated_note'));
+  assert.match(sameChecks.issues.find((issue) => issue.code === 'visual_critique_repeated_note').message, /own plan line/);
   const failed = reviewPptxVisualCritique({
     pageCount: 1,
     critique: [entry(1, 'The focal visual remains too weak and needs a larger evidence area.', {
@@ -592,6 +871,150 @@ test('Office design composition maps Word, Excel, and PDF to native structures',
     && operation.separator === ' / '
   )));
   assert.ok(!word.operations.some((operation) => operation.op === 'set_header_footer'));
+  // A section table the composer cannot write is refused, because a dropped
+  // table reads as a finished document; the shape it does take still writes.
+  const composeWith = (table) => expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [{ op: 'compose_document', title: 'Cost', sections: [{ heading: 'Ask', table }] }],
+  });
+  assert.throws(
+    () => composeWith({ values: [['Item', 'Cost'], ['Crew', '12']] }),
+    /sections\[1\]\.table does not take values.*headers/s,
+  );
+  assert.throws(() => composeWith({ rows: 'Crew' }), /rows must be an array of row arrays/);
+  const keyed = composeWith({ headers: ['Item', 'Cost'], rows: [['Crew', '12']] });
+  const keyedTable = keyed.operations.find((operation) => operation.op === 'add_table');
+  assert.deepEqual(keyedTable.values, [['Item', 'Cost'], ['Crew', '12']]);
+  // A bound fact is written the way the prose writes it, and the cell style the
+  // composer asks for is one the contract accepts — the metric strip was
+  // refused by the runtime's own validation until both agreed.
+  const measured = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: {
+      purpose: 'decide',
+      content: {
+        packageId: 'ops',
+        facts: [
+          { id: 'on-time', label: 'On time', value: 0.928, numberFormat: '0.0%' },
+          { id: 'throughput', label: 'Throughput', value: 47210, unit: 'orders' },
+        ],
+        claims: [{ id: 'approve', text: 'Approve the crew', factIds: ['on-time', 'throughput'] }],
+      },
+    },
+    operations: [{
+      op: 'compose_document',
+      title: 'Night shift',
+      claimId: 'approve',
+      metrics: [{ factId: 'on-time' }, { factId: 'throughput' }],
+      sections: [{ heading: 'Evidence', paragraphs: ['Throughput reached 47,210 orders.'] }],
+    }],
+  });
+  const strip = measured.operations.find((operation) => operation.op === 'add_table');
+  // The unit is part of the figure it counts, not a line under it: parked on the
+  // detail row it rendered as an orphan word beside empty cells, and the value
+  // above it lost its unit. A Latin unit keeps the space it is read with.
+  assert.deepEqual(strip.values[1], ['92.8%', '47,210 orders']);
+  // A detail row nobody filled rendered as a blank band under the figures, so
+  // the strip stops at the values unless a metric says something there.
+  assert.equal(strip.values.length, 2, JSON.stringify(strip.values));
+  const detailless = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    design: {
+      purpose: 'decide',
+      content: { facts: [{ id: 'on-time', label: 'On time', value: 0.928, numberFormat: '0.0%' }] },
+    },
+    operations: [{ op: 'compose_document', title: 'Night shift', metrics: [{ factId: 'on-time' }] }],
+  });
+  const bare = detailless.operations.find((operation) => operation.op === 'add_table');
+  assert.equal(bare.values.length, 2, JSON.stringify(bare.values));
+  assert.ok(!detailless.operations.some((operation) => operation.op === 'set_table_cell_style' && operation.row === 3));
+  // The claim is the sentence the memo exists to make. Binding it to a titled
+  // operation put it in the title it already had, so the document shipped with
+  // its metrics and evidence and no recommendation in it.
+  const recommendation = measured.operations
+    .filter((operation) => operation.op === 'append_text')
+    .map((operation) => operation.text);
+  assert.ok(recommendation.includes('Approve the crew'), JSON.stringify(recommendation));
+  assert.equal(recommendation[0], 'Night shift');
+
+  // A fact key the model does not read was dropped, and the figure then shipped
+  // in the wrong notation: format:'percent' printed 0.928 beside "92.8%".
+  const spoken = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    design: {
+      purpose: 'decide',
+      content: {
+        packageId: 'ops',
+        facts: [{ id: 'on-time', label: '정시 출고율', value: 0.928, format: 'percent' }],
+        claims: [{ id: 'approve', text: '야간 인력 12명 증원을 승인해 주십시오.', factIds: ['on-time'] }],
+      },
+    },
+    operations: [{ op: 'compose_document', title: '야간 운영 확대 검토', claimId: 'approve', metrics: [{ factId: 'on-time' }] }],
+  });
+  assert.deepEqual(spoken.operations.find((operation) => operation.op === 'add_table').values[1], ['92.8%']);
+  // A metric written straight into the preset reads the same spellings as a
+  // bound fact: `format: 'percent'` printed 0.928 in the strip, and the unit
+  // sat on its own row under an otherwise empty band.
+  const written = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    design: { purpose: 'decide' },
+    operations: [{
+      op: 'compose_document',
+      title: '10월 야간 운영 보고',
+      metrics: [
+        { label: '정시 출고율', value: 0.928, format: 'percent' },
+        { label: '야간 증원', value: 12, unit: '명' },
+        { label: '지연 건수', value: 210, detail: '4분기' },
+      ],
+    }],
+  });
+  const writtenStrip = written.operations.find((operation) => operation.op === 'add_table');
+  assert.deepEqual(writtenStrip.values[1], ['92.8%', '12명', '210']);
+  assert.deepEqual(writtenStrip.values[2], ['', '', '4분기']);
+  // In a cell the unit rides in the number format, so the value stays a number
+  // a formula can use and the sheet still shows "12명".
+  const sheet = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    design: { purpose: 'monitor' },
+    operations: [{
+      op: 'compose_sheet',
+      title: '야간 운영',
+      kind: 'dashboard',
+      metrics: [{ label: '정시 출고율', value: 0.928, format: 'percent' }, { label: '야간 증원', value: 12, unit: '명' }],
+    }],
+  });
+  const formats = sheet.operations
+    .filter((operation) => operation.op === 'set_style' && operation.properties?.numberFormat)
+    .map((operation) => operation.properties.numberFormat);
+  assert.ok(formats.includes('0.0%'), JSON.stringify(formats));
+  assert.ok(formats.includes('#,##0"명"'), JSON.stringify(formats));
+  assert.throws(
+    () => expandOfficeDesignOperations({
+      format: 'docx',
+      backend: 'mixdog-ooxml',
+      created: true,
+      design: { content: { facts: [{ id: 'on-time', label: 'On time', value: 0.928, formatting: '0.0%' }] } },
+      operations: [{ op: 'compose_document', title: 'Night shift' }],
+    }),
+    /unknown key\(s\): formatting.*A fact takes: /s,
+  );
+  assertOfficeOperationContracts({
+    format: 'docx',
+    backend: 'microsoft-office-com',
+    operations: measured.operations,
+  });
   const workbook = expandOfficeDesignOperations({
     format: 'xlsx',
     backend: 'microsoft-office-com',
@@ -675,6 +1098,23 @@ test('Office design review judges an authored deck by its own ladder and geometr
   assert.equal(codes.has('theme_background_drift'), false);
   assert.equal(codes.has('decorative_stripe'), false);
   assert.equal(codes.has('card_grid_overuse'), false);
+  // An authored deck may open light and close dark: its own two backgrounds are
+  // the ladder, whichever slide takes which. Only a third field is drift.
+  const lightCover = (slides) => reviewOfficeDesign({
+    format: 'pptx',
+    document: { slides },
+    design: { profile: 'editorial' },
+  }).issues.filter((issue) => issue.code === 'theme_background_drift');
+  const authored = [
+    { index: 1, background: { color: 'F7FAF9' }, shapes: [{ type: 17, text: '야간 운영 보고', left: 43, top: 180, width: 600, height: 120, font: { size: 44 } }] },
+    { index: 2, background: { color: 'F7FAF9' }, shapes: [title(2)] },
+    { index: 3, background: { color: 'F7FAF9' }, shapes: [title(3)] },
+    { index: 4, background: { color: '0F241A' }, shapes: [{ type: 17, text: '승인을 요청드립니다', left: 43, top: 180, width: 600, height: 120, font: { size: 36 } }] },
+  ];
+  assert.deepEqual(lightCover(authored), []);
+  const thirdField = lightCover([...authored.slice(0, 3), { ...authored[3], index: 4 }, { index: 5, background: { color: '7A4E1F' }, shapes: [title(5)] }]);
+  assert.equal(thirdField.length, 1);
+  assert.match(thirdField[0].message, /5:7A4E1F/);
   const edgeStripe = reviewOfficeDesign({
     format: 'pptx',
     document: {

@@ -35,6 +35,43 @@ Native ranges, styles and charts are the default authoring route.
 Keep record tables unmerged; merged report labels live outside them. Set page
 setup after all intended charts and panels exist.
 
+## Sheet anatomy — the recipes
+
+One workbook, three kinds of sheet, and the same anatomy on both backends. Distances are Excel column
+characters; colors are hex without `#`.
+
+- **Sheets by job**: `Report` (or `Summary`) first — the finding, the important measures, one or two native
+  charts, the print area; `Data` / `Inputs` — one rectangular table per sheet, header in row 1, `freeze_panes
+  row:1`, `add_table` for records, `add_autofilter`; `Calc` — formulas that read the inputs, one formula per row
+  copied across; `Checks` — the tie-outs (`model-conventions.md` §4). The report links to the model
+  (`=Calc!B12`), never repeats a number by hand; a workbook with one table needs one sheet.
+- **Title block on a report**: A1 eyebrow (`fontSize:9, bold:true, color:<accent>`), A2 title (`fontSize:16,
+  bold:true`), A3 subtitle or period (`fontSize:10, color:'6B7280'`), one empty row, then the table or the
+  metric strip. Merge the title cells across the report width only; never merge inside a data table.
+- **Header row**: `set_style range:<header> properties:{ bold:true, fillColor:'EEF2F7', borders:{ bottom:{ style:'thin',
+  color:'C9CED6' } }, verticalAlignment:'center' }`; figure columns `horizontalAlignment:'right'` (their header
+  too); the unit in the header (`처리량 (건)`), never in every cell.
+- **Total row**: `bold:true, borders:{ top:{ style:'medium', color:<accent> } }`, formulas (`=SUM`), never typed.
+- **Body rows**: no borders; `numberFormat` per column (`#,##0`, `0.0%`, `yyyy-mm-dd`, years `0`); banding
+  (`fillColor:'F7F9FB'` on every other row) only on a table over ~15 rows; `autofit_range` on the whole
+  table after the values are in, `minWidth` for a label column.
+- **Input cells** (a model or a sheet someone fills in): `color:'0000FF'` for a typed input, `fillColor:'FFFF00'`
+  for a cell to fill in, black for formulas, and the three-line legend where the reader lands
+  (`model-conventions.md` §1); `add_validation` on constrained inputs.
+- **Charts**: `add_chart` with `seriesColors:[<accent>, 'A6B4C4', 'D1D9E0']` (one accent, neutrals after it),
+  `title` naming the unit, `showValues:true` for six or fewer points, `showLegend` only with two or more
+  series, `zeroBaseline:true` for bars; placed at `cell` beside or under the table, as wide as the table.
+  `range` is the header row plus the rows under it, categories in its first column; a series that is not
+  next to its categories joins by comma the way Excel reads it (`range:'A7:A12,D7:D12'`), same rows in
+  every area. `width`/`height` are points: a 420 × 260 chart at `F5` reaches about column N and row 22,
+  so the print area has to reach past it.
+- **Conditional format**: at most two hues with a meaning the header or a legend states — good
+  `fillColor:'E3F1E8', color:'1B6B3A'`, bad `fillColor:'FBE4E1', color:'8A2A20'` — `formula` relative to the
+  range's first cell (`B2<0.9`); a `colorScale` only on a heat-map the reader compares across, never on a
+  total column.
+- **Print**: `set_page_setup printArea:<report range> fitToPagesWide:1 orientation:'landscape'` after the last
+  chart exists; a data sheet prints as it lies.
+
 ## Control visual noise
 
 Use the recipient's available fonts consistently in cells and charts. Reserve
@@ -64,7 +101,10 @@ substitution in the final renderer. Prefer fewer useful labels over tiny text.
 After data and formulas are complete:
 
 1. Recalculate and check the relevant tie-outs. Format and size numeric columns
-   against cached results, not empty formula cells.
+   against cached results, not empty formula cells. Size label columns too:
+   text only spills into an empty neighbour, so a label beside its value is cut
+   at the column edge until `autofit_range` or an explicit width carries it.
+   → runtime `label_truncated`, `column_too_narrow`
 2. Set the report print area after all charts and panels exist. Fit reports to
    one page wide without shrinking text beyond readability; long data tables
    may continue vertically. Check the saved cell dimensions and drawing bounds,

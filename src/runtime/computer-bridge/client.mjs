@@ -122,6 +122,16 @@ function readDiscovery() {
 
 /** Execute one `computer` tool call. Returns MCP-shaped content so the
  *  internal-tools normalizer forwards text and screenshot images as-is. */
+async function cancelledComputerResult(sessionId, mutationMayHaveExecuted) {
+  const confirmed = sessionId ? await abortComputerSession(sessionId) : false;
+  const cleanup = confirmed
+    ? 'input state and session resources were released'
+    : 'host cleanup could not be confirmed';
+  const partial = mutationMayHaveExecuted
+    ? '; input may have partially executed; inspect fresh state before retrying' : '';
+  return { content: [{ type: 'text', text: `Error: computer command aborted; ${cleanup}${partial}` }], isError: true };
+}
+
 export async function executeComputerTool(rawArgs, context = {}) {
   const discovery = readDiscovery();
   if (!discovery) {
@@ -208,20 +218,10 @@ export async function executeComputerTool(rawArgs, context = {}) {
           isError: true,
         };
       }
-      const abortConfirmed = externallyAborted && sessionId
-        ? await abortComputerSession(sessionId)
-        : false;
+      if (externallyAborted) return cancelledComputerResult(sessionId, mutationMayHaveExecuted);
       const reason = timedOut
         ? 'computer bridge timed out'
-        : externallyAborted
-          ? (abortConfirmed
-              ? mutationMayHaveExecuted
-                ? 'computer command aborted; input state and session resources were released, but input may have partially executed; inspect fresh state before retrying'
-                : 'computer command aborted; input state and session resources were released'
-              : mutationMayHaveExecuted
-                ? 'computer command aborted; host cleanup could not be confirmed and input may have partially executed; inspect fresh state before retrying'
-                : 'computer command aborted; host cleanup could not be confirmed')
-          : BRIDGE_UNAVAILABLE_MESSAGE;
+        : BRIDGE_UNAVAILABLE_MESSAGE;
       return { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true };
     }
   }
@@ -232,10 +232,18 @@ export async function executeComputerTool(rawArgs, context = {}) {
   try {
     body = await readComputerBridgeJson(response);
   } catch {
+    if (context.signal?.aborted) {
+      return cancelledComputerResult(sessionId,
+        !isReplaySafeComputerCommand(command) && command?.read_only !== true);
+    }
     const message = !isReplaySafeComputerCommand(command) && command?.read_only !== true
       ? 'computer command may have executed but the bridge returned an invalid response; inspect fresh state before retrying'
       : `computer bridge returned an invalid response (HTTP ${response.status})`;
     return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+  }
+  if (context.signal?.aborted) {
+    return cancelledComputerResult(sessionId,
+      !isReplaySafeComputerCommand(command) && command?.read_only !== true);
   }
   if (!body?.ok) {
     const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);

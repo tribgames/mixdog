@@ -1,0 +1,343 @@
+{
+  "schemaVersion": 1,
+  "candidate": "T21",
+  "purpose": "Maximum required batching, no unnecessary scope/reads/checks, one final verification stage",
+  "verdict": "Official correctness and trace checks passed; shortest-route behavior not achieved. User-requested rules remain applied, not selected as a measured efficiency improvement.",
+  "analysis": {
+    "run": "jobs-sol-xhigh-fast-shortest-20260913-t21",
+    "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+    "result": {
+      "passed": 8,
+      "total": 8,
+      "completed": 8,
+      "errors": 0,
+      "retries": 0,
+      "cancelled": 0,
+      "pending": 0,
+      "running": 0,
+      "clean": true,
+      "benchmarkExitCode": 0
+    },
+    "timing": {
+      "startedAt": "2026-09-13T14:26:57.067207",
+      "finishedAt": "2026-09-13T14:30:54.763957",
+      "wallSeconds": 237.696,
+      "agentTotalSeconds": 629.3810000000001,
+      "environmentSetupTotalSeconds": 28.146,
+      "agentSetupTotalSeconds": 94.82300000000001,
+      "verifierTotalSeconds": 103.338,
+      "teardownTotalSeconds": 94.33999999999993,
+      "apiTotalSeconds": 547.259
+    },
+    "tokens": {
+      "input": 433073,
+      "cached": 352512,
+      "cacheWrite": 0,
+      "output": 28572
+    },
+    "cost": {
+      "usd": 1.0346888,
+      "trials": 8,
+      "unsupported": false
+    },
+    "usdPerAgentMinute": 0.09863870691997374,
+    "activity": {
+      "providerRequests": 54,
+      "toolCalls": 46
+    },
+    "finalContext": {
+      "medianTokens": 9703.5,
+      "trials": 8
+    },
+    "reduction": {
+      "evidence": {
+        "projections": 0,
+        "beforeBytes": 0,
+        "afterBytes": 0,
+        "savedBytes": 0,
+        "rowSavedBytes": 0,
+        "exactSavedBytes": 0,
+        "reusedRows": 0,
+        "exactRefs": 0
+      },
+      "artifactOffload": {
+        "results": 0,
+        "beforeBytes": 0,
+        "visibleBytes": 0,
+        "savedBytes": 0
+      },
+      "shell": {
+        "results": 23,
+        "rawBytes": 28928,
+        "visibleBytes": 3948,
+        "savedBytes": 25736
+      },
+      "activity": {
+        "providerRequests": 54,
+        "toolBatches": 46,
+        "toolCalls": 46,
+        "artifactReads": 0
+      },
+      "tokens": {
+        "input": 433073,
+        "cached": 352512,
+        "output": 28572
+      },
+      "totalSavedBytes": 25736
+    },
+    "contract": {
+      "promptBytes": 9850,
+      "toolBytes": 12445
+    },
+    "thinking": 16823,
+    "finalThinking": 3713,
+    "errorKinds": [],
+    "rows": [
+      {
+        "task": "code-from-image",
+        "passed": true,
+        "agent": 38.912,
+        "input": 24229,
+        "cached": 15360,
+        "output": 1429,
+        "cacheWrite": 0,
+        "requests": 4,
+        "usageResponses": 4,
+        "failedRequests": 0,
+        "calls": 3,
+        "thinking": 971,
+        "finalThinking": 18,
+        "errorKinds": []
+      },
+      {
+        "task": "db-wal-recovery",
+        "passed": true,
+        "agent": 96.305,
+        "input": 50950,
+        "cached": 41344,
+        "output": 5212,
+        "cacheWrite": 0,
+        "requests": 6,
+        "usageResponses": 6,
+        "failedRequests": 0,
+        "calls": 5,
+        "thinking": 3090,
+        "finalThinking": 478,
+        "errorKinds": []
+      },
+      {
+        "task": "fix-code-vulnerability",
+        "passed": true,
+        "agent": 64.126,
+        "input": 106579,
+        "cached": 88448,
+        "output": 2482,
+        "cacheWrite": 0,
+        "requests": 10,
+        "usageResponses": 10,
+        "failedRequests": 0,
+        "calls": 9,
+        "thinking": 1475,
+        "finalThinking": 234,
+        "errorKinds": []
+      },
+      {
+        "task": "git-leak-recovery",
+        "passed": true,
+        "agent": 96.302,
+        "input": 84428,
+        "cached": 74752,
+        "output": 4332,
+        "cacheWrite": 0,
+        "requests": 10,
+        "usageResponses": 10,
+        "failedRequests": 0,
+        "calls": 9,
+        "thinking": 3569,
+        "finalThinking": 289,
+        "errorKinds": []
+      },
+      {
+        "task": "log-summary-date-ranges",
+        "passed": true,
+        "agent": 43.906,
+        "input": 37487,
+        "cached": 26496,
+        "output": 2022,
+        "cacheWrite": 0,
+        "requests": 5,
+        "usageResponses": 5,
+        "failedRequests": 0,
+        "calls": 4,
+        "thinking": 915,
+        "finalThinking": 69,
+        "errorKinds": []
+      },
+      {
+        "task": "multi-source-data-merger",
+        "passed": true,
+        "agent": 64.386,
+        "input": 39473,
+        "cached": 31744,
+        "output": 3145,
+        "cacheWrite": 0,
+        "requests": 6,
+        "usageResponses": 6,
+        "failedRequests": 0,
+        "calls": 5,
+        "thinking": 880,
+        "finalThinking": 43,
+        "errorKinds": []
+      },
+      {
+        "task": "polyglot-c-py",
+        "passed": true,
+        "agent": 186.874,
+        "input": 52445,
+        "cached": 45056,
+        "output": 8775,
+        "cacheWrite": 0,
+        "requests": 6,
+        "usageResponses": 6,
+        "failedRequests": 0,
+        "calls": 5,
+        "thinking": 5298,
+        "finalThinking": 2582,
+        "errorKinds": []
+      },
+      {
+        "task": "prove-plus-comm",
+        "passed": true,
+        "agent": 38.57,
+        "input": 37482,
+        "cached": 29312,
+        "output": 1175,
+        "cacheWrite": 0,
+        "requests": 7,
+        "usageResponses": 7,
+        "failedRequests": 0,
+        "calls": 6,
+        "thinking": 625,
+        "finalThinking": 0,
+        "errorKinds": []
+      }
+    ],
+    "baseline": "jobs-sol-xhigh-fast-ten-20260913-t18",
+    "paired": [
+      {
+        "task": "code-from-image",
+        "outputDelta": 775,
+        "secondsDelta": 14.114,
+        "callsDelta": 0
+      },
+      {
+        "task": "db-wal-recovery",
+        "outputDelta": -434,
+        "secondsDelta": -2.461999999999989,
+        "callsDelta": 0
+      },
+      {
+        "task": "fix-code-vulnerability",
+        "outputDelta": 849,
+        "secondsDelta": 14.978000000000002,
+        "callsDelta": 2
+      },
+      {
+        "task": "git-leak-recovery",
+        "outputDelta": -806,
+        "secondsDelta": -8.178999999999988,
+        "callsDelta": 2
+      },
+      {
+        "task": "log-summary-date-ranges",
+        "outputDelta": -1072,
+        "secondsDelta": -14.375,
+        "callsDelta": 1
+      },
+      {
+        "task": "multi-source-data-merger",
+        "outputDelta": -631,
+        "secondsDelta": -3.6099999999999994,
+        "callsDelta": 1
+      },
+      {
+        "task": "polyglot-c-py",
+        "outputDelta": 2364,
+        "secondsDelta": 70.759,
+        "callsDelta": -3
+      },
+      {
+        "task": "prove-plus-comm",
+        "outputDelta": -186,
+        "secondsDelta": -5.119999999999997,
+        "callsDelta": 1
+      }
+    ]
+  },
+  "relatedTests": {
+    "passed": 6,
+    "failed": 0
+  },
+  "nonDescriptionContracts": 13,
+  "provenance": {
+    "trackedFilesMatch": 11,
+    "reference": "T18",
+    "changed": [
+      "src/defaults/skills/pptx/SKILL.md",
+      "src/defaults/skills/pptx/references/composition.md",
+      "src/rules/shared/10-tool-workflow.md",
+      "src/rules/shared/60-verification.md",
+      "src/runtime/office/core/office-actions-inspect.mjs",
+      "src/runtime/office/office-runtime-portable.test.mjs",
+      "src/runtime/office/portable/portable-validation.mjs",
+      "src/runtime/office/pptx-skill-kit.slow.test.mjs"
+    ],
+    "outsidePlannedChanges": [
+      "src/defaults/skills/pptx/SKILL.md",
+      "src/defaults/skills/pptx/references/composition.md",
+      "src/runtime/office/core/office-actions-inspect.mjs",
+      "src/runtime/office/office-runtime-portable.test.mjs",
+      "src/runtime/office/portable/portable-validation.mjs",
+      "src/runtime/office/pptx-skill-kit.slow.test.mjs"
+    ]
+  },
+  "comparisons": {
+    "versusT18": {
+      "input": 18.491715186271506,
+      "output": 3.0996283332731966,
+      "cost": 4.707867251614917,
+      "wall": 49.22592067099431,
+      "agent": 11.735809798393726,
+      "requests": 10.20408163265305,
+      "calls": 9.523809523809534
+    },
+    "versusT12TwoRunMean": {
+      "input": 34.607381022315266,
+      "output": 14.47115384615385,
+      "cost": 14.876737380964133,
+      "wall": 53.72317721469868,
+      "agent": 19.9254968464778,
+      "requests": 24.13793103448276,
+      "calls": 14.999999999999991
+    },
+    "outputRegressions": [
+      "code-from-image",
+      "fix-code-vulnerability",
+      "polyglot-c-py"
+    ],
+    "timeRegressions": [
+      "code-from-image",
+      "fix-code-vulnerability",
+      "polyglot-c-py"
+    ]
+  },
+  "cleanup": {
+    "remainingContainers": 0,
+    "extraDeletion": false
+  },
+  "contextBytes": {
+    "baseline": 22292,
+    "current": 22295,
+    "delta": 3
+  }
+}

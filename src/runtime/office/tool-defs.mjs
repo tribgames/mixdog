@@ -92,7 +92,7 @@ export const TOOL_DEFS = [
         snapshotAfter: { type: 'boolean', description: 'create/open full post-edit snapshot; defaults false.' },
         requireChanges: { type: 'boolean', description: 'Reject and roll back changed:false operations; defaults true.' },
         review: { type: 'boolean', description: 'finalize: run QA and render; defaults true.' },
-        failOn: { type: 'string', enum: ['error', 'warning'], description: 'finalize: keep open at this severity; default warning for composed, else error.' },
+        failOn: { type: 'string', enum: ['error', 'warning'], description: 'finalize: keep the session open at this severity; default warning for a document this session created (preset or native), error for an opened one and an authored deck.' },
         overwrite: { type: 'boolean', description: 'create: replace an existing target.' },
         maxChars: { type: 'integer', minimum: 1000, maximum: 100000, description: 'Snapshot text cap; default 30000.' },
         cursor: { type: 'string', description: 'Snapshot continuation cursor; edits make it stale.' },

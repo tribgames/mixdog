@@ -5,7 +5,7 @@ import {
   partRelationshipPath,
   zipText,
 } from './portable-opc.mjs';
-import { columnLabel, columnNumber, parseCellRef } from './portable-cells.mjs';
+import { columnLabel, columnNumber, parseCellRef, setCellInSheet } from './portable-cells.mjs';
 import { SPREADSHEET_MAIN, XML_HEADER, xmlEncode } from './portable-xml.mjs';
 
 const CACHE_DEFINITION_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml';
@@ -72,6 +72,43 @@ function cacheRecordsXml(fields, records) {
   }).join('')}</r>`).join('');
   return `${XML_HEADER}<pivotCacheRecords xmlns="${SPREADSHEET_MAIN}"`
     + ` xmlns:r="${RELATIONSHIP_BASE}" count="${records.length}">${rows}</pivotCacheRecords>`;
+}
+
+// Excel keeps a pivot twice over: the definition a refresh recomputes, and the
+// cells a reader sees before any refresh happens. A destination sheet with the
+// definition alone opens empty in Excel and holds nothing for a snapshot, an
+// autofit, or a fit audit to read, so the computed grid is written as cells.
+const GRAND_TOTAL = 'Grand Total';
+
+function pivotGrid({ fields, records, rowField, columnField, valueFields }) {
+  const itemsOf = (index) => displayOrder(fields[index]).map((item) => fields[index].items[item]);
+  const rowLabels = rowField >= 0 ? itemsOf(rowField) : [];
+  const columnLabels = columnField >= 0 ? itemsOf(columnField) : [];
+  const sum = (valueIndex, matches) => records.reduce((total, record) => (
+    matches(record) ? total + (Number(record[valueIndex]) || 0) : total
+  ), 0);
+  const heading = (valueIndex) => `Sum of ${fields[valueIndex].name}`;
+  const rows = [];
+  if (columnField >= 0) {
+    const valueIndex = valueFields[0];
+    const inRow = (record, label) => String(record[rowField] ?? '') === label;
+    const inColumn = (record, label) => String(record[columnField] ?? '') === label;
+    rows.push([heading(valueIndex), fields[columnField].name]);
+    rows.push([rowField >= 0 ? fields[rowField].name : '', ...columnLabels, GRAND_TOTAL]);
+    for (const label of rowLabels) {
+      const cells = columnLabels.map((column) => sum(valueIndex, (record) => inRow(record, label) && inColumn(record, column)));
+      rows.push([label, ...cells, sum(valueIndex, (record) => inRow(record, label))]);
+    }
+    const totals = columnLabels.map((column) => sum(valueIndex, (record) => inColumn(record, column)));
+    rows.push([GRAND_TOTAL, ...totals, sum(valueIndex, () => true)]);
+    return rows;
+  }
+  rows.push([rowField >= 0 ? fields[rowField].name : '', ...valueFields.map(heading)]);
+  for (const label of rowLabels) {
+    rows.push([label, ...valueFields.map((valueIndex) => sum(valueIndex, (record) => String(record[rowField] ?? '') === label))]);
+  }
+  rows.push([rowField >= 0 ? GRAND_TOTAL : 'Total', ...valueFields.map((valueIndex) => sum(valueIndex, () => true))]);
+  return rows;
 }
 
 function axisItemsXml(order) {
@@ -225,5 +262,18 @@ export async function writePivotTable(zip, {
     `${RELATIONSHIP_BASE}/pivotTable`,
     posix.relative(posix.dirname(destinationSheetPath), tablePart),
   );
-  return { definitionPart, recordsPart, tablePart, cacheId };
+
+  const anchor = parseCellRef(destination);
+  const anchorColumn = columnNumber(anchor.col);
+  const grid = pivotGrid({ fields, records, rowField, columnField, valueFields });
+  let sheetXml = await zipText(zip, destinationSheetPath);
+  grid.forEach((row, rowOffset) => {
+    row.forEach((value, columnOffset) => {
+      if (value === '' || value === null || value === undefined) return;
+      sheetXml = setCellInSheet(sheetXml, `${columnLabel(anchorColumn + columnOffset)}${anchor.row + rowOffset}`, value);
+    });
+  });
+  zip.file(destinationSheetPath, sheetXml);
+
+  return { definitionPart, recordsPart, tablePart, cacheId, rows: grid.length, columns: grid[0]?.length || 0 };
 }

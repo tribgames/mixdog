@@ -18,6 +18,24 @@ function boundedUtf8(value, maxBytes) {
   return { text, bytes: Buffer.byteLength(text, 'utf8'), truncated: true };
 }
 
+// Where a text run sits on its line: the baseline identifies the line, and the
+// start and end positions say whether the next run continues a word or stands
+// apart from it. Rotated or skewed runs have no horizontal line to measure.
+function runPlacement(item) {
+  const transform = Array.isArray(item?.transform) ? item.transform.map(Number) : null;
+  if (!transform || transform.length < 6 || transform.some((value) => !Number.isFinite(value))) return null;
+  const [a, b, , d, e, f] = transform;
+  if (b !== 0) return null;
+  const size = Math.abs(d) || Math.abs(a) || 1;
+  const width = Number(item.width);
+  return {
+    line: Math.round(f * 10) / 10,
+    start: e,
+    end: e + (Number.isFinite(width) ? width : 0),
+    size,
+  };
+}
+
 export async function inspectPdfBuffer(buffer, {
   extractText = false,
   maxPages = DEFAULT_MAX_PAGES,
@@ -50,13 +68,25 @@ export async function inspectPdfBuffer(buffer, {
         // pdf.js marks where each text line ends; keeping that as a newline
         // preserves paragraphs and table rows instead of one long run.
         let body = '';
+        let cursor = null;
         for (const item of content?.items || []) {
           if (typeof item?.str !== 'string') continue;
           if (item.str) {
-            const glued = !body || body.endsWith('\n') || body.endsWith(' ') || item.str.startsWith(' ');
+            const placement = runPlacement(item);
+            // A writer splits one word into several runs for kerning, and a
+            // Korean line into a run per token; joining those with a space
+            // invents "2026 년". Only a gap the page itself leaves is a space.
+            const separated = placement && cursor && placement.line === cursor.line
+              ? placement.start - cursor.end > cursor.size * 0.22
+              : !placement || !cursor;
+            const glued = !body || body.endsWith('\n') || body.endsWith(' ') || item.str.startsWith(' ') || !separated;
             body += (glued ? '' : ' ') + item.str;
+            cursor = placement;
           }
-          if (item.hasEOL && !body.endsWith('\n')) body += '\n';
+          if (item.hasEOL && !body.endsWith('\n')) {
+            body += '\n';
+            cursor = null;
+          }
         }
         body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
         const block = `--- Page ${pageNumber} ---\n${body || '(no extractable text on this page)'}`;

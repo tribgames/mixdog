@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { reportSessionRead } from "./session-read-diagnostics";
 
 const SESSION_LANE_WAIT_MS = 15_000;
 
@@ -25,7 +26,10 @@ export function useSessionLaneRead({
     const fail = () => { if (current) setUnavailableSession(sessionId); };
     // A pending IPC or an accepted read with a missing push must not leave a
     // logo-only pane forever. Keep listening so late data still recovers it.
-    const timer = window.setTimeout(fail, SESSION_LANE_WAIT_MS);
+    const timer = window.setTimeout(() => {
+      reportSessionRead(sessionId, 'wait-expired', { hasLane: false });
+      fail();
+    }, SESSION_LANE_WAIT_MS);
     if (reconcileOnMount || retry > 0) {
       void read(sessionId).then((accepted) => {
         if (!accepted) fail();

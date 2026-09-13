@@ -36,6 +36,11 @@ import {
 } from './local-files';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
 import {
+  setDesktopTitleBarDim,
+  setDesktopTitleBarTheme,
+  setDesktopTitleBarZoom,
+} from './window-options';
+import {
   commonInstructionsFile,
   legacyCommonInstructionsFile,
   projectInstructionsFile,
@@ -78,35 +83,6 @@ import {
   requiredZoomFactor,
   sessionDisplayName,
 } from './ipc-validation';
-export {
-  projectDisplayName,
-  requiredAbortOptions,
-  requiredDesktopCapabilityReadRequests,
-  requiredDesktopCapabilityRequest,
-  requiredDesktopSettingKey,
-  requiredFileSearchLimit,
-  requiredGitBranchName,
-  requiredGitDiscardMode,
-  requiredGitLogLimit,
-  requiredGitLogOffset,
-  requiredGitLogQuery,
-  requiredGitOptionalMessage,
-  requiredGitPatch,
-  requiredGitPath,
-  requiredGitPaths,
-  requiredModelCatalogOptions,
-  requiredModelSelection,
-  requiredNewTaskDraft,
-  requiredPromptContent,
-  requiredString,
-  requiredSubmitOptions,
-  requiredSessionMessageCount,
-  requiredTranscriptItemLimit,
-  requiredToolApprovalDecision,
-  requiredWorkspaceSearchLimit,
-  sessionDisplayName,
-} from './ipc-validation';
-
 const SERVICE_OPERATION_NAMES = [
   'githubStarStatus', 'starGithub', 'gitCliStatus', 'installGitCli',
   'libreOfficeStatus', 'installLibreOffice', 'githubCliStatus', 'installGithubCli',
@@ -456,10 +432,11 @@ export function registerDesktopIpc(
     browserHost?.releaseSession(ownerSessionId);
     return snapshot;
   });
-  handle(DESKTOP_IPC.prefetchSession, (_event, sessionId, itemLimit) =>
+  handle(DESKTOP_IPC.prefetchSession, (_event, sessionId, itemLimit, readTraceId) =>
     host.prefetchSession(
       requiredSessionId(sessionId),
       requiredTranscriptItemLimit(itemLimit),
+      typeof readTraceId === 'string' ? readTraceId : undefined,
     ));
   handle(DESKTOP_IPC.searchProjectFiles, (_event, projectIdOrWorkspaceId, query, limit) => {
     if (typeof query !== 'string' || query.length > 1_024) {
@@ -565,7 +542,6 @@ export function registerDesktopIpc(
       ? await settingsStore.readZoom()
       : await invokeDesktopOperation<number>('readZoom', []);
     window.webContents.setZoomFactor(factor);
-    const { setDesktopTitleBarZoom } = await import('./window-options');
     setDesktopTitleBarZoom(window, factor);
     return factor;
   });
@@ -575,7 +551,6 @@ export function registerDesktopIpc(
       ? await settingsStore.updateZoom(requested)
       : await invokeDesktopOperation<number>('updateZoom', [requested]);
     window.webContents.setZoomFactor(factor);
-    const { setDesktopTitleBarZoom } = await import('./window-options');
     setDesktopTitleBarZoom(window, factor);
     window.webContents.send(DESKTOP_IPC.zoomFactorChanged, factor);
     return factor;
@@ -586,7 +561,6 @@ export function registerDesktopIpc(
   // getTheme/setTheme capability hook let it overwrite this band with a
   // mismatched palette, so capabilities stay theme-neutral now.
   handle(DESKTOP_IPC.applyTitleBarTheme, async (_event, theme, systemPreference) => {
-    const { setDesktopTitleBarTheme } = await import('./window-options');
     setDesktopTitleBarTheme(window, requiredString(theme, 'theme'), systemPreference === true);
   });
   // Fullscreen-modal dim for the native WCO caption band: the renderer sends
@@ -596,7 +570,6 @@ export function registerDesktopIpc(
     const hex = /^#[0-9a-f]{6}$/i;
     const valid = typeof record.color === 'string' && hex.test(record.color)
       && typeof record.symbolColor === 'string' && hex.test(record.symbolColor);
-    const { setDesktopTitleBarDim } = await import('./window-options');
     setDesktopTitleBarDim(window, valid
       ? { color: record.color as string, symbolColor: record.symbolColor as string }
       : null);

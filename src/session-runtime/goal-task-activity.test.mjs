@@ -88,7 +88,7 @@ test('questions, approval bookkeeping, and carried in-progress rows do not resum
 });
 
 test('full task transitions and newly started tasks also resume paused work', async (t) => {
-  for (const action of ['set_tasks', 'update_tasks', 'set_goal_tasks']) {
+  for (const action of ['set_tasks', 'update_tasks']) {
     await t.test(action, async (t) => {
       const f = fixture(t);
       await f.create();
@@ -96,9 +96,7 @@ test('full task transitions and newly started tasks also resume paused work', as
       const tasks = action === 'update_tasks'
         ? [{ text: 'Approved addition', status: 'in_progress', kind: 'work' }]
         : f.snapshot().tasks.map((task, index) => index ? task : { ...task, status: 'in_progress' });
-      const reply = action === 'set_goal_tasks'
-        ? JSON.parse(await f.runtime.executeTool(action, { tasks }, { callerSessionId: f.sessionId }))
-        : await f.call({ action, tasks });
+      const reply = await f.call({ action, tasks });
       assert.equal(reply.goal.status, 'active');
       assert.equal(f.snapshot().tasks.find((task) => task.kind === 'verification').status, 'awaiting_approval');
     });
@@ -164,7 +162,7 @@ test('work-start updates do not silently clear blocking, usage, or duration stop
       if (status === 'blocked') {
         for (let turn = 0; turn < 3; turn++) {
           await f.runtime.startTurn(f.sessionId);
-          await f.runtime.executeTool('update_goal', { status, blocker: 'External service unavailable' }, { callerSessionId: f.sessionId });
+          await f.call({ action: 'block', blocker: 'External service unavailable' });
           await f.runtime.settleTurn(f.sessionId, { status: 'done' });
         }
       } else if (status === 'usage_limited') {

@@ -51,44 +51,57 @@ export function hashStructuredValue(value, {
   const hash = createHash(algorithm);
   let remaining = Number.isFinite(maxStringChars) ? Math.max(0, maxStringChars) : Infinity;
   const seen = new Set();
-  const walk = (entry) => {
-    if (remaining <= 0) return;
-    if (entry === null) { hash.update('n;'); return; }
+  const hashString = (marker, text) => {
+    // Length-framed UTF-16 preserves every JavaScript code unit, including
+    // unpaired surrogates, without allowing data to impersonate tree markers.
+    hash.update(marker).update(`${text.length}:`).update(text, 'utf16le').update(';');
+  };
+  const stack = [{ value }];
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1];
+    if (frame.iterator) {
+      const next = remaining > 0 ? frame.iterator.next() : { done: true };
+      if (next.done) {
+        stack.pop();
+        seen.delete(frame.value);
+        hash.update(frame.closing);
+      } else if (frame.array) {
+        stack.push({ value: next.value });
+      } else {
+        const [key, entry] = next.value;
+        hashString('k:', key);
+        stack.push({ value: entry });
+      }
+      continue;
+    }
+    stack.pop();
+    if (remaining <= 0) continue;
+    const entry = frame.value;
+    if (entry === null) { hash.update('n;'); continue; }
     const type = typeof entry;
     if (type === 'string') {
       const slice = remaining === Infinity ? entry : entry.slice(0, remaining);
-      hash.update('s:').update(slice).update(';');
+      hashString('s:', slice);
       if (remaining !== Infinity) remaining -= slice.length;
-      return;
+      continue;
     }
     if (type === 'number' || type === 'boolean' || type === 'bigint') {
       hash.update(`${type[0]}:${String(entry)};`);
-      return;
+      continue;
     }
     if (type === 'undefined' || type === 'function' || type === 'symbol') {
       hash.update('u;');
-      return;
+      continue;
     }
-    if (seen.has(entry)) { hash.update('c;'); return; }
+    if (seen.has(entry)) { hash.update('c;'); continue; }
     seen.add(entry);
-    try {
-      if (Array.isArray(entry)) {
-        hash.update('[');
-        for (const item of entry) walk(item);
-        hash.update(']');
-        return;
-      }
+    if (Array.isArray(entry)) {
+      hash.update('[');
+      stack.push({ value: entry, iterator: entry.values(), closing: ']', array: true });
+    } else {
       hash.update('{');
-      for (const [key, item] of Object.entries(entry)) {
-        hash.update('k:').update(key).update(';');
-        walk(item);
-        if (remaining <= 0) break;
-      }
-      hash.update('}');
-    } finally {
-      seen.delete(entry);
+      stack.push({ value: entry, iterator: Object.entries(entry)[Symbol.iterator](), closing: '}' });
     }
-  };
-  walk(value);
+  }
   return hash.digest('hex');
 }

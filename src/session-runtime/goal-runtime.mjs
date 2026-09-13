@@ -1,401 +1,51 @@
 import { randomUUID } from 'node:crypto';
-import { readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { continuationPrompt, durationLabel } from './goal-text.mjs';
 import { compactSessionTitle, SESSION_TITLE_TIMEOUT_MS } from './session-title.mjs';
 import { GOAL_TOOL_DEFS, GOAL_TASK_SETTLED, MAX_GOAL_TIME_LIMIT_MS, validateGoalToolCall } from './goal-tool-defs.mjs';
 import { applyGoalTaskChanges, goalTasksStartWork, normalizeGoalTasks, optionalGoalTaskChanges } from './goal-tasks.mjs';
-import { createGoalStorage, readGoalRecordFile, reportGoalStorageError } from './goal-storage.mjs';
+import { createGoalStorage, deleteStoredGoalFile, reportGoalStorageError } from './goal-storage.mjs';
+import { createGoalDeadlines } from './goal-deadlines.mjs';
+import {
+  DEFAULT_COMPLETED_GOAL_TTL_MS,
+  DEFAULT_GOAL_DEADLINE_WARNING_MS,
+  DEFAULT_GOAL_TIME_LIMIT_MS,
+  GOAL_FILE_VERSION,
+  NO_DEADLINE_WARNING_MS,
+  activateGoal,
+  activeElapsedMs,
+  assertSessionId,
+  checkpointActiveClock,
+  clearTurnFailures,
+  completedGoalExpired,
+  goalTimeMode,
+  normalizeStoredGoal,
+  normalizedCompletedGoalTtlMs,
+  parseGoalDuration,
+  parseUserCommand,
+  publicGoal,
+  resumeGoalState,
+  runningAgentWork,
+  startActiveClock,
+  stopActiveClock,
+  validateGoalBlocker,
+  validateObjective,
+} from './goal-state.mjs';
 import { clean } from '../runtime/shared/clean.mjs';
+import { runAbortable } from '../runtime/shared/abort-race.mjs';
 import { writeJsonAtomicAsync } from '../runtime/shared/atomic-file.mjs';
 
-export { GOAL_TOOL_DEFS, MAX_GOAL_TIME_LIMIT_MS };
-
-export const DEFAULT_GOAL_TIME_LIMIT_MS = 0;
-export const DEFAULT_COMPLETED_GOAL_TTL_MS = 24 * 60 * 60 * 1000;
-// Warnings ahead of a requested duration ending. The budget stop aborts an
-// in-flight turn, so the model gets the last minutes to land that work instead
-// of losing it at the boundary.
-export const DEFAULT_GOAL_DEADLINE_WARNING_MS = Object.freeze([10 * 60_000, 5 * 60_000]);
-// No deadline warning delivered yet for the current duration commitment.
-const NO_DEADLINE_WARNING_MS = Number.MAX_SAFE_INTEGER;
-export const GOAL_STATUS_VALUES = Object.freeze([
-  'active',
-  'paused',
-  'blocked',
-  'usage_limited',
-  // Natural end of a requested duration ("keep at this for an hour"), not a
-  // spend cap: the time value says how long to keep working, so reaching it is
-  // a normal stop rather than a failure.
-  'duration_reached',
-  'complete',
-  'stopped',
-]);
-
-const GOAL_FILE_VERSION = 1;
-const SESSION_ID = /^[A-Za-z0-9_-]+$/;
-const MAX_OBJECTIVE_LENGTH = 4_000;
-const MAX_GOAL_BLOCKER_LENGTH = 1_000;
-const ACTIVE_AGENT_STATUSES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'running', 'cancelling']);
-
-function assertSessionId(value) {
-  const sessionId = clean(value);
-  if (!SESSION_ID.test(sessionId)) throw new Error(`goal: invalid session id ${JSON.stringify(value)}`);
-  return sessionId;
-}
-
-function validateObjective(value) {
-  const objective = clean(value);
-  if (!objective) throw new Error('goal objective is required');
-  if ([...objective].length > MAX_OBJECTIVE_LENGTH) {
-    throw new Error(`goal objective exceeds ${MAX_OBJECTIVE_LENGTH} characters`);
-  }
-  return objective;
-}
-
-function validateGoalBlocker(value) {
-  const blocker = clean(value);
-  if (!blocker) throw new Error('goal block: blocker is required');
-  if ([...blocker].length > MAX_GOAL_BLOCKER_LENGTH) {
-    throw new Error(`goal blocker exceeds ${MAX_GOAL_BLOCKER_LENGTH} characters`);
-  }
-  return blocker;
-}
-
-function goalTimeMode(value, fallback = 'max') {
-  if (value == null || value === '') return fallback;
-  if (!['max', 'duration'].includes(value)) throw new Error('goal timeMode must be max or duration');
-  return value;
-}
-
-export function parseGoalDuration(value) {
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || value <= 0) throw new Error('goal duration must be positive');
-    const milliseconds = Math.round(value);
-    if (milliseconds > MAX_GOAL_TIME_LIMIT_MS) throw new Error('goal duration exceeds 7 days');
-    return milliseconds;
-  }
-  const text = clean(value).toLowerCase().replace(/\s+/g, '');
-  if (!text) throw new Error('goal duration is required');
-  let total = 0;
-  let matched = 0;
-  const unitMs = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
-  for (const match of text.matchAll(/(\d+(?:\.\d+)?)([smhd])/g)) {
-    if (match.index !== matched) throw new Error(`invalid goal duration: ${value}`);
-    total += Number(match[1]) * unitMs[match[2]];
-    matched += match[0].length;
-  }
-  if (matched !== text.length || !Number.isFinite(total) || total < 60_000) {
-    throw new Error('goal duration must be at least 1 minute (for example 30m, 2h, or 1h30m)');
-  }
-  if (total > MAX_GOAL_TIME_LIMIT_MS) throw new Error('goal duration exceeds 7 days');
-  return Math.round(total);
-}
-
-function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
-  if (!value || typeof value !== 'object') return null;
-  // Legacy files recorded the duration end as a spend cap. Map it explicitly:
-  // falling through to 'active' would silently restart a Goal whose requested
-  // duration had already elapsed.
-  const storedStatus = value.status === 'budget_limited' ? 'duration_reached' : value.status;
-  if (!GOAL_STATUS_VALUES.includes(storedStatus)) throw new Error(`invalid stored Goal status: ${storedStatus}`);
-  const status = storedStatus;
-  const storedTimeLimitMs = Number(value.timeLimitMs);
-  const timeLimitMs = Number.isFinite(storedTimeLimitMs) && storedTimeLimitMs > 0
-    ? Math.min(MAX_GOAL_TIME_LIMIT_MS, Math.max(60_000, storedTimeLimitMs))
-    : 0;
-  const goal = {
-    id: clean(value.id) || randomUUID(),
-    revision: Math.max(1, Math.floor(Number(value.revision) || 1)),
-    objectiveRevision: Math.max(1, Math.floor(Number(value.objectiveRevision) || 1)),
-    tasksObjectiveRevision: Math.max(1, Math.floor(Number(value.tasksObjectiveRevision) || 1)),
-    sessionId,
-    objective: validateObjective(value.objective),
-    title: compactSessionTitle(value.title || value.objective),
-    status,
-    tasks: normalizeGoalTasks(value.tasks ?? value.criteria ?? []),
-    blocker: clean(value.blocker),
-    pauseReason: value.pauseReason === 'waiting' ? 'waiting' : 'user',
-    blockAudit: value.blockAudit && typeof value.blockAudit === 'object' ? value.blockAudit : null,
-    failureReason: clean(value.failureReason),
-    failureCount: Math.max(0, Math.floor(Number(value.failureCount) || 0)),
-    // Observations, never gates: how many turns this Goal has worked and when
-    // its task list last actually changed. They make a spinning Goal visible
-    // without any rule deciding on the user's behalf that it is stuck.
-    turnCount: Math.max(0, Math.floor(Number(value.turnCount) || 0)),
-    // Which turn last wrote off requested work. A drop is only honest when the
-    // user changed the objective, so it must not also be the turn that ends the
-    // Goal — otherwise the checklist can be tidied away and completed in one
-    // breath, which is exactly how a user condition disappears unnoticed.
-    lastDropTurn: Number.isInteger(value.lastDropTurn)
-      && (value.revision != null || value.lastDropTurn !== 0 || (value.tasks || []).some((task) => task.status === 'dropped'))
-      ? value.lastDropTurn : -1,
-    tasksUpdatedAt: Number(value.tasksUpdatedAt) > 0 ? Number(value.tasksUpdatedAt) : null,
-    timeLimitMs,
-    // Unversioned durations keep their original full-period commitment.
-    timeMode: goalTimeMode(value.timeMode, 'duration'),
-    timeUsedMs: Math.max(0, Number(value.timeUsedMs) || 0),
-    createdAt: Math.max(0, Number(value.createdAt) || Date.now()),
-    updatedAt: Math.max(0, Number(value.updatedAt) || Date.now()),
-    // Active is durable across process boundaries: preserve the open segment so
-    // task updates, runtime eviction, and daemon restart never reset Goal time.
-    lastStartedAt: status === 'active'
-      ? Math.max(0, Number(value.lastStartedAt) || Number(resumedAt) || Date.now())
-      : null,
-    completedAt: Number(value.completedAt) > 0 ? Number(value.completedAt) : null,
-    stoppedAt: Number(value.stoppedAt) > 0 ? Number(value.stoppedAt) : null,
-    archivedAt: Number(value.archivedAt) > 0 ? Number(value.archivedAt) : null,
-    // Deadline-warning bookkeeping is observation-only: it stays out of the
-    // revision key so landing a warning never invalidates a model task update.
-    deadlineWarnedMs: normalizeDeadlineWarnedMs(value.deadlineWarnedMs),
-    warningRevision: Math.max(0, Math.floor(Number(value.warningRevision) || 0)),
-  };
-  return goal;
-}
-
-function activeElapsedMs(goal, now = Date.now()) {
-  const committed = Math.max(0, Number(goal?.timeUsedMs) || 0);
-  if (goal?.status !== 'active' || !(Number(goal?.lastStartedAt) > 0)) return committed;
-  return committed + Math.max(0, now - Number(goal.lastStartedAt));
-}
-
-// Deadline-warning watermark: the smallest threshold already delivered for the
-// current duration commitment. A threshold counts as delivered once it is no
-// smaller than the watermark, so every threshold warns at most once.
-function normalizeDeadlineWarnedMs(value) {
-  const warned = Number(value);
-  return Number.isFinite(warned) && warned >= 0 ? warned : NO_DEADLINE_WARNING_MS;
-}
-
-// Descending, so the entry a walker meets first is the earliest crossing.
-function normalizeDeadlineWarningMs(value) {
-  const thresholds = (Array.isArray(value) ? value : [value])
-    .map((entry) => Math.floor(Number(entry)))
-    .filter((entry) => Number.isFinite(entry) && entry > 0);
-  return [...new Set(thresholds)].sort((left, right) => right - left);
-}
-
-function publicGoal(goal, now = Date.now()) {
-  if (!goal) return null;
-  const timeUsedMs = activeElapsedMs(goal, now);
-  const hasTimeLimit = Number(goal.timeLimitMs) > 0;
-  const remainingMs = hasTimeLimit
-    ? Math.max(0, Number(goal.timeLimitMs) - timeUsedMs)
-    : null;
-  const tasks = normalizeGoalTasks(goal.tasks || []);
-  return {
-    id: goal.id,
-    revision: goal.revision,
-    // Bumped once per delivered deadline warning; surfaces use the change to
-    // tell "budget is nearly over" apart from an ordinary state update.
-    warningRevision: Math.max(0, Math.floor(Number(goal.warningRevision) || 0)),
-    needsTaskReview: goal.tasksObjectiveRevision !== goal.objectiveRevision,
-    sessionId: goal.sessionId,
-    objective: goal.objective,
-    title: goal.title || compactSessionTitle(goal.objective),
-    status: goal.status,
-    tasks,
-    turnCount: Math.max(0, Math.floor(Number(goal.turnCount) || 0)),
-    tasksUpdatedAt: Number(goal.tasksUpdatedAt) > 0 ? Number(goal.tasksUpdatedAt) : null,
-    tasksCompleted: tasks.filter((task) => task.status === 'completed').length,
-    // Dropped rows stay in `tasks` for the record but leave the denominator,
-    // so retiring work moves progress forward instead of freezing it.
-    tasksTotal: tasks.filter((task) => task.status !== 'dropped').length,
-    blocker: goal.blocker || '',
-    pauseReason: goal.pauseReason || 'user',
-    blockAudit: goal.blockAudit || null,
-    timeLimitMs: goal.timeLimitMs,
-    timeMode: goal.timeMode,
-    timeUsedMs,
-    remainingMs,
-    deadlineAt: hasTimeLimit && goal.status === 'active' && goal.lastStartedAt
-      ? now + remainingMs
-      : null,
-    snapshotAt: now,
-    createdAt: goal.createdAt,
-    updatedAt: goal.updatedAt,
-    lastStartedAt: goal.lastStartedAt,
-    completedAt: goal.completedAt,
-    stoppedAt: goal.stoppedAt,
-    archivedAt: goal.archivedAt,
-  };
-}
-
-function normalizedCompletedGoalTtlMs(value) {
-  const ttlMs = Number(value);
-  return Number.isFinite(ttlMs) && ttlMs >= 0
-    ? ttlMs
-    : DEFAULT_COMPLETED_GOAL_TTL_MS;
-}
-
-function completedGoalExpired(goal, at, ttlMs = DEFAULT_COMPLETED_GOAL_TTL_MS) {
-  if (goal?.status !== 'complete') return false;
-  const completedAt = Number(goal.completedAt)
-    || Number(goal.updatedAt)
-    || Number(goal.createdAt)
-    || 0;
-  return completedAt > 0 && at - completedAt >= normalizedCompletedGoalTtlMs(ttlMs);
-}
-
-function goalFilePath(dataDir, sessionId) {
-  return join(clean(dataDir) || process.cwd(), 'goals', `${assertSessionId(sessionId)}.json`);
-}
-
-function deleteStoredGoalFile(dataDir, sessionId) {
-  try {
-    rmSync(goalFilePath(dataDir, sessionId), { force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function stopActiveClock(goal, now = Date.now()) {
-  if (goal.lastStartedAt) {
-    goal.timeUsedMs = Math.max(0, Number(goal.timeUsedMs) || 0)
-      + Math.max(0, now - Number(goal.lastStartedAt));
-  }
-  goal.lastStartedAt = null;
-}
-
-function checkpointActiveClock(goal, now = Date.now()) {
-  if (!goal.lastStartedAt) return;
-  goal.timeUsedMs = Math.max(0, Number(goal.timeUsedMs) || 0)
-    + Math.max(0, now - Number(goal.lastStartedAt));
-  goal.lastStartedAt = now;
-}
-
-function clearTurnFailures(goal) {
-  goal.failureReason = '';
-  goal.failureCount = 0;
-}
-
-function activateGoal(goal, now = Date.now()) {
-  goal.status = 'active';
-  goal.lastStartedAt = now;
-  goal.completedAt = null;
-  goal.archivedAt = null;
-  goal.blocker = '';
-  goal.blockAudit = null;
-  clearTurnFailures(goal);
-}
-
-function resumeGoalState(goal, at, added = null) {
-  stopActiveClock(goal, at);
-  if (added != null) {
-    goal.timeLimitMs = Math.min(MAX_GOAL_TIME_LIMIT_MS, goal.timeUsedMs + added);
-    // Added time is a new commitment: warn again about the new boundary.
-    goal.deadlineWarnedMs = NO_DEADLINE_WARNING_MS;
-  }
-  if (goal.timeLimitMs > 0 && goal.timeLimitMs <= goal.timeUsedMs) {
-    throw new Error('Goal time budget is exhausted; extend the time budget before resuming');
-  }
-  activateGoal(goal, at);
-  goal.updatedAt = at;
-}
-
-function startActiveClock(goal, now = Date.now()) {
-  if (goal.status === 'active' && !goal.lastStartedAt) goal.lastStartedAt = now;
-}
-
-function parseUserCommand(command) {
-  const value = clean(command);
-  if (!value) return { action: 'get' };
-  const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(value);
-  const token = clean(match?.[1]).toLowerCase();
-  const rest = clean(match?.[2]);
-  if (['status', 'show', 'current'].includes(token)) return { action: 'get' };
-  if (['pause', 'stop', 'clear', 'complete'].includes(token)) return { action: token };
-  if (token === 'resume') return { action: 'resume', duration: rest || null };
-  if (token === 'edit') return { action: 'edit', objective: rest };
-  if (token === 'time') return { action: 'time', duration: rest };
-
-  let objective = value;
-  let duration = null;
-  let timeMode = 'max';
-  const modeMatch = objective.match(/(?:^|\s)--time-mode(?:=|\s+)([^\s]+)/i);
-  if (modeMatch) {
-    timeMode = goalTimeMode(modeMatch[1]);
-    objective = objective.replace(modeMatch[0], ' ').trim();
-  }
-  const equalsMatch = objective.match(/(?:^|\s)--time=([^\s]+)/i);
-  if (equalsMatch) {
-    duration = equalsMatch[1];
-    objective = objective.replace(equalsMatch[0], ' ').trim();
-  } else {
-    const spacedMatch = objective.match(/(?:^|\s)--time\s+([^\s]+)/i);
-    if (spacedMatch) {
-      duration = spacedMatch[1];
-      objective = objective.replace(spacedMatch[0], ' ').trim();
-    }
-  }
-  return { action: 'create', objective, duration, timeMode };
-}
-
-function runningAgentWork(agentStatus) {
-  const jobs = Array.isArray(agentStatus?.agentJobs) ? agentStatus.agentJobs : [];
-  if (jobs.some((job) => clean(job?.status).toLowerCase() === 'running')) return true;
-  const workers = Array.isArray(agentStatus?.agentWorkers) ? agentStatus.agentWorkers : [];
-  return workers.some((worker) => {
-    const status = clean(worker?.status).toLowerCase();
-    const stage = clean(worker?.stage || worker?.worker_stage).toLowerCase();
-    return ACTIVE_AGENT_STATUSES.has(status) || ACTIVE_AGENT_STATUSES.has(stage);
-  });
-}
-
-function readStoredGoalFile(dataDir, sessionId, at = Date.now()) {
-  const id = assertSessionId(sessionId);
-  try {
-    return readGoalRecordFile(goalFilePath(dataDir, id), id, normalizeStoredGoal, at).goal;
-  } catch (error) {
-    reportGoalStorageError(error);
-    return null;
-  }
-}
-
-export function readStoredGoalSnapshot({
-  dataDir,
-  sessionId,
-  now = () => Date.now(),
-  completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
-} = {}) {
-  const at = Math.max(0, Number(now()) || Date.now());
-  const goal = publicGoal(readStoredGoalFile(dataDir, sessionId, at), at);
-  if (completedGoalExpired(goal, at, completedGoalTtlMs)) {
-    deleteStoredGoalFile(dataDir, sessionId);
-    return null;
-  }
-  return goal?.archivedAt ? null : goal;
-}
-
-export function listStoredActiveGoalSessionIds({
-  dataDir,
-  now = () => Date.now(),
-  completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
-} = {}) {
-  const root = join(clean(dataDir) || process.cwd(), 'goals');
-  let entries = [];
-  try {
-    entries = readdirSync(root, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const at = Math.max(0, Number(now()) || Date.now());
-  const sessionIds = [];
-  for (const entry of entries) {
-    if (!entry?.isFile?.() || !entry.name.endsWith('.json')) continue;
-    const sessionId = entry.name.slice(0, -'.json'.length);
-    if (!SESSION_ID.test(sessionId)) continue;
-    const goal = publicGoal(readStoredGoalFile(dataDir, sessionId, at), at);
-    if (completedGoalExpired(goal, at, completedGoalTtlMs)) {
-      deleteStoredGoalFile(dataDir, sessionId);
-      continue;
-    }
-    if (goal?.status === 'active' && !goal.archivedAt) sessionIds.push(sessionId);
-  }
-  return sessionIds.sort();
-}
+export {
+  DEFAULT_COMPLETED_GOAL_TTL_MS,
+  DEFAULT_GOAL_DEADLINE_WARNING_MS,
+  DEFAULT_GOAL_TIME_LIMIT_MS,
+  GOAL_TOOL_DEFS,
+  MAX_GOAL_TIME_LIMIT_MS,
+  parseGoalDuration,
+};
+export { GOAL_STATUS_VALUES } from './goal-state.mjs';
+export { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from './goal-storage.mjs';
 
 export function createGoalRuntime({
   dataDir,
@@ -409,17 +59,12 @@ export function createGoalRuntime({
 } = {}) {
   const root = join(clean(dataDir) || process.cwd(), 'goals');
   const completedRetentionMs = normalizedCompletedGoalTtlMs(completedGoalTtlMs);
-  const warningThresholdsMs = normalizeDeadlineWarningMs(deadlineWarningMs);
   const listeners = new Set();
-  const deadlineTimers = new Map();
-  const warningTimers = new Map();
   const mutationChains = new Map();
   const turnGoalIds = new Map();
   const turnStartedAt = new Map();
   const titleJobs = new Map();
   const observedGoals = new Map();
-  const expiryPending = new Set();
-  const warningPending = new Set();
   let closed = false;
 
   const pathFor = (sessionId) => join(root, `${assertSessionId(sessionId)}.json`);
@@ -443,19 +88,6 @@ export function createGoalRuntime({
   const emit = (sessionId, goal = visibleSnapshot(sessionId)) => {
     for (const listener of [...listeners]) {
       try { listener({ sessionId, goal }); } catch {}
-    }
-  };
-
-  const clearDeadline = (sessionId) => {
-    const timer = deadlineTimers.get(sessionId);
-    if (timer) {
-      clearTimeout(timer);
-      deadlineTimers.delete(sessionId);
-    }
-    const warningTimer = warningTimers.get(sessionId);
-    if (warningTimer) {
-      clearTimeout(warningTimer);
-      warningTimers.delete(sessionId);
     }
   };
 
@@ -490,6 +122,11 @@ export function createGoalRuntime({
     return publicGoal(committedGoal, now());
   };
 
+  const deadlines = createGoalDeadlines({
+    now, readRecord, withMutation, commit, onStorageError, deadlineWarningMs,
+  });
+  const { armDeadline, clearDeadline, limitIfExpired } = deadlines;
+
   const scheduleGoalTitle = (sessionId, goal) => {
     if (closed || typeof generateTitle !== 'function' || !goal) return;
     const id = assertSessionId(sessionId);
@@ -509,13 +146,14 @@ export function createGoalRuntime({
       timer.unref?.();
     });
     void Promise.race([
-      Promise.resolve().then(() => generateTitle(objective, { signal: abort.signal })),
+      runAbortable(abort.signal, () => generateTitle(objective, { signal: abort.signal })),
       timeout,
     ]).then((rawTitle) => {
       if (closed || abort.signal.aborted || titleJobs.get(id) !== job) return;
       const title = compactSessionTitle(rawTitle);
       if (!title || title === goal.title) return;
       return withMutation(id, async () => {
+        if (closed || abort.signal.aborted || titleJobs.get(id) !== job) return;
         const current = readRecord(id).goal;
         if (!current || current.id !== goalId || current.objective !== objective) return;
         current.title = title;
@@ -527,126 +165,6 @@ export function createGoalRuntime({
       if (titleJobs.get(id) === job) titleJobs.delete(id);
     });
   };
-
-  const expiredProjection = (goal, at) => {
-    if (!goal || goal.status !== 'active' || !(goal.timeLimitMs > 0)
-      || activeElapsedMs(goal, at) < goal.timeLimitMs) return false;
-    stopActiveClock(goal, at);
-    goal.status = 'duration_reached';
-    goal.timeUsedMs = Math.max(goal.timeUsedMs, goal.timeLimitMs);
-    goal.updatedAt = at;
-    return true;
-  };
-
-  const limitIfExpired = (sessionId) => {
-    const id = assertSessionId(sessionId);
-    const goal = readRecord(id).goal;
-    if (expiredProjection(goal, now()) && !closed && !expiryPending.has(id)) {
-      expiryPending.add(id);
-      // Reads can project elapsed time immediately, but the persisted transition
-      // must join the same queue as edits and re-check the current Goal.
-      void withMutation(id, async () => {
-        const current = readRecord(id).goal;
-        if (expiredProjection(current, now())) await commit(id, current);
-      }).catch(onStorageError).finally(() => expiryPending.delete(id));
-    }
-    return goal;
-  };
-
-  // The most urgent warning this Goal is already inside but has not delivered
-  // yet. Crossing several thresholds at once (a resumed Goal, a shortened
-  // budget) warns once at the smallest one instead of stacking reminders.
-  const crossedWarningMs = (goal, remainingMs) => {
-    const warned = normalizeDeadlineWarnedMs(goal?.deadlineWarnedMs);
-    let urgent = 0;
-    for (const threshold of warningThresholdsMs) {
-      if (threshold < remainingMs || threshold >= warned) continue;
-      urgent = urgent ? Math.min(urgent, threshold) : threshold;
-    }
-    return urgent;
-  };
-
-  const nextWarningDelayMs = (goal, remainingMs) => {
-    const warned = normalizeDeadlineWarnedMs(goal?.deadlineWarnedMs);
-    let delay = 0;
-    for (const threshold of warningThresholdsMs) {
-      if (threshold >= remainingMs || threshold >= warned) continue;
-      const candidate = remainingMs - threshold;
-      delay = delay ? Math.min(delay, candidate) : candidate;
-    }
-    return delay;
-  };
-
-  // A Goal without an open, unexpired run has no crossing to watch.
-  const warningState = (goal, at) => {
-    if (!goal || goal.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return null;
-    const remainingMs = Math.max(0, Number(goal.timeLimitMs) - activeElapsedMs(goal, at));
-    if (remainingMs <= 0) return null;
-    return {
-      remainingMs,
-      crossedMs: crossedWarningMs(goal, remainingMs),
-      nextDelayMs: nextWarningDelayMs(goal, remainingMs),
-    };
-  };
-
-  // Deliver one crossing. Reads can land inside a warning window at any moment
-  // (restart, resumed session, shortened budget), so delivery is state-derived
-  // and idempotent: the durable watermark decides what is left to warn about,
-  // and the committed write is what publishes the warning to the session.
-  const deliverDeadlineWarning = (sessionId, thresholdMs = 0) => {
-    const id = assertSessionId(sessionId);
-    if (closed || warningPending.has(id)) return;
-    const pending = warningState(readRecord(id).goal, now());
-    const target = thresholdMs || pending?.crossedMs || 0;
-    if (!pending || !target || pending.crossedMs !== target) return;
-    warningPending.add(id);
-    void withMutation(id, async () => {
-      const current = readRecord(id).goal;
-      const state = warningState(current, now());
-      if (!state || !state.crossedMs || state.crossedMs !== target) return;
-      current.deadlineWarnedMs = Math.min(normalizeDeadlineWarnedMs(current.deadlineWarnedMs), target);
-      current.warningRevision = Math.max(0, Math.floor(Number(current.warningRevision) || 0)) + 1;
-      current.updatedAt = now();
-      await commit(id, current);
-    }).catch(onStorageError).finally(() => warningPending.delete(id));
-  };
-
-  function armDeadline(sessionId) {
-    clearDeadline(sessionId);
-    const goal = readRecord(sessionId).goal;
-    if (!goal || goal.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return;
-    const at = now();
-    const remainingMs = Math.max(0, goal.timeLimitMs - activeElapsedMs(goal, at));
-    if (remainingMs <= 0) {
-      queueMicrotask(() => {
-        try { limitIfExpired(sessionId); } catch (error) { onStorageError(error); }
-      });
-      return;
-    }
-    const warnings = warningState(goal, at);
-    if (warnings?.crossedMs) {
-      const thresholdMs = warnings.crossedMs;
-      queueMicrotask(() => {
-        try { deliverDeadlineWarning(sessionId, thresholdMs); } catch (error) { onStorageError(error); }
-      });
-    } else if (warnings?.nextDelayMs > 0) {
-      // Fire a hair past the crossing so a rounded timer can never land on the
-      // wrong side of the elapsed check.
-      const delay = Math.min(remainingMs, warnings.nextDelayMs + 250);
-      const warningTimer = setTimeout(() => {
-        warningTimers.delete(sessionId);
-        try { deliverDeadlineWarning(sessionId); } catch (error) { onStorageError(error); }
-      }, delay);
-      warningTimer.unref?.();
-      warningTimers.set(sessionId, warningTimer);
-    }
-    const timer = setTimeout(() => {
-      deadlineTimers.delete(sessionId);
-      try { limitIfExpired(sessionId); } catch (error) { onStorageError(error); }
-    }, remainingMs);
-    timer.unref?.();
-    deadlineTimers.set(sessionId, timer);
-  }
 
   const storedSnapshot = (sessionId) => {
     const id = assertSessionId(sessionId);
@@ -728,10 +246,10 @@ export function createGoalRuntime({
       archivedAt: null,
     };
     if (args.startInCurrentTurn === true) {
-      const startedAt = turnStartedAt.get(id) || at;
+      const startedAt = record.goal ? at : (turnStartedAt.get(id) || at);
       goal.lastStartedAt = startedAt;
     }
-    if (record.goal?.status === 'stopped') {
+    if (record.goal && ['complete', 'stopped'].includes(record.goal.status)) {
       const write = writeGoalRecord || writeJsonAtomicAsync;
       await write(join(root, 'history', id, `${assertSessionId(record.goal.id)}.json`),
         { version: GOAL_FILE_VERSION, goal: record.goal },
@@ -755,24 +273,15 @@ export function createGoalRuntime({
     const at = now();
     const status = clean(args.status).toLowerCase();
     if (goal.status === 'stopped') throw new Error('a stopped Goal cannot resume or complete; create a new Goal');
-    if (!status) throw new Error('update_goal status is required');
-    if (!['active', 'complete', 'blocked'].includes(status)) {
-      throw new Error('update_goal can only set status active, complete, or blocked');
+    if (!status) throw new Error('goal status is required');
+    if (!['complete', 'blocked'].includes(status)) {
+      throw new Error('goal can only set status complete or blocked');
     }
     if (goal.status === 'complete') {
       if (status === 'complete') return publicGoal(goal, at);
       throw new Error('a completed Goal cannot change status; edit it or create a new Goal');
     }
-    if (status === 'active') {
-      if (goal.status === 'complete') {
-        throw new Error('a completed Goal cannot be resumed; edit it or create a new Goal');
-      }
-      if (goal.status !== 'active') activateGoal(goal, at);
-      else {
-        goal.blocker = '';
-        clearTurnFailures(goal);
-      }
-    } else if (status === 'complete') {
+    if (status === 'complete') {
       // Evidence gates the MODEL's completion claim, never the user's. A user
       // completing their own Goal is an act of authority: without this the
       // only user-side exit was deleting the Goal, which threw the record
@@ -936,6 +445,7 @@ export function createGoalRuntime({
         throw new Error('a completed Goal cannot be resumed; edit it or create a new Goal');
       }
       const added = args.duration ? parseGoalDuration(args.duration) : null;
+      const timeMode = goalTimeMode(args.timeMode, goal.timeMode);
       // Empty optional fields from frozen provider schemas still mean a plain
       // resume. Supplied changes validate before activation and share its write.
       const taskChanges = optionalGoalTaskChanges(args);
@@ -943,6 +453,7 @@ export function createGoalRuntime({
         .some((value) => value != null && (!Array.isArray(value) || value.length > 0));
       if (hasTaskChanges) applyGoalTaskChanges(goal, taskChanges, { partial: true, at });
       resumeGoalState(goal, at, added);
+      goal.timeMode = timeMode;
       goal = await commit(id, goal);
       return {
         ok: true,
@@ -965,6 +476,7 @@ export function createGoalRuntime({
       if (objective !== goal.objective) goal.objectiveRevision += 1;
       goal.objective = objective;
       goal.title = compactSessionTitle(goal.objective);
+      if (timeLimitMs !== goal.timeLimitMs) goal.deadlineWarnedMs = NO_DEADLINE_WARNING_MS;
       goal.timeLimitMs = timeLimitMs;
       goal.timeMode = timeMode;
       if (goal.status === 'complete') activateGoal(goal, at);
@@ -1052,15 +564,16 @@ export function createGoalRuntime({
         readRecord(id); // Corruption is an actionable error, not "no Goal".
         return toolReply(id, visibleSnapshot(id), { full: true });
       }
-      if (action === 'create') {
-        let timeLimitMs;
-        if (Object.hasOwn(args, 'time_limit_minutes')) {
-          const minutes = Number(args.time_limit_minutes);
-          if (!Number.isFinite(minutes) || minutes <= 0) {
-            throw new Error('goal time_limit_minutes must be a positive number');
-          }
-          timeLimitMs = minutes * 60_000;
+      let timeLimitMs;
+      if (['create', 'resume'].includes(action)
+        && args.time_limit_minutes != null && args.time_limit_minutes !== '') {
+        const minutes = Number(args.time_limit_minutes);
+        if (!Number.isFinite(minutes) || minutes <= 0) {
+          throw new Error('goal time_limit_minutes must be a positive number');
         }
+        timeLimitMs = parseGoalDuration(minutes * 60_000);
+      }
+      if (action === 'create') {
         const goal = await withMutation(id, () => createGoal(id, {
           objective: args.objective,
           tasks: args.tasks,
@@ -1088,7 +601,10 @@ export function createGoalRuntime({
           }
           return control(id, {
             action, expectedGoalId,
-            ...(action === 'resume' ? { updates: args.updates, tasks: args.tasks }
+            ...(action === 'resume' ? {
+              updates: args.updates, tasks: args.tasks,
+              duration: timeLimitMs, timeMode: args.time_mode,
+            }
               : { pauseReason: 'waiting', blocker: args.blocker }),
           });
         });
@@ -1107,28 +623,6 @@ export function createGoalRuntime({
         ...(action === 'block' ? { blocker: args.blocker } : {}),
       }, { expectedGoalId }));
       return toolReply(id, goal);
-    }
-    // Runtime-only compatibility for in-flight calls from pre-unification sessions.
-    if (name === 'get_goal') {
-      readRecord(id);
-      return toolReply(id, visibleSnapshot(id), { full: true });
-    }
-    if (name === 'create_goal') {
-      const minutes = Number(args.time_limit_minutes);
-      const goal = await withMutation(id, () => createGoal(id, {
-          objective: args.objective,
-          ...(Number.isFinite(minutes) && minutes > 0 ? { timeLimitMs: minutes * 60_000 } : {}),
-          timeMode: 'duration',
-        }));
-      return toolReply(id, goal, { full: true });
-    }
-    if (name === 'update_goal') {
-      const goal = await mutateObserved(id, args, (expectedGoalId) => updateGoal(id, args, { expectedGoalId }));
-      return toolReply(id, goal, { full: true });
-    }
-    if (name === 'set_goal_tasks') {
-      const goal = await mutateObserved(id, args, (expectedGoalId) => setGoalTasks(id, args, { expectedGoalId }));
-      return toolReply(id, goal, { full: true });
     }
     throw new Error(`unknown Goal tool: ${name}`);
   };
@@ -1203,18 +697,14 @@ export function createGoalRuntime({
           goal.pauseReason = 'user';
           goal.blocker = '';
         } else if (status === 'failed' && goal.status === 'active') {
-          const failureReason = clean(detail?.error) || 'Goal turn failed';
-          if (goal.failureReason === failureReason) goal.failureCount += 1;
-          else {
-            goal.failureReason = failureReason;
-            goal.failureCount = 1;
-          }
-          goal.blocker = '';
-          if (goal.failureCount >= 3) {
-            stopActiveClock(goal, at);
-            goal.status = 'blocked';
-            goal.blocker = failureReason;
-          }
+          // A failed turn has exhausted its recovery. Starting another Goal
+          // turn retries the same terminal error with a larger transcript.
+          // The model's separate external-blocker audit still spans 3 turns.
+          stopActiveClock(goal, at);
+          goal.status = 'blocked';
+          goal.failureReason = clean(detail?.error) || 'Goal turn failed';
+          goal.failureCount = 1;
+          goal.blocker = goal.failureReason;
         } else {
           clearTurnFailures(goal);
         }
@@ -1234,6 +724,15 @@ export function createGoalRuntime({
       const goal = visibleSnapshot(sessionId);
       if (!goal || goal.status !== 'active') return { run: false, reason: goal?.status || 'missing', goal };
       if (runningAgentWork(agentStatus)) return { run: false, reason: 'agent-running', goal };
+      if (goal.timeMode === 'duration' && goal.remainingMs > 0
+        && !goal.needsTaskReview && goal.tasks.length > 0
+        && goal.tasks.every((task) => GOAL_TASK_SETTLED.includes(task.status))
+        && goal.blockAudit?.turn !== goal.turnCount) {
+        // Completed rows do not complete the objective or shorten its duration.
+        // The existing deadline timer owns this wait and delivers closeout;
+        // task/scope changes still publish and wake newly actionable work.
+        return { run: false, reason: 'duration-wait', goal };
+      }
       return { run: true, reason: 'idle', goal, prompt: continuationPrompt(goal) };
     },
     async archiveCompletedOnUserInput(sessionId) {
@@ -1252,17 +751,14 @@ export function createGoalRuntime({
       closed = true;
       for (const job of titleJobs.values()) job.abort.abort(new Error('Goal runtime closed.'));
       titleJobs.clear();
-      for (const timer of deadlineTimers.values()) clearTimeout(timer);
-      deadlineTimers.clear();
-      for (const warningTimer of warningTimers.values()) clearTimeout(warningTimer);
-      warningTimers.clear();
-      mutationChains.clear();
+      deadlines.close();
       turnGoalIds.clear();
       turnStartedAt.clear();
       observedGoals.clear();
-      warningPending.clear();
-      expiryPending.clear();
       listeners.clear();
+      // Accepted writes keep their ordering until they settle. Callers may
+      // await this barrier before releasing the session's backing resources.
+      return Promise.allSettled([...mutationChains.values()]).then(() => {});
     },
   };
 }

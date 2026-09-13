@@ -129,49 +129,20 @@ test('read region batches preserve every requested span', async () => {
   if (!/^read 2\b/m.test(String(readRegionBatchOut))
     || (String(readRegionBatchOut).match(/scripts\/smoke\.mjs \[ok\]/g) || []).length < 2
     || !/1→import \{ spawnSync \}/.test(String(readRegionBatchOut))
-    || !/3→import \{ fileURLToPath \}/.test(String(readRegionBatchOut))
-    || !/(pass offset:2 to continue|ONE window: offset:2,? limit:\d+)/.test(String(readRegionBatchOut))
-    || !/(pass offset:4 to continue|ONE window: offset:4,? limit:\d+)/.test(String(readRegionBatchOut))) {
+    || !/3→import \{ fileURLToPath \}/.test(String(readRegionBatchOut))) {
     throw new Error(`read region batch must preserve both requested spans:\n${readRegionBatchOut}`);
   }
 });
 
-test('read guard absorbs stringified, echoed, and legacy argument shapes', async () => {
-  const readStringifiedRegionArgs = {
-    path: JSON.stringify([{ path: 'scripts/smoke.mjs', offset: 0, limit: 2 }]),
-  };
-  const readStringifiedRegionErr = validateBuiltinArgs('read', readStringifiedRegionArgs);
-  if (readStringifiedRegionErr || !Array.isArray(readStringifiedRegionArgs.path)) {
-    throw new Error(`read guard must losslessly coerce stringified path arrays: err=${readStringifiedRegionErr} args=${JSON.stringify(readStringifiedRegionArgs)}`);
-  }
-  const readStringifiedRegionOut = await executeBuiltinTool('read', {
-    path: JSON.stringify([{ path: 'scripts/smoke.mjs', offset: 0, limit: 2 }]),
-  }, root);
-  if (!/^read 1\b/m.test(String(readStringifiedRegionOut)) || !/scripts\/smoke\.mjs \[ok\]/.test(String(readStringifiedRegionOut)) || !/1→import \{ spawnSync \}/.test(String(readStringifiedRegionOut))) {
-    throw new Error(`read stringified region batch must execute after guard coercion:\n${readStringifiedRegionOut}`);
-  }
-  const readStringifiedLineArgs = {
-    path: JSON.stringify([{ path: 'scripts/smoke.mjs', line: 10, context: 2 }]),
-  };
-  const readStringifiedLineErr = validateBuiltinArgs('read', readStringifiedLineArgs);
-  if (readStringifiedLineErr || readStringifiedLineArgs.path[0].offset !== 7 || readStringifiedLineArgs.path[0].limit !== 5) {
-    throw new Error(`read guard must losslessly convert legacy line/context inside stringified arrays to offset/limit: err=${readStringifiedLineErr} args=${JSON.stringify(readStringifiedLineArgs)}`);
-  }
+test('read guard preserves explicit legacy window shapes', async () => {
   const readEchoedPathArgs = {
-    file_path: 'scripts/smoke.mjs',
+    path: 'scripts/smoke.mjs',
     offset: '307 ├──path──scripts/smoke.mjs',
     limit: '30usepath?scripts/smoke.mjs',
   };
   const readEchoedPathErr = validateBuiltinArgs('read', readEchoedPathArgs);
   if (readEchoedPathErr || readEchoedPathArgs.offset !== 307 || readEchoedPathArgs.limit !== 30) {
     throw new Error(`read guard must absorb exact echoed-path integer annotations: err=${readEchoedPathErr} args=${JSON.stringify(readEchoedPathArgs)}`);
-  }
-  const readEmptyArrayWrapperOut = await executeBuiltinTool('read', {
-    path: '[""]scripts/smoke.mjs[""]',
-    limit: 1,
-  }, root);
-  if (!/1→import \{ spawnSync \}/.test(String(readEmptyArrayWrapperOut))) {
-    throw new Error(`read must recover an empty-array-fragment wrapped scalar path:\n${readEmptyArrayWrapperOut}`);
   }
   if (_argShapeSig('grep', { path: 'a', mode: 'content' }) !== _argShapeSig('grep', { path: 'b', mode: 'files' })
     || _argShapeSig('read', { file_path: 'x', offset: 'bad' }) === _argShapeSig('read', { file_path: 'x', offset: 1 })

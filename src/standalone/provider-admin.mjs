@@ -288,7 +288,14 @@ export async function loginOAuthProvider(cfgMod, provider) {
   const auth = typeof oauth.describe === 'function'
     ? oauth.describe()
     : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' };
-  updateConfigProvider(cfgMod, id, { enabled: Boolean(auth.authenticated) });
+  // Only a SUCCESSFUL login states `enabled`. A login that ends unauthenticated
+  // (wrong or expired code, a token returned without the inference scope) is not
+  // a decision to turn the provider off: writing enabled:false here stored a
+  // PERMANENT opt-out — loadConfig lets a stored `enabled` outrank the credential
+  // probe — and took down a provider whose other accounts were still signed in.
+  // Disabling a provider is forgetProviderAuth's job alone, and it does so only
+  // once the last account is disconnected.
+  if (auth.authenticated) updateConfigProvider(cfgMod, id, { enabled: true });
   return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null };
 }
 
@@ -321,8 +328,15 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
     const auth = inAccount(() => typeof oauth.describe === 'function'
       ? oauth.describe()
       : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' });
-    if (auth.authenticated) registerProviderAccount(id, accountId, { includeDefault, label: options.label });
-    updateConfigProvider(cfgMod, id, { enabled: Boolean(auth.authenticated) });
+    // Same rule as loginOAuthProvider, and it matters most here: the add-account
+    // flow runs against a brand-new account id, so an exchange that does not
+    // land leaves THIS account unauthenticated while every already-connected one
+    // stays valid. Registration and the enabled flag therefore move together, on
+    // success only; a failed attempt leaves the stored config untouched.
+    if (auth.authenticated) {
+      registerProviderAccount(id, accountId, { includeDefault, label: options.label });
+      updateConfigProvider(cfgMod, id, { enabled: true });
+    }
     return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null, result };
   };
   return {

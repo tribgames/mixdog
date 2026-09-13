@@ -2,9 +2,8 @@ import * as fsPromises from 'fs/promises';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import { normalizeInputPath } from './path-utils.mjs';
-import { buildNotFoundHint, finalizeReadFamilyEnoentTail, tryReadFamilyEnoentRedirect } from './search-path-diagnostics.mjs';
+import { buildNotFoundHint, finalizeReadFamilyEnoentTail } from './search-path-diagnostics.mjs';
 import { getReadSnapshot } from './read-snapshot-runtime.mjs';
-import { recordReadPathRedirect } from './snapshot-store.mjs';
 import {
     detectReadEncodingFromBuffer,
     snapshotCoversFullFile,
@@ -213,26 +212,6 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     }
     if (!st) {
         const err = _statErr;
-        const redirected = await tryReadFamilyEnoentRedirect({
-            workDir,
-            resolvedPath: fullPath,
-            requestedPath: filePath,
-            errCode: err?.code,
-            options,
-            rerun: (target, opts) => executeSingleReadTool(
-                { ...args, path: target },
-                workDir,
-                readStateScope,
-                opts,
-                helpers,
-            ),
-            onRedirect: (requested, target) => recordReadPathRedirect(
-                requested,
-                resolveAgainstCwd(normalizeInputPath(target), workDir),
-                readStateScope,
-            ),
-        });
-        if (redirected) return redirected;
         const similar = findSimilarFile(fullPath);
         let hint = similar ? ` Did you mean "${normalizeOutputPath(similar)}"?` : '';
         if (!similar) {
@@ -287,7 +266,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     const _mediaTextOnly = options?.mediaTextOnly === true;
     const _mediaExt = extname(fullPath).toLowerCase();
     if (_mediaExt === '.pdf') return extractPdfText(fullPath, args.pages, { maxOutputBytes: READ_MAX_OUTPUT_BYTES, textOnly: _mediaTextOnly });
-    if (_mediaExt === '.docx' || _mediaExt === '.pptx') {
+    if (_mediaExt === '.docx' || _mediaExt === '.pptx' || _mediaExt === '.xlsx' || _mediaExt === '.xlsm') {
         // OOXML text extraction — always a flat string, so it is batch-safe
         // without a textOnly split. Snapshot recorded on success only.
         const _officeOut = await extractOoxmlText(fullPath, { maxOutputBytes: READ_MAX_OUTPUT_BYTES });
@@ -755,19 +734,15 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
                 const emittedStart = offset + 1;
                 const emittedEnd = offset + _renderedLineCount;
                 const capKb = Math.round(_readMaxOutputBytes / 1024);
-                const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}; output truncated at ${capKb} KB${emittedEnd < lineCount ? `; pass offset:${emittedEnd} to continue` : ''}]`;
+                const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}; output truncated at ${capKb} KB${emittedEnd < lineCount ? `; pass offset:${emittedEnd + 1} to continue` : ''}]`;
                 out += `${out ? '\n' : ''}${footer}`;
             } else if (Buffer.byteLength(rendered, 'utf8') <= _readMaxOutputBytes) {
                 const emittedStart = offset + 1;
                 const emittedEnd = offset + sliced.length;
-                // Anti-fragmentation: when the remainder is modest, hand the
-                // model the exact one-window continuation instead of inviting
-                // another small page.
-                const _remaining = lineCount - emittedEnd;
+                // Continuation uses the public one-based coordinate contract.
+                // Remaining content is not automatically required evidence.
                 const _cont = emittedEnd < lineCount
-                    ? (_remaining <= 600
-                        ? `; ${_remaining} left — ONE window: offset:${emittedEnd} limit:${_remaining}`
-                        : `; pass offset:${emittedEnd} to continue`)
+                    ? `; pass offset:${emittedEnd + 1} to continue`
                     : '';
                 const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}${_cont}]`;
                 out += `${out ? '\n' : ''}${footer}`;

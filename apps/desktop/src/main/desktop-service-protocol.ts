@@ -36,6 +36,7 @@ export type DesktopServiceOutbound =
     kind: 'session-state';
     sessionId: string;
     wire: unknown;
+    readTraceId?: string;
     frameSource: 'live' | 'replay';
     contentRevision?: number;
     laneEnd?: 'gone' | 'unloaded' | 'disconnected';

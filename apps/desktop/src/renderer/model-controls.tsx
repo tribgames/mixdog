@@ -235,8 +235,7 @@ export const ModelSelector = memo(function ModelSelector({
     cachedCatalog.models.length > 0,
   );
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
-  const [routing, setRouting] = useState(false);
-  const { selection, pending: selectionPending, begin, settle } = useModelSelection(sessionId || "", {
+  const { selection, begin, settle } = useModelSelection(sessionId || "", {
     provider: sourceProvider,
     model: sourceModel,
     effort: sourceEffort,
@@ -246,12 +245,17 @@ export const ModelSelector = memo(function ModelSelector({
   });
   const { provider, model, effort = "", fast = false, modelParameters, contextPercent } = selection;
   const catalogInFlight = useRef<Promise<void> | null>(null);
-  const routingGuard = useRef(false);
-  const restoreAfterRoute = useRef<HTMLElement | null>(null);
+  // Newest request wins. An older reply may land after a newer choice, so only
+  // the current token may publish its snapshot; useModelSelection already
+  // ignores a stale settle.
+  const latestRouteToken = useRef(0);
   const modelBootKey = `${provider || "none"}:${model || "none"}`;
   beginBootSurface("model-controls", modelBootKey);
-  const modelUnavailable = modelDisabled || routing || selectionPending;
-  const tuningUnavailable = tuningDisabled || routing || selectionPending;
+  // An in-flight write no longer locks the controls. The selection is previewed
+  // locally the moment it is clicked, so disabling the picker until the runtime
+  // replied only made it look frozen — and swallowed the next click.
+  const modelUnavailable = modelDisabled;
+  const tuningUnavailable = tuningDisabled;
   const displayedFast = fast;
   const catalogModels = useMemo(() => {
     const unique = new Map<string, DesktopModelOption>();
@@ -402,39 +406,29 @@ export const ModelSelector = memo(function ModelSelector({
     reportBootSurfaceStage("model-controls", modelBootKey, "data");
   }, [model, modelBootKey, startupCatalogSettled]);
 
-  useEffect(() => {
-    if (routing || !restoreAfterRoute.current) return;
-    const target = restoreAfterRoute.current;
-    restoreAfterRoute.current = null;
-    target.focus({ preventScroll: true });
-  }, [routing]);
-
-  const route = async (selection: DesktopModelSelection, restoreTarget: HTMLElement | null = null) => {
-    if (modelUnavailable || routingGuard.current) return false;
+  const route = async (selection: DesktopModelSelection) => {
+    if (modelUnavailable) return false;
     if (onDraftSelection) {
       onDraftSelection(selection);
-      window.queueMicrotask(() => restoreTarget?.focus({ preventScroll: true }));
       return true;
     }
-    routingGuard.current = true;
-    restoreAfterRoute.current = restoreTarget;
-    setRouting(true);
     const token = begin(selection);
+    latestRouteToken.current = token;
     let applied = false;
     try {
       const next = await invokeResult(
         () => window.mixdogDesktop.setModelRoute(selection, sessionId),
       );
-      if (next !== undefined) {
+      if (next) {
+        applied = next.provider === selection.provider && next.model === selection.model;
         settle(token, next);
-        applySnapshot(next);
-        onRoutePreferenceApplied?.(selection);
-        applied = true;
+        if (latestRouteToken.current === token) {
+          applySnapshot(next);
+          if (applied) onRoutePreferenceApplied?.(selection);
+        }
       }
     } finally {
       if (!applied) settle(token);
-      routingGuard.current = false;
-      setRouting(false);
     }
     return applied;
   };
@@ -485,7 +479,7 @@ export const ModelSelector = memo(function ModelSelector({
     });
   };
   const changeFast = async (enabled: boolean) => {
-    if (tuningUnavailable || routingGuard.current) return;
+    if (tuningUnavailable) return;
     if (onDraftSelection && provider && model) {
       onDraftSelection({
         provider,
@@ -497,15 +491,15 @@ export const ModelSelector = memo(function ModelSelector({
       return;
     }
     const token = begin({ provider, model, fast: enabled });
-    routingGuard.current = true;
+    latestRouteToken.current = token;
     let accepted = false;
     try {
       const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled, sessionId));
       if (next !== undefined) {
         accepted = next?.fast === enabled;
         settle(token, next);
-        applySnapshot(next);
-        if (accepted && provider && model) {
+        if (latestRouteToken.current === token) applySnapshot(next);
+        if (accepted && provider && model && latestRouteToken.current === token) {
           onRoutePreferenceApplied?.({
             provider,
             model,
@@ -516,11 +510,10 @@ export const ModelSelector = memo(function ModelSelector({
       }
     } finally {
       if (!accepted) settle(token);
-      routingGuard.current = false;
     }
   };
   const changeEffort = async (effort: string) => {
-    if (tuningUnavailable || routingGuard.current) return;
+    if (tuningUnavailable) return;
     const nextFast = fastCapable
       ? modelFastAvailable(known, effort, selectedModelParameters) && displayedFast
       : undefined;
@@ -546,41 +539,40 @@ export const ModelSelector = memo(function ModelSelector({
       });
       return;
     }
-    routingGuard.current = true;
-    setRouting(true);
     const token = begin({
       provider, model, effort,
       ...(nextFast === undefined ? {} : { fast: nextFast }),
     });
+    latestRouteToken.current = token;
     let accepted = false;
     try {
-      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
+      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string | false>({
         capability: 'setEffort',
         args: [effort],
         ...(sessionId ? { sessionId } : {}),
       }));
-      if (result !== undefined) {
+      if (result !== undefined && result.value !== false) {
         settle(token, result.snapshot);
-        applySnapshot(result.snapshot);
         accepted = true;
-        onRoutePreferenceApplied?.({
-          provider,
-          model,
-          effort,
-          ...(nextFast === undefined ? {} : { fast: nextFast }),
-          ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
-          contextPercent: normalizedContextPercent,
-        });
+        if (latestRouteToken.current === token) {
+          applySnapshot(result.snapshot);
+          onRoutePreferenceApplied?.({
+            provider,
+            model,
+            effort,
+            ...(nextFast === undefined ? {} : { fast: nextFast }),
+            ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
+            contextPercent: normalizedContextPercent,
+          });
+        }
       }
     } finally {
       if (!accepted) settle(token);
-      routingGuard.current = false;
-      setRouting(false);
     }
   };
 
   const changeContext = async (nextContextPercent: number) => {
-    if (!known || !maxContextWindow || tuningUnavailable || routingGuard.current) return;
+    if (!known || !maxContextWindow || tuningUnavailable) return;
     await route({
       provider,
       model,
@@ -591,7 +583,7 @@ export const ModelSelector = memo(function ModelSelector({
     });
   };
   const changeModelParameter = async (id: string, value: string) => {
-    if (!known || tuningUnavailable || routingGuard.current) return;
+    if (!known || tuningUnavailable) return;
     const nextModelParameters = { ...selectedModelParameters, [id]: value };
     const nextFast = fastControlVisible
       ? modelFastAvailable(known, effort, nextModelParameters) && displayedFast

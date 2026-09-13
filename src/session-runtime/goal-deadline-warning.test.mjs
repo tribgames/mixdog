@@ -99,28 +99,54 @@ test('a Goal already inside a window at resume warns once at the most urgent thr
   }
 });
 
-test('a new duration commitment re-earns its warnings', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-warning-extend-'));
+for (const action of ['time', 'edit']) {
+  test(`a new duration commitment via ${action} re-earns its warnings`, async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-warning-extend-'));
+    let clock = 1_952_000_000_000;
+    const runtime = createGoalRuntime({ dataDir, now: () => clock, writeGoalRecord });
+    try {
+      await runtime.control('sess_goal_extend', {
+        action: 'create',
+        objective: 'Finish the objective',
+        timeLimitMs: HOUR_MS,
+      });
+      clock += HOUR_MS - 9 * MINUTE_MS;
+      runtime.snapshot('sess_goal_extend');
+      await settle();
+      assert.equal(runtime.snapshot('sess_goal_extend').warningRevision, 1);
+
+      const extended = await runtime.control('sess_goal_extend', {
+        action, objective: 'Finish the objective', duration: '3h',
+      });
+      assert.equal(extended.goal.timeLimitMs, 3 * HOUR_MS);
+      assert.equal(extended.goal.status, 'active');
+      clock += (3 * HOUR_MS - extended.goal.timeUsedMs) - 9 * MINUTE_MS;
+      runtime.snapshot('sess_goal_extend');
+      await settle();
+      assert.equal(runtime.snapshot('sess_goal_extend').warningRevision, 2);
+    } finally {
+      runtime.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+}
+
+test('objective-only edits do not repeat an already delivered deadline warning', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-warning-edit-'));
   let clock = 1_952_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock, writeGoalRecord });
   try {
-    await runtime.control('sess_goal_extend', {
-      action: 'create',
-      objective: 'Finish the objective',
-      timeLimitMs: HOUR_MS,
+    await runtime.control('sess_goal_edit', {
+      action: 'create', objective: 'Finish the objective', timeLimitMs: HOUR_MS,
     });
     clock += HOUR_MS - 9 * MINUTE_MS;
-    runtime.snapshot('sess_goal_extend');
+    runtime.snapshot('sess_goal_edit');
     await settle();
-    assert.equal(runtime.snapshot('sess_goal_extend').warningRevision, 1);
-
-    const extended = await runtime.control('sess_goal_extend', { action: 'time', duration: '3h' });
-    assert.equal(extended.goal.timeLimitMs, 3 * HOUR_MS);
-    assert.equal(extended.goal.status, 'active');
-    clock += (3 * HOUR_MS - extended.goal.timeUsedMs) - 9 * MINUTE_MS;
-    runtime.snapshot('sess_goal_extend');
+    await runtime.control('sess_goal_edit', {
+      action: 'edit', objective: 'Clarify the objective', timeLimitMs: HOUR_MS,
+    });
     await settle();
-    assert.equal(runtime.snapshot('sess_goal_extend').warningRevision, 2);
+    assert.equal(runtime.snapshot('sess_goal_edit').warningRevision, 1);
   } finally {
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });

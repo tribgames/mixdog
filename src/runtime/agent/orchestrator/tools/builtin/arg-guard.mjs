@@ -13,6 +13,8 @@ import { coerceReadFamilyPathArg, coerceShapeFlex, hasGlobMagic } from './path-u
 import { hasOwn } from '../../../../shared/object.mjs';
 
 const MAX_INT = 100000;
+export const PUBLIC_PATH_BATCH_LIMIT = 10;
+export const PUBLIC_READ_WINDOW_MAX = MAX_INT;
 // Explicit grep context should be large enough to frame a function/block without
 // letting one match explode into a huge tool result. `content_with_context` still
 // defaults to 25 lines; this is only the upper bound for caller-supplied -A/-B/-C.
@@ -346,20 +348,6 @@ function isNonEmptyPresent(o, k) {
 // attribute pattern like `class="active">`) is a real search target and
 // must survive untouched. A \n in the middle of a pattern is also left
 // untouched; only the tail is ever trimmed.
-function stripTrailingPatternArtifacts(v) {
-    if (typeof v !== 'string') return v;
-    let out = v;
-    let changed = true;
-    while (changed) {
-        changed = false;
-        if (out.endsWith('">\n')) { out = out.slice(0, -3); changed = true; continue; }
-        if (out.endsWith('">\\n')) { out = out.slice(0, -4); changed = true; continue; }
-        if (out.endsWith('\n')) { out = out.slice(0, -1); changed = true; continue; }
-        if (out.endsWith('\\n')) { out = out.slice(0, -2); changed = true; continue; }
-    }
-    return out;
-}
-
 function coercePatternStringValues(v) {
     const coerce = (value) => (
         (typeof value === 'number' && Number.isFinite(value)) || typeof value === 'boolean'
@@ -372,19 +360,20 @@ function coercePatternStringValues(v) {
 // ---- per-tool guards ----
 
 function guardGrep(a) {
+    for (const key of ['include_noise', 'text']) {
+        if (hasOwn(a, key) && typeof a[key] !== 'boolean') {
+            return `Error: grep arg "${key}" must be a boolean`;
+        }
+    }
     // pattern aliases
     const patternKeys = ['pattern', 'query', 'regex', 'needle'];
     // glob (file filter) aliases
     const globKeys = ['glob', 'file_pattern', 'include', 'files'];
 
-    // Lossless cleanup of trailing artifacts before validation (item 5b).
+    // Preserve pattern text. Quotes, brackets, and escapes are regex syntax,
+    // not evidence of a malformed tool call.
     for (const k of patternKeys) {
-        if (hasOwn(a, k)) {
-            const value = coercePatternStringValues(a[k]);
-            a[k] = Array.isArray(value)
-                ? value.map(stripTrailingPatternArtifacts)
-                : stripTrailingPatternArtifacts(value);
-        }
+        if (hasOwn(a, k)) a[k] = coercePatternStringValues(a[k]);
     }
 
     const hasPattern = patternKeys.some((k) => hasOwn(a, k));
@@ -407,10 +396,17 @@ function guardGrep(a) {
             return `Error: grep arg "${k}" must be string (got ${describeType(a[k])})`;
         }
     }
-    // path/root (optional scalar string)
+    // Independent explicit scopes share one request; no inferred path splitting.
     for (const k of ['path', 'root']) {
+        if (hasOwn(a, k) && Array.isArray(a[k])) {
+            if (a[k].length === 0 || a[k].length > PUBLIC_PATH_BATCH_LIMIT
+                || !a[k].every(isNonEmptyString)) {
+                return `Error: grep arg "${k}" must contain 1-${PUBLIC_PATH_BATCH_LIMIT} non-empty path strings`;
+            }
+            continue;
+        }
         if (hasOwn(a, k) && !isString(a[k])) {
-            return `Error: grep arg "${k}" must be string (got ${describeType(a[k])})`;
+            return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
         }
         if (hasOwn(a, k) && hasMultipleAbsoluteWindowsPaths(a[k])) {
             return `Error: grep arg "${k}" contains multiple absolute paths in one string. Use one common parent path plus glob, or separate grep calls.`;
@@ -559,9 +555,60 @@ function maybeCapUnboundedRead(a) {
     } catch { /* best-effort */ }
 }
 
+function normalizePublicReadTargets(a) {
+    if (!hasOwn(a, 'file_path')) return null;
+    if (hasOwn(a, 'path')) return 'Error: read accepts file_path or legacy path, not both';
+    const batch = Array.isArray(a.file_path);
+    if (!batch && typeof a.file_path !== 'string') {
+        return 'Error: read arg "file_path" must be a path string or an array of targets';
+    }
+    const targets = batch ? a.file_path : [a.file_path];
+    if (targets.length === 0 || targets.length > PUBLIC_PATH_BATCH_LIMIT) {
+        return `Error: read arg "file_path" must contain 1-${PUBLIC_PATH_BATCH_LIMIT} targets`;
+    }
+    const windowValue = (value, fallback) => value === undefined ? fallback : value;
+    const validWindow = (value) => Number.isInteger(value) && value >= 1 && value <= MAX_INT;
+    const defaultOffset = windowValue(a.offset, 1);
+    const defaultLimit = windowValue(a.limit, READ_GUARD_DEFAULT_LIMIT);
+    if (!validWindow(defaultOffset) || !validWindow(defaultLimit)) {
+        return `Error: read offset and limit must be integers from 1 to ${MAX_INT}`;
+    }
+    const entries = [];
+    for (let index = 0; index < targets.length; index++) {
+        const target = targets[index];
+        const record = typeof target === 'string' ? { file_path: target } : target;
+        if (!record || typeof record !== 'object' || Array.isArray(record)
+            || !isNonEmptyString(record.file_path)
+            || Object.keys(record).some((key) => !['file_path', 'offset', 'limit'].includes(key))) {
+            return `Error: read target ${index + 1} must be a path string or {file_path, offset?, limit?}`;
+        }
+        const offset = windowValue(record.offset, defaultOffset);
+        const limit = windowValue(record.limit, defaultLimit);
+        if (!validWindow(offset) || !validWindow(limit)) {
+            return `Error: read target ${index + 1} offset and limit must be integers from 1 to ${MAX_INT}`;
+        }
+        entries.push({ path: record.file_path, offset: offset - 1, limit });
+    }
+    // Canonical public windows are one-based. Legacy executor windows are
+    // zero-based; convert once here before any legacy shape handling.
+    if (batch) {
+        a.path = entries;
+        delete a.offset;
+        delete a.limit;
+    } else {
+        a.path = entries[0].path;
+        a.offset = entries[0].offset;
+        a.limit = entries[0].limit;
+    }
+    delete a.file_path;
+    return null;
+}
+
 function guardRead(a) {
-    // path / file_path alias OR path may itself be array
-    const hasPath = hasOwn(a, 'path') || hasOwn(a, 'file_path');
+    const publicError = normalizePublicReadTargets(a);
+    if (publicError) return publicError;
+    // Public targets are normalized above; legacy callers already use path.
+    const hasPath = hasOwn(a, 'path');
     if (!hasPath) {
         return 'Error: read requires "path" (or alias file_path).';
     }
@@ -621,9 +668,6 @@ function guardRead(a) {
                 }
             }
         }
-    }
-    if (hasOwn(a, 'file_path') && !isNonEmptyString(a.file_path)) {
-        return `Error: read arg "file_path" must be a non-empty string (got ${describeType(a.file_path)})`;
     }
     // Item 3: cap unbounded full reads to a paging window (after array/region
     // handling so batched region reads are never touched).
@@ -977,6 +1021,9 @@ const STRING_LIST_ARG_KEYS = [
 function normalizeStringListArgs(args, toolName) {
     for (const key of STRING_LIST_ARG_KEYS) {
         if (!hasOwn(args, key) || !Array.isArray(args[key])) continue;
+        // Public search scopes are exact operands. Dropping an empty array or
+        // blank entry would silently replace the requested scope with cwd.
+        if (toolName === 'grep' && ['path', 'root'].includes(key)) continue;
         // read.path may contain compact [path,offset,limit] tuples. Flattening
         // here would destroy their boundaries before guardRead canonicalizes
         // them through coerceReadFamilyPathArg().

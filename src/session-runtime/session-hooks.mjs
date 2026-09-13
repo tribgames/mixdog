@@ -11,14 +11,14 @@ export function attachSessionHooks(session, { hooks, hookCommonPayload, getCwd }
   const currentCwd = () => getCwd();
   // PreToolUse bridge.
   Object.defineProperty(session, 'beforeToolHook', {
-    value: (input) => hooks.beforeTool(hookCommonPayload({
+    value: (input, options = {}) => hooks.beforeTool(hookCommonPayload({
       ...input,
       session_id: input?.sessionId || input?.session_id || session?.id,
       tool_name: input?.name || input?.tool_name,
       tool_input: input?.args || input?.tool_input,
       tool_use_id: input?.toolCallId || input?.tool_use_id,
       cwd: input?.cwd || currentCwd(),
-    })),
+    }), options),
     enumerable: false,
     configurable: true,
     writable: true,

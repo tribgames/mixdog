@@ -7,17 +7,14 @@ import {
   shouldNavigatePromptHistory,
 } from "./renderer-logic.mjs";
 import { type ComposerAttachment, type ComposerHistoryEntry } from "./composer-support";
-import { type SLASH_COMMANDS } from "./slash-commands";
 import { classifyPromptEscape, PROMPT_ESCAPE_HINT_TIMEOUT_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 import { paletteOwnsPromptVerticalArrow } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
 
-type SlashCommand = (typeof SLASH_COMMANDS)[number];
 type TextareaKeyEvent = KeyboardEvent<HTMLTextAreaElement>;
 
 export function useComposerKeyboard({
   draft,
   mention,
-  slash,
   selector,
   history,
   queue,
@@ -41,14 +38,6 @@ export function useComposerKeyboard({
     setIndex: Dispatch<SetStateAction<number>>;
     setDismissed(value: string): void;
     setResults(paths: string[]): void;
-  };
-  slash: {
-    open: boolean;
-    commands: SlashCommand[];
-    index: number;
-    setIndex: Dispatch<SetStateAction<number>>;
-    setDismissedDraft(value: string): void;
-    commandToken(command: SlashCommand | undefined): string;
   };
   selector: {
     open: boolean;
@@ -156,33 +145,6 @@ export function useComposerKeyboard({
     return true;
   }, [mention, selectMention]);
 
-  const navigateSlashPalette = useCallback((event: TextareaKeyEvent) => {
-    if (!slash.open || slash.commands.length === 0) return false;
-    if ((event.key === "ArrowUp" || event.key === "ArrowDown")
-      && !paletteOwnsPromptVerticalArrow(slash.commands.length)) return false;
-    const last = slash.commands.length - 1;
-    if (event.key === "Tab") {
-      event.preventDefault();
-      draft.set(`/${slash.commandToken(slash.commands[slash.index])} `);
-      return true;
-    }
-    const moves: Record<string, (index: number) => number> = {
-      ArrowDown: (index) => (index + 1) % slash.commands.length,
-      ArrowRight: (index) => (index + 1) % slash.commands.length,
-      ArrowUp: (index) => (index - 1 + slash.commands.length) % slash.commands.length,
-      ArrowLeft: (index) => (index - 1 + slash.commands.length) % slash.commands.length,
-      Home: () => 0,
-      End: () => last,
-      PageUp: (index) => Math.max(0, index - slash.commands.length),
-      PageDown: (index) => Math.min(last, index + slash.commands.length),
-    };
-    const move = moves[event.key];
-    if (!move) return false;
-    event.preventDefault();
-    slash.setIndex(move);
-    return true;
-  }, [draft, slash]);
-
   const navigateMessageSelector = useCallback((event: TextareaKeyEvent) => {
     if (!selector.open) return false;
     if (event.key === "Escape") {
@@ -287,23 +249,7 @@ export function useComposerKeyboard({
     }
     if (navigateMessageSelector(event)) return;
     if (navigateMentionPalette(event)) return;
-    if (navigateSlashPalette(event)) return;
-    if (slash.open && slash.commands.length && event.key === "Enter"
-      && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      void actions.send(
-        `/${slash.commandToken(slash.commands[slash.index])}`,
-        "slash-keyboard",
-      );
-      return;
-    }
     if (event.key === "Escape") {
-      if (slash.open) {
-        event.preventDefault();
-        slash.setDismissedDraft(draft.value);
-        runtime.escapeClearAt.current = 0;
-        return;
-      }
       const element = event.currentTarget;
       const escape = classifyPromptEscape({
         interruptActive: shouldInterruptPrompt({
@@ -424,11 +370,9 @@ export function useComposerKeyboard({
     mention,
     navigateMentionPalette,
     navigateMessageSelector,
-    navigateSlashPalette,
     queue,
     runtime,
     selector,
-    slash,
   ]);
 
   return { selectMention, onKeyDown, onKeyUp };

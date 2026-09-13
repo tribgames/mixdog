@@ -2,7 +2,9 @@ import { basename, dirname, join, posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { readFile, writeFile } from 'node:fs/promises';
+import { presetLabels } from '../shared/labels.mjs';
 import {
+  TEMPLATE_TOKEN_SOURCE,
   XML_HEADER,
   paragraphTexts,
   replaceAcrossRuns,
@@ -12,8 +14,11 @@ import {
   xmlEncode,
 } from './portable-xml.mjs';
 
+// The first eight bytes of every legacy Office (OLE compound) file.
+const OLE_COMPOUND_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+
 function templateTokenMatches(text) {
-  return [...String(text || '').matchAll(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g)]
+  return [...String(text || '').matchAll(new RegExp(TEMPLATE_TOKEN_SOURCE, 'gu'))]
     .map((match) => ({ raw: match[0], key: match[1] }));
 }
 
@@ -46,6 +51,12 @@ export async function fillTemplateParts(zip, parts, tag, operation, { replace = 
   if (operation.strict && unfilledTokens.length) {
     throw new Error(`Unfilled template tokens: ${unfilledTokens.join(', ')}`);
   }
+  // Nothing filled while placeholders remain means the supplied names and the
+  // document's do not meet; "no change" alone would leave the caller guessing.
+  if (!Object.keys(filled).length && unfilledTokens.length) {
+    throw new Error(`fill_template changed nothing: the document carries ${unfilledTokens.map((key) => `{{${key}}}`).join(', ')}`
+      + ` and tokens named ${Object.keys(tokens).join(', ') || 'nothing'}`);
+  }
   return {
     op: 'fill_template',
     changed: Object.keys(filled).length > 0,
@@ -56,10 +67,32 @@ export async function fillTemplateParts(zip, parts, tag, operation, { replace = 
 }
 
 export async function loadPackage(path) {
-  return await JSZip.loadAsync(await readFile(path), {
-    checkCRC32: true,
-    createFolders: false,
-  });
+  const data = await readFile(path);
+  try {
+    return await JSZip.loadAsync(data, {
+      checkCRC32: true,
+      createFolders: false,
+    });
+  } catch (error) {
+    // A legacy .doc/.xls/.ppt is an OLE compound file, not a package, and it
+    // often arrives renamed to .docx. Nothing is damaged about it, so the
+    // repair advice sends the caller after a file that does not exist.
+    if (data.subarray(0, 8).equals(OLE_COMPOUND_MAGIC)) {
+      throw new Error(`${path} is a legacy Office file (.doc/.xls/.ppt), not an Office Open XML package.`
+        + ' Open it in Microsoft Office and save a copy as .docx/.xlsx/.pptx, then work on that copy.');
+    }
+    // A truncated or damaged file reaches here as a ZIP internal message that
+    // names neither the file nor a way forward; the caller needs both. The
+    // library's own aside — a question about zip files and a link to its
+    // documentation — answers neither, so it does not travel with the error.
+    const reason = String(error?.message || error)
+      .replace(/\s*:?\s*is this a zip file\s*\?.*$/is, '')
+      .replace(/\s*see https?:\/\/\S+/gi, '')
+      .trim()
+      .replace(/[\s:]+$/, '');
+    throw new Error(`${path} is not a readable Office package (${reason}).`
+      + ' The file is damaged or incomplete: ask for an intact copy, or open it in Microsoft Office and save a fresh file.');
+  }
 }
 
 
@@ -200,12 +233,14 @@ export function partRelationshipPath(part) {
 
 export function provenanceCitation(source) {
   if (!source) return '';
-  if (typeof source === 'string') return `Source: ${source.trim()}`;
+  // The citation is read on the page, so its prefix follows the language the
+  // source is named in (the structure audit accepts either form).
+  if (typeof source === 'string') return `${presetLabels(source).source}: ${source.trim()}`;
   if (typeof source !== 'object') return '';
   const document = String(source.document || source.label || '').trim();
   const target = String(source.target || '').trim();
   if (!document) return '';
-  return `Source: ${target ? `${document}#${target}` : document}`;
+  return `${presetLabels([document, target, source.label]).source}: ${target ? `${document}#${target}` : document}`;
 }
 
 
@@ -287,6 +322,75 @@ async function importPartTree(source, zip, sourcePath, cache) {
     );
   }
   return targetPath;
+}
+
+
+// Parts a slide owns rather than shares: a chart carries its own data, a
+// diagram its own nodes. A picture, a theme, or a layout is the same object on
+// every page that uses it, so a copy keeps pointing at the original.
+const SHARED_ON_CLONE = /\/(image|media|video|audio|theme|slideLayout|slideMaster|notesMaster|notesSlide|hyperlink)$/;
+
+// Copy a part and the parts it owns inside the same package, always as new
+// parts: a duplicated slide that keeps pointing at the original chart makes an
+// edit to one page silently rewrite the other.
+export async function clonePartTree(zip, sourcePath, cache = new Map()) {
+  if (cache.has(sourcePath)) return cache.get(sourcePath);
+  const file = zip.file(sourcePath);
+  if (!file) return '';
+  const data = await file.async('nodebuffer');
+  const directory = posix.dirname(sourcePath);
+  const naming = partNaming(sourcePath);
+  const targetPath = nextAvailablePart(zip, directory, naming.prefix, naming.extension);
+  zip.file(targetPath, data);
+  cache.set(sourcePath, targetPath);
+  await copyPartContentType(zip, zip, sourcePath, targetPath);
+  const relationships = await zipText(zip, partRelationshipPath(sourcePath));
+  if (!relationships) return targetPath;
+  let output = relationships;
+  for (const match of relationships.matchAll(/<Relationship\b[^>]*?\/>/g)) {
+    const block = match[0];
+    if (/\bTargetMode="External"/i.test(block)) continue;
+    if (SHARED_ON_CLONE.test(xmlAttribute(block, 'Type'))) continue;
+    const raw = xmlAttribute(block, 'Target');
+    const target = xmlDecode(raw);
+    if (!target) continue;
+    const absolute = target.startsWith('/');
+    const cloned = await clonePartTree(zip, absolute ? target.slice(1) : posix.normalize(posix.join(directory, target)), cache);
+    if (!cloned) continue;
+    const rewrittenTarget = absolute ? `/${cloned}` : posix.relative(posix.dirname(targetPath), cloned);
+    output = output.replace(block, block.replace(`Target="${raw}"`, `Target="${xmlEncode(rewrittenTarget)}"`));
+  }
+  zip.file(partRelationshipPath(targetPath), output);
+  return targetPath;
+}
+
+
+// The relationships a copied slide must own outright before it is editable on
+// its own: everything else stays shared with the slide it was copied from.
+export async function cloneOwnedSlideParts(zip, relationshipsPath) {
+  const xml = await zipText(zip, relationshipsPath);
+  if (!xml) return [];
+  const owner = posix.dirname(posix.dirname(relationshipsPath));
+  const cache = new Map();
+  const copied = [];
+  let output = xml;
+  for (const match of xml.matchAll(/<Relationship\b[^>]*?\/>/g)) {
+    const block = match[0];
+    if (/\bTargetMode="External"/i.test(block)) continue;
+    if (!/\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing)$/
+      .test(xmlAttribute(block, 'Type'))) continue;
+    const raw = xmlAttribute(block, 'Target');
+    const target = xmlDecode(raw);
+    if (!target) continue;
+    const absolute = target.startsWith('/');
+    const cloned = await clonePartTree(zip, absolute ? target.slice(1) : posix.normalize(posix.join(owner, target)), cache);
+    if (!cloned) continue;
+    copied.push(cloned);
+    const rewrittenTarget = absolute ? `/${cloned}` : posix.relative(owner, cloned);
+    output = output.replace(block, block.replace(`Target="${raw}"`, `Target="${xmlEncode(rewrittenTarget)}"`));
+  }
+  if (copied.length) zip.file(relationshipsPath, output);
+  return copied;
 }
 
 

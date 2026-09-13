@@ -53,7 +53,8 @@ test('/goal and the add menu open the same goal editor without creating or faili
     await act(async () => [...document.querySelectorAll('[role="menuitem"]')].find(node => node.textContent.includes('Set a goal')).click());
     let dialog = document.querySelector('[role="dialog"]');
     assert.ok(dialog);
-    assert.equal(dialog.querySelector('select').value, 'max');
+    assert.equal(dialog.querySelector('[role="combobox"]').textContent,
+      'Maximum time — finish early when verified');
     await act(async () => dialog.querySelector('[aria-label="Close"]').click());
     const input = host.querySelector('textarea');
     await act(async () => {
@@ -63,7 +64,8 @@ test('/goal and the add menu open the same goal editor without creating or faili
     await act(async () => input.closest('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     dialog = document.querySelector('[role="dialog"]');
     assert.ok(dialog, 'bare /goal opens the same editor');
-    assert.equal(dialog.querySelector('select').value, 'max');
+    assert.equal(dialog.querySelector('[role="combobox"]').textContent,
+      'Maximum time — finish early when verified');
     assert.deepEqual(calls.filter(call => call === 'submit' || call?.capability === 'goalControl'), [],
       'opening an editor does not send a goal command or a message');
     assert.equal(host.textContent.includes('Usage: /goal'), false);

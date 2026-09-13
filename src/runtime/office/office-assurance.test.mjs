@@ -14,8 +14,10 @@ import {
   reviewRenderedOfficePages,
   reviewOfficeStructure,
 } from './quality/assurance.mjs';
+import { isSmallWorksheetDocument } from './quality/assurance-rendered.mjs';
 import { officeTemplateCoverage } from './design/library/design-library.mjs';
 import { expandOfficeDesignOperations, resolveOfficeDesign } from './design/design-system.mjs';
+import { normalizeOfficeContentModel } from './design/content-model.mjs';
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
 import { evaluatePowerPointCategorySpacing } from './pdf/pdf-analysis.mjs';
 import { evaluateXlsxAssertions } from './portable/xlsx-assertions.mjs';
@@ -291,6 +293,55 @@ test('format-specific Office review catches orphan headings, chart totals, and s
   assert.ok(!powerpoint.some((entry) => entry.path === '/slide[1]/shape[3]'));
 });
 
+test('the worksheet review reports a chart the print area leaves out', () => {
+  const chart = {
+    path: '/sheet[Sheet1]/chart[1]',
+    anchor: { from: 'F2', to: 'O19', startColumn: 6, startRow: 2, endColumn: 15, endRow: 19 },
+  };
+  const review = (printArea, pageSetup = {}) => reviewOfficeStructure({
+    format: 'xlsx',
+    document: { sheets: [{ path: '/sheet[Sheet1]', name: 'Sheet1', cells: [], charts: [chart], pageSetup: { printArea, ...pageSetup } }] },
+  }).filter((entry) => entry.code === 'drawing_outside_print_area');
+  // No print area at all is information: the sheet may still print whole.
+  const missing = review('');
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].path, '/sheet[Sheet1]/chart[1]');
+  assert.equal(missing[0].severity, 'info');
+  assert.match(missing[0].message, /no print area/);
+  // A declared print area that leaves the chart out cuts it: that one warns.
+  const cut = review('A1:B5');
+  assert.equal(cut[0].severity, 'warning');
+  assert.match(cut[0].message, /past the print area A1:B5/);
+  // A sheet fitted to one page wide exports whole without a print area.
+  assert.deepEqual(review('', { fitToPagesWide: 1 }), []);
+  // A print area containing the chart, including a multi-area one, stays silent.
+  assert.deepEqual(review('A1:P20'), []);
+  assert.deepEqual(review('A1:B5,D1:P20'), []);
+});
+
+// A five-row table prints at full scale however little of the page it covers;
+// only a sheet the fit or zoom shrank is "scaled into a small area".
+test('a small worksheet printed at full scale is not reported as scaled down', async () => {
+  const canvas = createCanvas(240, 160);
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#183028';
+  context.fillRect(14, 30, 150, 3);
+  context.fillRect(14, 95, 150, 3);
+  context.fillRect(14, 30, 3, 68);
+  context.fillRect(161, 30, 3, 68);
+  const image = { page: 1, data: canvas.toBuffer('image/png').toString('base64') };
+  const scaled = await reviewRenderedOfficePages([image], { format: 'xlsx' });
+  assert.ok(scaled.issues.some((issue) => issue.code === 'worksheet_print_too_small'));
+  const small = await reviewRenderedOfficePages([image], { format: 'xlsx', smallWorksheet: true });
+  assert.deepEqual(small.issues.filter((issue) => issue.code === 'worksheet_print_too_small'), []);
+  assert.equal(isSmallWorksheetDocument({ sheets: [{ rows: 5, columns: 5, pageSetup: { zoom: 100 } }] }), true);
+  assert.equal(isSmallWorksheetDocument({ sheets: [{ rows: 5, columns: 5 }, { rows: 60, columns: 5 }] }), false);
+  assert.equal(isSmallWorksheetDocument({ sheets: [{ rows: 5, columns: 5, pageSetup: { zoom: 60 } }] }), false);
+  assert.equal(isSmallWorksheetDocument({ sheets: [] }), false);
+});
+
 test('Word review flags typed bullets and newlines inside paragraphs as machine tells', () => {
   const issues = reviewOfficeStructure({
     format: 'docx',
@@ -299,6 +350,8 @@ test('Word review flags typed bullets and newlines inside paragraphs as machine 
         { path: '/body/p[1]', index: 1, text: '• 타이핑한 글머리표', style: 'Normal', start: 1 },
         { path: '/body/p[2]', index: 2, text: '첫 줄\n둘째 줄', style: 'Normal', start: 20 },
         { path: '/body/p[3]', index: 3, text: '정상 문단 - 대시는 문장 안에서 허용', style: 'Normal', start: 40 },
+        // A soft break reads back as a newline and Word draws it as a line break.
+        { path: '/body/p[4]', index: 4, text: '첫 줄\n둘째 줄', style: 'Normal', softBreaks: 1, start: 60 },
       ],
       tables: [],
       blockOrder: [
@@ -397,6 +450,204 @@ test('critical Office review rejects persisted empty charts and formula errors',
   assert.equal(deck.find((entry) => entry.code === 'empty_chart')?.severity, 'error');
 });
 
+// A spine a slide already shares is a promise: a rule, a connector, and the band
+// under them read as one axis. An element a few points off it reads as a slip the
+// eye sees but cannot name, which is why the measured read owns it instead of
+// leaving it to the rendered inspection.
+test('slide review reports an element that almost lands on the axis its neighbours share', () => {
+  const slide = (drifting) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [{
+      index: 1,
+      path: '/slide[1]',
+      shapes: [
+        { path: '/slide[1]/shape[1]', index: 1, left: 480, top: 240, width: 0, height: 40 },
+        { path: '/slide[1]/shape[2]', index: 2, left: 480, top: 300, width: 0, height: 30 },
+        { path: '/slide[1]/shape[3]', index: 3, left: 256, top: 350, width: 448, height: 44 },
+        { path: '/slide[1]/shape[4]', index: 4, left: drifting, top: 400, width: 448, height: 44 },
+      ],
+    }],
+  });
+  const drifted = reviewOfficeStructure({ format: 'pptx', document: slide(260) })
+    .filter((entry) => entry.code === 'axis_drift');
+  assert.equal(drifted.length, 1);
+  assert.equal(drifted[0].path, '/slide[1]/shape[4]');
+  assert.match(drifted[0].message, /centre sits 4\.0 pt off the axis/);
+  // On the axis, and clear of it, are both decisions the review leaves alone.
+  for (const left of [256, 200]) {
+    assert.deepEqual(
+      reviewOfficeStructure({ format: 'pptx', document: slide(left) }).filter((entry) => entry.code === 'axis_drift'),
+      [],
+      `left ${left}`,
+    );
+  }
+});
+
+// A row of identical cards is one rhythm. Gaps placed by hand differ by a few
+// points, which reads as a wobble; the same row from one set of columns does not.
+test('slide review reports a row of equal cards whose gaps are not the same', () => {
+  const row = (thirdLeft) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [{
+      index: 1,
+      path: '/slide[1]',
+      shapes: [
+        { path: '/slide[1]/shape[1]', index: 1, left: 40, top: 200, width: 260, height: 180 },
+        { path: '/slide[1]/shape[2]', index: 2, left: 330, top: 200, width: 260, height: 180 },
+        { path: '/slide[1]/shape[3]', index: 3, left: thirdLeft, top: 200, width: 260, height: 180 },
+      ],
+    }],
+  });
+  const uneven = reviewOfficeStructure({ format: 'pptx', document: row(628) })
+    .filter((entry) => entry.code === 'peer_gap_uneven');
+  assert.equal(uneven.length, 1);
+  assert.match(uneven[0].message, /row of 3 equal shapes/);
+  // One set of columns, and a gap wide enough to read as a break between groups,
+  // are both decisions the review leaves alone.
+  for (const left of [620, 760]) {
+    assert.deepEqual(
+      reviewOfficeStructure({ format: 'pptx', document: row(left) }).filter((entry) => entry.code === 'peer_gap_uneven'),
+      [],
+      `third card at ${left}`,
+    );
+  }
+  // Two cards are a pair, not a rhythm, and unequal cards keep their own reasons.
+  const pair = row(620);
+  pair.slides[0].shapes = pair.slides[0].shapes.slice(0, 2);
+  assert.deepEqual(reviewOfficeStructure({ format: 'pptx', document: pair }).filter((entry) => entry.code === 'peer_gap_uneven'), []);
+  const mixed = row(628);
+  mixed.slides[0].shapes[2].width = 180;
+  assert.deepEqual(reviewOfficeStructure({ format: 'pptx', document: mixed }).filter((entry) => entry.code === 'peer_gap_uneven'), []);
+});
+
+// PowerPoint's selection pane hides a shape: it stays in the file and the slide
+// does not show it. Measured as a visible one it produces collisions, contrast
+// failures, and edge violations no reader can see — and a fix round chasing them
+// edits a box that was deliberately withdrawn.
+test('a hidden shape is not measured as part of the slide', () => {
+  const deck = (hidden) => ({
+    format: 'pptx',
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [{
+      path: '/slide[1]',
+      index: 1,
+      background: { color: 'FFFFFF' },
+      shapes: [
+        {
+          path: '/slide[1]/shape[1]',
+          index: 1,
+          type: 'p:sp',
+          text: '야간 운영 전환 승인',
+          font: { size: 28, color: '101418' },
+          left: 60,
+          top: 60,
+          width: 600,
+          height: 70,
+        },
+        {
+          path: '/slide[1]/shape[2]',
+          index: 2,
+          type: 'p:sp',
+          text: '이전 초안: 주간 인력 6명으로 대체',
+          font: { size: 28, color: 'FAFAFA' },
+          left: 60,
+          top: 70,
+          width: 600,
+          height: 70,
+          ...(hidden ? { hidden: true } : {}),
+        },
+      ],
+    }],
+  });
+  const shown = reviewOfficeStructure({ format: 'pptx', document: deck(false) }).map((entry) => entry.code);
+  assert.ok(shown.includes('low_contrast'), shown.join(', '));
+  assert.ok(shown.includes('shape_overlap'), shown.join(', '));
+  assert.deepEqual(reviewOfficeStructure({ format: 'pptx', document: deck(true) }), []);
+});
+
+// The page number is master chrome: a body block a few points above it is not a
+// spacing defect, but a block drawn over it ran into the foot. The portable read
+// left the field out of both checks, so a column that overran the page passed
+// there and failed under PowerPoint.
+test('the slide review reports a text box drawn over the page number, and only that', () => {
+  const deck = (bodyBottom) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [{
+      path: '/slide[1]',
+      index: 1,
+      shapes: [
+        { path: '/slide[1]/shape[1]', index: 1, text: '허브별 처리량', left: 43, top: 72, width: 873, height: 54, font: { size: 32, color: '17212B' } },
+        { path: '/slide[1]/shape[2]', index: 2, text: '교대 초에 동선 점검, 후반에 야간 순찰. 근접 경보는 즉시 정지한다.', left: 647, top: 460, width: 269, height: bodyBottom - 460, font: { size: 15, color: '17212B' } },
+        { path: '/slide[1]/shape[3]', index: 3, text: '3', placeholder: true, left: 845, top: 504, width: 72, height: 22, font: { size: 9, color: '5A6872' } },
+      ],
+    }],
+  });
+  const codes = (bodyBottom) => reviewOfficeStructure({ format: 'pptx', document: deck(bodyBottom) }).map((entry) => entry.code);
+  const overran = codes(512);
+  assert.ok(overran.includes('shape_overlap'), overran.join(', '));
+  const clear = codes(502);
+  assert.ok(!clear.includes('shape_overlap'), clear.join(', '));
+  assert.ok(!clear.includes('text_spacing_tight'), clear.join(', '));
+});
+
+// A takeaway band laid across the foot of a chart hides the category axis, so
+// the page shows bars with no names. Only text boxes were compared with each
+// other, and a portable deck reports its fills as fill: { color }, which the
+// checks did not read at all.
+test('the slide review reports a band drawn over a chart', () => {
+  const deck = (bandTop) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [{
+      path: '/slide[1]',
+      index: 1,
+      shapes: [
+        { path: '/slide[1]/shape[1]', index: 1, text: '허브별 처리량', left: 43, top: 72, width: 873, height: 54, font: { size: 32, color: '17212B' } },
+        { path: '/slide[1]/shape[2]', index: 2, text: '', chart: { path: '/slide[1]/shape[2]/chart', seriesCount: 1 }, left: 43, top: 158, width: 518, height: 288 },
+        { path: '/slide[1]/shape[3]', index: 3, text: '', geometry: 'rect', fill: { color: 'EDD9D9' }, left: 43, top: bandTop, width: 873, height: 50 },
+      ],
+    }],
+  });
+  const covered = reviewOfficeStructure({ format: 'pptx', document: deck(425) });
+  const overlap = covered.find((entry) => entry.code === 'shape_overlap');
+  assert.ok(overlap, JSON.stringify(covered));
+  assert.equal(overlap.path, '/slide[1]/shape[2]');
+  assert.match(overlap.message, /category axis/);
+  // The same band clear of the chart is a composition, not a defect.
+  assert.ok(!reviewOfficeStructure({ format: 'pptx', document: deck(470) }).some((entry) => entry.code === 'shape_overlap'));
+});
+
+// A source line that starts inside a table's last row is a table that ran into the foot; text over a chart
+// may be an annotation, so only the table is read this way.
+test('the slide review reports a text box that runs into a table', () => {
+  const deck = (frame, sourceTop) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [{
+      path: '/slide[1]',
+      index: 1,
+      shapes: [
+        { path: '/slide[1]/shape[1]', index: 1, text: '첫 주 지표', left: 43, top: 72, width: 873, height: 54, font: { size: 32, color: '17212B' } },
+        { path: '/slide[1]/shape[2]', index: 2, text: '', ...frame, left: 43, top: 300, width: 873, height: 190 },
+        { path: '/slide[1]/shape[3]', index: 3, text: '예시 수치 · 코호트 분석', left: 43, top: sourceTop, width: 600, height: 16, font: { size: 11, color: '6B7A8A' } },
+      ],
+    }],
+  });
+  // The snapshot lists the table's cell text on the table shape itself; that text is the frame, never a box over it.
+  const table = { table: { path: '/slide[1]/shape[2]/table', rows: 4, columns: 4 }, text: '지표 61% 78% +17%p' };
+  const intoTable = (entry) => entry.code === 'shape_overlap' && /runs into the table/.test(entry.message);
+  const collided = reviewOfficeStructure({ format: 'pptx', document: deck(table, 484) }).find(intoTable);
+  assert.ok(collided, 'the source line starts 6 pt inside the table');
+  assert.equal(collided.path, '/slide[1]/shape[2]');
+  assert.ok(!reviewOfficeStructure({ format: 'pptx', document: deck(table, 500) }).some(intoTable), 'the same line under the table is a foot');
+  const chart = { chart: { path: '/slide[1]/shape[2]/chart', seriesCount: 1 } };
+  assert.ok(!reviewOfficeStructure({ format: 'pptx', document: deck(chart, 484) }).some((entry) => entry.code === 'shape_overlap'), 'text over a chart may be an annotation');
+});
+
 test('quality pipeline upgrades critical issues and returns target-specific polish actions', () => {
   const plan = buildOfficePolishPlan({
     format: 'pptx',
@@ -474,9 +725,50 @@ test('one content model binds the same sourced facts across Word, Excel, and Pow
   const fingerprints = [word, excel].map((entry) => entry.content.fingerprint);
   assert.equal(new Set(fingerprints).size, 1);
   assert.ok(excel.operations.some((entry) => entry.op === 'set_cell' && entry.value === '7월 실적'));
-  assert.equal(excel.operations.find((entry) => entry.op === 'set_cell' && entry.cell === 'A1')?.value, 'EXECUTIVE DECISION DASHBOARD');
+  // The band label follows the sheet's own language instead of dropping an
+  // English caption on Korean copy.
+  assert.equal(excel.operations.find((entry) => entry.op === 'set_cell' && entry.cell === 'A1')?.value, '의사결정 대시보드');
   assert.ok(excel.operations.some((entry) => entry.op === 'set_cell' && entry.value === 5660));
   assert.deepEqual(word.semantic[0].contentBinding.factIds, ['revenue']);
+
+  // A Word callout caption follows the copy the same way, and English copy
+  // keeps the English caption.
+  const callouts = (title, heading, callout) => expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    design: { profile: 'executive', purpose: 'decide' },
+    operations: [{ op: 'compose_document', title, sections: [{ heading, paragraphs: ['본문'], callout }] }],
+  }).operations
+    .filter((entry) => entry.op === 'add_table')
+    .flatMap((entry) => (entry.values || []).flat());
+  assert.ok(callouts('4분기 운영 리뷰', '요약', '야간 인력 증원을 승인해 주십시오.').includes('다음 점검'));
+  assert.ok(callouts('Q4 operations review', 'Summary', 'Approve the night staff increase.').includes('NEXT CHECKPOINT'));
+});
+
+// A content id names a figure inside the package; nothing in the file format
+// reads it. Requiring ASCII made a Korean package invent keys for its own
+// facts, and the error named neither the entry nor the missing field.
+test('content ids take the package\'s own language and name the entry that fails', () => {
+  const model = (facts, claims) => normalizeOfficeContentModel({ packageId: '운영_리뷰', facts, claims });
+  const facts = [{ id: '정시_출고율', label: '정시 출고율', value: 0.928, numberFormat: '0.0%' }];
+  const bound = model(facts, [{ id: '출고율_상승', text: '정시 출고율이 올랐다', factIds: ['정시_출고율'] }]);
+  assert.deepEqual(bound.facts.map((fact) => fact.id), ['정시_출고율']);
+  assert.deepEqual(bound.claims[0].factIds, ['정시_출고율']);
+  // A claim that names its references "facts" used to bind to nothing at all,
+  // and the figure it carried was then reported as unsourced.
+  assert.deepEqual(
+    model(facts, [{ id: '출고율_상승', text: '정시 출고율이 올랐다', facts: ['정시_출고율'] }]).claims[0].factIds,
+    ['정시_출고율'],
+  );
+  assert.throws(
+    () => model([{ label: '정시 출고율', value: 0.928 }], []),
+    /fact id is required \(fact 1: 정시 출고율\)/,
+  );
+  assert.throws(
+    () => model([{ id: '정시 출고율', value: 0.928 }], []),
+    /fact id "정시 출고율" must use 1-64 letters/,
+  );
 });
 
 test('semantic composers emit editorial rhythm, dashboard print setup, and native evidence slides', () => {
@@ -539,8 +831,15 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
   assert.equal(excelChart.zeroBaseline, true);
   const chart = workbook.operations.find((entry) => entry.op === 'add_chart');
   assert.ok(chart);
-  assert.ok(chart.width >= 850);
-  assert.ok(chart.height >= 420);
+  // The chart is a band of the composition: it starts at the canvas edge and ends
+  // where the table ends, instead of a fixed 880pt frame beside a narrower table.
+  const fitted = workbook.operations.find((entry) => entry.op === 'autofit_range' && !entry.rows);
+  assert.equal(chart.left, 0);
+  assert.ok(
+    Math.abs(chart.width - (((fitted.minWidth * 7) + 5) * 0.75 * 2)) < 1,
+    `chart spans the two canvas columns: ${chart.width}pt at ${fitted.minWidth} characters each`,
+  );
+  assert.ok(chart.height >= 320);
   assert.doesNotMatch(chart.range, /12$/);
 
   // A deck is never composed by the runtime: the operation is refused with the authoring route.
@@ -610,6 +909,59 @@ test('formula-consistency assertions honor the requested range', () => {
     range: 'D5:D10',
   }]);
   assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+// A formula written without Excel has no cached result until the workbook is
+// recalculated. Compared as an empty value, a correct model reads as wrong — the
+// caller rewrites a right formula instead of running the step that fills it.
+test('an assertion against an uncalculated formula says so instead of reporting a wrong value', () => {
+  const document = {
+    sheets: [{
+      name: 'Sheet1',
+      cells: [
+        { path: '/sheet[Sheet1]/cell[B2]', ref: 'B2', value: 38400000 },
+        { path: '/sheet[Sheet1]/cell[B4]', ref: 'B4', formula: 'SUM(B2:B3)', value: '' },
+      ],
+    }],
+  };
+  const pending = evaluateXlsxAssertions(document, [{ kind: 'cell-value', sheet: 'Sheet1', cell: 'B4', equals: 50400000 }]);
+  assert.equal(pending.ok, false);
+  assert.equal(pending.issues[0].code, 'assertion_value_uncalculated');
+  assert.match(pending.issues[0].message, /=SUM\(B2:B3\)/);
+  assert.match(pending.issues[0].message, /finalize/);
+  // Once the value exists, the same assertion is answered on the number, and a
+  // genuinely wrong expectation still fails as a mismatch.
+  const calculated = { sheets: [{ ...document.sheets[0], cells: [document.sheets[0].cells[0], { ...document.sheets[0].cells[1], value: 50400000 }] }] };
+  assert.equal(evaluateXlsxAssertions(calculated, [{ kind: 'cell-value', sheet: 'Sheet1', cell: 'B4', equals: 50400000 }]).ok, true);
+  const wrong = evaluateXlsxAssertions(calculated, [{ kind: 'cell-value', sheet: 'Sheet1', cell: 'B4', equals: 999 }]);
+  assert.equal(wrong.issues[0].code, 'assertion_value_mismatch');
+  // An empty cell is not the number zero: compared as one, an uncalculated model
+  // answered "correct" to a zero expectation.
+  const zero = evaluateXlsxAssertions(document, [{ kind: 'cell-value', sheet: 'Sheet1', cell: 'B4', equals: 0 }]);
+  assert.equal(zero.ok, false);
+  assert.equal(zero.issues[0].code, 'assertion_value_uncalculated');
+});
+
+// A tie-out is the strictest check in a model, and two uncalculated sides are
+// both empty: it used to agree with itself while no number existed at all.
+test('a tie-out between uncalculated formulas is pending, not agreement', () => {
+  const sheet = (values) => ({
+    sheets: [{
+      name: 'Sheet1',
+      cells: [
+        { path: '/sheet[Sheet1]/cell[B5]', ref: 'B5', formula: 'SUM(B2:B3)', value: values[0] },
+        { path: '/sheet[Sheet1]/cell[D5]', ref: 'D5', formula: 'B2+B3', value: values[1] },
+      ],
+    }],
+  });
+  const tie = [{ kind: 'tie-out', sheet: 'Sheet1', left: 'B5', right: 'D5' }];
+  const pending = evaluateXlsxAssertions(sheet(['', '']), tie);
+  assert.equal(pending.ok, false);
+  assert.equal(pending.issues[0].code, 'assertion_value_uncalculated');
+  assert.match(pending.issues[0].message, /B5.*D5/s);
+  assert.equal(evaluateXlsxAssertions(sheet([50400000, 50400000]), tie).ok, true);
+  const disagree = evaluateXlsxAssertions(sheet([50400000, 38400000]), tie);
+  assert.equal(disagree.issues[0].code, 'assertion_tie_out_failed');
 });
 
 test('Office assurance benchmark covers spreadsheet, slide, document, cross-app, locale, and Brand kit gates', async () => {

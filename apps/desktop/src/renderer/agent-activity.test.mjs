@@ -31,10 +31,8 @@ import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
 import { desktopHeaderSnapshotsEqual } from "./desktop-snapshot-store.ts";
 import { shellJobsStatusEqual } from "../shared/shell-jobs-status.ts";
-import {
-  inheritanceContextFit,
-  shouldOfferSessionInheritance,
-} from "./session-inheritance.ts";
+import { shouldOfferSessionInheritance } from "./session-inheritance.ts";
+import { DESKTOP_TOAST_EVENT } from "./desktop-toasts.tsx";
 
 function installDom() {
   const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
@@ -315,19 +313,16 @@ test("the context card offers inheritance only after the selected model changes"
     ...changed,
     items: [{ kind: "assistant", provider: "cursor", model: "gpt-5.6", text: "done" }],
   }), false);
-  assert.deepEqual(inheritanceContextFit({
-    usedTokens: 80,
-    compaction: { triggerTokens: 100, pressureTokens: 90 },
-  }, changed), {
-    known: true,
-    fits: true,
-    used: 90,
-    limit: 100,
-    percent: 90,
-  });
-
   const dom = installDom();
   const inherited = [];
+  const preflights = [];
+  let verdict = { known: true, fits: true, used: 90, limit: 100, percent: 90, reason: "" };
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => {
+      preflights.push(request);
+      return { value: verdict };
+    },
+  };
   try {
     await act(async () => {
       dom.root.render(React.createElement(SessionStatusIsland, {
@@ -348,6 +343,28 @@ test("the context card offers inheritance only after the selected model changes"
       sourceSessionId: "lead-inherit",
       route: { provider: "cursor", model: "gpt-5.6" },
     }]);
+    // The verdict belongs to the heir's route, so it is read from the runtime
+    // that would perform the carry — never from this card's own gauge, which
+    // measures the session's current provider against its current model.
+    assert.deepEqual(preflights, [{
+      capability: "inheritancePreflight",
+      args: ["lead-inherit", { provider: "cursor", model: "gpt-5.6" }],
+      sessionId: "lead-inherit",
+    }]);
+
+    // A conversation the heir cannot hold is refused before any session is
+    // created, in the user's own words instead of an engine sentence.
+    verdict = { known: true, fits: false, used: 853_569, limit: 500_000, percent: 171, reason: "" };
+    const warnings = [];
+    window.addEventListener(DESKTOP_TOAST_EVENT, (event) => warnings.push(event.detail));
+    await act(async () => {
+      document.querySelector(".context-inherit")
+        .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(preflights.length, 2);
+    assert.equal(inherited.length, 1);
+    assert.equal(warnings.at(-1)?.tone, "warn");
+
     const compacted = [];
     window.mixdogDesktop = {
       invokeCapability: async (request) => { compacted.push(request); },

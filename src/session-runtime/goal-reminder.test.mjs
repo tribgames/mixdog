@@ -118,6 +118,40 @@ test('a deadline warning carries the wrap-up contract and the live remaining tim
   assert.match(snapshot.content, /never complete or block to beat the clock/);
 });
 
+test('an undelivered advance warning uses the authoritative stopped state at request preparation', () => {
+  const session = { id: 'sess_goal_warning_expired' };
+  const stopped = goal({
+    status: 'duration_reached', revision: 9, timeLimitMs: 60_000, timeUsedMs: 60_000,
+  });
+  markPendingGoalReminder(session, 'deadline-soon');
+  const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => stopped });
+  assert.equal(snapshot.goal.status, 'duration_reached');
+  assert.match(snapshot.content, /<goal_deadline_reached>/);
+  assert.match(snapshot.content, /Revision: 9/);
+  assert.doesNotMatch(snapshot.content, /nearly over|still active/);
+  assert.equal(acknowledgePendingGoalReminder(session, snapshot.revision), true);
+  assert.equal(snapshotPendingGoalReminder(session, { readGoal: () => stopped }), null);
+});
+
+test('a resumed Goal drops stale closeout context instead of stopping the new commitment', () => {
+  const session = { id: 'sess_goal_closeout_resumed' };
+  markPendingGoalReminder(session, 'deadline-reached');
+  assert.equal(snapshotPendingGoalReminder(session, { readGoal: () => goal() }), null);
+  assert.equal(session.pendingGoalReminder, undefined);
+});
+
+test('a user pause supersedes pending deadline guidance without losing the resume boundary', () => {
+  for (const reason of ['deadline-soon', 'deadline-reached']) {
+    const session = { id: `sess_goal_paused_${reason}` };
+    markPendingGoalReminder(session, reason);
+    const snapshot = snapshotPendingGoalReminder(session, {
+      readGoal: () => goal({ status: 'paused' }),
+    });
+    assert.match(snapshot.content, /The user paused this Goal/);
+    assert.doesNotMatch(snapshot.content, /<goal_deadline/);
+  }
+});
+
 test('post-compact Goal state is prepended to the current user turn and leaves no next-turn reminder', () => {
   const session = { id: 'sess_goal_inline' };
   markPendingGoalReminder(session);
@@ -143,6 +177,14 @@ test('Goal task lines carry mark, id, and kind for every task', () => {
     ['- [ ] task_9 (work): Do &lt;it&gt;'],
   );
   assert.equal(goalStateReminder(null), '');
+});
+
+test('Goal reminders exclude dropped work from progress but preserve its task record', () => {
+  const current = goal();
+  current.tasks.push({ id: 'task_3', text: 'Retired work', status: 'dropped', kind: 'work' });
+  const text = goalStateReminder(current);
+  assert.match(text, /Status: active · tasks 1\/2/);
+  assert.match(text, /- \[-\] task_3 \(work\): Retired work/);
 });
 
 test('request preparation finds a paused Goal without any intake marker and does not resume it', () => {

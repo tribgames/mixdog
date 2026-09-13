@@ -17,6 +17,7 @@ import { traceCacheBreak } from '../cache-break-trace.mjs';
 
 
 import { mergeSteeringEntries, steeringContentText } from './loop/steering.mjs';
+import { prepareExplicitSkills } from './explicit-skills.mjs';
 import { addUsage } from './loop/usage.mjs';
 import { HIDDEN_AGENT_NAMES } from './loop/hidden-agents.mjs';
 import {
@@ -199,6 +200,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         messages.push(message);
         try { opts.onToolResult?.(message); } catch {}
     };
+    const pendingSkillPrompts = [];
     const drainSteeringIntoMessages = (stage = 'mid-turn', options = {}) => {
         if (typeof opts.drainSteering !== 'function') return false;
         let steerMsgs = [];
@@ -256,6 +258,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     ...(steeringTranscriptMeta ? { transcript: steeringTranscriptMeta } : {}),
                 },
             });
+            if (!notification) pendingSkillPrompts.push(merged.content);
             const text = merged.text || steeringContentText(merged.content);
             totalCount += Number(merged.count) || 1;
             totalTextLen += String(text || '').length;
@@ -423,6 +426,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             });
             _toolBatchJustCompleted = false;
             _lastToolBatchHadSleep = false;
+        }
+        // Drains are synchronous (also used by terminal guards). Perform the
+        // policy-checked selection before the next provider snapshot instead
+        // of starting detached work from a drain callback.
+        while (pendingSkillPrompts.length) {
+            await prepareExplicitSkills(pendingSkillPrompts.shift(), messages, sessionRef, {
+                cwd, signal: opts.signal,
+            });
         }
         const baseSendTools = tools;
         let sendTools;
@@ -1004,7 +1015,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // Per-turn batch shape — one row per assistant turn so trace
         // consumers can derive multi-tool adoption ratio without scanning
         // every assistant message body.
-        recordToolBatch(sessionId, calls.length);
+        const toolBatchId = recordToolBatch(sessionId, calls, iterations);
         await Promise.resolve(onToolCall?.(iterations, calls));
         const _providerReplay = cloneProviderReplay(response.providerReplay);
         // Append assistant message with tool calls. reasoningItems is the
@@ -1072,7 +1083,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const _toolsT0 = Date.now();
         ({ dedupStubTotal: _dedupStubTotal, editCount: _editCount } = await processToolBatch({
             calls: _callsToExecute, messages, tools, cwd, sessionId, sessionRef, signal, opts,
-            iterations, assistantTurnMsg: _assistantTurnMsg,
+            iterations, assistantTurnMsg: _assistantTurnMsg, toolBatchId,
             pending: eager.pending, epoch: eager.epoch, startEagerRun: eager.startEagerRun,
             crossTurnCalls: _crossTurnCalls, crossTurnCap: _CROSS_TURN_CAP,
             dedupStubTotal: _dedupStubTotal, editCount: _editCount,

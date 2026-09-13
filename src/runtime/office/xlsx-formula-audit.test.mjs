@@ -127,6 +127,17 @@ test('layout hygiene reports an unfrozen header on a long sheet and unformatted 
   assert.deepEqual(codesAt(findings, 'header_not_frozen'), ['/sheet[Long]']);
   assert.deepEqual(codesAt(findings, 'numeric_column_unformatted'), ['/sheet[Long]/table[1]']);
   assert.match(findings.find((entry) => entry.code === 'numeric_column_unformatted').message, /^Column B of Items/);
+  // Several unformatted columns are one finding about that table: repeated per
+  // column they all carry the table's path and read as duplicates.
+  const twoColumns = {
+    ...long,
+    cells: long.cells.map((cell) => (/^C\d+$/.test(cell.ref) && cell.ref !== 'C1'
+      ? { ...cell, value: Number(String(cell.value).slice(-2)) || 12 }
+      : cell)),
+  };
+  const grouped = auditXlsxFormulas([twoColumns]).filter((entry) => entry.code === 'numeric_column_unformatted');
+  assert.equal(grouped.length, 1, JSON.stringify(grouped));
+  assert.match(grouped[0].message, /^Columns B, C of Items/);
   assert.ok(findings.every((entry) => entry.severity === 'info'));
 
   const formatted = {
@@ -188,15 +199,81 @@ test('financial-model audit reads notes, the Checks sheet, and merges into a hos
   assert.deepEqual(codesAt(dataFindings, 'hardcode_missing_source'), ['/sheet[Data]/cell[B9]']);
 
   const merged = mergeXlsxFormulaAudit(
-    { ok: true, issues: [{ severity: 'warning', code: 'failed_check', path: '/sheet[Checks]/cell[B2]', message: 'host' }] },
+    { ok: true, issues: [
+      { severity: 'warning', code: 'failed_check', path: '/sheet[Checks]/cell[B2]', message: 'host' },
+      // Excel's host calls every uncommented number on a sheet unsourced; the shared audit owns that verdict.
+      { severity: 'warning', code: 'hardcode_missing_source', path: '/sheet[Model]/cell[E9]', message: 'Hardcoded numeric input has no source comment.' },
+    ] },
     { sheets: [model, checks] },
     { auditProfile: 'financial-model' },
   );
   assert.equal(merged.issues.filter((entry) => entry.code === 'failed_check').length, 1);
   assert.equal(merged.issues[0].message, 'host');
+  assert.deepEqual(codesAt(merged.issues, 'hardcode_missing_source'), ['/sheet[Model]/cell[B2]']);
   assert.equal(merged.sharedAudit.added, merged.issues.length - 1);
   const scoped = mergeXlsxFormulaAudit({ issues: [] }, { sheets: [model, checks] }, { auditProfile: 'financial-model', sheet: 'Checks' });
   assert.ok(scoped.issues.every((entry) => entry.path.startsWith('/sheet[Checks]')));
+
+  // Excel's full read carries no cells for a sheet past 500 cells; the host's
+  // verdicts for that sheet stay, since the shared audit saw nothing there.
+  const unread = mergeXlsxFormulaAudit(
+    { ok: true, issues: [{ severity: 'warning', code: 'hardcode_missing_source', path: '/sheet[Big]/cell[B1501]', message: 'host' }] },
+    { sheets: [{ name: 'Big', path: '/sheet[Big]', rows: 1501, columns: 10 }, model] },
+    { auditProfile: 'financial-model' },
+  );
+  assert.deepEqual(codesAt(unread.issues, 'hardcode_missing_source'), ['/sheet[Big]/cell[B1501]', '/sheet[Model]/cell[B2]']);
+
+  // One unsourced input line is one finding: reported per cell, a four-period
+  // input row filled the answer and pushed the model's own faults out of it.
+  const row = sheet('Plan', [
+    ['A1', { value: '항목' }],
+    ['A2', { value: '출고 건수' }],
+    ['B2', { value: 11800 }],
+    ['C2', { value: 12100 }],
+    ['D2', { value: 12400 }],
+    ['A3', { value: '1인당' }],
+    ['B3', { formula: 'B2/40', value: 295 }],
+    ['C3', { formula: 'C2/40', value: 302 }],
+    ['D3', { formula: 'D2/40', value: 310 }],
+  ]);
+  const grouped = auditXlsxFormulas([row], { auditProfile: 'financial-model' })
+    .filter((entry) => entry.code === 'hardcode_missing_source');
+  assert.equal(grouped.length, 1, JSON.stringify(grouped));
+  assert.equal(grouped[0].path, '/sheet[Plan]/cell[B2]');
+  assert.match(grouped[0].message, /3 hardcoded inputs \(B2:D2\)/);
+});
+
+// The unmarked-inputs rule spares a plain dump and speaks to a designed model.
+// It was gated on "the cell has a style object", which every cell acquires once
+// the workbook passes through a recalculation engine: the same file was silent
+// before recalculation and flagged after it.
+test('unmarked inputs are judged by visible formatting, not by a style record recalculation adds', () => {
+  const cells = [
+    ['A1', { value: '항목' }],
+    ['B1', { value: '단가' }],
+    ['B2', { value: 3200000 }],
+    ['C2', { value: 12 }],
+    ['B3', { value: 6000000 }],
+    ['C3', { value: 2 }],
+    ['B4', { value: 4500000 }],
+    ['C4', { value: 2 }],
+    ['D2', { formula: 'B2*C2', value: 38400000 }],
+    ['D3', { formula: 'B3*C3', value: 12000000 }],
+    ['D4', { formula: 'B4*C4', value: 9000000 }],
+  ];
+  const unmarked = (sheetCells) => auditXlsxFormulas([sheet('Plan', sheetCells)], { auditProfile: 'financial-model' })
+    .filter((entry) => entry.code === 'input_cells_unmarked');
+  assert.deepEqual(unmarked(cells), [], 'a plain sheet is left alone');
+  // What a recalculation engine leaves behind: a style record on every cell,
+  // carrying nothing a reader can see.
+  const recalculated = cells.map(([ref, cell]) => [ref, { ...cell, style: { fontName: 'Calibri', fontSize: 11, numberFormat: 'General' } }]);
+  assert.deepEqual(unmarked(recalculated), [], 'the same sheet keeps its verdict after recalculation');
+  // A designed sheet — a header the author styled — still hears about inputs
+  // that cannot be told apart from the formulas beside them.
+  const designed = recalculated.map(([ref, cell]) => (
+    ref.endsWith('1') ? [ref, { ...cell, style: { ...cell.style, bold: true, fillColor: '1F6F8B', color: 'FFFFFF' } }] : [ref, cell]
+  ));
+  assert.deepEqual(unmarked(designed).map((entry) => entry.path), ['/sheet[Plan]']);
 });
 
 test('workbook conventions summarize faces, formats by column, and input markers', () => {

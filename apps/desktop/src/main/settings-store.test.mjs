@@ -8,11 +8,11 @@ import {
   desktopSettingsFromConfig,
   settingsConfigModuleUrl,
 } from './settings-store.ts';
+import { registerDesktopIpc } from './ipc.ts';
 import {
-  registerDesktopIpc,
   requiredDesktopCapabilityRequest,
   requiredDesktopSettingKey,
-} from './ipc.ts';
+} from './ipc-validation.ts';
 import { DESKTOP_IPC } from '../shared/contract.ts';
 
 test('settings config URL follows development and packaged runtime layouts', () => {

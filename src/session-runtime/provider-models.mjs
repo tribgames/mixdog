@@ -10,58 +10,11 @@ import { effortItemsFor } from './effort.mjs';
 import { fastCapableFor, fastPreferenceFor } from './model-capabilities.mjs';
 import { modelSettingsFor } from './config-helpers.mjs';
 import { isSelectableLlmModel } from './model-recency.mjs';
+import { catalogRevision, sharedProviderCatalog } from './provider-catalog-cache.mjs';
 
 const PROVIDER_MODELS_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(
   process.env.MIXDOG_PROVIDER_MODELS_PROFILE || process.env.MIXDOG_BOOT_PROFILE || '',
 ));
-
-// Raw provider model lists are process-global because the provider registry is
-// process-global in the daemon. Session runtimes keep only the cheap
-// hydrated projection (saved effort/fast/current-route ordering). This stops
-// every open pane from repeating the same provider list walk after startup.
-let sharedCatalogRevision = -1;
-let sharedCatalogEntries = null;
-let sharedCatalogPromise = null;
-let sharedCatalogPromiseRevision = -1;
-
-function catalogRevision(registry) {
-  const value = Number(registry?.providerCatalogRevision?.());
-  return Number.isFinite(value) ? value : 0;
-}
-
-async function sharedProviderCatalog(registry) {
-  const revision = catalogRevision(registry);
-  if (sharedCatalogRevision === revision && Array.isArray(sharedCatalogEntries)) {
-    return sharedCatalogEntries;
-  }
-  if (sharedCatalogPromise && sharedCatalogPromiseRevision === revision) {
-    return await sharedCatalogPromise;
-  }
-  const providers = [...registry.getAllProviders()];
-  sharedCatalogPromiseRevision = revision;
-  let request;
-  request = Promise.all(providers.map(async ([name, provider]) => {
-    if (typeof provider?.listModels !== 'function') return { name, models: [], ms: 0 };
-    const startedAt = performance.now();
-    try {
-      const models = await provider.listModels();
-      return { name, models: Array.isArray(models) ? models : [], ms: performance.now() - startedAt };
-    } catch (error) {
-      return { name, models: [], error, ms: performance.now() - startedAt };
-    }
-  })).then((entries) => {
-    sharedCatalogRevision = catalogRevision(registry);
-    sharedCatalogEntries = entries;
-    return entries;
-  }).finally(() => {
-    if (sharedCatalogPromise === request) {
-      sharedCatalogPromise = null;
-      sharedCatalogPromiseRevision = -1;
-    }
-  });
-  sharedCatalogPromise = request;
-  return await request;
-}
 
 export function createProviderModels({
   caches,
@@ -106,8 +59,13 @@ export function createProviderModels({
     return `${clean(providerId)}\n${clean(modelId)}`;
   }
 
+  function modelSnapshotIsCurrent(revision, seq) {
+    return revision === catalogRevision(reg()) && seq === caches.providerModelsLoadSeq;
+  }
+
   async function lookupModelMeta(providerId, modelId, { allowFetch = false } = {}) {
-    syncCatalogRevision();
+    const revision = syncCatalogRevision();
+    const seq = caches.providerModelsLoadSeq;
     const key = modelMetaKey(providerId, modelId);
     if (modelMetaByRoute.has(key)) return modelMetaByRoute.get(key);
     const providerImpl = reg().getProvider(providerId);
@@ -134,11 +92,11 @@ export function createProviderModels({
       const models = await providerImpl.listModels();
       const found = Array.isArray(models) ? models.find((m) => m?.id === modelId) : null;
       const meta = found || { id: modelId, provider: providerId };
-      modelMetaByRoute.set(key, meta);
+      if (modelSnapshotIsCurrent(revision, seq)) modelMetaByRoute.set(key, meta);
       return meta;
     } catch {
       const fallback = { id: modelId, provider: providerId };
-      modelMetaByRoute.set(key, fallback);
+      if (modelSnapshotIsCurrent(revision, seq)) modelMetaByRoute.set(key, fallback);
       return fallback;
     }
   }
@@ -233,7 +191,7 @@ export function createProviderModels({
     return results;
   }
 
-  async function loadProviderModelsFresh({ forceRefresh = false, loadSecrets = true } = {}) {
+  async function loadProviderModelsFresh({ forceRefresh = false, loadSecrets = true, request = null } = {}) {
     const startedAt = performance.now();
     profile('load:start', { forceRefresh, loadSecrets });
     if (loadSecrets) {
@@ -257,7 +215,12 @@ export function createProviderModels({
       await reg().refreshCatalogs({ force: true });
     }
     profile('catalog-refresh-ready', { ms: (performance.now() - refreshStartedAt).toFixed(1) });
-    syncCatalogRevision();
+    const ownsLoad = request !== null && request.seq === caches.providerModelsLoadSeq;
+    const revision = syncCatalogRevision();
+    // Preparation may legitimately refresh the catalog. Carry that revision
+    // forward only for the still-current request, never for a superseded load.
+    if (ownsLoad) request.seq = caches.providerModelsLoadSeq;
+    const seq = request?.seq ?? caches.providerModelsLoadSeq;
     const catalogEntries = await sharedProviderCatalog(reg());
     const providerResults = catalogEntries.map(({ name, models, error, ms }) => {
       const rows = [];
@@ -281,21 +244,21 @@ export function createProviderModels({
       if (seen.has(key)) continue;
       seen.add(key);
       results.push(row);
-      modelMetaByRoute.set(modelMetaKey(row.provider, row.id), row);
+      if (modelSnapshotIsCurrent(revision, seq)) {
+          modelMetaByRoute.set(modelMetaKey(row.provider, row.id), row);
+      }
     }
     profile('load:done', { ms: (performance.now() - startedAt).toFixed(1), providers: catalogEntries.length, rows: results.length });
     return results;
   }
 
-  function shouldAdoptProviderModelCache(models, { loadSecrets = true } = {}) {
-    // Background warmup deliberately avoids ensureFullConfig() so it cannot
-    // block the TUI on keychain/config reload. That no-secrets path is only a
-    // best-effort provider-internal prefetch. Its result may be a partial
-    // catalog (for example local/env providers listed while keychain-backed
-    // providers failed), so never let it become the authoritative picker cache.
-    // Foreground/forced loads still adopt empty lists because they loaded the
-    // authoritative config.
-    return loadSecrets;
+  function adoptProviderModelCache(models, seq, loadSecrets = true) {
+    const revision = syncCatalogRevision();
+    // No-secrets prefetches may be partial; only authoritative loads populate
+    // the picker cache, including an authoritative empty result.
+    if (seq === caches.providerModelsLoadSeq && loadSecrets) {
+      caches.providerModelsCache = { models, at: Date.now(), revision };
+    }
   }
 
   async function collectWebSearchProviderModels({ force = false } = {}) {
@@ -333,25 +296,22 @@ export function createProviderModels({
       return quickHelpers.quickProviderModelRows();
     }
     if (force) {
-      const seq = ++caches.providerModelsLoadSeq;
-      const models = await loadProviderModelsFresh({ forceRefresh: true, loadSecrets: true });
-      if (seq === caches.providerModelsLoadSeq) {
-        caches.providerModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
-      }
+      const request = { seq: ++caches.providerModelsLoadSeq };
+      const models = await loadProviderModelsFresh({ forceRefresh: true, loadSecrets: true, request });
+      adoptProviderModelCache(models, request.seq);
       return providerModelsFromCacheRows(models);
     }
     if (!caches.providerModelsPromise) {
-      const seq = ++caches.providerModelsLoadSeq;
-      caches.providerModelsPromise = loadProviderModelsFresh({ loadSecrets: true })
+      const request = { seq: ++caches.providerModelsLoadSeq };
+      const promise = loadProviderModelsFresh({ loadSecrets: true, request })
         .then((models) => {
-          if (seq === caches.providerModelsLoadSeq && shouldAdoptProviderModelCache(models, { loadSecrets: true })) {
-            caches.providerModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
-          }
+          adoptProviderModelCache(models, request.seq);
           return models;
         })
         .finally(() => {
-          caches.providerModelsPromise = null;
+          if (caches.providerModelsPromise === promise) caches.providerModelsPromise = null;
         });
+      caches.providerModelsPromise = promise;
     }
     return providerModelsFromCacheRows(await caches.providerModelsPromise);
   }
@@ -360,12 +320,10 @@ export function createProviderModels({
     syncCatalogRevision();
     if (Array.isArray(caches.providerModelsCache.models) || caches.providerModelsPromise) return caches.providerModelsPromise;
     profile('warm:start');
-    const seq = ++caches.providerModelsLoadSeq;
-    caches.providerModelsPromise = loadProviderModelsFresh({ loadSecrets })
+    const request = { seq: ++caches.providerModelsLoadSeq };
+    const promise = loadProviderModelsFresh({ loadSecrets, request })
       .then((models) => {
-        if (seq === caches.providerModelsLoadSeq && shouldAdoptProviderModelCache(models, { loadSecrets })) {
-          caches.providerModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
-        }
+        adoptProviderModelCache(models, request.seq, loadSecrets);
         bootProfile('provider-models:warm-ready', { count: models.length });
         return models;
       })
@@ -375,9 +333,10 @@ export function createProviderModels({
         return [];
       })
       .finally(() => {
-        caches.providerModelsPromise = null;
+        if (caches.providerModelsPromise === promise) caches.providerModelsPromise = null;
       });
-    return caches.providerModelsPromise;
+    caches.providerModelsPromise = promise;
+    return promise;
   }
 
   return {

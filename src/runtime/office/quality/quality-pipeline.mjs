@@ -27,7 +27,11 @@ const ADVISORY_CODES = new Set([
   'adaptive_layout_rhythm_flat',
   'adaptive_layout_selection_missing',
   'art_direction_candidates_missing',
+  // `beat_share_high` informs; `consecutive_beats` is deliberately absent — three dark or field pages in a row
+  // are measured from the shapes, and the reader waits through them for content.
+  'beat_share_high',
   'card_grid_overuse',
+  'page_underfill',
   'creative_direction_missing',
   'default_chart_treatment',
   'emphasis_mismatch',
@@ -49,7 +53,9 @@ const ADVISORY_CODES = new Set([
   'raw_table_slide',
   'recent_composition_repeat',
   'reference_genome_missing',
-  'repeated_layout_grammar',
+  // `repeated_layout_grammar` and `consecutive_composition_repeat` are deliberately absent: the same coarse
+  // grammar on most content pages, or three in a row, is measured from the shapes, not judged — the deck
+  // reads as one page repeated at contact-sheet scale. A deliberate series says so (design.review.allowRepetition).
   'repeated_render_composition',
   'repetitive_composition',
   'semantic_visual_plan_missing',
@@ -57,7 +63,9 @@ const ADVISORY_CODES = new Set([
   'theme_body_backgrounds',
   'under_composed_slide',
   'under_composed_structure',
-  'vertical_imbalance',
+  // `vertical_imbalance` is deliberately absent: the skill lists it as a soft
+  // target next to axis_drift and edge_margin, and a hollow band is measured,
+  // not judged — the page stops halfway down the canvas.
   'visual_reference_selection_missing',
   'visual_role_variety_low',
 ]);
@@ -89,6 +97,10 @@ const POLISH_GUIDANCE = Object.freeze({
   chart_includes_total_row: 'Separate comparison rows from total or subtotal rows and narrow the chart source range.',
   worksheet_print_too_small: 'Recompose the sheet for one-page-wide reading; move support data off the dashboard if needed.',
   worksheet_print_fit_missing: 'Set a deliberate print area, landscape orientation when useful, and one-page-wide fitting.',
+  drawing_outside_print_area: 'Set a print area that contains the chart or picture (set_page_setup with fitToContent, or an explicit printArea); an export otherwise splits or drops it.',
+  drawing_overlap: 'Anchor the second chart or picture below or beside the first (its cell past the rows or columns the first one spans — a 230 pt chart covers about 15 rows); one drawing over another hides both.',
+  label_truncated: 'Widen the column (autofit_range) or shorten the label; the cell beside it has content, so the reader sees only part of the text.',
+  protected_input_locked: 'Unlock the entry range (set_style with properties { locked: false }) before protect_sheet; a protected sheet locks every cell by default, so the form cannot be filled in.',
   heading_hierarchy_missing: 'Create a clear title and heading hierarchy that matches the document reading path.',
   orphan_heading: 'Keep the heading with the paragraph or table it introduces.',
   short_table_split: 'Keep the short table together or move it intact to the next page.',
@@ -105,6 +117,7 @@ const POLISH_GUIDANCE = Object.freeze({
   emphasis_mismatch: 'Enlarge the evidence or thesis the brief names as primary and shrink the element that currently outweighs it.',
   low_visual_contrast: 'Increase figure-ground contrast without adding decoration; verify the rendered page again.',
   repeated_layout_grammar: 'Replace repeated spatial grammar with a different evidence-led composition.',
+  consecutive_composition_repeat: 'Change the structure where the meaning changes (a different relationship takes a different kit structure), or merge the pages that say the same thing; a deliberate series declares design.review.allowRepetition.',
   repeated_render_composition: 'Recompose the repeated slides so their rendered reading paths and evidence structures are visibly distinct.',
   slide_visual_density_low: 'Add claim-bearing evidence or strengthen the focal hierarchy instead of filling the slide with ornament.',
   visual_role_variety_low: 'Use at least three evidence roles across the deck, such as image, chart, process, comparison, table, or typographic statement.',
@@ -142,7 +155,7 @@ const POLISH_GUIDANCE = Object.freeze({
   shapes_too_close: 'Open the gap between the shapes to at least 0.3 in, or merge them into one block.',
   vertical_imbalance: 'Move the content down into the field or enlarge the containers so the canvas is filled with intent, not a hollow bottom.',
   stat_label_detached: 'Bring the label to within 36 pt of its numeral so the pair reads as one unit.',
-  low_contrast: 'Raise the text or background to 4.5:1 (3:1 at 18 pt or bold 14 pt); a scrim under text on a picture, a darker ink, or a lighter field.',
+  low_contrast: 'Raise the text or its field to 4.5:1 (3:1 at 18 pt or bold 14 pt): the on-dark ink on a dark fill, a darker ink on a light one, or a scrim under text on a picture.',
   font_unavailable: 'Use a face from the safe list so the fit review and the recipient render the same widths.',
   placeholder_text: 'Replace or delete the leftover template wording; placeholder copy never ships.',
   unfilled_token: 'Fill or remove the unresolved template token before finalize.',
@@ -152,6 +165,9 @@ const POLISH_GUIDANCE = Object.freeze({
   // Structure and render review (pptx).
   content_touches_page_edge: 'Pull the content inside the safe margin; nothing sits against the canvas edge unless it bleeds on purpose (a picture, a band).',
   edge_margin: 'Keep at least 0.5 in between content and the canvas edge, or make the element a deliberate bleed.',
+  axis_drift: 'Snap the element to the axis its neighbours share (the kit mid()/band() of the same spans() result), or move it clear enough that the offset reads as a decision.',
+  cjk_letter_spacing: 'Drop charSpacing on the Hangul or CJK run (the kit kicker() adds tracking to Latin only); tracking separates the syllables of a word.',
+  peer_gap_uneven: 'Place the row from one set of columns (the kit spans() result) so every gap is the same, or make the odd gap large enough to read as a break between groups.',
   text_spacing_tight: 'Raise the line spacing to at least 1.05× the size (the kit leading: dense 1.4, body 1.5).',
   dense_paragraph: 'Split the paragraph, cut the copy, or give it a slide of its own as prose; a wall of text is not evidence.',
   heading_hierarchy_jump: 'Restore the skipped heading level so the outline reads in order.',
@@ -176,6 +192,9 @@ const POLISH_GUIDANCE = Object.freeze({
   visual_reference_selection_missing: 'Select and record the visual style the deck follows (direction.md §3-§4) before composing.',
   source_specific_asset_missing: 'Add the subject-specific asset (picture, diagram, chart from the source) where the plan promised one.',
   adaptive_layout_rhythm_flat: 'Alternate composition moves and densities across adjacent slides so the deck has rhythm.',
+  beat_share_high: 'Keep the dark or field pages for the cover, the section marks, and the closing; give every other page its chart, table, picture, or structure at half the canvas.',
+  consecutive_beats: 'Replace the middle beat of the run with the content page it stands in for, or merge the three into one section mark.',
+  page_underfill: 'Give the page its payload: a chart, table, picture, or structure with the readings beside it (composition.md §8) — or fold the sentence into the page it introduces.',
   post_save_reopen_missing: 'Reopen the saved file and verify the review evidence after saving.',
   visual_coverage_incomplete: 'Render and inspect every page before finalize; the visual coverage must be complete.',
 });

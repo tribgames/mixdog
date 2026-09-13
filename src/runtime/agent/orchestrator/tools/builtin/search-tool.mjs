@@ -6,7 +6,6 @@ export {
     relativePathPrefix,
     relativeSearchResultPath,
     resolveSearchScope,
-    stripEmbeddedPathQuotes,
     uncRefusalMessage,
 } from './search-path-diagnostics.mjs';
 export { executeGrepTool } from './search-grep-tool.mjs';

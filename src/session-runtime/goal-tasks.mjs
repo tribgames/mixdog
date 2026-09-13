@@ -1,6 +1,13 @@
 import { GOAL_TASK_SETTLED, GOAL_TASK_STATUSES, MAX_GOAL_TASKS } from './goal-tool-defs.mjs';
+import { clean } from '../runtime/shared/clean.mjs';
 
-const clean = (value) => String(value ?? '').trim();
+// Dropped rows remain in the record but are no longer requested work.
+export function goalTaskProgress(tasks) {
+  return {
+    tasksCompleted: tasks.filter((task) => task?.status === 'completed').length,
+    tasksTotal: tasks.filter((task) => task?.status !== 'dropped').length,
+  };
+}
 
 // Frozen schemas can populate every optional array with an anonymous blank
 // row. Only discard that filler for optional lifecycle changes; addressed,

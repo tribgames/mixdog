@@ -1,23 +1,13 @@
 import {
     buildNotFoundHint,
     finalizeReadFamilyEnoentTail,
-    tryReadFamilyEnoentRedirect,
 } from '../search-path-diagnostics.mjs';
 import { normalizeErrorMessage } from '../path-diagnostics.mjs';
 import { isUncPath, isWindowsDevicePath, hasUnsafeWin32Component } from '../device-paths.mjs';
 import { normalizeOutputPath } from '../path-utils.mjs';
 
-/** undefined / invalid / negative → defaultCap; 0 = no page cap (absolute caps still apply). */
-export async function readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, rerunTool) {
-    const redirected = await tryReadFamilyEnoentRedirect({
-        workDir,
-        resolvedPath: fullPath,
-        requestedPath: inputPath,
-        errCode: err?.code,
-        options,
-        rerun: (target, opts) => rerunTool({ ...args, path: target }, workDir, opts),
-    });
-    if (redirected) return redirected;
+/** Report the requested path's result; suggestions never retarget the operation. */
+export async function readFamilyPathEnoentOrError(workDir, fullPath, inputPath, err) {
     const safeMsg = normalizeErrorMessage(err instanceof Error ? err.message : String(err));
     const hint = buildNotFoundHint(workDir, fullPath, 'List', err?.code);
     const tail = finalizeReadFamilyEnoentTail(hint, inputPath, err?.code);

@@ -528,9 +528,7 @@ export function toComputerHostCommand(rawArgs) {
             ? 'right_click'
             : step.button === 'middle'
               ? 'middle_click'
-              : step.ref && !step.modifiers && command.delivery === 'background'
-                ? 'invoke'
-                : 'click';
+              : 'click';
           delete translated.button;
         }
         if (step.type === 'move') translated.action = 'mouse_move';

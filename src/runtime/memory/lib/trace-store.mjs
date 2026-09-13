@@ -7,6 +7,7 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 import { ensurePgInstance, checkedConnect, closePgInstance } from './pg/adapter.mjs'
 import { resolve } from 'path'
 import { cleanupTraceWhenDisabled, traceEnabled } from './trace-mode.mjs'
+import { sessionIndexSql } from './pg/compact-indexes.mjs'
 
 const dbs = new Map()
 const opening = new Map()
@@ -113,7 +114,7 @@ async function init(client) {
   // for time-window range scans where rows arrive in roughly ts order.
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_ts_brin      ON trace_events USING BRIN (ts) WITH (pages_per_range = 32)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_kind_ts     ON trace_events(kind, ts DESC)`)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_session     ON trace_events(session_id, ts)`)
+  await client.query(sessionIndexSql('idx_trace_session'))
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_agent_ts    ON trace_events(agent, ts DESC)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_model_ts    ON trace_events(model, ts DESC)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_trace_tool        ON trace_events(tool_name) WHERE kind = 'tool'`)
@@ -200,7 +201,7 @@ async function initAgentTables(client) {
       result_error_first_line TEXT
     )
   `)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_session   ON agent_calls (session_id, iteration)`)
+  await client.query(sessionIndexSql('idx_ac_session'))
   await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_ts        ON agent_calls USING BRIN (ts)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_tool_name ON agent_calls (tool_name)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_ac_errors_ts ON agent_calls (ts DESC) WHERE result_kind = 'error'`)
@@ -226,7 +227,7 @@ async function initAgentTables(client) {
       response_id        TEXT
     )
   `)
-  await client.query(`CREATE INDEX IF NOT EXISTS idx_al_session ON agent_llm (session_id, iteration)`)
+  await client.query(sessionIndexSql('idx_al_session'))
   await client.query(`CREATE INDEX IF NOT EXISTS idx_al_ts      ON agent_llm USING BRIN (ts)`)
   await client.query(`CREATE INDEX IF NOT EXISTS idx_al_model   ON agent_llm (model)`)
 

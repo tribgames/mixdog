@@ -4,6 +4,9 @@ export const MAX_COMPUTER_INTERNAL_REQUEST_BYTES = 16 * 1024 * 1024;
 export const MAX_COMPUTER_RESPONSE_BYTES = 32 * 1024 * 1024;
 const MAX_COMPUTER_TEXT_CHARS = 1_000_000;
 export const MAX_COMPUTER_IMAGE_CHARS = 24 * 1024 * 1024;
+// Literal foreground typing is paced in the native worker. Bound each call
+// before dispatch rather than allowing a large write to die part-way through.
+export const MAX_COMPUTER_FOREGROUND_TEXT_CHARS = 4_000;
 
 export function validateComputerReply(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)

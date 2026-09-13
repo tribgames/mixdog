@@ -1869,6 +1869,7 @@ impl FileListStore {
                     fixed_strings: false,
                     hidden: key.hidden,
                     no_ignore: key.no_ignore,
+                    text: false,
                     no_require_git: key.no_require_git,
                     max_depth: key.max_depth,
                     line_numbers: false,
@@ -2688,6 +2689,7 @@ struct ParsedArgs {
     fixed_strings: bool,
     hidden: bool,
     no_ignore: bool,
+    text: bool,
     no_require_git: bool,
     max_depth: Option<usize>,
     line_numbers: bool,
@@ -2767,6 +2769,7 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
         fixed_strings: false,
         hidden: false,
         no_ignore: false,
+        text: false,
         no_require_git: false,
         max_depth: None,
         line_numbers: false,
@@ -2808,6 +2811,7 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
             }
             "--hidden" => p.hidden = true,
             "--no-ignore" => p.no_ignore = true,
+            "--text" | "-a" => p.text = true,
             "--no-require-git" => p.no_require_git = true,
             "--no-heading" | "--max-columns-preview" => {}
             "-H" => p.with_filename = true,
@@ -3008,7 +3012,11 @@ fn searcher(parsed: &ParsedArgs) -> Searcher {
         .before_context(parsed.before)
         .after_context(parsed.after)
         .heap_limit(Some(search_heap_bytes()))
-        .binary_detection(BinaryDetection::quit(b'\x00'));
+        .binary_detection(if parsed.text {
+            BinaryDetection::none()
+        } else {
+            BinaryDetection::quit(b'\x00')
+        });
     builder.build()
 }
 
@@ -4211,6 +4219,7 @@ fn handle_fuzzy(
         fixed_strings: false,
         hidden: req.hidden,
         no_ignore: req.include_noise,
+        text: false,
         no_require_git: !req.include_noise,
         max_depth: req.max_depth,
         line_numbers: false,

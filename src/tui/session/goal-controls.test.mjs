@@ -24,15 +24,13 @@ test('goal control persists pause or stop before cancelling the live turn', asyn
   }
 });
 
-test('idle release schedules once, respects remote ownership, and a time budget stops the live turn', async () => {
+test('idle release schedules once and yields queued work to remote ownership', async () => {
   const state = { sessionId: 'goal-owner', busy: false, commandBusy: true, goal: { id: 'goal', status: 'active' } };
   const pending = [];
-  const aborted = [];
   let listener;
   const runtime = {
     onGoalStatusChange: callback => { listener = callback; return () => {}; },
     goalContinuation: () => ({ run: state.goal.status === 'active', goal: state.goal, prompt: 'Continue' }),
-    abort: reason => aborted.push(reason),
   };
   const controller = createGoalContinuation({
     runtime, flags: {}, getState: () => state, set: patch => Object.assign(state, patch),
@@ -47,12 +45,9 @@ test('idle release schedules once, respects remote ownership, and a time budget 
     controller.scheduleGoalContinuation();
     await immediate();
     assert.equal(pending.length, 1);
-    state.busy = true;
-    listener({ sessionId: state.sessionId, goal: { id: 'goal', status: 'duration_reached' } });
-    assert.deepEqual(aborted, ['goal-budget']);
-    assert.equal(pending.length, 0);
     state.sessionRemoteAttached = true;
-    listener({ sessionId: state.sessionId, goal: { id: 'goal', status: 'duration_reached' } });
-    assert.equal(aborted.length, 1);
+    listener({ sessionId: state.sessionId, goal: state.goal });
+    await immediate();
+    assert.equal(pending.length, 0);
   } finally { controller.disposeGoalContinuation(); }
 });

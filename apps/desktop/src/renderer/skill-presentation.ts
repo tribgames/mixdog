@@ -19,13 +19,18 @@ const DESCRIPTIONS: Record<string, () => string> = {
   'skill-creator': () => t('Create, review, and improve reusable skills.'),
 };
 
+/** Shipped with the app, as opposed to a global, project or plugin skill.
+ *  Both shapes appear in skillsStatus depending on how the entry was built. */
+export function isBuiltInSkill(skill: { source?: unknown; owner?: unknown }): boolean {
+  const owner = skill.owner as { kind?: unknown } | null;
+  return skill.source === 'builtin' || owner?.kind === 'builtin';
+}
+
 export function skillDisplayDescription(skill: {
   name?: unknown; description?: unknown; source?: unknown; owner?: unknown;
 }): string {
-  const owner = skill.owner as { kind?: unknown } | null;
-  const native = skill.source === 'builtin' || owner?.kind === 'builtin';
   const name = String(skill.name || '');
-  return native && Object.hasOwn(DESCRIPTIONS, name)
+  return isBuiltInSkill(skill) && Object.hasOwn(DESCRIPTIONS, name)
     ? DESCRIPTIONS[name]()
     : String(skill.description || '');
 }

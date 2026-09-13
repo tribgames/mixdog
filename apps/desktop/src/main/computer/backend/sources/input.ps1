@@ -235,11 +235,12 @@ function Complete-NativeAction($action, $messageTarget, $windowId, $before, $tar
   return $result
 }
 
-function Do-Invoke($ref) {
+function Do-Invoke($ref, [bool]$allowNativeClick = $false) {
   $record = Get-RefRecord $ref
   if ($record.Kind -eq 'msaa') {
     try {
       $defaultAction = [string]$record.Msaa.DefaultAction
+      if ($allowNativeClick -and [string]::IsNullOrWhiteSpace($defaultAction)) { return $null }
       Assert-ExecutionAuthorization $script:CurrentRequest
       $record.Msaa.DoDefaultAction()
       return New-ActionResult 'invoke' 'msaa_default_action' 'unverifiable' $false "invoked $ref through MSAA default action: $defaultAction" $null 'background' $record.WindowId
@@ -270,6 +271,7 @@ function Do-Invoke($ref) {
     return New-ActionResult 'invoke' 'uia_selection' 'unverifiable' $false "selected $ref through UIA" $null 'background' ([MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle))))
   }
   $top = New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle)
+  if ($allowNativeClick) { return $null }
   return Background-Unavailable 'invoke' "element $ref exposes no semantic toggle/invoke/select action; no physical fallback was attempted" ([MixWin32]::WindowId($top))
 }
 
@@ -475,8 +477,12 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
   Remember-FocusOrigin $state $previous $targetHandle
   [MixInputObservation]::Begin()
   $priorAuthorization = [MixInputObservation]::DispatchAuthorization
+  $dispatchReady = $false
   [MixInputObservation]::DispatchAuthorization = [Action] {
     Assert-ExecutionAuthorization $script:CurrentRequest $targetHandle
+    if ($dispatchReady -and [MixWin32]::Foreground() -ne $targetHandle) {
+      throw 'foreground_changed: target lost foreground before input dispatch'
+    }
   }
   $cursorTheme = $null
   $cursorFeedback = @{ system_theme_applied = $false; system_theme_restored = $false; pointer_moved = $false }
@@ -494,6 +500,7 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
   if ($focused -and [MixWin32]::Foreground() -ne $targetHandle) {
     return New-ActionResult $action 'foreground' 'suspected_noop' $false "foreground changed before input dispatch; no input was sent" 'foreground_changed' 'foreground' ([MixWin32]::WindowId($targetHandle))
   }
+    $dispatchReady = $true
     [MixInputObservation]::AssertContinue()
     Assert-ExecutionAuthorization $script:CurrentRequest $targetHandle
     $cursorTheme = [MixCursorTheme]::Begin()
@@ -590,6 +597,16 @@ function Invoke-ForegroundWheel($target, $x, $y, $clicks, $horizontal, $modifier
 }
 
 function Do-ClickFamily($req, $kind) {
+  if ($req.ref -and $kind -eq 'click' -and $req.delivery -ne 'foreground' -and -not $req.modifiers) {
+    # Keep click intent: a supported semantic action wins, but an element that
+    # has no such pattern can still accept a target-bound native pointer message.
+    # A failed/uncertain semantic attempt returns its result, never a second input.
+    $semantic = Invoke-BackgroundSemantic $req.ref { Do-Invoke $req.ref $true }
+    if ($null -ne $semantic) {
+      $semantic.action = $req.action
+      return $semantic
+    }
+  }
   $p = Get-PointArg $req
   $target = $p[2]
   $refRecord = if ($req.ref) { Get-RefRecord $req.ref } else { $null }
@@ -640,7 +657,11 @@ function Do-ClickFamily($req, $kind) {
         'right'  { [MixWin32]::RightClick($p[0], $p[1]) }
         'middle' { [MixWin32]::MiddleClick($p[0], $p[1]) }
         'triple' { [MixWin32]::TripleClick($p[0], $p[1]) }
-        'move'   { [void][MixWin32]::SetCursorPos($p[0], $p[1]) }
+        'move'   {
+          [void][MixWin32]::SetCursorPos($p[0], $p[1])
+          [System.Threading.Thread]::Sleep(16)
+          [MixWin32]::AssertCursorPosition($p[0], $p[1])
+        }
       }
     }
   } $true
@@ -770,6 +791,7 @@ function Do-Scroll($req) {
         $dir = if ($amt -gt 0) { [System.Windows.Automation.ScrollAmount]::SmallIncrement } else { [System.Windows.Automation.ScrollAmount]::SmallDecrement }
         $n = [math]::Min([math]::Abs($amt) * 3, 30)
         for ($i = 0; $i -lt $n; $i++) {
+          Assert-ExecutionAuthorization $req ([IntPtr](Get-TopWindow $el).Current.NativeWindowHandle)
           if ($horizontal) {
             if (-not $pat.Current.HorizontallyScrollable) { break }
             $pat.Scroll($dir, [System.Windows.Automation.ScrollAmount]::NoAmount)
@@ -894,13 +916,9 @@ function Get-WindowPredicates($req) {
   $win = Find-Window $req.window $req.window_id
   $max = if ($null -ne $req.max_elements) { [int]$req.max_elements } else { 400 }
   if ($max -lt 1 -or $max -gt 1000) { throw 'max_elements must be 1..1000' }
-  $ctTypes = @('Button','Edit','CheckBox','RadioButton','ComboBox','List','ListItem','MenuItem',
-    'TabItem','Hyperlink','TreeItem','Slider','Document','Spinner','SplitButton','Text',
-    'StatusBar','ProgressBar')
-  $conds = foreach ($t in $ctTypes) {
-    New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::$t)
-  }
-  $cond = New-Object System.Windows.Automation.OrCondition([System.Windows.Automation.Condition[]]$conds)
+  # Negative predicates need every exposed name/value, including Custom and
+  # container controls. A display-oriented role filter cannot prove absence.
+  $cond = [System.Windows.Automation.Condition]::TrueCondition
   $cr = New-Object System.Windows.Automation.CacheRequest
   [void]$cr.Add($AE::NameProperty)
   [void]$cr.Add($AE::ControlTypeProperty)
@@ -991,7 +1009,10 @@ function Get-MenuCandidates($root, $name) {
   }
   foreach ($el in $elements) {
     $label = ''
-    try { $label = [string]$el.Current.Name } catch {}
+    try {
+      if ($el.Current.IsOffscreen) { continue }
+      $label = [string]$el.Current.Name
+    } catch { continue }
     if ((($label -replace '&','').Trim().ToLower()) -eq $wanted) { [void]$found.Add($el) }
   }
   return @($found)
@@ -1086,9 +1107,18 @@ function Do-InvokeMenu($req) {
       }
       $candidates = Get-MenuCandidates $root $segment
       if ($candidates.Count -eq 0 -and $i -gt 0) {
-        # An opened submenu is often a popup window owned by the app rather than a
-        # child of the item that opened it. Only one menu can be open at a time.
-        $candidates = Get-MenuCandidates ($AE::RootElement) $segment
+        # A submenu may live outside the parent item's UIA subtree, but it must
+        # still belong to this exact window's owned popup chain.
+        $popupCandidates = New-Object System.Collections.ArrayList
+        foreach ($popupId in @([MixWin32]::RelatedWindowIds($info.Handle))) {
+          $popupHandle = [MixWin32]::ParseWindowId([string]$popupId)
+          if ($popupHandle -eq $info.Handle -or -not [MixWin32]::IsOwnedBy($popupHandle, $info.Handle)) { continue }
+          $popupRoot = $AE::FromHandle($popupHandle)
+          foreach ($candidate in @(Get-MenuCandidates $popupRoot $segment)) {
+            [void]$popupCandidates.Add($candidate)
+          }
+        }
+        $candidates = @($popupCandidates)
       }
       if ($candidates.Count -eq 0) {
         throw "menu_path_not_found: no enabled menu entry named '$segment' after $($walked -join ' > ')"
@@ -1097,6 +1127,11 @@ function Do-InvokeMenu($req) {
         throw "menu_path_ambiguous: '$segment' matched $($candidates.Count) entries; use a more exact path"
       }
       $el = $candidates[0]
+      $elementWindow = [IntPtr](Get-TopWindow $el).Current.NativeWindowHandle
+      if ($elementWindow -ne $info.Handle -and -not [MixWin32]::IsOwnedBy($elementWindow, $info.Handle)) {
+        throw 'menu_target_mismatch: menu element no longer belongs to the requested window'
+      }
+      Assert-ExecutionAuthorization $req $elementWindow
       $enabled = $true
       try { $enabled = [bool]$el.Current.IsEnabled } catch {}
       if (-not $enabled) { throw "menu_item_disabled: '$segment' is disabled" }
@@ -1104,12 +1139,14 @@ function Do-InvokeMenu($req) {
       if ($i -eq $path.Count - 1) {
         $pat = $null
         if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat)) {
+          Assert-ExecutionAuthorization $req $elementWindow
           $pat.Invoke()
           return New-ActionResult 'invoke_menu' 'uia_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
         }
         $pat = $null
         if ($el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pat)) {
           $before = [string]$pat.Current.ToggleState
+          Assert-ExecutionAuthorization $req $elementWindow
           $pat.Toggle()
           $after = [string]$pat.Current.ToggleState
           $verified = $before -ne $after

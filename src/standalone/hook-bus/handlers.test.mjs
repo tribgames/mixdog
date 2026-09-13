@@ -5,6 +5,8 @@ import dns from 'node:dns';
 import {
   MAX_HTTP_HOOK_RESPONSE_BYTES,
   runHttpHandler,
+  runMcpToolHandler,
+  runPromptHandler,
 } from './handlers.mjs';
 
 test('public HTTP hooks use the DNS-pinned fetch lane', async () => {
@@ -86,3 +88,62 @@ test('HTTP hook responses enforce the shared memory cap', async () => {
   assert.equal(result.exitCode, -1);
   assert.match(result.stderr, /byte limit/);
 });
+
+test('HTTP policy requests receive parent cancellation without reporting their own timeout', async () => {
+  const controller = new AbortController();
+  const reason = Object.assign(new Error('fixture caller cancellation'), { name: 'AbortError' });
+  const entered = Promise.withResolvers();
+  let requestSignal;
+  const pending = runHttpHandler(
+    { type: 'http', url: 'http://127.0.0.1/hook', allowPrivateHosts: true, timeout: 2 },
+    {},
+    'PreToolUse',
+    {
+      signal: controller.signal,
+      privateFetch: (_url, options) => {
+        requestSignal = options.signal;
+        entered.resolve();
+        return new Promise((_, reject) => {
+          requestSignal.addEventListener('abort', () => reject(requestSignal.reason), { once: true });
+        });
+      },
+    },
+  );
+  await entered.promise;
+  controller.abort(reason);
+  const result = await pending;
+  assert.equal(requestSignal.aborted, true);
+  assert.equal(result.exitCode, -1);
+  assert.equal(result.timedOut, false);
+  assert.equal(result.spawnError, reason);
+});
+
+for (const [name, run] of [
+  ['MCP', (runner, signal) => runMcpToolHandler(
+    { type: 'mcp_tool', tool: 'fixture', timeout: 2 }, {}, 'PreToolUse', runner, { signal },
+  )],
+  ['prompt', (runner, signal) => runPromptHandler(
+    { type: 'prompt', prompt: 'fixture', timeout: 2 }, {}, 'PreToolUse', runner, { signal },
+  )],
+]) {
+  test(`${name} policy cancellation aborts the runner and observes a late rejection`, async () => {
+    const controller = new AbortController();
+    const entered = Promise.withResolvers();
+    const runnerResult = Promise.withResolvers();
+    let requestSignal;
+    const pending = run(({ signal }) => {
+      requestSignal = signal;
+      entered.resolve();
+      return runnerResult.promise;
+    }, controller.signal);
+    await entered.promise;
+    controller.abort(new Error('outer request timed out'));
+    const result = await pending;
+    assert.equal(requestSignal.aborted, true);
+    assert.equal(result.exitCode, -1);
+    assert.equal(result.timedOut, false);
+    assert.match(result.stderr, /outer request timed out/);
+    runnerResult.reject(new Error('late fixture rejection'));
+    await new Promise(setImmediate);
+  });
+}

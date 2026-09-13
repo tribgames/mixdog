@@ -76,10 +76,11 @@ export interface CommandRouterHost extends
     | 'rememberObservedWindowScope'
     | 'freshObservedWindowScope'
     | 'invalidateActionTargets'
+    | 'invalidateWindowTargets'
     | 'normalizeElementRecords'
     | 'rememberElementTargets'
     | 'resolveElementAliases'>,
-  Pick<ExecutionState, 'executionContext' | 'sessionRecoveryBySession' | 'assertExecutionNotAborted'>,
+  Pick<ExecutionState, 'executionContext' | 'sessionRecoveryBySession' | 'assertExecutionNotAborted' | 'invalidateObservationsForWindows'>,
   Pick<SessionLifecycle, 'claimComputerTargets' | 'releaseComputerSession' | 'takeOverComputer'>,
   Pick<Inspection, 'diagnoseComputer' | 'verifyWindowState'>,
   Pick<WindowTargeting, 'resolveAppWindowId' | 'resolveRecaptureWindowTarget' | 'listComputerApps'>,
@@ -223,9 +224,12 @@ export function createCommandRouter(host: CommandRouterHost) {
     if (action === 'session_release') return await releaseComputerSession(command);
     assertSafeComputerInput(command);
     if (sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
-      policy.assertAction(command);
-      if (policy.restricted && command.window_id) {
-        policy.assertWindow(command, await readComputerWindows(command));
+      const policyCommand = action === 'zoom'
+        ? { ...command, window_id: framesBySession.get(sessionIdFor(command))?.get(String(command.frame_id || ''))?.windowId }
+        : command;
+      policy.assertAction(policyCommand);
+      if (policy.restricted && policyCommand.window_id) {
+        policy.assertWindow(policyCommand, await readComputerWindows(policyCommand));
         assertExecutionNotAborted();
       }
     }
@@ -301,8 +305,14 @@ export function createCommandRouter(host: CommandRouterHost) {
     const inputTarget = await resolveInputTarget(command, action, trustedSequenceContinuation);
     const {
       targetWindowId,
-      observedScope,
     } = inputTarget;
+    const activeState = executionContext.getStore();
+    if (targetWindowId && inputTarget.observedScope && activeState) {
+      (activeState.inputScopes ||= new Map()).set(targetWindowId, inputTarget.observedScope);
+    } else if (targetWindowId && trustedSequenceContinuation) {
+      inputTarget.observedScope = activeState?.inputScopes?.get(targetWindowId);
+    }
+    const observedScope = inputTarget.observedScope;
     const logicalTargetWindowId = observedScope?.primaryWindowId || targetWindowId;
     const batchSequenceStep = sequenceStep && canBatchSequenceInput(command, targetWindowId);
     if (policy.restricted && targetWindowId && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
@@ -331,10 +341,17 @@ export function createCommandRouter(host: CommandRouterHost) {
     if (isMutation && !batchSequenceStep) actionTimings.before_windows_ms = elapsedMs(beforeWindowsStartedAt);
     let response: PowerShellResponse;
     const deliveryStartedAt = performance.now();
+    const invalidateOtherObservers = () => {
+      const ids = [logicalTargetWindowId, targetWindowId];
+      host.invalidateWindowTargets(ids, sessionIdFor(command));
+      host.invalidateObservationsForWindows(ids, sessionIdFor(command));
+    };
     try {
+      if (isMutation) invalidateOtherObservers();
       response = await dispatchInput(command, action, inputTarget, batchSequenceStep);
     } finally {
       if (isMutation) {
+        invalidateOtherObservers();
         framesBySession.delete(sessionIdFor(command));
         elementTargetsBySession.delete(sessionIdFor(command));
         if (AUTO_CAPTURE_ACTIONS.has(action)) {

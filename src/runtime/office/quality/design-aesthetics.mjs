@@ -32,6 +32,12 @@ function normalizedPageRole(page, pageCount, pageRoles = {}) {
   return 'content';
 }
 
+// Calibrated against nine frontier decks (Bond, Evans, BCG, NVIDIA, Samsung,
+// Kakao, Naver, Sequoia, Coatue; 280 rendered pages, September 2026): their
+// content pages read foregroundCoverage 0.024-0.088 at the tenth percentile
+// and 0.09-0.42 at the median, spatialCoverage 0.07-0.65 / 0.35-0.76. The
+// floors sit under those tenth percentiles so a sparse but authored frontier
+// page (a Naver chart page, an Evans one-liner) is not scored as empty.
 const ROLE_TARGETS = Object.freeze({
   opening: Object.freeze({ foreground: [0.035, 0.24], spatial: [0.16, 0.5], quadrants: 2 }),
   closing: Object.freeze({ foreground: [0.03, 0.22], spatial: [0.16, 0.5], quadrants: 2 }),
@@ -43,11 +49,11 @@ const ROLE_TARGETS = Object.freeze({
   // A picture slide is mostly picture: the sampler reads the whole frame as
   // foreground, so the ceiling is open and the floor is the frame itself.
   picture: Object.freeze({ foreground: [0.12, 1], spatial: [0.3, 1], quadrants: 3 }),
-  chart: Object.freeze({ foreground: [0.1, 0.42], spatial: [0.42, 0.78], quadrants: 3 }),
-  timeline: Object.freeze({ foreground: [0.08, 0.46], spatial: [0.38, 0.78], quadrants: 3 }),
-  allocation: Object.freeze({ foreground: [0.07, 0.42], spatial: [0.34, 0.75], quadrants: 3 }),
-  scorecard: Object.freeze({ foreground: [0.1, 0.48], spatial: [0.4, 0.78], quadrants: 3 }),
-  content: Object.freeze({ foreground: [0.06, 0.44], spatial: [0.3, 0.74], quadrants: 3 }),
+  chart: Object.freeze({ foreground: [0.05, 0.42], spatial: [0.3, 0.78], quadrants: 3 }),
+  timeline: Object.freeze({ foreground: [0.05, 0.46], spatial: [0.3, 0.78], quadrants: 3 }),
+  allocation: Object.freeze({ foreground: [0.04, 0.42], spatial: [0.25, 0.75], quadrants: 3 }),
+  scorecard: Object.freeze({ foreground: [0.05, 0.48], spatial: [0.3, 0.78], quadrants: 3 }),
+  content: Object.freeze({ foreground: [0.03, 0.44], spatial: [0.2, 0.74], quadrants: 3 }),
 });
 
 function rangeFit(value, [minimum, maximum]) {
@@ -57,15 +63,20 @@ function rangeFit(value, [minimum, maximum]) {
 }
 
 function paletteDiscipline(metric, role) {
-  const accentRange = ['opening', 'closing', 'section'].includes(role) ? [0.12, 0.64] : [0.08, 0.52];
+  // Frontier content pages carry the accent on 3-70% of their foreground
+  // (median 0.05 Sequoia, 0.07 Coatue, 0.09 BCG, 0.15 NVIDIA, 0.26 Evans,
+  // 0.41 Kakao, 0.57 Samsung, 0.62 Bond); a page with no saturated hue at
+  // all (a text page in Sequoia or Coatue) is a normal frontier page, and a
+  // single hue owning the whole page (dominance 1.0) is the common case.
+  const accentRange = ['opening', 'closing', 'section'].includes(role) ? [0.05, 0.8] : [0.03, 0.7];
   const hueScore = metric.paletteHueCount === 0
-    ? 0.45
+    ? 0.8
     : metric.paletteHueCount <= 3
       ? 1
       : clamp(1 - ((metric.paletteHueCount - 3) * 0.14));
   const dominantScore = metric.paletteHueCount === 0
-    ? 0.45
-    : rangeFit(metric.paletteDominance, [0.42, 0.94]);
+    ? 0.8
+    : rangeFit(metric.paletteDominance, [0.4, 1]);
   return clamp(
     (rangeFit(metric.accentCoverage, accentRange) * 0.4)
     + (hueScore * 0.35)
@@ -138,8 +149,10 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
       && densityGated
       && metric.page > 1
       && metric.page < measured.length
-      && metric.foregroundCoverage < 0.018
-      && metric.entropy < 0.22
+      // Under the frontier tenth percentile on both reads (foreground 0.024,
+      // entropy 0.06-0.12 on Naver, Kakao, and Evans pages that are authored).
+      && metric.foregroundCoverage < 0.012
+      && metric.entropy < 0.1
     ) {
       issues.push(aestheticIssue(
         'slide_visual_density_low',
@@ -152,9 +165,12 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
       && !beatPage
       && metric.page > 1
       && metric.page < measured.length
+      // The earlier floors (0.06 / 0.3) flagged 15 of 48 Evans pages, 5 of 52
+      // Sequoia pages, and 3 of 30 Coatue pages; these sit under every
+      // reference deck's tenth percentile (foreground 0.024, spatial 0.07-0.18).
       && densityGated
-      && metric.foregroundCoverage < 0.06
-      && metric.spatialCoverage < 0.3
+      && metric.foregroundCoverage < 0.025
+      && metric.spatialCoverage < 0.15
     ) {
       issues.push(aestheticIssue(
         'under_composed_slide',

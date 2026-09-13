@@ -20,7 +20,10 @@ export function parseXlsxCell(reference) {
 }
 
 export function parseXlsxRange(reference, { maxCells = XLSX_MAX_RANGE_CELLS } = {}) {
-  const match = /^([^:]+):([^:]+)$/.exec(String(reference || '').trim());
+  const text = String(reference || '').trim();
+  // A single cell is a one-cell range — the writers already treat it as one,
+  // and it is how a caller names a validated or styled cell.
+  const match = /^([^:]+):([^:]+)$/.exec(text) || (text ? [text, text, text] : null);
   if (!match) throw new Error(`Invalid XLSX range: ${reference}`);
   const start = parseXlsxCell(match[1]);
   const end = parseXlsxCell(match[2]);
@@ -135,6 +138,90 @@ export function normalizeXlsxFormula(formula, { backend = '', sheetNames = null 
   return quoteUnquotedSheetReferences(quoteSheetReferences(prefixed, sheetNames));
 }
 
+// Excel names a pivot source the way it appears in its own dialog — `원자료!A1:D25`
+// — while the operation carries the sheet in a field of its own. The qualified
+// form is split into those two fields instead of being refused as a range.
+function splitSheetReference(text) {
+  const raw = String(text ?? '').trim();
+  const match = /^(?:'((?:[^']|'')+)'|([^'!]+))!(.+)$/.exec(raw);
+  if (!match) return { sheet: '', reference: raw };
+  return { sheet: (match[1] ?? match[2]).replace(/''/g, "'").trim(), reference: match[3].trim() };
+}
+
+// Both backends total a pivot value field (Excel's AddDataField uses xlSum);
+// a caller who writes the field as an object gets the field name read out of it
+// rather than a stringified object in the error.
+function pivotValueFields(values) {
+  const list = Array.isArray(values) ? values : values == null ? [] : [values];
+  return list.map((entry) => {
+    if (entry && typeof entry === 'object') {
+      const field = String(entry.field ?? entry.name ?? '').trim();
+      if (!field) {
+        throw new Error('XLSX add_pivot_table values entries need a field name: values:["매출"] or values:[{ field: "매출" }]');
+      }
+      const aggregate = String(entry.function ?? entry.aggregation ?? 'sum').trim().toLowerCase();
+      if (aggregate !== 'sum') {
+        throw new Error(`XLSX add_pivot_table totals its value fields; "${aggregate}" is not available. Precompute that column in the source range instead.`);
+      }
+      return field;
+    }
+    return String(entry ?? '').trim();
+  }).filter(Boolean);
+}
+
+function normalizePivotFields(operation) {
+  for (const [field, owner] of [['source', 'sheet'], ['destination', 'destinationSheet']]) {
+    if (operation[field] == null) continue;
+    const { sheet, reference } = splitSheetReference(operation[field]);
+    if (!sheet) continue;
+    const declared = String(operation[owner] ?? '').trim();
+    if (declared && declared !== sheet) {
+      throw new Error(`XLSX add_pivot_table ${field} names sheet "${sheet}" but ${owner} is "${declared}"; name the sheet once.`);
+    }
+    operation[field] = reference;
+    operation[owner] = sheet;
+  }
+  if (operation.values != null) operation.values = pivotValueFields(operation.values);
+}
+
+// A dropdown names its choices — "서울,부산" — or points at the cells holding
+// them; anything that compares, calls, or tests is a rule the sheet evaluates.
+export function listValidationFormula(formula1) {
+  const text = String(formula1 ?? '').trim().replace(/^=/, '');
+  if (!text) return false;
+  if (/^"[^"]*"$/.test(text)) return true;
+  if (/^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$/.test(text)) return true;
+  // Bare comma-separated items are what a caller writes when the quotes are
+  // forgotten; an expression never looks like that.
+  return text.includes(',') && !/[=<>+*/()"]/.test(text);
+}
+
+// Three ways a sheet marks its numbers: a rule that paints the cells it picks,
+// a scale that colors every cell by where its value sits, and a bar drawn in
+// the cell. The first needs a formula and a format; the other two carry their
+// colors and take none, so the kind decides which fields are required.
+const CONDITIONAL_FORMAT_KINDS = Object.freeze({
+  expression: 'expression',
+  formula: 'expression',
+  cellis: 'expression',
+  colorscale: 'colorScale',
+  colourscale: 'colorScale',
+  scale: 'colorScale',
+  heatmap: 'colorScale',
+  databar: 'dataBar',
+  bar: 'dataBar',
+});
+
+export function conditionalFormatKind(operation) {
+  const declared = String(operation?.type ?? '').trim();
+  if (!declared) return 'expression';
+  const kind = CONDITIONAL_FORMAT_KINDS[declared.toLowerCase().replace(/[^a-z]/g, '')];
+  if (!kind) {
+    throw new Error(`XLSX add_conditional_format type must be expression, colorScale, or dataBar; received "${declared}".`);
+  }
+  return kind;
+}
+
 export function validateXlsxOperations(operations) {
   for (const operation of operations || []) {
     if (!operation || typeof operation !== 'object') throw new Error('XLSX operation must be an object');
@@ -152,6 +239,31 @@ export function validateXlsxOperations(operations) {
         throw new Error(`XLSX freeze_panes column must be between 0 and ${XLSX_MAX_COLUMNS}`);
       }
     }
+    if (op === 'sort_range') {
+      if (!operation.range) throw new Error('XLSX sort_range requires range');
+      const order = String(operation.order ?? '').trim().toLowerCase();
+      if (order && !['asc', 'ascending', 'desc', 'descending'].includes(order)) {
+        throw new Error(`XLSX sort_range order must be asc or desc; received "${operation.order}".`);
+      }
+      parseXlsxRange(operation.range);
+    }
+    if (op === 'add_conditional_format') {
+      const kind = conditionalFormatKind(operation);
+      if (kind === 'expression' && !String(operation.formula ?? '').trim()) {
+        throw new Error('XLSX add_conditional_format needs formula for a rule that picks cells, or type: \'colorScale\' / \'dataBar\' to shade every cell in the range by its value.');
+      }
+      if (kind !== 'expression' && String(operation.formula ?? '').trim()) {
+        throw new Error(`XLSX add_conditional_format type: '${kind}' shades the range by value and takes no formula; drop formula, or use the default rule with it.`);
+      }
+      operation.type = kind;
+    }
+    if (op === 'add_pivot_table') normalizePivotFields(operation);
+    // Both backends write the kind named here, so the default is settled once:
+    // a formula that names choices is a dropdown, a formula that states a test
+    // is a custom rule. Writing B2>0 as a list would offer it as one entry.
+    if (op === 'add_validation' && !String(operation.type ?? '').trim()) {
+      operation.type = listValidationFormula(operation.formula1) ? 'list' : 'custom';
+    }
     if (op === 'set_style' && operation.cell) parseXlsxCell(operation.cell);
     if (operation.range && [
       'set_range',
@@ -161,7 +273,11 @@ export function validateXlsxOperations(operations) {
       'add_conditional_format',
       'add_validation',
     ].includes(op)) {
-      const area = parseXlsxRange(operation.range);
+      // A chart's source may be several areas joined by commas, the way Excel's
+      // Range("A7:A12,D7:D12") reads them; each one is a bounded range.
+      const parts = op === 'add_chart' ? String(operation.range).split(',').map((part) => part.trim()) : [operation.range];
+      const area = parseXlsxRange(parts[0]);
+      for (const part of parts.slice(1)) parseXlsxRange(part);
       if (op === 'set_range') validateRangeMatrix(operation, area);
     } else if (op === 'set_range') {
       throw new Error('XLSX set_range requires range');

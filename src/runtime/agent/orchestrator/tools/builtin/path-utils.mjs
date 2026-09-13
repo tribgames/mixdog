@@ -1,9 +1,7 @@
 import { homedir } from 'os';
 import { isAbsolute, relative, resolve } from 'path';
-import { statSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { isWSL } from '../../../../shared/wsl.mjs';
-import { statCacheSet } from './cache-layers.mjs';
 
 // Restore the on-disk casing of a path (win32 only). rg relativizes candidate
 // paths against its process cwd with a CASE-SENSITIVE prefix strip before
@@ -277,87 +275,11 @@ function compactReadRangeTuple(value) {
     };
 }
 
-export function coerceReadFamilyPathArg(path, workDir = null) {
-    if (path === undefined || path === null || path === '') return path;
-    if (typeof path === 'string' && typeof workDir === 'string' && workDir) {
-        const trimmed = path.trim();
-        if (/\s/.test(trimmed)) {
-            let fullPathExists = false;
-            try {
-                // Seed the stat cache with this existence probe so the caller's
-                // immediate getCachedReadOnlyStat on the same resolved path
-                // reuses it instead of re-stat'ing. Pure de-dup: a cache miss
-                // just falls back to the caller's own stat.
-                const _full = resolveAgainstCwd(normalizeInputPath(trimmed), workDir);
-                const _st = statSync(_full);
-                statCacheSet(_full, _st);
-                fullPathExists = true;
-            } catch { /* split only when the literal path is missing */ }
-            if (!fullPathExists) {
-                const segments = trimmed.split(/\s+/).filter(Boolean).map((s) => normalizeInputPath(s));
-                if (segments.length >= 2) {
-                    const allExist = segments.every((seg) => {
-                        try {
-                            statSync(resolveAgainstCwd(seg, workDir));
-                            return true;
-                        } catch {
-                            return false;
-                        }
-                    });
-                    if (allExist) return segments;
-                }
-            }
-        }
-    }
-    if (typeof path === 'string' && typeof workDir === 'string' && workDir) {
-        const trimmed = path.trim();
-        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-            try {
-                const resolved = resolveAgainstCwd(normalizeInputPath(trimmed), workDir);
-                statSync(resolved);
-                return path;
-            } catch { /* not a literal bracket path — allow JSON coercion */ }
-        }
-    }
-    // Grok occasionally wraps a scalar path with the empty JSON-array fragment
-    // `[""]` (prefix, suffix, or both). Recover only when the literal wrapped
-    // path is absent and the unwrapped target exists, so a real filename is
-    // never rewritten speculatively.
-    if (typeof path === 'string' && typeof workDir === 'string' && workDir) {
-        const trimmed = path.trim();
-        let unwrapped = trimmed;
-        if (unwrapped.startsWith('[""]')) unwrapped = unwrapped.slice(4);
-        if (unwrapped.endsWith('[""]')) unwrapped = unwrapped.slice(0, -4);
-        if (unwrapped !== trimmed && unwrapped) {
-            try {
-                statSync(resolveAgainstCwd(normalizeInputPath(trimmed), workDir));
-                return path;
-            } catch { /* wrapped literal is absent — test the scalar target */ }
-            try {
-                const normalized = normalizeInputPath(unwrapped);
-                const full = resolveAgainstCwd(normalized, workDir);
-                const st = statSync(full);
-                statCacheSet(full, st);
-                return normalized;
-            } catch { /* target is not provably real — preserve the original */ }
-        }
-    }
-    // Absorb: a truncated JSON path array ('["C:\\a\\b.mjs' — a streamed
-    // argument cut mid-emit). Repaired only when exactly ONE path survives,
-    // so a real batch can never be silently narrowed to its first entry.
-    if (typeof path === 'string') {
-        const trimmed = path.trim();
-        if (trimmed.startsWith('["') && !trimmed.endsWith(']')) {
-            try {
-                const repaired = JSON.parse(`${trimmed}"]`);
-                if (Array.isArray(repaired) && repaired.length === 1 && typeof repaired[0] === 'string') {
-                    return repaired[0];
-                }
-            } catch { /* not a repairable truncation — fall through */ }
-        }
-    }
-    const coerced = coerceShapeFlex(path);
-    if (!Array.isArray(coerced)) return coerced;
+export function coerceReadFamilyPathArg(path) {
+    // A path string names exactly one operand. Filesystem contents must not
+    // change its meaning into a batch, repaired JSON, or another filename.
+    if (!Array.isArray(path)) return path;
+    const coerced = path;
     const directRange = compactReadRangeTuple(coerced);
     if (directRange) return [directRange];
     const list = coerced
@@ -366,7 +288,7 @@ export function coerceReadFamilyPathArg(path, workDir = null) {
         // object callers remain valid and pass through untouched.
         .map((p) => compactReadRangeTuple(p) ?? (typeof p === 'string' ? p.trim() : p))
         .filter((p) => (typeof p === 'string' ? p.length > 0 : (p && typeof p === 'object')));
-    if (list.length === 0) return '.';
+    if (list.length === 0) return [];
     // Collapse to scalar only for a lone string; a lone region object must
     // stay an array so read's object-batch dispatcher handles it.
     return list.length === 1 && typeof list[0] === 'string' ? list[0] : list;

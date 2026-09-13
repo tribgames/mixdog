@@ -17,6 +17,9 @@ import {
 type RecordValue = Record<string, unknown>;
 const RECENT_MODELS_KEY = 'mixdog.desktop-recent-models';
 const RECENT_MODELS_LIMIT = 5;
+// A drilled catalog can unmount between choices; acknowledgement order must
+// not rewind recents across catalog instances.
+let latestModelChoice = 0;
 
 function providerSetupEntries(value: unknown): Array<RecordValue & { group: 'api' | 'oauth' | 'local' }> {
   const setup = record(value);
@@ -201,24 +204,20 @@ export function ModelCatalog({
     focusRow(current + (event.key === 'ArrowDown' ? 1 : -1));
   };
   const choose = async (option: DesktopModelOption) => {
-    const previous = recentModelKeys;
-    const key = modelKey(option);
-    const next = [key, ...previous.filter((entry) => entry !== key)].slice(0, RECENT_MODELS_LIMIT);
-    setRecentModelKeys(next);
-    writeRecentModelKeys(next);
+    const token = ++latestModelChoice;
+    // Selection owns this close, not the eventual persistence reply. A late
+    // reply must never close a menu the user has opened in the meantime.
+    onClose();
     try {
       const selected = await onSelect(option);
-      if (selected === false) {
-        setRecentModelKeys(previous);
-        writeRecentModelKeys(previous);
-        return;
-      }
+      if (selected === false || token !== latestModelChoice) return;
+      const key = modelKey(option);
+      const next = [key, ...readRecentModelKeys().filter((entry) => entry !== key)]
+        .slice(0, RECENT_MODELS_LIMIT);
+      writeRecentModelKeys(next);
     } catch {
-      setRecentModelKeys(previous);
-      writeRecentModelKeys(previous);
-      return;
-    } finally {
-      onClose();
+      // The mutation owner reports failure. Do not move the reopened list or
+      // overwrite a newer choice's history while handling an old response.
     }
   };
   const renderModelOption = (option: DesktopModelOption, scope = '') => {

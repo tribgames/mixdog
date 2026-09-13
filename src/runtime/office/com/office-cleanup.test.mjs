@@ -145,6 +145,16 @@ Check (-not $result.ok -and $result.errors.Count -gt 0 -and $null -ne $state.App
 $state.App.FailQuit = $false
 $result = Close-SessionState $state $false
 Check $result.ok 'explicit quit retry failed'
+# An application that accepted Quit shuts itself down in its own time. Waiting
+# one second killed it mid-shutdown on every background close, and reported a
+# visible session — which is never killed — as still running.
+$child = Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Milliseconds 2500' -PassThru -WindowStyle Hidden
+$state = Make-State 'xlsx' 'owned' $true
+$state.AppPid = $child.Id
+$state.AppStartTicks = $child.StartTime.ToUniversalTime().Ticks
+$result = Close-SessionState $state $false
+Check ($result.processExited -and -not $result.forcedProcessCleanup) 'a quitting application was killed instead of allowed to exit'
+Check ($result.ok -and $result.errors.Count -eq 0) 'a clean exit was reported as a cleanup failure'
 [Console]::Out.WriteLine('cleanup behavior passed')
 `;
   const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { maxBuffer: 1024 * 1024 });

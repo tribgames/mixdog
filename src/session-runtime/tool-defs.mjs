@@ -13,7 +13,7 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Load full schemas for exact deferred tool names. Load only needed tool schemas that are not already available. Returns function descriptions and parameter schemas.',
+  description: 'Load full schemas for exact deferred tool names/aliases not already available; returns function descriptions and parameter schemas.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -56,7 +56,7 @@ export const SKILL_TOOL = {
     openWorldHint: false,
     agentHidden: false,
   },
-  description: 'Load the SKILL.md of an available skill whose trigger matches the current request. Call it before other task actions whenever a listed trigger fits; the body then guides the task. Skip only when that body is already present in this context.',
+  description: 'Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update. Reuse a body already in context for matching requests; a later turn or repeated mention is not a reason to call Skill again.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -73,15 +73,3 @@ export const LEAD_DISALLOWED_TOOLS = Object.freeze([
   'set_goal_tasks',
   'update_goal',
 ]);
-const AGENT_HIDDEN_WRAPPER_TOOLS = new Set([]);
-
-export function applyStandaloneToolDefaults(tool) {
-  if (!tool || !AGENT_HIDDEN_WRAPPER_TOOLS.has(tool.name)) return tool;
-  return {
-    ...tool,
-    annotations: {
-      ...(tool.annotations || {}),
-      agentHidden: true,
-    },
-  };
-}

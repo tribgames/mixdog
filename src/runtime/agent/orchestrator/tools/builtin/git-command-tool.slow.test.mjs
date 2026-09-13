@@ -58,9 +58,9 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     parseOk(await git(repo, 'check-ref-format refs/heads/test'));
     assert.match(String(await git(repo, 'archive HEAD')), /^Error: git archive requires -o\/--output/);
     parseOk(await git(repo, 'prune --expire=now'));
-    const shown = parseOk(await git(repo, `show ${base}`, { output_limit: 5 }));
-    assert.equal(shown.commit.oid, base);
-    assert.deepEqual(shown.diff.files, ['base.txt']);
+    const shown = parseOk(await git(repo, `show ${base}`, { output_limit: 50 }));
+    assert.match(JSON.stringify(shown), new RegExp(base));
+    assert.match(JSON.stringify(shown), /base\.txt/);
 
     writeFileSync(join(repo, 'secret.txt'), 'secret[lost-object]\n');
     parseOk(await git(repo, 'add -- secret.txt'));
@@ -68,8 +68,9 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     const secretLog = parseOk(await git(repo, 'log', { output_limit: 1 })).commits[0];
     const secretCommit = secretLog.oid;
     assert.deepEqual(secretLog.body, ['Recovery context']);
-    const batchShow = parseOk(await git(repo, `show ${base} ${secretCommit}`, { output_limit: 5 })).commits;
-    assert.deepEqual(batchShow.map((row) => row.commit.oid), [base, secretCommit]);
+    const batchShow = JSON.stringify(parseOk(await git(repo, `show ${base} ${secretCommit}`, { output_limit: 100 })));
+    assert.match(batchShow, new RegExp(base));
+    assert.match(batchShow, new RegExp(secretCommit));
 
     parseOk(await git(repo, `reset --hard ${base}`));
     const fsck = parseOk(await git(repo, 'fsck --full --unreachable --no-reflogs', { output_limit: 20 }));
@@ -211,6 +212,41 @@ test('git preserves non-patch diff and history presentations', async (t) => {
     assert.match(JSON.stringify(parseOk(await git(repo, 'reflog list'))), /refs\/heads\//);
 });
 
+test('git show preserves native text for blobs, trees, tags and mixed objects', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-show-objects-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+    const native = (args, input) => {
+        const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', input });
+        assert.equal(result.status, 0, result.stderr);
+        return result.stdout.trim();
+    };
+    const render = (data) => data.output ?? data.lines.join('\n');
+    for (const content of [
+        'payload[keep-the-last-character]\n',
+        'payload without a final newline',
+        '\x1eabc\x1fshort\x1fauthor\x1fdate\x1fsubject\nnot a commit or patch\n',
+        '',
+    ]) {
+        const oid = native(['hash-object', '-w', '--stdin'], content);
+        assert.equal(render(parseOk(await git(repo, `show ${oid}`))), content.trim());
+    }
+    writeFileSync(join(repo, 'payload.txt'), 'document contents\n');
+    parseOk(await git(repo, 'add -- payload.txt'));
+    parseOk(await git(repo, 'commit -m document'));
+    parseOk(await git(repo, 'tag -a annotated -m annotation'));
+    const blob = native(['rev-parse', 'HEAD:payload.txt']);
+    for (const objects of [
+        ['HEAD:payload.txt'], ['HEAD^{tree}'], ['annotated'], ['HEAD'], [blob, 'HEAD'],
+    ]) {
+        const actual = parseOk(await git(repo, `show ${objects.join(' ')}`, { output_limit: 200 }));
+        assert.equal(render(actual), native(['show', ...objects]), objects.join(' '));
+    }
+});
+
 test('git policy distinguishes probes from output and ref mutations', () => {
     for (const command of [
         'git --version',
@@ -268,10 +304,11 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.equal(stageProperties.change_ids.anyOf[1].maxItems, 50);
     assert.equal(stageProperties.output_limit.maximum, 200);
     assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
+    // Advisory wording anchors; update when the public description changes.
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
-    assert.match(GIT_TOOL_DEF.description, /Owns repository state, diffs, history, and mutations/i);
-    assert.match(GIT_TOOL_DEF.description, /up to 5 Git commands in order/i);
-    assert.match(GIT_TOOL_DEF.description, /stops at the first failure/i);
+    assert.match(GIT_TOOL_DEF.description, /Run one Git command, or up to 5 in order, directly without a shell/i);
+    assert.match(GIT_TOOL_DEF.description, /Shell operators and substitution are rejected/i);
+    assert.match(GIT_TOOL_DEF.description, /Arrays report each result and stop at the first failure/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
 });
 
@@ -363,6 +400,40 @@ test('git availability probes answer instead of erroring', async (t) => {
     const probe = String(await executeGitTool({ command: 'git --version' }, root));
     assert.doesNotMatch(probe, /unsupported git subcommand/);
     assert.match(probe, /git version/i);
+});
+
+// Some providers hand the whole command over as one quoted scalar. The command
+// itself is well formed, so it must run; only the quoting differs. Everything
+// the tool refuses unquoted stays refused inside the quotes.
+test('git runs a fully quoted command and keeps refusing quoted shell syntax', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-quoted-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+    writeFileSync(join(repo, 'base.txt'), 'base\n');
+    parseOk(await git(repo, 'add --all'));
+    parseOk(await git(repo, 'commit -m base'));
+    writeFileSync(join(repo, 'base.txt'), 'changed\n');
+
+    const plain = parseOk(await executeGitTool({ command: 'git status --short' }, repo));
+    const quoted = parseOk(await executeGitTool({ command: '"git status --short"' }, repo));
+    assert.deepEqual(quoted.changes, plain.changes);
+    assert.deepEqual(quoted.changes, [{ index: ' ', worktree: 'M', path: 'base.txt' }]);
+    assert.deepEqual(
+        parseOk(await executeGitTool({ command: "'git diff -- base.txt'" }, repo)).files,
+        ['base.txt'],
+    );
+
+    assert.match(
+        String(await executeGitTool({ command: '"git status && git log"' }, repo)),
+        /^Error: git command must not contain shell operators/,
+    );
+    assert.match(
+        String(await executeGitTool({ command: '"status --short"' }, repo)),
+        /^Error: command must begin with git/,
+    );
 });
 
 // git dispatches any `git-*` executable on PATH as a subcommand, so a finite

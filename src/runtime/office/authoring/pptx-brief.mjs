@@ -188,9 +188,11 @@ export function reviewBriefPromises(document, brief) {
 
 // Numbers a deck shows must come from the fact sheet. Dates, page numbers,
 // and single digits are not claims; anything else is a figure a reader may
-// quote, so it needs a fact with a source behind it.
+// quote, so it needs a fact with a source behind it. A date is a year, or a
+// year-month(-day) joined by hyphens or the dots Korean and Japanese
+// datelines use (2026.09, 2026.09.12) — a running dateline is chrome, not a figure.
 const NUMBER = /(?<![\w.])[+\-−]?\d[\d,]*(?:\.\d+)?\s?%?(?![\w.])/g;
-const DATE = /^\d{4}$|^\d{4}-\d{2}(?:-\d{2})?$/;
+const DATE = /^\d{4}$|^\d{4}[-.](?:0[1-9]|1[0-2])(?:[-.](?:0[1-9]|[12]\d|3[01]))?$/;
 
 function normalizedNumber(token) {
   return String(token).replace(/[,\s]/g, '').replace('−', '-');
@@ -215,10 +217,25 @@ export function reviewSourceGrounding(brief) {
 
 // Figures the slides show that no fact covers, per slide, and whether any
 // figure appears at all; the review and the author gate read the same list.
+// The gate compares figures, not strings. Matching a fact's whole value as a
+// substring let a slide show 42 because a fact carried 84,200, and 96 because
+// another carried 96.1% - unfounded numbers passed the gate that exists to stop
+// exactly those. Each fact contributes the figures it states; a chart series
+// line contributes every value in it.
+function comparableFigure(token) {
+  const value = normalizedNumber(token).replace('%', '');
+  const numeric = value.replace(/[^\d.-]/g, '');
+  const parsed = Number(numeric);
+  return numeric !== '' && Number.isFinite(parsed) ? String(parsed) : value;
+}
+
 function unlistedFigures(document, brief) {
   const slides = Array.isArray(document?.slides) ? document.slides : [];
   const facts = Array.isArray(brief?.facts) ? brief.facts : [];
-  const known = facts.map((fact) => normalizedNumber(fact.value));
+  const known = new Set();
+  for (const fact of facts) {
+    for (const raw of String(fact?.value ?? '').match(NUMBER) || []) known.add(comparableFigure(raw));
+  }
   let anyNumber = false;
   const missing = [];
   for (const slide of slides) {
@@ -231,8 +248,7 @@ function unlistedFigures(document, brief) {
         const digits = value.replace(/[^\d]/g, '');
         if (DATE.test(token) || digits.length < 2 || (digits.length === 2 && /^\d{1,2}$/.test(value) && Number(value) <= 12)) continue;
         anyNumber = true;
-        const bare = value.replace('%', '');
-        if (!known.some((fact) => fact.includes(bare) || bare.includes(fact.replace('%', '')))) figures.add(token);
+        if (!known.has(comparableFigure(token))) figures.add(token);
       }
     }
     if (figures.size) missing.push({ slide: slide.index, figures: [...figures] });

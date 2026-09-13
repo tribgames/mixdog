@@ -43,12 +43,15 @@ function omitToolsKey(omitTools) {
         .filter(Boolean))].sort().join(',');
 }
 
-export function _buildSharedRules({ omitTools = [] } = {}) {
+export function _buildSharedRules({ omitTools = [], allowTools = null } = {}) {
     const PLUGIN_ROOT = mixdogRoot();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
     return buildCachedRules('buildSharedToolContent', 'shared tool rules', [
         join(RULES_DIR, 'shared'),
-    ], { PLUGIN_ROOT, DATA_DIR: resolvePluginData(), omitTools }, omitToolsKey(omitTools));
+    ], { PLUGIN_ROOT, DATA_DIR: resolvePluginData(), omitTools, allowTools }, JSON.stringify([
+        omitToolsKey(omitTools),
+        Array.isArray(allowTools) ? omitToolsKey(allowTools) : null,
+    ]));
 }
 
 export function _buildAgentRules(profile = 'full') {

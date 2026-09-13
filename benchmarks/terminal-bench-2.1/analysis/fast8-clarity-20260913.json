@@ -1,0 +1,317 @@
+{
+  "schemaVersion": 1,
+  "run": "jobs-sol-xhigh-fast-clarity-20260913-r1",
+  "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+  "rawAnalysis": "jobs-sol-xhigh-fast-clarity-20260913-r1-analysis.json",
+  "ratesUsdPerMillion": {
+    "input": 4,
+    "cached": 0.4,
+    "cacheWrite": 5,
+    "output": 20
+  },
+  "now": {
+    "input": 337592,
+    "cached": 246400,
+    "uncached": 91192,
+    "output": 26330,
+    "thinking": 14965,
+    "finalThinking": 1047,
+    "cost": 0.989928,
+    "wall": 246.781,
+    "agent": 657.312,
+    "requests": 45,
+    "calls": 44,
+    "context": 22173
+  },
+  "priorMean": {
+    "input": 268871.5,
+    "cached": 199296,
+    "output": 23538,
+    "cost": 0.8287804,
+    "wall": 153.0485,
+    "agent": 511.80850000000004,
+    "requests": 39.5,
+    "calls": 41,
+    "context": 22907,
+    "uncached": 69575.5,
+    "thinking": 13127.5,
+    "finalThinking": 2156.5
+  },
+  "deltaVsPriorMeanPercent": {
+    "input": 25.55886362072588,
+    "cached": 23.635195889531158,
+    "output": 11.861670490271049,
+    "cost": 19.44394437899353,
+    "wall": 61.24365805610641,
+    "agent": 28.429285562861885,
+    "requests": 13.924050632911399,
+    "calls": 7.317073170731714,
+    "context": -3.2042607063343054,
+    "uncached": 31.069126344762154,
+    "thinking": 13.99733384117312,
+    "finalThinking": -51.44910734987248
+  },
+  "historical": {
+    "run": "jobs-sol-xhigh-fast-20260910-195548",
+    "metrics": {
+      "input": 414137,
+      "cached": 359808,
+      "uncached": 54329,
+      "output": 21418,
+      "cost": 0.7895992,
+      "wall": 135.164,
+      "agent": 432.649,
+      "requests": 50,
+      "calls": 56,
+      "context": 27996
+    },
+    "deltaPercent": {
+      "input": -18.483014075052463,
+      "cached": -31.519032372821066,
+      "uncached": 67.85142373318118,
+      "output": 22.933980763843497,
+      "cost": 25.370947690929803,
+      "wall": 82.5789411381729,
+      "agent": 51.92731290260697,
+      "requests": -9.999999999999998,
+      "calls": -21.42857142857143,
+      "context": -20.799399914273465
+    }
+  },
+  "pairedAgainstPriorMean": [
+    {
+      "task": "code-from-image",
+      "seconds": 28.078,
+      "secondsDelta": -1.001999999999999,
+      "output": 917,
+      "outputDelta": 244,
+      "thinkingDelta": 18,
+      "calls": 4,
+      "callsDelta": 1
+    },
+    {
+      "task": "db-wal-recovery",
+      "seconds": 103.84,
+      "secondsDelta": 25.823499999999996,
+      "output": 5115,
+      "outputDelta": 903,
+      "thinkingDelta": 438.5,
+      "calls": 5,
+      "callsDelta": -2
+    },
+    {
+      "task": "fix-code-vulnerability",
+      "seconds": 63.176,
+      "secondsDelta": 24.4195,
+      "output": 1575,
+      "outputDelta": 533,
+      "thinkingDelta": 278,
+      "calls": 7,
+      "callsDelta": 3
+    },
+    {
+      "task": "git-leak-recovery",
+      "seconds": 77.337,
+      "secondsDelta": -17.167500000000004,
+      "output": 2675,
+      "outputDelta": -1879.5,
+      "thinkingDelta": -1529.5,
+      "calls": 9,
+      "callsDelta": 0
+    },
+    {
+      "task": "log-summary-date-ranges",
+      "seconds": 63.011,
+      "secondsDelta": 3.5505000000000067,
+      "output": 2601,
+      "outputDelta": -314,
+      "thinkingDelta": 224.5,
+      "calls": 4,
+      "callsDelta": -2
+    },
+    {
+      "task": "multi-source-data-merger",
+      "seconds": 80.058,
+      "secondsDelta": 6.409000000000006,
+      "output": 4202,
+      "outputDelta": 133,
+      "thinkingDelta": -72.5,
+      "calls": 4,
+      "callsDelta": -1
+    },
+    {
+      "task": "polyglot-c-py",
+      "seconds": 202.004,
+      "secondsDelta": 94.41899999999998,
+      "output": 8073,
+      "outputDelta": 2829,
+      "thinkingDelta": 2111.5,
+      "calls": 7,
+      "callsDelta": 4
+    },
+    {
+      "task": "prove-plus-comm",
+      "seconds": 39.808,
+      "secondsDelta": 9.051499999999997,
+      "output": 1172,
+      "outputDelta": 343.5,
+      "thinkingDelta": 369,
+      "calls": 4,
+      "callsDelta": 0
+    }
+  ],
+  "regressionsVsR2": [
+    {
+      "task": "code-from-image",
+      "outputDelta": 152,
+      "secondsDelta": 2.753,
+      "callsDelta": 1
+    },
+    {
+      "task": "db-wal-recovery",
+      "outputDelta": 1394,
+      "secondsDelta": 39.20700000000001,
+      "callsDelta": -1
+    },
+    {
+      "task": "fix-code-vulnerability",
+      "outputDelta": 858,
+      "secondsDelta": 34.795,
+      "callsDelta": 4
+    },
+    {
+      "task": "polyglot-c-py",
+      "outputDelta": 2914,
+      "secondsDelta": 103.514,
+      "callsDelta": 4
+    },
+    {
+      "task": "prove-plus-comm",
+      "outputDelta": 425,
+      "secondsDelta": 11.584,
+      "callsDelta": 1
+    }
+  ],
+  "sourceChangesVsR2": [
+    {
+      "path": "src/defaults/skills/pptx/references/kit.md",
+      "change": "changed"
+    },
+    {
+      "path": "src/output-styles/common.md",
+      "change": "changed"
+    },
+    {
+      "path": "src/rules/shared/10-tool-workflow.md",
+      "change": "changed"
+    },
+    {
+      "path": "src/rules/shared/50-execution.md",
+      "change": "changed"
+    },
+    {
+      "path": "src/rules/shared/60-verification.md",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/agent/orchestrator/session/compact/execution-tail.test.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/agent/orchestrator/session/compact/messages.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/agent/orchestrator/session/compact/runner.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/agent/orchestrator/session/manager/ask-session.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/agent/orchestrator/session/synthetic-user-envelope.test.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/computer-bridge/action-schema.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/computer-bridge/client.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/runtime/computer-bridge/response-cancel.test.mjs",
+      "change": "added"
+    },
+    {
+      "path": "src/runtime/office/pptx-skill-kit.slow.test.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/session-runtime/builtin-features.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/session-runtime/builtin-features.test.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/session-runtime/goal-runtime.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/session-runtime/goal-runtime.slow.test.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/session-runtime/session-turn-api.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/session-runtime/tool-policy-surface.test.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/tui/dist/index.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/tui/session/goal-closeout.test.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/tui/session/goal-controls.test.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/tui/session/goal-idle-lifecycle.test.mjs",
+      "change": "added"
+    },
+    {
+      "path": "src/tui/session/session-flow.mjs",
+      "change": "changed"
+    },
+    {
+      "path": "src/tui/session/turn.mjs",
+      "change": "changed"
+    }
+  ],
+  "shellOutput": {
+    "results": 17,
+    "rawBytes": 31633,
+    "visibleBytes": 6407,
+    "savedBytes": 25736,
+    "netSavedBytes": 25226
+  },
+  "batching": {
+    "internalArrays": 10,
+    "observedOverlap": 3,
+    "mixedToolOverlap": 2
+  }
+}

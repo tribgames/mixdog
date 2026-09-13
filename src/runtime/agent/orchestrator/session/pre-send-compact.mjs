@@ -150,6 +150,7 @@ export async function runPreSendCompactPass(state) {
                     {
                         try {
                             freshContextResult = await runFreshContextCompact({
+                                config: state.compactionConfig,
                                 sessionRef,
                                 messages: compactInputMessages,
                                 compactBudgetTokens,

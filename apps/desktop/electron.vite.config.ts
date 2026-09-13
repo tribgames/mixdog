@@ -52,15 +52,20 @@ const localFontDisplayFallback: Plugin = {
 // matching CSP hash from the copied boot.js beside index.html.
 const inlineBootScript: Plugin = {
   name: 'mixdog-inline-boot-script',
-  transformIndexHtml(html) {
-    const source = readFileSync(
-      resolve(__dirname, 'src/renderer/public/boot.js'),
-      'utf8',
-    );
-    return html.replace(
-      '<script src="./boot.js"></script>',
-      `<script>${source}</script>`,
-    );
+  transformIndexHtml: {
+    // Inline before Vite classifies script URLs; the classic first-paint
+    // script is deliberately not a module and must not enter its bundler.
+    order: 'pre',
+    handler(html) {
+      const source = readFileSync(
+        resolve(__dirname, 'src/renderer/public/boot.js'),
+        'utf8',
+      );
+      return html.replace(
+        '<script src="./boot.js"></script>',
+        `<script>${source}</script>`,
+      );
+    },
   },
 };
 

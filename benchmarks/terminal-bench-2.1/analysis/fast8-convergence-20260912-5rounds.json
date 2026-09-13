@@ -1,0 +1,866 @@
+{
+  "schemaVersion": 1,
+  "preset": "sol-xhigh-fast",
+  "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+  "baseline": {
+    "round": 0,
+    "job": "jobs-sol-xhigh-fast-20260912-105927",
+    "output": 26212,
+    "thinking": 15490,
+    "finalThinking": null,
+    "change": "Pre-series reference",
+    "score": 8,
+    "total": 8,
+    "clean": true,
+    "errors": 0,
+    "retries": 0,
+    "input": 498689,
+    "cached": 421888,
+    "requests": 47,
+    "tools": 63,
+    "wallSeconds": 246.002,
+    "agentSeconds": 716.398,
+    "finalContextTokens": 11231,
+    "costUsd": 1.0001992000000002,
+    "costPerAgentMinute": 0.08376901108043296,
+    "reduction": {
+      "evidence": {
+        "projections": 6,
+        "beforeBytes": 376003,
+        "afterBytes": 346981,
+        "savedBytes": 29022,
+        "rowSavedBytes": 29022,
+        "exactSavedBytes": 0,
+        "reusedRows": 968,
+        "exactRefs": 0
+      },
+      "artifactOffload": {
+        "results": 0,
+        "beforeBytes": 0,
+        "visibleBytes": 0,
+        "savedBytes": 0
+      },
+      "shell": {
+        "results": 18,
+        "rawBytes": 28891,
+        "visibleBytes": 3787,
+        "savedBytes": 25736
+      },
+      "activity": {
+        "providerRequests": 47,
+        "toolBatches": 39,
+        "toolCalls": 63,
+        "artifactReads": 0
+      },
+      "tokens": {
+        "input": 498689,
+        "cached": 421888,
+        "output": 26212
+      },
+      "totalSavedBytes": 54758
+    },
+    "rulesHash": "sha256:6764b600c3453cac8f098fa300973fe3caae49e3d70a20595caa14cea6b5c9fd",
+    "toolContractHash": "sha256:64ecc26631b13208790e1aeed281aa441c2d2f545e20b5410b2c1ae2e0bc7145",
+    "bundleSha256": "ac0abb995bbe44dbd46c5a0c5864615a5efd208ffee1091ee86629f64223db62",
+    "changedRuntimePaths": [],
+    "outputRegressions": [],
+    "timeRegressions": [],
+    "report": "jobs-sol-xhigh-fast-20260912-105927/report.json",
+    "tasks": [
+      {
+        "task": "code-from-image",
+        "passed": true,
+        "output": 758,
+        "seconds": 33.153
+      },
+      {
+        "task": "db-wal-recovery",
+        "passed": true,
+        "output": 4057,
+        "seconds": 102.254
+      },
+      {
+        "task": "fix-code-vulnerability",
+        "passed": true,
+        "output": 2113,
+        "seconds": 75.525
+      },
+      {
+        "task": "git-leak-recovery",
+        "passed": true,
+        "output": 3411,
+        "seconds": 99.05
+      },
+      {
+        "task": "log-summary-date-ranges",
+        "passed": true,
+        "output": 3851,
+        "seconds": 84.237
+      },
+      {
+        "task": "multi-source-data-merger",
+        "passed": true,
+        "output": 3777,
+        "seconds": 83.684
+      },
+      {
+        "task": "polyglot-c-py",
+        "passed": true,
+        "output": 7398,
+        "seconds": 202.088
+      },
+      {
+        "task": "prove-plus-comm",
+        "passed": true,
+        "output": 847,
+        "seconds": 36.407
+      }
+    ]
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "job": "jobs-sol-xhigh-fast-20260912-111226",
+      "output": 23729,
+      "thinking": 14164,
+      "finalThinking": 2078,
+      "change": "Completion reporting uses established evidence, not another review stage",
+      "score": 8,
+      "total": 8,
+      "clean": true,
+      "errors": 0,
+      "retries": 0,
+      "input": 380483,
+      "cached": 293248,
+      "requests": 43,
+      "tools": 50,
+      "wallSeconds": 187.643,
+      "agentSeconds": 540.287,
+      "finalContextTokens": 11101,
+      "costUsd": 0.9408192,
+      "costPerAgentMinute": 0.10447993751469126,
+      "reduction": {
+        "evidence": {
+          "projections": 0,
+          "beforeBytes": 0,
+          "afterBytes": 0,
+          "savedBytes": 0,
+          "rowSavedBytes": 0,
+          "exactSavedBytes": 0,
+          "reusedRows": 0,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 18,
+          "rawBytes": 28074,
+          "visibleBytes": 2749,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 43,
+          "toolBatches": 35,
+          "toolCalls": 50,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 380483,
+          "cached": 293248,
+          "output": 23729
+        },
+        "totalSavedBytes": 25736
+      },
+      "rulesHash": "sha256:fd241a7aa43552d047eb74b9317acd5d693f4d7d62ed69efa5b2e4840e079419",
+      "toolContractHash": "sha256:64ecc26631b13208790e1aeed281aa441c2d2f545e20b5410b2c1ae2e0bc7145",
+      "bundleSha256": "31f6b2dd3803b9aeeabd0ab6f6d1d87ba04399908fa39636fed0fb230f5c3887",
+      "changedRuntimePaths": [
+        "src/rules/shared/60-verification.md",
+        "src/runtime/office/capabilities.mjs",
+        "src/runtime/office/com/office-com-host.ps1",
+        "src/runtime/office/core/office-actions-lifecycle.mjs",
+        "src/runtime/office/core/office-actions-render.mjs",
+        "src/runtime/office/document-acceptance.test.mjs",
+        "src/runtime/office/index.mjs",
+        "src/runtime/office/office-assurance.test.mjs",
+        "src/runtime/office/office-runtime-contract.test.mjs",
+        "src/runtime/office/office-runtime-portable.test.mjs",
+        "src/runtime/office/portable/portable-docx-xml.mjs",
+        "src/runtime/office/portable/portable-docx.mjs",
+        "src/runtime/office/portable/portable-sheet-page.mjs",
+        "src/runtime/office/portable/portable-xlsx.mjs",
+        "src/runtime/office/quality/assurance-rendered.mjs",
+        "src/runtime/office/quality/assurance-structure.mjs",
+        "src/runtime/office/quality/document-acceptance.mjs",
+        "src/runtime/office/tool-defs.mjs"
+      ],
+      "outputRegressions": [
+        "git-leak-recovery",
+        "multi-source-data-merger"
+      ],
+      "timeRegressions": [],
+      "report": "jobs-sol-xhigh-fast-20260912-111226/report.json",
+      "tasks": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "output": 381,
+          "seconds": 26.203
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "output": 3609,
+          "seconds": 79.321
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "output": 1820,
+          "seconds": 49.82
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "output": 3692,
+          "seconds": 70.606
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "output": 2282,
+          "seconds": 58.135
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "output": 4456,
+          "seconds": 81.111
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "output": 6815,
+          "seconds": 146.54
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "output": 674,
+          "seconds": 28.551
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "job": "jobs-sol-xhigh-fast-20260912-112011",
+      "output": 23834,
+      "thinking": 13382,
+      "finalThinking": 1739,
+      "change": "An unresolved check does not authorize changing already satisfied behavior",
+      "score": 8,
+      "total": 8,
+      "clean": true,
+      "errors": 0,
+      "retries": 0,
+      "input": 409510,
+      "cached": 321664,
+      "requests": 43,
+      "tools": 56,
+      "wallSeconds": 157.825,
+      "agentSeconds": 572.65,
+      "finalContextTokens": 11327.5,
+      "costUsd": 0.9567296,
+      "costPerAgentMinute": 0.10024233999825374,
+      "reduction": {
+        "evidence": {
+          "projections": 3,
+          "beforeBytes": 127634,
+          "afterBytes": 125240,
+          "savedBytes": 2394,
+          "rowSavedBytes": 2394,
+          "exactSavedBytes": 0,
+          "reusedRows": 135,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 23,
+          "rawBytes": 29485,
+          "visibleBytes": 4631,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 43,
+          "toolBatches": 35,
+          "toolCalls": 56,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 409510,
+          "cached": 321664,
+          "output": 23834
+        },
+        "totalSavedBytes": 28130
+      },
+      "rulesHash": "sha256:d6d7790636358c05acd6a2dc735bf2bfba5191da517f51b7679c71729c4a20eb",
+      "toolContractHash": "sha256:64ecc26631b13208790e1aeed281aa441c2d2f545e20b5410b2c1ae2e0bc7145",
+      "bundleSha256": "310dd33f18c93df2df484d52a00cdb07639d68332060eb262dfd37ad0c7f7d3c",
+      "changedRuntimePaths": [
+        "src/rules/shared/35-implementation.md",
+        "src/runtime/office/capabilities.mjs",
+        "src/runtime/office/com/office-com-host.ps1",
+        "src/runtime/office/com/office-com-session-host.ps1",
+        "src/runtime/office/office-runtime-pdf.test.mjs",
+        "src/runtime/office/office-runtime-portable.test.mjs",
+        "src/runtime/office/pdf/pdf-writer.mjs",
+        "src/runtime/office/portable/portable-docx-xml.mjs",
+        "src/runtime/office/portable/portable-package.mjs"
+      ],
+      "outputRegressions": [
+        "code-from-image",
+        "fix-code-vulnerability",
+        "git-leak-recovery",
+        "log-summary-date-ranges",
+        "prove-plus-comm"
+      ],
+      "timeRegressions": [
+        "code-from-image",
+        "fix-code-vulnerability",
+        "git-leak-recovery",
+        "log-summary-date-ranges",
+        "multi-source-data-merger",
+        "prove-plus-comm"
+      ],
+      "report": "jobs-sol-xhigh-fast-20260912-112011/report.json",
+      "tasks": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "output": 1098,
+          "seconds": 47.344
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "output": 3202,
+          "seconds": 60.975
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "output": 1842,
+          "seconds": 57.693
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "output": 4945,
+          "seconds": 96.013
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "output": 3064,
+          "seconds": 73.395
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "output": 3424,
+          "seconds": 96.582
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "output": 5506,
+          "seconds": 106.923
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "output": 753,
+          "seconds": 33.725
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "job": "jobs-sol-xhigh-fast-20260912-112501",
+      "output": 22413,
+      "thinking": 12218,
+      "finalThinking": 800,
+      "change": "Selection criteria are distinct from input validity",
+      "score": 8,
+      "total": 8,
+      "clean": true,
+      "errors": 0,
+      "retries": 0,
+      "input": 425452,
+      "cached": 321664,
+      "requests": 47,
+      "tools": 58,
+      "wallSeconds": 125.003,
+      "agentSeconds": 438.165,
+      "finalContextTokens": 10864,
+      "costUsd": 0.9920776,
+      "costPerAgentMinute": 0.1358498647769676,
+      "reduction": {
+        "evidence": {
+          "projections": 5,
+          "beforeBytes": 120537,
+          "afterBytes": 118755,
+          "savedBytes": 1782,
+          "rowSavedBytes": 1782,
+          "exactSavedBytes": 0,
+          "reusedRows": 134,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 22,
+          "rawBytes": 29043,
+          "visibleBytes": 4036,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 47,
+          "toolBatches": 39,
+          "toolCalls": 58,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 425452,
+          "cached": 321664,
+          "output": 22413
+        },
+        "totalSavedBytes": 27518
+      },
+      "rulesHash": "sha256:a916b5a818cbc7e5864595ea096f283cf90430b0e668fbb51234df45e1ca7890",
+      "toolContractHash": "sha256:64ecc26631b13208790e1aeed281aa441c2d2f545e20b5410b2c1ae2e0bc7145",
+      "bundleSha256": "0b0cc64ef74cf43a897c0a18e582c0efbf50f36f3365d9f29baae3f9f638d6c7",
+      "changedRuntimePaths": [
+        "src/defaults/skills/docx/SKILL.md",
+        "src/defaults/skills/docx/references/native-authoring.md",
+        "src/defaults/skills/pdf/SKILL.md",
+        "src/defaults/skills/pptx/references/kit.md",
+        "src/defaults/skills/xlsx/SKILL.md",
+        "src/rules/shared/30-exploration.md",
+        "src/runtime/office/capabilities.mjs",
+        "src/runtime/office/com/office-com-host.ps1"
+      ],
+      "outputRegressions": [
+        "code-from-image",
+        "db-wal-recovery",
+        "fix-code-vulnerability",
+        "multi-source-data-merger",
+        "prove-plus-comm"
+      ],
+      "timeRegressions": [
+        "db-wal-recovery",
+        "prove-plus-comm"
+      ],
+      "report": "jobs-sol-xhigh-fast-20260912-112501/report.json",
+      "tasks": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "output": 1324,
+          "seconds": 35.666
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "output": 3742,
+          "seconds": 63.514
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "output": 2198,
+          "seconds": 53.213
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "output": 3391,
+          "seconds": 61.64
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "output": 2457,
+          "seconds": 52.764
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "output": 3982,
+          "seconds": 64.406
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "output": 4396,
+          "seconds": 70.349
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "output": 923,
+          "seconds": 36.613
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "job": "jobs-sol-xhigh-fast-20260912-112954",
+      "output": 25981,
+      "thinking": 14026,
+      "finalThinking": 1353,
+      "change": "A pending result determining another call is a decision dependency",
+      "score": 8,
+      "total": 8,
+      "clean": true,
+      "errors": 0,
+      "retries": 0,
+      "input": 446737,
+      "cached": 364672,
+      "requests": 46,
+      "tools": 57,
+      "wallSeconds": 143.011,
+      "agentSeconds": 486.403,
+      "finalContextTokens": 11311.5,
+      "costUsd": 0.9937487999999999,
+      "costPerAgentMinute": 0.12258338867153366,
+      "reduction": {
+        "evidence": {
+          "projections": 4,
+          "beforeBytes": 177593,
+          "afterBytes": 177585,
+          "savedBytes": 8,
+          "rowSavedBytes": 8,
+          "exactSavedBytes": 0,
+          "reusedRows": 24,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 23,
+          "rawBytes": 27915,
+          "visibleBytes": 2809,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 46,
+          "toolBatches": 38,
+          "toolCalls": 57,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 446737,
+          "cached": 364672,
+          "output": 25981
+        },
+        "totalSavedBytes": 25744
+      },
+      "rulesHash": "sha256:16f9b4045faf800a9eca9ddbe9cfe6550cad007162feded6ee9b4ab7b937df86",
+      "toolContractHash": "sha256:64ecc26631b13208790e1aeed281aa441c2d2f545e20b5410b2c1ae2e0bc7145",
+      "bundleSha256": "4a980031e24d1cba8e4a54dd10ef52a8644fbb50acc36d8a62b25d57f726916b",
+      "changedRuntimePaths": [
+        "src/rules/shared/10-tool-workflow.md"
+      ],
+      "outputRegressions": [
+        "git-leak-recovery",
+        "multi-source-data-merger",
+        "polyglot-c-py"
+      ],
+      "timeRegressions": [
+        "git-leak-recovery",
+        "multi-source-data-merger",
+        "polyglot-c-py"
+      ],
+      "report": "jobs-sol-xhigh-fast-20260912-112954/report.json",
+      "tasks": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "output": 947,
+          "seconds": 28.406
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "output": 3207,
+          "seconds": 62.543
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "output": 1903,
+          "seconds": 44.938
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "output": 5649,
+          "seconds": 94.025
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "output": 1986,
+          "seconds": 42.891
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "output": 5423,
+          "seconds": 87.004
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "output": 6053,
+          "seconds": 98.224
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "output": 813,
+          "seconds": 28.372
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "job": "jobs-sol-xhigh-fast-20260912-113559",
+      "output": 24484,
+      "thinking": 13410,
+      "finalThinking": 1357,
+      "change": "Normalize by source format and required schema before comparing values",
+      "score": 8,
+      "total": 8,
+      "clean": true,
+      "errors": 0,
+      "retries": 0,
+      "input": 480657,
+      "cached": 399616,
+      "requests": 47,
+      "tools": 61,
+      "wallSeconds": 180.179,
+      "agentSeconds": 498.10900000000004,
+      "finalContextTokens": 11579.5,
+      "costUsd": 0.9736904,
+      "costPerAgentMinute": 0.11728642526033456,
+      "reduction": {
+        "evidence": {
+          "projections": 4,
+          "beforeBytes": 180024,
+          "afterBytes": 177804,
+          "savedBytes": 2220,
+          "rowSavedBytes": 2220,
+          "exactSavedBytes": 0,
+          "reusedRows": 72,
+          "exactRefs": 0
+        },
+        "artifactOffload": {
+          "results": 0,
+          "beforeBytes": 0,
+          "visibleBytes": 0,
+          "savedBytes": 0
+        },
+        "shell": {
+          "results": 20,
+          "rawBytes": 28640,
+          "visibleBytes": 3486,
+          "savedBytes": 25736
+        },
+        "activity": {
+          "providerRequests": 47,
+          "toolBatches": 39,
+          "toolCalls": 61,
+          "artifactReads": 0
+        },
+        "tokens": {
+          "input": 480657,
+          "cached": 399616,
+          "output": 24484
+        },
+        "totalSavedBytes": 27956
+      },
+      "rulesHash": "sha256:21b39252c16a89279632cb4f8c150f6fe39b718969e2b6357d32613619de6d82",
+      "toolContractHash": "sha256:64ecc26631b13208790e1aeed281aa441c2d2f545e20b5410b2c1ae2e0bc7145",
+      "bundleSha256": "8842f75135eb16933bbd178a42d4669d6dedd98a80e6feba83b4e81bb337daa8",
+      "changedRuntimePaths": [
+        "src/rules/shared/35-implementation.md"
+      ],
+      "outputRegressions": [
+        "db-wal-recovery",
+        "polyglot-c-py"
+      ],
+      "timeRegressions": [
+        "log-summary-date-ranges",
+        "polyglot-c-py"
+      ],
+      "report": "jobs-sol-xhigh-fast-20260912-113559/report.json",
+      "tasks": [
+        {
+          "task": "code-from-image",
+          "passed": true,
+          "output": 654,
+          "seconds": 26.257
+        },
+        {
+          "task": "db-wal-recovery",
+          "passed": true,
+          "output": 3602,
+          "seconds": 61.146
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "passed": true,
+          "output": 1651,
+          "seconds": 44.306
+        },
+        {
+          "task": "git-leak-recovery",
+          "passed": true,
+          "output": 4718,
+          "seconds": 89.398
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "passed": true,
+          "output": 1653,
+          "seconds": 46.137
+        },
+        {
+          "task": "multi-source-data-merger",
+          "passed": true,
+          "output": 4589,
+          "seconds": 76.493
+        },
+        {
+          "task": "polyglot-c-py",
+          "passed": true,
+          "output": 7094,
+          "seconds": 128.613
+        },
+        {
+          "task": "prove-plus-comm",
+          "passed": true,
+          "output": 523,
+          "seconds": 25.759
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "completedRounds": 5,
+    "passed": 40,
+    "trials": 40,
+    "totalCostUsd": 4.857065599999999,
+    "bestObservedRound": 3,
+    "bestOutput": 22413,
+    "finalRound": 5,
+    "finalOutput": 24484,
+    "bestOutputReductionFromBaseline": 0.14493361819014194,
+    "finalOutputReductionFromBaseline": 0.06592400427285217,
+    "finalWallReductionFromBaseline": 0.2675709953577613,
+    "nonRuleRuntimeChangesWithinSeries": [
+      {
+        "round": 2,
+        "path": "src/runtime/office/capabilities.mjs"
+      },
+      {
+        "round": 2,
+        "path": "src/runtime/office/com/office-com-host.ps1"
+      },
+      {
+        "round": 2,
+        "path": "src/runtime/office/com/office-com-session-host.ps1"
+      },
+      {
+        "round": 2,
+        "path": "src/runtime/office/office-runtime-pdf.test.mjs"
+      },
+      {
+        "round": 2,
+        "path": "src/runtime/office/office-runtime-portable.test.mjs"
+      },
+      {
+        "round": 2,
+        "path": "src/runtime/office/pdf/pdf-writer.mjs"
+      },
+      {
+        "round": 2,
+        "path": "src/runtime/office/portable/portable-docx-xml.mjs"
+      },
+      {
+        "round": 2,
+        "path": "src/runtime/office/portable/portable-package.mjs"
+      },
+      {
+        "round": 3,
+        "path": "src/defaults/skills/docx/SKILL.md"
+      },
+      {
+        "round": 3,
+        "path": "src/defaults/skills/docx/references/native-authoring.md"
+      },
+      {
+        "round": 3,
+        "path": "src/defaults/skills/pdf/SKILL.md"
+      },
+      {
+        "round": 3,
+        "path": "src/defaults/skills/pptx/references/kit.md"
+      },
+      {
+        "round": 3,
+        "path": "src/defaults/skills/xlsx/SKILL.md"
+      },
+      {
+        "round": 3,
+        "path": "src/runtime/office/capabilities.mjs"
+      },
+      {
+        "round": 3,
+        "path": "src/runtime/office/com/office-com-host.ps1"
+      }
+    ],
+    "convergence": "not-established",
+    "retainedConfiguration": "round-5",
+    "costCrossCheck": {
+      "trials": 40,
+      "mismatches": 0
+    }
+  },
+  "notes": [
+    "Five user-approved sequential rounds, with a general rule change and prompt tests before each run.",
+    "No model, reasoning-effort, task-specific hints, timeout, resource or verifier changes.",
+    "Each candidate has one run; the minimum is an observed result, not a stable performance estimate.",
+    "Round 5 remains in the source tree; no post-hoc rollback to the lowest single sample.",
+    "Raw run artifacts were retained; no manual deletion, deployment, staging, commit or push."
+  ]
+}

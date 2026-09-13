@@ -29,7 +29,7 @@ test('Cursor main sessions preserve the configured 200k compact boundary', () =>
     assert.equal(policy.boundaryTokens, 200_000);
     assert.equal(policy.triggerTokens, 200_000);
     assert.equal(policy.bufferTokens, 0);
-    assert.equal(policy.compactTargetTokens, 100_000);
+    assert.equal(policy.compactTargetTokens, 50_000);
 });
 
 test('successful compaction publishes post-compact pressure and invalidates the old baseline', () => {
@@ -207,7 +207,13 @@ test('a restarted tool surface adjusts only schema reserve instead of discarding
     ), true);
 
     const policy = resolveWorkerCompactPolicy(session, restartedTools);
-    const wholeTranscriptEstimate = 302_000;
+    // The point of this fixture is a naive whole-transcript estimate that WOULD
+    // trigger compaction, so the assertions below prove the provider baseline
+    // wins anyway. Derive it from the policy instead of hardcoding a number
+    // that only clears the trigger at one particular calibration.
+    const wholeTranscriptEstimate = Math.ceil(
+        (policy.triggerTokens / policy.tokenCalibration) * 1.2,
+    );
     const currentReserve = Math.round(policy.requestReserveTokens * policy.tokenCalibration);
     const expected = 75_000 - session.contextPressureBaselineRequestReserveTokens + currentReserve;
     assert.notEqual(session.contextPressureBaselineToolSignature, policy.toolSchemaSignature);

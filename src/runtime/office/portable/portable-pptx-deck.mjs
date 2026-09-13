@@ -2,11 +2,12 @@ import { dirname, join, posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { textBodyXml, toEmu } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
-import { addPackageRelationship, ensureContentTypeOverride, fillTemplateParts, nextRelationshipId, partRelationshipPath, provenanceCitation, zipText } from './portable-opc.mjs';
+import { addPackageRelationship, cloneOwnedSlideParts, ensureContentTypeOverride, fillTemplateParts, nextRelationshipId, partRelationshipPath, provenanceCitation, zipText } from './portable-opc.mjs';
 import { OFFICE_RELATIONSHIP_BASE, containerInner, replaceAcrossRuns, topLevelElements, xmlAttribute, xmlEncode } from './portable-xml.mjs';
 import { SLIDE_CONTENT_TYPE, addPresentationSlide, deletePresentationSlide, ensureCommentAuthor, ensureSlideComments, importSlidesIntoPresentation, movePresentationSlide, presentationSlides, readSlideNotes, selectSlideLayout, setSlideNotes, slideIdEntries, slideLayoutParts, slidePath, writeSlideIdList } from './portable-pptx-package.mjs';
 import JSZip from 'jszip';
-import { nextShapeId, presentationSlideSize, setSlideBackground } from './portable-pptx-core.mjs';
+import { nextShapeId, presentationSlideSize, resolveSlideBackground, setSlideBackground } from './portable-pptx-core.mjs';
+import { contrastRatio, relativeLuminance } from './text-metrics.mjs';
 
 export async function handleAddSlide(context, op) {
   const { zip } = context;
@@ -114,11 +115,15 @@ export async function handleDuplicateSlide(context, op) {
   const duplicated = `ppt/slides/slide${ordinal}.xml`;
   zip.file(duplicated, await zipText(zip, source.path));
   const sourceRelationships = await zipText(zip, partRelationshipPath(source.path));
+  let copiedParts = [];
   if (sourceRelationships) {
     zip.file(
       partRelationshipPath(duplicated),
       sourceRelationships.replace(/<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\/>/g, ''),
     );
+    // A copy that still pointed at the source's chart or diagram turned one
+    // edit into two changed pages, with nothing in the result saying so.
+    copiedParts = await cloneOwnedSlideParts(zip, partRelationshipPath(duplicated));
   }
   await ensureContentTypeOverride(zip, `/${duplicated}`, SLIDE_CONTENT_TYPE);
   const relationshipId = await addPackageRelationship(
@@ -136,7 +141,12 @@ export async function handleDuplicateSlide(context, op) {
   entries.splice(position, 0, `<p:sldId id="${Math.max(255, ...ids) + 1}" r:id="${relationshipId}"/>`);
   zip.file('ppt/presentation.xml', writeSlideIdList(presentation, entries));
   slides = context.slides = await presentationSlides(zip);
-  return { op: op.op, changed: true, slide: position + 1 };
+  return {
+    op: op.op,
+    changed: true,
+    slide: position + 1,
+    ...(copiedParts.length ? { ownParts: copiedParts } : {}),
+  };
 }
 
 
@@ -190,6 +200,21 @@ export async function handleSetSlideBackground(context, op) {
 }
 
 
+// Secondary ink for a footer or page number: grey enough to recede, dark (or
+// light) enough against its own field to clear the 4.5:1 the audit asks of any
+// text. A field we cannot read leaves the neutral that suits a white slide.
+const QUIET_INK_ON_LIGHT = Object.freeze(['6A7179', '5A616A', '474D55']);
+const QUIET_INK_ON_DARK = Object.freeze(['A9B1B9', 'C2C9D0', 'D9DEE3']);
+
+export function quietInk(background) {
+  const field = String(background || '').replace(/^#/, '').slice(-6).toUpperCase();
+  if (!/^[0-9A-F]{6}$/.test(field)) return QUIET_INK_ON_LIGHT[0];
+  const light = (relativeLuminance(field) ?? 1) >= 0.4;
+  const ladder = light ? QUIET_INK_ON_LIGHT : QUIET_INK_ON_DARK;
+  return ladder.find((candidate) => (contrastRatio(candidate, field) ?? 0) >= 4.5)
+    || (light ? '1F2429' : 'FFFFFF');
+}
+
 export async function handleSetFooterOrSetSlideNumber(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -209,15 +234,18 @@ export async function handleSetFooterOrSetSlideNumber(context, op) {
     const size = await presentationSlideSize(zip);
     const id = nextShapeId(current);
     const footer = op.op === 'set_footer';
+    // A footer is quiet, not unreadable: the tone steps away from the field the
+    // slide actually shows and stops at the contrast a reader needs.
+    const ink = quietInk(await resolveSlideBackground(zip, path, current));
     const body = footer
       ? textBodyXml({
         paragraphs: [{ text: String(op.text || '') }],
-        defaults: { fontSize: 10, color: '7C838B' },
+        defaults: { fontSize: 10, color: ink },
         anchor: 'center',
       })
       : '<a:bodyPr wrap="square"><a:noAutofit/></a:bodyPr><a:lstStyle/>'
         + `<a:p><a:pPr algn="r"/><a:fld id="{${randomUUID().toUpperCase()}}" type="slidenum">`
-        + '<a:rPr lang="en-US" sz="1000"><a:solidFill><a:srgbClr val="7C838B"/></a:solidFill></a:rPr>'
+        + `<a:rPr lang="en-US" sz="1000"><a:solidFill><a:srgbClr val="${ink}"/></a:solidFill></a:rPr>`
         + `<a:t>${Number(op.slide)}</a:t></a:fld></a:p>`;
     const shape = `<p:sp><p:nvSpPr>`
       + `<p:cNvPr id="${id}" name="${footer ? 'Footer Placeholder' : 'Slide Number Placeholder'} ${id}"/>`
@@ -250,8 +278,22 @@ export async function handleApplyTheme(context, op) {
     if (target) targets.add(posix.normalize(posix.join(posix.dirname(master), target)));
   }
   if (!targets.size) targets.add('ppt/theme/theme1.xml');
-  for (const part of targets) zip.file(part, theme);
-  return { op: op.op, changed: true, theme: themePart, applied: [...targets] };
+  // A theme identical to the one already in the deck restyles nothing. Saying
+  // "changed" there tells the caller the deck was restyled and leaves them
+  // looking for a difference the file does not carry.
+  const applied = [];
+  for (const part of targets) {
+    if (await zipText(zip, part) === theme) continue;
+    zip.file(part, theme);
+    applied.push(part);
+  }
+  return {
+    op: op.op,
+    changed: applied.length > 0,
+    theme: themePart,
+    applied,
+    ...(applied.length ? {} : { unchangedReason: 'the deck already uses this theme' }),
+  };
 }
 
 
@@ -269,6 +311,23 @@ export async function handleSetLayout(context, op) {
     : rels.replace('</Relationships>', `<Relationship Id="${nextRelationshipId(rels)}" Type="${OFFICE_RELATIONSHIP_BASE}/slideLayout" Target="${xmlEncode(target)}"/></Relationships>`);
   zip.file(relationships, next);
   return { op: op.op, changed: true, slide: Number(op.slide), layout: layout.name || layout.type };
+}
+
+
+// PowerPoint keeps a hidden slide in the file and skips it when presenting, which
+// is how an appendix rides along with the deck it belongs to. The state lives on
+// the slide element itself, so a deck can carry it without a notes convention.
+export async function handleSetSlideVisibility(context, op) {
+  const { zip } = context;
+  const path = slidePath(context.slides, op.slide);
+  if (typeof op.visible !== 'boolean') throw new Error('set_slide_visibility requires visible: true or false');
+  const current = await zipText(zip, path);
+  const open = /<p:sld\b[^>]*>/.exec(current);
+  if (!open) throw new Error(`Slide part is not a presentation slide: ${path}`);
+  const stripped = open[0].replace(/\s*\bshow="[^"]*"/, '');
+  const attributes = op.visible ? stripped : stripped.replace(/>$/, ' show="0">');
+  zip.file(path, `${current.slice(0, open.index)}${attributes}${current.slice(open.index + open[0].length)}`);
+  return { op: op.op, changed: true, slide: Number(op.slide), visible: op.visible };
 }
 
 

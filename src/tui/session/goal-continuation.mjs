@@ -1,9 +1,6 @@
 import { clean } from '../../runtime/shared/clean.mjs';
-import { goalDeadlineWarning } from '../../session-runtime/goal-text.mjs';
-
-function isGoalContinuation(entry) {
-  return entry?.mode === 'goal-continuation';
-}
+import { goalDeadlineReached, goalDeadlineWarning } from '../../session-runtime/goal-text.mjs';
+import { isGoalQueuedEntry } from './queue-helpers.mjs';
 
 export function createGoalContinuation({
   runtime,
@@ -18,12 +15,21 @@ export function createGoalContinuation({
   let suppressedCompletedGoalId = '';
   let watchedGoalId = '';
   let deliveredWarningRevision = 0;
+  let observedGoalId = clean(getState().goal?.id);
+  let observedGoalStatus = clean(getState().goal?.status);
 
-  const cancelQueuedGoalContinuations = () => {
+  const cancelQueuedGoalContinuations = ({ keepCloseoutFor = null } = {}) => {
     const pending = getPending();
     let removed = 0;
     for (let index = pending.length - 1; index >= 0; index -= 1) {
-      if (!isGoalContinuation(pending[index])) continue;
+      const entry = pending[index];
+      if (!isGoalQueuedEntry(entry)) continue;
+      if (entry.mode === 'goal-closeout'
+        && keepCloseoutFor?.status === 'duration_reached'
+        && clean(entry.goalId) === clean(keepCloseoutFor.id)) {
+        entry.content = goalDeadlineReached(keepCloseoutFor);
+        continue;
+      }
       pending.splice(index, 1);
       removed += 1;
     }
@@ -51,6 +57,10 @@ export function createGoalContinuation({
   const shouldRunGoalContinuation = (entry) => {
     if (disposed || flags.disposed || flags.pendingSessionReset) return false;
     if (getState().sessionRemoteAttached) return false;
+    if (entry?.mode === 'goal-closeout') {
+      const goal = refreshGoalState();
+      return goal?.status === 'duration_reached' && clean(entry.goalId) === clean(goal.id);
+    }
     const decision = continuationDecision();
     if (!decision.run) return false;
     const queuedGoalId = clean(entry?.goalId);
@@ -65,8 +75,8 @@ export function createGoalContinuation({
       const state = getState();
       if (state.busy || state.commandBusy || state.sessionRemoteAttached) return;
       const pending = getPending();
-      if (pending.some((entry) => !isGoalContinuation(entry))) return;
-      if (pending.some(isGoalContinuation)) return;
+      if (pending.some((entry) => !isGoalQueuedEntry(entry))) return;
+      if (pending.some(isGoalQueuedEntry)) return;
       const decision = continuationDecision();
       if (!decision.run || !clean(decision.prompt)) return;
       enqueue(decision.prompt, {
@@ -84,10 +94,8 @@ export function createGoalContinuation({
     return true;
   };
 
-  // The budget stop aborts the running turn, so the warning has to reach the
-  // model while that turn still has minutes left: a busy session steers it in
-  // mid-turn (the loop attaches `next` entries at the next tool batch), and an
-  // idle one parks the durable reminder for whatever turn comes next.
+  // Advance notice prepares bounded work and verification. It neither ends
+  // the turn nor claims that the Goal has stopped.
   const deliverGoalDeadlineWarning = (goal) => {
     const revision = Math.max(0, Number(goal?.warningRevision) || 0);
     const goalId = clean(goal?.id);
@@ -125,15 +133,41 @@ export function createGoalContinuation({
     try { runtime.markGoalReminder?.('deadline-soon'); } catch { /* best-effort: a reminder must never break the session */ }
   };
 
+  const deliverGoalCloseout = (goal) => {
+    if (disposed || flags.disposed || flags.pendingSessionReset) return;
+    const state = getState();
+    if (state.sessionRemoteAttached) return;
+    if (!state.busy && getPending().some((entry) => !isGoalQueuedEntry(entry))) {
+      runtime.markGoalReminder?.('deadline-reached');
+      return;
+    }
+    enqueue(goalDeadlineReached(goal), {
+      mode: 'goal-closeout',
+      priority: state.busy ? 'next' : 'later',
+      isMeta: true,
+      suppressDisplay: true,
+      skipSlashCommands: true,
+      restorable: false,
+      abortDiscardOnAbort: true,
+      goalId: clean(goal.id),
+      displayText: '',
+    });
+  };
+
   const onGoalChanged = (event = {}) => {
     const currentSessionId = clean(getState().sessionId || runtime.id);
     if (clean(event.sessionId) && clean(event.sessionId) !== currentSessionId) return;
-    cancelQueuedGoalContinuations();
     const goal = visibleGoal(event.goal || runtime.goalStatus?.() || null);
+    const reached = goal?.status === 'duration_reached'
+      && clean(goal.id) === observedGoalId && observedGoalStatus === 'active';
+    observedGoalId = clean(goal?.id);
+    observedGoalStatus = clean(goal?.status);
+    cancelQueuedGoalContinuations({ keepCloseoutFor: goal });
     set({ goal });
     deliverGoalDeadlineWarning(goal);
-    if (goal?.status === 'duration_reached' && getState().busy
-      && !getState().sessionRemoteAttached) runtime.abort?.('goal-budget');
+    // The durable stop state is already published. Preserve the running turn
+    // so it can close out; a closeout is not another Goal work continuation.
+    if (reached) deliverGoalCloseout(goal);
     if (goal?.status === 'active') scheduleGoalContinuation();
   };
 
@@ -164,8 +198,11 @@ export function createGoalContinuation({
       return goal;
     },
     archiveCompletedGoalOnUserInput() {
-      cancelQueuedGoalContinuations();
+      const removed = cancelQueuedGoalContinuations();
       const currentGoal = getState().goal || runtime.goalStatus?.() || null;
+      if (removed && currentGoal?.status === 'duration_reached') {
+        runtime.markGoalReminder?.('deadline-reached');
+      }
       const archivedGoalId = currentGoal?.status === 'complete' ? clean(currentGoal.id) : '';
       if (archivedGoalId) {
         suppressedCompletedGoalId = archivedGoalId;

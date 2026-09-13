@@ -171,23 +171,41 @@ test("a rejected manual commit preserves the draft and can be retried with Ctrl+
   assert.deepEqual(view.legacyCalls, []);
 });
 
-test("ahead/behind renders on its own band under the toolbar with both counts", async (t) => {
+test("ahead rides the Push corner and behind rides the Fetch corner", async (t) => {
   const view = await mount(t, async () => {}, {
     status: {
       ...status,
       upstream: true, upstreamName: "origin/main", remote: true, ahead: 2, behind: 1,
     },
   });
-  const band = view.host.querySelector(".dock-scm-sync");
-  assert.ok(band, "the sync band renders");
-  const counts = [...band.querySelectorAll(".dock-scm-sync-count > span")];
-  assert.deepEqual(counts.map((count) => count.dataset.direction), ["ahead", "behind"]);
-  assert.deepEqual(counts.map((count) => count.textContent), ["2", "1"]);
-  assert.ok(counts.every((count) => count.querySelector("svg")),
+  const badges = [...view.host.querySelectorAll(".dock-scm-ahead-behind")];
+  assert.deepEqual(badges.map((badge) => badge.dataset.direction), ["ahead", "behind"]);
+  assert.deepEqual(badges.map((badge) => badge.textContent), ["2", "1"]);
+  assert.ok(badges.every((badge) => badge.querySelector("svg")),
     "each count carries its own direction arrow");
-  assert.equal(view.host.querySelector(".dock-scm-ahead-behind"), null,
-    "nothing is pinned to the Push button");
-  const toolbar = view.host.querySelector(".dock-scm-toolbar");
-  assert.ok(toolbar.compareDocumentPosition(band) & Node.DOCUMENT_POSITION_FOLLOWING,
-    "the band owns a row AFTER the toolbar");
+  const pushSection = view.host.querySelector(".dock-scm-toolbar-push");
+  const fetchSection = view.host.querySelector(".dock-scm-toolbar-fetch");
+  assert.ok(pushSection?.contains(badges[0]), "ahead sits in the Push section");
+  assert.ok(fetchSection?.contains(badges[1]), "behind sits in the Fetch section");
+  assert.equal(view.host.querySelector(".dock-scm-sync"), null,
+    "the old band under the toolbar is gone");
+  const pushButton = pushSection.querySelector(".dock-scm-remote-button");
+  assert.ok(!pushButton.contains(badges[0]),
+    "the badge overlaps the button from outside its own clip");
+  assert.match(pushButton.getAttribute("title"), /2 ahead/);
+  assert.match(fetchSection.querySelector(".dock-scm-remote-button").getAttribute("title"),
+    /1 behind/);
+});
+
+test("a long-diverged branch caps each corner count at 99+", async (t) => {
+  const view = await mount(t, async () => {}, {
+    status: {
+      ...status,
+      upstream: true, upstreamName: "origin/main", remote: true, ahead: 128, behind: 99,
+    },
+  });
+  const badges = [...view.host.querySelectorAll(".dock-scm-ahead-behind")];
+  assert.deepEqual(badges.map((badge) => badge.textContent), ["99+", "99"]);
+  assert.match(view.host.querySelector(".dock-scm-toolbar-push .dock-scm-remote-button")
+    .getAttribute("title"), /128 ahead/);
 });

@@ -24,17 +24,33 @@ export function slideSize(document) {
 }
 
 // The deck's own background ladder: the cover color is the inverse field and
-// the most common remaining color is the canvas. Returns null when the deck
-// shares any background with the design tokens, in which case the composer's
-// plan applies instead.
+// the color farthest from it in lightness is the inverse field. Reading the
+// cover as the inverse field assumed every deck opens dark, so an authored deck
+// with a light cover and a dark closing was read upside down and its own
+// backgrounds came back as drift. Returns null when the deck shares any
+// background with the design tokens: the composer's plan applies instead.
 export function authoredBackgroundLadder(backgrounds, tokenColors) {
   const tokens = new Set(Object.values(tokenColors || {}).map((color) => String(color || '').toUpperCase()).filter(Boolean));
   if (backgrounds.some((color) => tokens.has(color))) return null;
-  const [cover, ...rest] = backgrounds;
   const counts = new Map();
-  for (const color of rest) counts.set(color, (counts.get(color) || 0) + 1);
-  const canvas = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || cover;
-  return { inverse: cover, canvas };
+  for (const color of backgrounds) counts.set(color, (counts.get(color) || 0) + 1);
+  const canvas = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || backgrounds[0];
+  const distance = (color) => Math.abs(backgroundLightness(color) - backgroundLightness(canvas));
+  const inverse = [...counts.keys()]
+    .filter((color) => color !== canvas)
+    .sort((left, right) => distance(right) - distance(left))[0] || canvas;
+  return { inverse, canvas };
+}
+
+// Perceived lightness of a background hex, 0-1; an unreadable value sorts last.
+function backgroundLightness(color) {
+  const value = String(color || '').replace(/^#/, '');
+  if (!/^[0-9A-Fa-f]{6}$/.test(value)) return 0;
+  const channel = (index) => {
+    const raw = Number.parseInt(value.slice(index, index + 2), 16) / 255;
+    return raw <= 0.04045 ? raw / 12.92 : ((raw + 0.055) / 1.055) ** 2.4;
+  };
+  return (0.2126 * channel(0)) + (0.7152 * channel(2)) + (0.0722 * channel(4));
 }
 
 // A thin rule is ornamentation when it hugs a slide edge or underlines a title;

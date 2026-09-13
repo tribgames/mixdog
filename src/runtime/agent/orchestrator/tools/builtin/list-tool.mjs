@@ -295,7 +295,7 @@ export async function executeListTool(args, workDir, options = {}) {
         if (!_preStat) statCacheSet(fullPath, st);
     }
     catch (err) {
-        return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, executeListTool);
+        return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, err);
     }
     if (!st.isDirectory()) {
         if (st.isFile()) {
@@ -493,7 +493,7 @@ export async function executeTreeTool(args, workDir, options = {}) {
         if (!_preStat) statCacheSet(fullPath, st);
     }
     catch (err) {
-        return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, executeListTool);
+        return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, err);
     }
     if (!st.isDirectory()) return `Error: not a directory — ${normalizeOutputPath(fullPath)}`;
     const lines = [`${normalizeOutputPath(fullPath)}/`];
@@ -674,7 +674,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
                 const matches = headLimit > 0 && hasMore ? served.matches.slice(0, headLimit) : served.matches;
                 const lines = matches.length === 0
                     ? [`(no fuzzy match for "${query}")`]
-                    : [...matches, ...(hasMore ? [`... (top ${headLimit || 1_000}; narrow query or raise limit for more)`] : [])];
+                    : [...matches, ...(hasMore ? [`... (top ${headLimit || 1_000}; additional matches omitted)`] : [])];
                 const result = lines.join('\n');
                 if (served.cacheSafe !== false) {
                     cacheSet(cacheKey, result, { scopes: [fullPath] });
@@ -693,7 +693,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
                     lines.push(served.scanErrors > 0
                         ? `... [warning] ${served.scanErrors} path(s) could not be enumerated; partial results shown`
                             + (served.walkErrorDetails?.length ? `: ${served.walkErrorDetails.join('; ')}` : '')
-                        : '... [search timed out; partial results shown — narrow path/query for a complete result]');
+                        : '... [search timed out; partial results shown]');
                     if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
                     return capFindResult(lines.join('\n'));
                 }
@@ -735,7 +735,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
             : '';
         return capFindResult([
             `Error: fuzzy search ${nativeEmptyPartial.timeout ? 'timed out' : 'did not complete'} before returning any matches for "${query}".`,
-            `... [native inventory was incomplete${scanErrorNote}; absence of matches is not established — narrow path/query for a complete result]`,
+            `... [native inventory was incomplete${scanErrorNote}; absence of matches is not established]`,
         ].join('\n'));
     }
     return capFindResult('Error: native fuzzy search did not return a result.');
@@ -853,7 +853,7 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
         if (!_preStat) statCacheSet(fullPath, rootStat);
     }
     catch (err) {
-        return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, executeFindFilesTool);
+        return await readFamilyPathEnoentOrError(workDir, fullPath, inputPath, err);
     }
     if (!rootStat.isDirectory()) return `Error: not a directory — ${normalizeOutputPath(fullPath)}`;
 

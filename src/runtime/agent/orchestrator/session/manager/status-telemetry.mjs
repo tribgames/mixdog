@@ -66,6 +66,8 @@ export function recordStandaloneStatusTelemetry(session, result, durationMs) {
             transportTiming: result.transportTiming || null,
         };
         recordGatewayUsageEvent(summary);
+        // Long-range accounting is committed per provider request to the
+        // independent usage ledger. This bounded store serves quota telemetry.
     } catch {
         // Statusline telemetry must never affect the model turn.
     }

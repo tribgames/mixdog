@@ -232,6 +232,9 @@ function Do-Key($req) {
 
 function Do-Type($req) {
   $text = if ($null -eq $req.text) { '' } else { [string]$req.text }
+  if ($req.delivery -eq 'foreground' -and $text.Length -gt $script:MaximumForegroundTextCharacters) {
+    throw "input_too_large: foreground text exceeds $script:MaximumForegroundTextCharacters characters; split the text into separate observed acts"
+  }
   if ($req.delivery -ne 'foreground') {
     $target = [IntPtr]::Zero
     $preferred = [IntPtr]::Zero
@@ -294,22 +297,23 @@ function Do-OcrImage($req) {
   $maximum = if ($null -ne $req.max_ocr_words) { [int]$req.max_ocr_words } else { 300 }
   if ($maximum -lt 1 -or $maximum -gt 1000) { throw 'max_ocr_words must be 1..1000' }
   [Windows.Media.Ocr.OcrEngine, Windows.Media.Ocr, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
+  [Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime] | Out-Null
+  [Windows.Storage.Streams.DataWriter, Windows.Storage.Streams, ContentType = WindowsRuntime] | Out-Null
   [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
   [Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime] | Out-Null
-  $path = [System.IO.Path]::Combine(
-    [System.IO.Path]::GetTempPath(),
-    'mixdog-ocr-' + [Guid]::NewGuid().ToString('N') + '.img')
   $stream = $null
+  $writer = $null
   $bitmap = $null
   try {
-    [System.IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($encoded))
-    $file = Await-WinRt (
-      [Windows.Storage.StorageFile]::GetFileFromPathAsync($path)
-    ) ([Windows.Storage.StorageFile])
-    $stream = Await-WinRt (
-      $file.OpenAsync([Windows.Storage.FileAccessMode]::Read)
-    ) ([Windows.Storage.Streams.IRandomAccessStream])
+    # Keep screenshots in volatile memory, including when the worker is killed.
+    $stream = [Windows.Storage.Streams.InMemoryRandomAccessStream]::new()
+    $writer = [Windows.Storage.Streams.DataWriter]::new($stream)
+    $writer.WriteBytes([Convert]::FromBase64String($encoded))
+    [void](Await-WinRt ($writer.StoreAsync()) ([uint32]))
+    $writer.DetachStream() | Out-Null
+    $writer.Dispose()
+    $writer = $null
+    $stream.Seek(0)
     $decoder = Await-WinRt (
       [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)
     ) ([Windows.Graphics.Imaging.BitmapDecoder])
@@ -376,8 +380,8 @@ function Do-OcrImage($req) {
     }
   } finally {
     if ($null -ne $bitmap -and $bitmap -is [System.IDisposable]) { $bitmap.Dispose() }
+    if ($null -ne $writer -and $writer -is [System.IDisposable]) { $writer.Dispose() }
     if ($null -ne $stream -and $stream -is [System.IDisposable]) { $stream.Dispose() }
-    Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -569,7 +573,13 @@ function Handle($req) {
     throw "read_only run: '$($req.action)' is a mutation"
   }
   $inputScope = $req.delivery -eq 'foreground' -and -not ($readActions -contains [string]$req.action)
-  if ($inputScope) { [MixInputObservation]::Begin() }
+  if ($inputScope) {
+    if ($req.observed_input_monitor_id -and $null -ne $req.observed_input_user_sequence) {
+      [MixInputObservation]::BeginExpected([string]$req.observed_input_monitor_id, [long]$req.observed_input_user_sequence)
+    } else {
+      [MixInputObservation]::Begin()
+    }
+  }
   try {
   switch ($req.action) {
     'sequence_step' { return Invoke-SequenceStep $req }
@@ -604,6 +614,7 @@ function Handle($req) {
       $state = [MixInputObservation]::Read()
       return @{
         ready = ($state.Ready -and [MixInputObservation]::IdleDesktopReady())
+        observer_ready = $state.Ready
         monitor = $state.Generation
         sequence = $state.Sequence
         idleMs = [Math]::Max(0, ([long][Environment]::TickCount - [long]$state.Tick + 4294967296) % 4294967296)

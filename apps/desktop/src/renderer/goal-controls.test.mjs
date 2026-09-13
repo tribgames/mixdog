@@ -15,10 +15,11 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 const { createRoot } = await import('react-dom/client');
 
-const button = (host, text) => [...host.querySelectorAll('button')].find(node => node.textContent === t(text));
+const button = (host, text) => [...host.querySelectorAll('button')]
+  .find(node => (node.getAttribute('aria-label') || node.textContent) === t(text));
 const click = node => act(async () => { assert.ok(node); node.click(); });
 
-test('goal card controls address their own session, confirm stop, and preserve the edit draft', async () => {
+test('collapsed goal controls address their own session, confirm stop, and preserve the edit draft', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -36,7 +37,15 @@ test('goal card controls address their own session, confirm stop, and preserve t
   })));
   try {
     await render(goal);
-    await click(host.querySelector('[aria-expanded]'));
+    const trigger = host.querySelector('[aria-expanded]');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+    for (const label of ['Pause', 'Edit goal', 'Stop goal']) {
+      const control = button(host, label);
+      assert.ok(control);
+      assert.equal(control.title, t(label));
+      assert.equal(control.closest('[inert], [aria-hidden="true"], button[aria-expanded]'), null,
+        `${label} is available without opening the drawer`);
+    }
     await click(button(host, 'Pause'));
     assert.deepEqual(calls.at(-1), {
       capability: 'goalControl', sessionId: 'own-pane',
@@ -45,21 +54,36 @@ test('goal card controls address their own session, confirm stop, and preserve t
     await render({ ...goal, status: 'paused' });
     await click(button(host, 'Resume'));
     assert.equal(calls.at(-1).args[0].action, 'resume');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
     await click(button(host, 'Edit goal'));
     const dialog = document.querySelector('[role="dialog"]');
     assert.equal(dialog.querySelector('textarea').value, goal.objective);
-    assert.equal(dialog.querySelector('select').value, 'max');
+    const mode = dialog.querySelector('[role="combobox"]');
+    assert.equal(mode.getAttribute('aria-label'), t('Time budget mode'));
+    assert.equal(mode.textContent, t('Maximum time — finish early when verified'));
+    await click(mode);
+    const options = document.querySelector('[role="listbox"]');
+    assert.equal(options.querySelector('[aria-selected="true"]').textContent,
+      t('Maximum time — finish early when verified'));
+    await click(button(options, 'Sustained work — continue for the full duration'));
+    assert.equal(mode.textContent, t('Sustained work — continue for the full duration'));
+    assert.equal(mode.getAttribute('aria-expanded'), 'false');
     await click(button(dialog, 'Save'));
     assert.deepEqual(calls.at(-1).args[0], {
       action: 'edit', expectedGoalId: goal.id, objective: goal.objective,
-      timeLimitMs: goal.timeLimitMs, timeMode: 'max', revision: 3,
+      timeLimitMs: goal.timeLimitMs, timeMode: 'duration', revision: 3,
     });
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
     await click(button(host, 'Stop goal'));
     assert.notEqual(calls.at(-1).args[0].action, 'stop', 'asking for confirmation must not stop work');
+    assert.equal(trigger.getAttribute('aria-expanded'), 'true', 'stop reveals its confirmation from the collapsed island');
+    assert.equal(button(host, 'Confirm stop').closest('[inert], [aria-hidden="true"]'), null);
     await click(button(host, 'Confirm stop'));
     assert.equal(calls.at(-1).args[0].action, 'stop');
     await render({ ...goal, status: 'stopped' });
     assert.equal(button(host, 'Resume'), undefined);
+    assert.equal(button(host, 'Edit goal'), undefined);
+    assert.equal(button(host, 'Stop goal'), undefined);
     assert.ok(host.textContent.includes('Current work'), 'unfinished work remains visible');
   } finally {
     await act(async () => root.unmount());
@@ -80,7 +104,8 @@ test('goal creation defaults to maximum time and preserves input after a rejecte
       onClose() {}, returnFocus() {},
     })));
     const dialog = document.querySelector('[role="dialog"]');
-    assert.equal(dialog.querySelector('select').value, 'max');
+    assert.equal(dialog.querySelector('[role="combobox"]').textContent,
+      t('Maximum time — finish early when verified'));
     await act(async () => {
       const input = dialog.querySelector('textarea');
       Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, 'Deliver result');
@@ -99,6 +124,8 @@ test('goal creation defaults to maximum time and preserves input after a rejecte
     await click(button(edit, 'Save'));
     assert.deepEqual(commands.at(-1), { objective: initialGoal.objective, timeLimitMs: 1_800_000, timeMode: 'duration' });
     assert.equal(edit.querySelector('textarea').value, initialGoal.objective);
+    assert.equal(edit.querySelector('[role="combobox"]').textContent,
+      t('Sustained work — continue for the full duration'));
     assert.ok(edit.textContent.includes(t('Goal could not be started. Your input has been kept.')));
   } finally {
     await act(async () => root.unmount());

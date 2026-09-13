@@ -20,6 +20,23 @@ import {
 } from "./renderer-load-metrics";
 import { loadStudioViewModule } from "./studio-loader";
 import { navigationKey } from "./text-format";
+import { desktopFeatureEnabled } from "./desktop-feature-config";
+
+let settingsViewModulePromise: Promise<typeof import("./settings/SettingsView")> | null = null;
+export function loadSettingsViewModule() {
+  settingsViewModulePromise ||= import("./settings/SettingsView");
+  return settingsViewModulePromise;
+}
+export const SettingsView = lazy(() => loadSettingsViewModule()
+  .then((module) => ({ default: module.SettingsView })));
+export const loadOnboardingWizardModule = () => import("./settings/OnboardingWizard");
+export const OnboardingWizard = lazy(() => loadOnboardingWizardModule()
+  .then((module) => ({ default: module.OnboardingWizard })));
+
+export function warmSettingsView() {
+  if (!desktopFeatureEnabled("settings")) return;
+  void loadSettingsViewModule().catch(() => {});
+}
 
 export function StableSessionTitle({
   title,
@@ -72,32 +89,6 @@ export function StableSessionTitle({
         if (editing) onCommit(true);
       }} />
   </span>;
-}
-
-export function shouldKeepFileEditorMounted(
-  tabKey: string,
-  activeFileKey: string,
-  _dirtyFileKeys: ReadonlySet<string>,
-  _hotFileKeys: ReadonlySet<string> = new Set(),
-): boolean {
-  return tabKey === activeFileKey;
-}
-
-const HOT_FILE_EDITOR_LIMIT = 4;
-
-export function nextHotFileEditorKeys(
-  current: readonly string[],
-  active: readonly string[],
-  limit = HOT_FILE_EDITOR_LIMIT,
-): string[] {
-  const seen = new Set<string>();
-  return [...active, ...current]
-    .filter((key) => {
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, Math.max(0, limit));
 }
 
 export const paneUtilitySurfaceSlotId = (leafId: string, key: string): string =>

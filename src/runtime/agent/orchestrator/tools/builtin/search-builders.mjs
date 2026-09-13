@@ -49,6 +49,8 @@ export function buildGrepCacheKey(parts) {
         flatOutput = false,
         patternCapTotal = 0,
         candidatesKey = '',
+        includeNoise = false,
+        text = false,
     } = parts;
     return [
         'grep',
@@ -78,6 +80,8 @@ export function buildGrepCacheKey(parts) {
         // visits and their order; scoped results get their own cache slot so
         // they never collide with an unscoped run of the same pattern.
         'cd' + String(candidatesKey || ''),
+        includeNoise ? 'noise1' : 'noise0',
+        text ? 'text1' : 'text0',
     ].join('|');
 }
 
@@ -99,11 +103,15 @@ export function buildGrepRgArgs(parts) {
         pcre2 = false,
         withFilename = false,
         candidateFiles = null,
+        includeNoise = false,
+        text = false,
     } = parts;
     // `--hidden`: search dotfiles/dot-dirs (.github, .mixdog) that
     // rg skips by default. The DEFAULT_IGNORE_GLOBS below still exclude .git and
     // the other noise dirs, so this only surfaces user-relevant hidden paths.
     const rgArgs = ['--color', 'never', '--hidden'];
+    if (includeNoise) rgArgs.push('--no-ignore');
+    if (text) rgArgs.push('--text');
     if (outputMode === 'files_with_matches') {
         rgArgs.push('--files-with-matches');
     } else if (outputMode === 'count') {
@@ -150,6 +158,7 @@ export function buildGrepRgArgs(parts) {
     for (const ex of DEFAULT_IGNORE_GLOBS) {
         const m = /^!\*\*\/([^/]+)\/\*\*$/.exec(ex);
         if (m) {
+            if (includeNoise) continue;
             const name = m[1];
             if (_sp === name || _sp.endsWith(`/${name}`) || _sp.includes(`/${name}/`) || _sp.startsWith(`${name}/`)) continue;
             if (_namedByGlobs.has(name)) continue;
@@ -173,7 +182,7 @@ export function buildGrepRgArgs(parts) {
     return rgArgs;
 }
 
-export function buildGlobCacheKey({ patterns, basePath, headLimit, offset, extraIgnore, sort, patternCapTotal = 0 }) {
+export function buildGlobCacheKey({ patterns, basePath, headLimit, offset, extraIgnore, sort, patternCapTotal = 0, includeNoise = false }) {
     // extraIgnore (rg ignore globs from _extraIgnoreDirs) alters which files
     // match, so it MUST partake in the key — otherwise calls that differ only
     // by extra ignores collide and return stale over-/under-filtered results.
@@ -181,7 +190,7 @@ export function buildGlobCacheKey({ patterns, basePath, headLimit, offset, extra
     const extra = Array.isArray(extraIgnore) && extraIgnore.length ? [...extraIgnore].sort().join('\x01') : '';
     // patternCapTotal: a capped pattern set (first-N of M) must not collide with
     // an exact N-pattern request or a differently-capped one.
-    return ['glob', patterns.join('\x01'), basePath, headLimit ?? '', offset ?? '', sort || 'natural', extra, 'pc' + String(patternCapTotal || 0)].join('|');
+    return ['glob', patterns.join('\x01'), basePath, headLimit ?? '', offset ?? '', sort || 'natural', extra, 'pc' + String(patternCapTotal || 0), includeNoise].join('|');
 }
 
 export function buildListCacheKey(parts) {

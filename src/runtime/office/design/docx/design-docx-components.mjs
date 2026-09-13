@@ -1,4 +1,6 @@
 import { STATE_ROLES } from '../design-discipline.mjs';
+import { presetLabels } from '../design-tokens.mjs';
+import { officeNumberFormat } from '../content-model.mjs';
 
 function tableBorders(colors) {
   return {
@@ -37,7 +39,10 @@ function pushTable(output, state, values, design, variant) {
       color: design.tokens.colors.ink,
       spacingAfter: 0,
       columnWidths: tableWidths(columns, variant),
-      ...(variant === 'roadmap' ? { rowHeights: values.map(() => 92) } : {}),
+      // A roadmap row is a step, not a header, and a 92pt band pushed a
+      // three-step plan onto a page of its own - with the first step repeated at
+      // the top as though it were the header row.
+      ...(variant === 'roadmap' ? { rowHeights: values.map(() => 40), repeatHeader: false } : {}),
       borders: tableBorders(design.tokens.colors),
       alignment: 'center',
     },
@@ -64,14 +69,15 @@ function pushTable(output, state, values, design, variant) {
 // emphasis: 'inverse' (the dark field) · 'accent' · a state tone ('positive' | 'warning' | 'critical' | 'informative'):
 // the label sits on the state's weak field in its text color, so a verdict reads the same as in a deck's badge.
 export function addDocxDecisionCallout(output, state, text, design, {
-  label = 'RECOMMENDATION',
+  label = '',
   emphasis = 'inverse',
 } = {}) {
+  const caption = label || presetLabels(text).recommendation;
   const colors = design.tokens.colors;
   const tone = STATE_ROLES.includes(emphasis) && colors[`${emphasis}Weak`] && colors[`${emphasis}Text`] ? emphasis : '';
   const fillColor = tone ? colors[`${tone}Weak`] : emphasis === 'accent' ? colors.accent : colors.inverse;
   const foreground = tone ? colors[`${tone}Text`] : emphasis === 'accent' ? colors.onAccent : colors.onInverse;
-  const { table } = pushTable(output, state, [[label], [String(text)]], design, 'callout');
+  const { table } = pushTable(output, state, [[caption], [String(text)]], design, 'callout');
   output.push({
     op: 'set_table_cell_style',
     table,
@@ -102,14 +108,43 @@ export function addDocxDecisionCallout(output, state, text, design, {
   });
 }
 
+// A figure in the strip is read beside the same figure in the prose, so it is
+// written the same way: grouped thousands, and the metric's own number format
+// where it carries one (the spreadsheet composer already honours it). Without
+// this a bound fact printed as 47210 next to "47,210건" in the paragraph below.
+function metricValueText(entry) {
+  const unit = String(entry?.unit || '').trim();
+  // A Korean counter closes on the figure (12명); a Latin unit takes the space
+  // it is read with (47,210 orders).
+  const suffix = unit ? `${/^[A-Za-z(]/.test(unit) ? ' ' : ''}${unit}` : '';
+  const value = entry?.value;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return `${String(value ?? '')}${suffix}`;
+  const format = officeNumberFormat(entry);
+  const percent = format.includes('%');
+  const decimals = /\.(0+)/.exec(format)?.[1].length;
+  const scaled = percent ? value * 100 : value;
+  const text = scaled.toLocaleString('en-US', {
+    useGrouping: !format || /#,#|0,0/.test(format),
+    minimumFractionDigits: decimals ?? 0,
+    maximumFractionDigits: decimals ?? 20,
+  });
+  // The unit belongs to the figure it counts: "12명" reads as one number, while
+  // a unit parked on the detail row left an orphan word under an empty band.
+  return `${percent ? `${text}%` : text}${suffix}`;
+}
+
 export function addDocxMetricStrip(output, state, metrics, design) {
   const entries = (Array.isArray(metrics) ? metrics : []).slice(0, 4);
   if (!entries.length) return false;
   const colors = design.tokens.colors;
+  const details = entries.map((entry) => String(entry?.detail || ''));
+  // A detail row nobody filled is a blank band under the figures on the page,
+  // so the strip carries it only when a metric actually says something there.
+  const hasDetails = details.some((detail) => detail.trim());
   const values = [
     entries.map((entry) => String(entry?.label || '')),
-    entries.map((entry) => String(entry?.value ?? '')),
-    entries.map((entry) => String(entry?.detail || entry?.unit || '')),
+    entries.map((entry) => metricValueText(entry)),
+    ...(hasDetails ? [details] : []),
   ];
   const { table, columns } = pushTable(output, state, values, design, 'scorecard');
   for (let column = 1; column <= columns; column += 1) {
@@ -143,6 +178,7 @@ export function addDocxMetricStrip(output, state, metrics, design) {
         verticalAlignment: 'center',
       },
     });
+    if (!hasDetails) continue;
     output.push({
       op: 'set_table_cell_style',
       table,

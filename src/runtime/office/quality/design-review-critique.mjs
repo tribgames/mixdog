@@ -81,13 +81,27 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
       });
     }
   }
-  const notes = entries.map((entry) => entry.note.toLowerCase()).filter(Boolean);
-  if (total > 1 && notes.length === total && new Set(notes).size !== total) {
+  // A template answer is not a review: one sentence with the slide number swapped
+  // in, or the same three questions asked of every slide, says nothing about the
+  // page it judges. Both are read past the index so the formula cannot hide.
+  const asTemplate = (value) => String(value || '').toLowerCase().replace(/\d+/g, '').replace(/\s+/g, ' ').trim();
+  const notes = entries.map((entry) => asTemplate(entry.note)).filter(Boolean);
+  const repeatedNotes = total > 1 && notes.length === total && new Set(notes).size !== total;
+  const checkSets = entries
+    .map((entry) => (entry.checks || []).map((check) => asTemplate(check.item)).sort().join(' | '))
+    .filter(Boolean);
+  const repeatedChecks = total > 1 && checkSets.length === total && new Set(checkSets).size === 1;
+  if (repeatedNotes || repeatedChecks) {
+    const message = repeatedNotes && repeatedChecks
+      ? 'Each slide needs its own critique note and its own checks; this critique repeats one note and one set of questions across the deck.'
+      : repeatedNotes
+        ? 'Each slide needs a distinct visual critique note; changing only the slide number is the same note.'
+        : "Each slide's checks come from its own plan line; every slide here asks the same questions.";
     issues.push({
       severity: 'warning',
       code: 'visual_critique_repeated_note',
       path: '/',
-      message: 'Each slide needs a distinct visual critique note.',
+      message,
       source: 'visual-critique',
     });
   }

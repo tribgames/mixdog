@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { applyDeferredToolSurface } from './tool-catalog.mjs';
+import { HEADLESS_MODEL_TOOL_NAMES, filterModelToolsForProfile, modelToolSchemaAllowlist } from './tool-profile.mjs';
 
 import {
   INSTALLABLE_BUILTIN_IDS,
@@ -8,6 +12,69 @@ import {
   setBuiltinInstalledInConfig,
   withGrandfatheredBuiltins,
 } from './builtin-features.mjs';
+
+const { buildSharedToolContent } = createRequire(import.meta.url)('../lib/rules-builder.cjs');
+
+test('headless basic tools omit the loader and its guidance without removing optional or interactive loading', () => {
+  const envKeys = ['MIXDOG_FEATURE_WEB_SEARCH', 'MIXDOG_FEATURE_OFFICE', 'MIXDOG_FEATURE_GIT'];
+  const previous = envKeys.map((key) => [key, process.env[key]]);
+  for (const key of envKeys) delete process.env[key];
+  try {
+    const basic = { builtins: {}, modules: { webSearch: { enabled: false } } };
+    const surface = (config, profile) => {
+      const denied = featureDisallowedToolsFor(config, { toolProfile: profile });
+      const session = {
+        provider: 'openai-oauth',
+        model: 'gpt-5.6-sol',
+        messages: [],
+        disallowedTools: denied,
+        tools: filterModelToolsForProfile(
+          [...HEADLESS_MODEL_TOOL_NAMES, 'Skill'].map((name) => ({
+            name, inputSchema: { type: 'object', properties: {} },
+          })),
+          profile,
+        ),
+      };
+      applyDeferredToolSurface(session, 'lead');
+      return {
+        session,
+        rules: buildSharedToolContent({
+          PLUGIN_ROOT: join(process.cwd(), 'src'),
+          allowTools: modelToolSchemaAllowlist(profile),
+          omitTools: [...denied, 'edit'],
+        }),
+      };
+    };
+    const headless = surface(basic, 'headless');
+    assert.equal(headless.session.tools.some((tool) => tool.name === 'load_tool'), false);
+    assert.equal(headless.session.deferredToolCatalog.some((tool) => tool.name === 'load_tool'), false);
+    assert.ok(headless.session.tools.some((tool) => tool.name === 'shell'));
+    assert.ok(headless.session.tools.some((tool) => tool.name === 'git'));
+    assert.doesNotMatch(headless.rules, /load_tool|# Skills|# Goals/);
+    assert.match(headless.rules, /Use current named tools directly/);
+
+    const interactive = surface(basic, 'interactive');
+    assert.ok(interactive.session.tools.some((tool) => tool.name === 'load_tool'));
+    assert.ok(interactive.session.tools.some((tool) => tool.name === 'Skill'));
+    assert.match(interactive.rules, /`load_tool`/);
+
+    for (const [name, config] of [
+      ['web_search', { ...basic, modules: { webSearch: { enabled: true } } }],
+      ['office', { ...basic, builtins: { office: { installed: true } } }],
+      ['github', { ...basic, builtins: { git: { installed: true } } }],
+    ]) {
+      const optional = surface(config, 'headless');
+      assert.ok(optional.session.tools.some((tool) => tool.name === 'load_tool'), name);
+      assert.ok(optional.session.deferredToolCatalog.some((tool) => tool.name === name), name);
+      assert.match(optional.rules, /`load_tool`/);
+    }
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
 
 test('a fresh profile is stamped empty: every feature starts not installed', () => {
   const config = withGrandfatheredBuiltins({});

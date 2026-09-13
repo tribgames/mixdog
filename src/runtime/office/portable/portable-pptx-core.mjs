@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { backgroundXml, shapeXml, solidFillXml, toEmu } from './portable-slide-shapes.mjs';
-import { zipText } from './portable-opc.mjs';
+import { partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
 import { containerBody, containerInner, elementSpans, rebuildTextNodes, textNodes, topLevelElements, xmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
 import { presentationSlides } from './portable-pptx-package.mjs';
 import { shapeIdentity } from './pptx-relations.mjs';
@@ -28,6 +28,21 @@ export function balancedInner(xml, from, tag) {
 
 export const DEFAULT_TEXT_INSETS = Object.freeze({ left: 7.2, top: 3.6, right: 7.2, bottom: 3.6 });
 
+// A painted plane covers a box when the box sits inside it (a point of slack for EMU rounding).
+function coversBounds(entry, bounds) {
+  return entry.left <= bounds.left + 1
+    && entry.top <= bounds.top + 1
+    && entry.left + entry.width >= bounds.left + bounds.width - 1
+    && entry.top + entry.height >= bounds.top + bounds.height - 1;
+}
+
+// The color a translucent fill shows: fg at alpha (0-1) over bg, per channel.
+export function blendHex(fg, bg, alpha) {
+  const channel = (hex, at) => Number.parseInt(hex.slice(at, at + 2), 16);
+  return [0, 2, 4].map((at) => Math.round(alpha * channel(fg, at) + (1 - alpha) * channel(bg, at)))
+    .map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
 
 
 
@@ -43,6 +58,9 @@ export function shapeParagraphs(shapeXml) {
     const runProperties = /^<a:rPr\b([^>]*?)(?:\/>|>)/.exec(runElement)?.[1] || '';
     const size = Number(xmlAttribute(runProperties, 'sz'));
     if (!Number.isFinite(size) || size <= 0) return null;
+    // Tracking is stored in hundredths of a point on the run. Latin small caps
+    // want it; Hangul and CJK break apart under it, so the reading is kept.
+    const tracking = Number(xmlAttribute(runProperties, 'spc'));
     const lineSpacingPct = Number(/<a:lnSpc>\s*<a:spcPct\b[^>]*\bval="(\d+)"/.exec(block)?.[1] || 0);
     const spaceAfter = Number(/<a:spcAft>\s*<a:spcPts\b[^>]*\bval="(\d+)"/.exec(block)?.[1] || 0) / 100;
     const spaceBefore = Number(/<a:spcBef>\s*<a:spcPts\b[^>]*\bval="(\d+)"/.exec(block)?.[1] || 0) / 100;
@@ -51,6 +69,7 @@ export function shapeParagraphs(shapeXml) {
       ...(lineSpacingPct > 0 ? { lineSpacing: lineSpacingPct / 100_000 } : {}),
       ...(spaceAfter > 0 ? { spaceAfter } : {}),
       ...(spaceBefore > 0 ? { spaceBefore } : {}),
+      ...(Number.isFinite(tracking) && tracking !== 0 ? { charSpacing: tracking / 100 } : {}),
       fontSize: size / 100,
       bold: xmlAttribute(runProperties, 'b') === '1',
       italic: xmlAttribute(runProperties, 'i') === '1',
@@ -65,6 +84,61 @@ export function shapeParagraphs(shapeXml) {
 
 
 
+function backgroundBlock(xml) {
+  return /<p:bg\b[^>]*>([\s\S]*?)<\/p:bg>/.exec(xml || '')?.[1] || '';
+}
+
+async function pptxRelatedPart(zip, part, suffix) {
+  const relationshipPath = partRelationshipPath(part);
+  const relationships = await zipText(zip, relationshipPath);
+  if (!relationships) return '';
+  for (const match of relationships.matchAll(/<Relationship\b[^>]*?\/?>/g)) {
+    if (/\bTargetMode="External"/i.test(match[0])) continue;
+    if (!(/\bType="([^"]*)"/.exec(match[0])?.[1] || '').endsWith(suffix)) continue;
+    const target = /\bTarget="([^"]*)"/.exec(match[0])?.[1] || '';
+    if (target) return relationshipTarget(relationshipPath, target);
+  }
+  return '';
+}
+
+// bg1/tx1 and friends are names the master maps onto the theme's colours.
+async function themeBackgroundColor(zip, masterPart, token) {
+  if (!masterPart) return '';
+  const master = await zipText(zip, masterPart);
+  const map = /<p:clrMap\b([^>]*?)\/?>/.exec(master || '')?.[1] || '';
+  const mapped = xmlAttribute(map, token) || token;
+  const themePart = await pptxRelatedPart(zip, masterPart, 'theme');
+  const theme = themePart ? await zipText(zip, themePart) : '';
+  const scheme = /<a:clrScheme\b[^>]*>([\s\S]*?)<\/a:clrScheme>/.exec(theme || '')?.[1] || '';
+  const entry = new RegExp(`<a:${mapped}\\b[^>]*>([\\s\\S]*?)</a:${mapped}>`).exec(scheme)?.[1] || '';
+  return /<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(entry)?.[1]
+    || /<a:sysClr\b[^>]*\blastClr="([0-9A-Fa-f]{6})"/.exec(entry)?.[1]
+    || '';
+}
+
+/** The field a reader actually sees behind a slide's text: the slide's own
+ *  background when it has one, otherwise the layout's, otherwise the master's.
+ *  A deck's dark slides usually carry that colour on the layout, and without
+ *  following the chain every contrast reading on them is skipped — which is
+ *  exactly where ink gets chosen wrongly. */
+export async function resolveSlideBackground(zip, slidePath, slideXml) {
+  const layoutPart = await pptxRelatedPart(zip, slidePath, 'slideLayout');
+  const masterPart = layoutPart ? await pptxRelatedPart(zip, layoutPart, 'slideMaster') : '';
+  const chain = [slideXml];
+  if (layoutPart) chain.push(await zipText(zip, layoutPart));
+  if (masterPart) chain.push(await zipText(zip, masterPart));
+  for (const xml of chain) {
+    const block = backgroundBlock(xml);
+    if (!block || /<a:noFill\b/.test(block)) continue;
+    const direct = /<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(block)?.[1] || '';
+    if (direct) return direct;
+    const token = /<a:schemeClr\b[^>]*\bval="([A-Za-z0-9]+)"/.exec(block)?.[1] || '';
+    const resolved = token ? await themeBackgroundColor(zip, masterPart, token) : '';
+    if (resolved) return resolved;
+  }
+  return '';
+}
+
 export async function inspectPptxTextBoxes(zip) {
   const slides = await presentationSlides(zip);
   const presentation = await zipText(zip, 'ppt/presentation.xml');
@@ -73,13 +147,21 @@ export async function inspectPptxTextBoxes(zip) {
   const content = [];
   for (let index = 0; index < slides.length; index += 1) {
     const xml = await zipText(zip, slides[index].path);
-    const slideBackground = /<p:bg>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(xml)?.[1] || '';
+    // A slide the deck hides is skipped by every renderer and by the export, so
+    // measuring it reports contrast, fit, and balance defects about a page no
+    // reader ever sees.
+    if (/^[\s\S]*?<p:sld\b[^>]*\bshow="(?:0|false)"/.test(xml)) continue;
+    const slideBackground = await resolveSlideBackground(zip, slides[index].path, xml);
     const tree = containerInner(xml, 'p:spTree');
     if (!tree) continue;
     const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
     const painted = [];
     for (let shapeIndex = 0; shapeIndex < shapes.length; shapeIndex += 1) {
       const shape = shapes[shapeIndex];
+      // A shape PowerPoint hides is not on the page: measuring it reports
+      // overflow, contrast, and collisions about something no reader sees, and
+      // the fix round then chases an invisible box.
+      if (/<p:cNvPr\b[^>]*\bhidden="(?:1|true)"/.test(shape.xml)) continue;
       const offset = /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(shape.xml);
       const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(shape.xml);
       if (!offset || !extent) continue;
@@ -95,8 +177,16 @@ export async function inspectPptxTextBoxes(zip) {
       }
       // A gradient plane reads as its first stop: the kit puts the text on that side (a scrim's dark edge).
       const shapeProperties = containerInner(shape.xml, 'p:spPr')?.inner || '';
-      const ownFill = /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1]
-        || /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1] || '';
+      const solid = /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"(?:\/>|>([\s\S]*?)<\/a:srgbClr>)/.exec(shapeProperties);
+      let ownFill = /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1]
+        || solid?.[1] || '';
+      // A translucent plane (a venn set, a wash) is the color a reader sees: its fill blended by its alpha over
+      // whatever it covers; reading the fill opaque reports contrast against a color that is not on the page.
+      const alpha = solid && ownFill === solid[1] ? Number(/<a:alpha val="(\d+)"/.exec(solid[2] || '')?.[1] ?? 100_000) / 100_000 : 1;
+      if (ownFill && alpha < 1) {
+        const under = [...painted].reverse().find((entry) => coversBounds(entry, bounds))?.color || slideBackground;
+        if (under) ownFill = blendHex(ownFill, under, alpha);
+      }
       if (ownFill) painted.push({ ...bounds, color: ownFill });
       const paragraphs = shapeParagraphs(shape.xml);
       const hasText = Boolean(paragraphs?.length)
@@ -105,13 +195,7 @@ export async function inspectPptxTextBoxes(zip) {
         content.push({ slide: index + 1, shape: shapeIndex + 1, kind: 'p:sp', ...bounds });
       }
       if (!paragraphs?.length) continue;
-      const covering = [...painted].reverse().find((entry) => (
-        entry.color !== ownFill
-        && entry.left <= bounds.left + 1
-        && entry.top <= bounds.top + 1
-        && entry.left + entry.width >= bounds.left + bounds.width - 1
-        && entry.top + entry.height >= bounds.top + bounds.height - 1
-      ));
+      const covering = [...painted].reverse().find((entry) => entry.color !== ownFill && coversBounds(entry, bounds));
       const bodyProperties = /<a:bodyPr\b([^>]*?)\/?>/.exec(shape.xml)?.[1] || '';
       const inset = (name, fallback) => {
         const value = Number(xmlAttribute(bodyProperties, name));
@@ -295,6 +379,16 @@ export function setSlideBackground(xml, color) {
 
 export function updateShapeGeometry(shape, properties) {
   let next = shape;
+  // Alternative text lives on the shape's name element, and a reader (or the
+  // audit that asks for it) has no other place to look.
+  if (properties.altText != null) {
+    const description = String(properties.altText);
+    next = next.replace(/<p:cNvPr\b[^>]*?(\/?)>/, (match, selfClosing) => {
+      const cleaned = match.replace(/\s+descr="[^"]*"/, '');
+      const head = cleaned.slice(0, cleaned.length - (selfClosing ? 2 : 1));
+      return `${head}${description ? ` descr="${xmlEncode(description)}"` : ''}${selfClosing ? '/>' : '>'}`;
+    });
+  }
   if (['left', 'top', 'width', 'height', 'rotation'].some((key) => properties[key] != null)) {
     const current = /<a:xfrm\b[^>]*?(?:\/>|>[\s\S]*?<\/a:xfrm>)/.exec(next);
     const offset = current ? /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(current[0]) : null;

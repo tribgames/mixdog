@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { stripShellExitHeader } from '../../src/tui/session/tool-result-text.mjs';
 import {
   executeBashTool,
   buildShellOutputTelemetryPayload,
@@ -94,5 +95,36 @@ test('shell output telemetry measures spill-backed raw bytes without retaining o
     assert.equal(payload.byte_delta, 100);
     assert.equal(payload.reduction_pct, 83);
     assert.equal(payload.offloaded, true);
+    assert.equal(payload.lossless_compaction, null, 'an unattempted compaction is not reported as skipped');
     assert.equal('stdout' in payload, false);
+});
+
+test('shell compaction decisions reach trace metadata without changing visible evidence', async () => {
+    const stdout = 'warning: private-diagnostic-fixture\n'.repeat(80);
+    const script = `process.stdout.write(Buffer.from('${Buffer.from(stdout).toString('base64')}', 'base64'))`;
+    const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
+    const resultTelemetry = {};
+    const result = normalizeToolEnvelope(await executeBashTool(
+        { command, timeout_ms: 10_000 },
+        process.cwd(),
+        { resultTelemetry },
+    ));
+    assert.equal(result.explicitSuccess, true);
+    assert.equal(stripShellExitHeader(result.result), stdout);
+    const visibleBytes = Buffer.byteLength(result.result);
+    const payload = buildShellOutputTelemetryPayload({
+        toolCallId: 'call_compaction_reason',
+        telemetry: resultTelemetry,
+        preOffloadBytes: visibleBytes,
+        postOffloadBytes: visibleBytes,
+        modelVisibleBytes: visibleBytes,
+        offloaded: false,
+        resultKind: 'normal',
+    });
+    assert.deepEqual(payload.lossless_compaction, {
+        applied: false,
+        reason: 'diagnostic_content',
+        kind: null,
+    });
+    assert.equal(JSON.stringify(payload).includes('private-diagnostic-fixture'), false);
 });

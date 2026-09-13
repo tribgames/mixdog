@@ -69,6 +69,34 @@ test('adding a second Anthropic account writes its own credential file and leave
   assert.deepEqual(listed.map((row) => row.authenticated), [true, true]);
 });
 
+test('an account login that ends unauthenticated leaves the provider enabled', async (t) => {
+  const provider = 'anthropic-oauth';
+  const realFetch = globalThis.fetch;
+  // The exchange itself succeeds, but the token comes back WITHOUT the inference
+  // scope, so the credential it stores is unusable and describe() reports "not
+  // authenticated" — the same shape as any login that fails to complete.
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    access_token: 'access-scopeless', refresh_token: 'refresh-scopeless', expires_in: 3600,
+    scope: 'user:profile',
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  t.after(() => { globalThis.fetch = realFetch; });
+  process.env.ANTHROPIC_OAUTH_MANUAL_REDIRECT_URI ||= 'https://platform.claude.com/oauth/code/callback';
+  let config = { providers: { [provider]: { enabled: true } } };
+  const saved = [];
+  const cfg = { loadConfig: () => config, saveConfig: (next) => { saved.push(next); config = next; } };
+  const before = readProviderAccountPool(provider).accounts.map((row) => row.id);
+  const login = await beginOAuthProviderLogin(cfg, provider, { addAccount: true });
+  t.after(() => login.cancel?.());
+  const state = new URL(login.url).searchParams.get('state');
+  const result = await login.completeCode(`code-scopeless#${state}`);
+  assert.equal(result.authenticated, false);
+  assert.deepEqual(saved, [], 'a failed login writes no provider config at all');
+  assert.equal(config.providers[provider].enabled, true,
+    'accounts that are still connected keep the provider usable');
+  assert.deepEqual(readProviderAccountPool(provider).accounts.map((row) => row.id), before,
+    'the unauthenticated account is not registered');
+});
+
 test('login refuses a removed or arbitrary account before starting OAuth', async () => {
   const cfg = { loadConfig: () => ({}), saveConfig() {} };
   await assert.rejects(beginOAuthProviderLogin(cfg, 'openai-oauth', { accountId: newProviderAccountId() }), /no longer connected/);

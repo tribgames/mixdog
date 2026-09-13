@@ -22,8 +22,7 @@ import { isAgentOwner } from '../../agent-owner.mjs';
 import { providerInputExcludesCache } from '../../providers/registry.mjs';
 
 // Unified context-share rule (compact/constants.mjs CONTEXT_SHARE_RATIO): the
-// post-compaction target is 50% of the boundary/context window — the same 50%
-// the handoff injection cap uses. One
+// post-compaction target is 25% of the boundary/context window. One
 // number governs every "share of model context" budget.
 
 function resolveCompactTargetRatio(cfg = {}) {
@@ -487,21 +486,37 @@ export function compactionTelemetryPressureTokens(messageTokensEst, policy, {
     const floor = positiveInt(policy?.triggerTokens) || positiveInt(policy?.boundaryTokens) || 0;
     return floor ? Math.max(base, floor) : base;
 }
+/**
+ * Translate the total provider-scale target to the raw compactor budget.
+ * The builder subtracts reserveTokens; only operator headroom may be added
+ * back here. Request schemas already belong INSIDE the displayed target.
+ */
 export function compactTargetBudget(policy) {
     const boundary = positiveInt(policy?.boundaryTokens);
     if (!boundary) return null;
     const reserve = Math.max(0, Number(policy?.reserveTokens) || 0);
-    const targetEffective = positiveInt(policy?.compactTargetTokens)
+    const gaugeTarget = positiveInt(policy?.compactTargetTokens)
         || resolveCompactTargetTokens(boundary, policy)
         || boundary;
-    const trigger = positiveInt(policy?.triggerTokens);
+    const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
+    const configuredReserve = Math.max(0, Number(policy?.configuredReserveTokens) || 0);
+    const requestReserve = Math.min(reserve, Math.max(
+        0, Number(policy?.requestReserveTokens ?? (reserve - configuredReserve)) || 0,
+    ));
+    const toRawTokens = (value) => Math.max(1, Math.floor(value / calibration));
+    const rawBoundary = toRawTokens(boundary);
+    const rawTarget = Math.max(1, Math.min(rawBoundary, toRawTokens(gaugeTarget)) - requestReserve);
+    const gaugeTrigger = positiveInt(policy?.triggerTokens);
+    const rawTrigger = gaugeTrigger ? Math.min(rawBoundary, toRawTokens(gaugeTrigger)) : 0;
+    // reserveTokens is already raw (estimateRequestReserveTokens plus the
+    // configured operator headroom), so it is compared and subtracted as-is.
     const singleShot = policy?.singleShot === true
-        || (trigger > 0 && reserve >= trigger);
+        || (rawTrigger > 0 && reserve >= rawTrigger);
     return compactTargetBudgetForTrigger(
-        boundary,
-        targetEffective,
+        rawBoundary,
+        rawTarget,
         reserve,
-        trigger,
+        rawTrigger,
         singleShot,
         policy?.force === true,
     );

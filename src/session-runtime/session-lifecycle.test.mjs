@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeResolveRoute } from './config-helpers.mjs';
 import { resolveRouteContextState, resolveRouteEffortState } from './session-lifecycle.mjs';
-import { inheritanceContextFit } from './lifecycle-api.mjs';
+import { createLifecycleApi } from './lifecycle-api.mjs';
+import { inheritanceFit, inheritanceRouteTarget } from './inheritance-fit.mjs';
 
 test('cold route metadata preserves persisted effort and enabled Fast mode', () => {
   assert.deepEqual(resolveRouteEffortState({
@@ -147,24 +148,115 @@ test('route config treats a cleared context percentage as model-default intent',
   }).contextPercent, undefined);
 });
 
-test('session inheritance uses the selected model compaction boundary as its fit guard', () => {
-  assert.deepEqual(inheritanceContextFit({
-    usedTokens: 80_000,
-    contextWindow: 200_000,
-    compaction: {
-      pressureTokens: 95_000,
-      triggerTokens: 100_000,
-    },
-  }), {
-    known: true,
-    fits: true,
-    used: 95_000,
-    limit: 100_000,
+const CONVERSATION = [
+  { role: 'system', content: 'source instructions' },
+  { role: 'user', content: 'carry this conversation '.repeat(2_000) },
+  { role: 'assistant', content: 'understood '.repeat(200) },
+];
+
+test('session inheritance is judged on the heir route, never on the source reading', () => {
+  const heir = (overrides = {}) => ({
+    provider: 'openai-oauth',
+    model: 'gpt-6-astra',
+    contextWindow: 500_000,
+    compactBoundaryTokens: 500_000,
+    compaction: { auto: true },
+    tools: [],
+    ...overrides,
   });
-  assert.equal(inheritanceContextFit({
-    compaction: {
-      pressureTokens: 100_000,
-      triggerTokens: 100_000,
-    },
-  }).fits, false);
+  const roomy = inheritanceFit(CONVERSATION, heir());
+  assert.equal(roomy.known, true);
+  assert.equal(roomy.fits, true);
+  // System blocks belong to the session that built them and are never carried,
+  // so they cannot be charged to the heir either.
+  assert.equal(roomy.messages, 2);
+  assert.ok(roomy.used > 0 && roomy.used < roomy.limit);
+
+  // The identical conversation prices differently per route: an Anthropic heir
+  // is billed above the raw estimate, which is exactly why the source session's
+  // own gauge cannot answer this question.
+  const anthropic = inheritanceFit(CONVERSATION, heir({
+    provider: 'anthropic-oauth', model: 'claude-opus-5',
+  }));
+  assert.ok(anthropic.used > roomy.used);
+
+  // A heir that cannot hold the conversation refuses it before any carry.
+  const tight = inheritanceFit(CONVERSATION, heir({
+    contextWindow: 10_000, compactBoundaryTokens: 10_000,
+  }));
+  assert.equal(tight.fits, false);
+  assert.equal(tight.limit, 10_000);
+
+  // An unmeasurable route is not a refusal.
+  assert.equal(inheritanceFit(CONVERSATION, {
+    provider: 'openai-oauth', model: 'gpt-6-astra',
+  }).known, false);
+});
+
+test('the inheritance preflight is the same verdict the carry itself reaches', async () => {
+  const source = {
+    id: 'source',
+    provider: 'openai-oauth',
+    model: 'gpt-6-astra',
+    messages: CONVERSATION,
+  };
+  const run = async (selectedContextWindow, compactConversation = null) => {
+    const route = {
+      provider: 'anthropic-oauth',
+      model: 'claude-opus-5',
+      selectedContextWindow,
+    };
+    // The heir opens on exactly this route, so it resolves the same window the
+    // preflight predicts for it.
+    const target = { id: 'heir', messages: [], ...inheritanceRouteTarget(route) };
+    const api = createLifecycleApi({
+      getSession: () => target,
+      getRoute: () => route,
+      mgr: { getSession: (id) => (id === source.id ? source : null) },
+      invalidateContextStatusCache() {},
+      saveSession() {},
+      ...(compactConversation ? { compactConversation } : {}),
+    });
+    return { api, target, fit: api.inheritancePreflight(source.id, route) };
+  };
+
+  // Oversized for the heir is no longer a dead end: the preflight announces
+  // the compaction pass the carry will run, and the compactor is sized for
+  // the HEIR's window, not the source's.
+  const budgets = [];
+  const compacted = await run(20_000, async ({ budgetTokens }) => {
+    budgets.push(budgetTokens);
+    return { messages: [{ role: 'user', content: 'Compacted for the heir.' }] };
+  });
+  assert.equal(compacted.fit.known, true);
+  assert.equal(compacted.fit.fits, false);
+  assert.equal(compacted.fit.limit, 20_000);
+  assert.equal(compacted.fit.willCompact, true);
+  assert.equal(compacted.fit.reason, '');
+  await compacted.api.inheritFrom(source.id);
+  assert.equal(budgets.length, 1);
+  assert.ok(budgets[0] > 0 && budgets[0] < compacted.fit.used);
+  assert.deepEqual(compacted.target.messages.map(({ content }) => content), [
+    'Compacted for the heir.',
+  ]);
+
+  // A compaction that yields no conversation is a refusal, not a half-carry:
+  // the measured sentence names the heir's route and nothing is carried.
+  const refused = await run(20_000, async () => ({ messages: [] }));
+  assert.equal(refused.fit.fits, false);
+  await assert.rejects(
+    refused.api.inheritFrom(source.id),
+    new RegExp(`${refused.fit.used} tokens.*${refused.fit.limit}`),
+  );
+  await assert.rejects(
+    refused.api.inheritFrom(source.id),
+    /anthropic-oauth\/claude-opus-5/,
+  );
+  assert.deepEqual(refused.target.messages, []);
+
+  const accepted = await run(500_000);
+  assert.equal(accepted.fit.fits, true);
+  assert.equal(accepted.fit.reason, '');
+  await accepted.api.inheritFrom(source.id);
+  assert.equal(accepted.target.messages.length, accepted.fit.messages);
 });

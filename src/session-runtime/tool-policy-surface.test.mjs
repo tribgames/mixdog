@@ -10,9 +10,10 @@ import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
 import { GOAL_TOOL_DEFS } from './goal-runtime.mjs';
 import { finalizeSessionToolList } from '../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
+import { modelToolSchemaAllowlist } from './tool-profile.mjs';
 
 const require = createRequire(import.meta.url);
-const { omitToolRoutes, buildSharedToolContent, buildAgentRoleContent } = require('../lib/rules-builder.cjs');
+const { omitToolRoutes, buildSharedToolContent, buildAgentRoleContent, buildLeadRoleContent } = require('../lib/rules-builder.cjs');
 
 // Tool dependency is declared by `<!-- tools: … -->` markers, so this fixture
 // carries the markers rather than prose the builder would have to match.
@@ -111,67 +112,88 @@ test('shared tool rules omit disabled web search and memory routes', () => {
   // the tool that is absent from the surface.
   const patchOnly = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot, omitTools: ['edit'] });
   assert.doesNotMatch(patchOnly, /`edit`/);
-  assert.match(patchOnly, /Placement: use exact unchanged context/i);
+  assert.match(patchOnly, /Author files with `apply_patch`, not shell scripts\/redirection/i);
   assert.match(patchOnly, /source-file edits stay with `apply_patch`/i);
   const editOnly = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot, omitTools: ['apply_patch'] });
   assert.doesNotMatch(editOnly, /`apply_patch`/);
   assert.doesNotMatch(editOnly, /Add File|Update File/);
-  assert.match(editOnly, /Placement: use an exact unique target string/i);
+  assert.match(editOnly, /Author files with `edit`, not shell scripts\/redirection/i);
   assert.match(editOnly, /source-file edits stay with `edit`\./i);
+});
+
+test('rule allowlists omit unavailable capabilities and explicit denies still win', () => {
+  const searchOnly = omitToolRoutes(SAMPLE_ROUTES, [], ['WEB_SEARCH']);
+  assert.match(searchOnly, /# Research/);
+  assert.match(searchOnly, /`web_search`/);
+  assert.doesNotMatch(searchOnly, /web_fetch|recall|memory|<!--/);
+  assert.equal(omitToolRoutes(SAMPLE_ROUTES, ['web_search'], ['web_search']), '');
+  assert.equal(omitToolRoutes(SAMPLE_ROUTES, [], []), '');
+});
+
+test('headless rules omit Skill and Goal guidance while interactive rules retain it', () => {
+  const PLUGIN_ROOT = join(process.cwd(), 'src');
+  const interactive = buildSharedToolContent({ PLUGIN_ROOT });
+  assert.match(interactive, /# Skills/);
+  assert.match(interactive, /# Goals/);
+  const headless = buildSharedToolContent({
+    PLUGIN_ROOT,
+    allowTools: modelToolSchemaAllowlist('headless'),
+    omitTools: ['edit'],
+  });
+  const role = buildLeadRoleContent({ PLUGIN_ROOT, includeLeadBrief: false });
+  assert.doesNotMatch(`${headless}\n${role}`, /\bSkills?\b|\bGoals?\b|`goal`|goal-management/);
+  assert.match(headless, /`load_tool`/);
+  assert.match(headless, /`read`/);
+  assert.doesNotMatch(
+    buildSharedToolContent({ PLUGIN_ROOT, omitTools: ['sKiLl', 'GOAL'] }),
+    /\bSkills?\b|\bGoals?\b|`goal`|goal-management/,
+  );
 });
 
 test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // Advisory drift check: update these anchors when the rule text
   // intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
-  assert.match(full, /Confirm destructive\/hard-to-reverse actions against explicit validated paths/i);
-  assert.match(full, /never `~`, a root, or unresolved variables\/globs/i);
-  assert.match(full, /Determine the required outcome and missing evidence/i);
-  assert.match(full, /Before exploration or implementation, consult prior work, current external\s+information, or repository state only when needed/i);
-  assert.match(full, /Run independent calls in parallel; serialize dependencies and conflicting\s+side effects/i);
-  assert.match(full, /Issue independent calls with known inputs in the same assistant turn/i);
-  assert.match(full, /Different evidence needs are independent unless one requires another's result/i);
-  assert.match(full, /Respect tool limits and keep results bounded/i);
-  assert.match(full, /A check runs at the strictness the task requires; never raise a tool's own\s+severity beyond it/i);
-  assert.match(full, /Route each evidence facet once to its primary owner/i);
-  assert.match(full, /A summary,\s+overview, or enumeration is not a prerequisite to an operation whose complete\s+inputs are already known/i);
-  assert.match(full, /Do not split one tool's known targets across calls when it supports a single call/i);
+  assert.match(full, /Validate exact targets before destructive\/hard-to-reverse actions/i);
+  assert.match(full, /never roots,\s+`~` or unresolved variables\/globs/i);
+  assert.match(full, /Ask only for targets or destructive effects\s+not already approved/i);
+  assert.match(full, /Define required outputs and final checks/i);
+  assert.match(full, /Wait only for scope\/decision dependencies or conflicting effects/i);
+  assert.match(full, /gather missing evidence → implement completely → verify → deliver/i);
+  assert.match(full, /respect approvals and bound output/i);
+  assert.match(full, /Use supplied commands unchanged except inputs, otherwise documented defaults/i);
+  assert.match(full, /One evidence owner; known targets go directly there/i);
+  assert.match(full, /When a diff establishes\s+the cause, edit site and required change, implement next/i);
+  assert.match(full, /Batch required targets in each tool's arrays first, then parallelize independent\s+calls/i);
   assert.match(full, /Evidence or artifacts available only through program execution, calculation,\s+data transformation, generated output, or unsupported-format decoding→`shell`/i);
   assert.match(full, /an already-open shell is never a routing reason/i);
-  assert.match(full, /Route the missing evidence to its primary owner/i);
-  assert.match(full, /repository state, history, or diff→`git`/i);
-  assert.match(full, /Ownership is exclusive: each evidence type has one owner/i);
-  assert.match(full, /a\s+successful owner result closes that facet/i);
-  assert.match(full, /Blocking checks cover only essential integrity, security, compatibility, and\s+buildability invariants/i);
-  assert.match(full, /environment variable or the home directory are\s+resolved locations/i);
-  assert.match(full, /Use read-only means for inspection; never mutate to clear an obstacle or\s+unexpected state/i);
-  assert.match(full, /literal, regex, or text location→`grep`;\s+known-file content, range, or image→`read`/i);
-  assert.match(full, /stays authoritative unless a relevant\s+change or concrete invalidation makes it stale/i);
-  assert.match(full, /possible external change alone is not a reason to re-query/i);
-  assert.match(full, /Retry a deterministic failure only after its relevant inputs or\s+subject change/i);
-  assert.match(full, /An explicitly transient failure may be retried once within\s+a bounded time budget/i);
-  assert.match(full, /Never retry a denial or\s+cancellation/i);
-  assert.match(full, /On a miss, choose the next\s+lookup from the missing evidence and the reported cause/i);
-  assert.match(full, /For a specific UI label\s+or edit location, use `grep` and read only the missing anchored range/i);
-  assert.match(full, /Follow up only for missing, invalidated, or newly needed evidence/i);
-  assert.match(full, /Stop exploring once sufficient evidence determines the next action required\s+by the request/i);
-  assert.match(full, /Enter Verification only after all planned work is complete/i);
-  assert.match(full, /Use an umbrella suite only when explicitly requested or required by the\s+documented project or release process/i);
-  assert.match(full, /If verification fails, collect all failures, leave Verification/i);
-  assert.match(full, /A successful verification closes the task unless later changes affect it/i);
-  assert.match(full, /failed actions follow the retry policy in Tool Workflow/i);
+  assert.match(full, /State\/history\/diff→`git`/i);
+  assert.match(full, /Trust documented guarantees and let intended operations report availability/i);
+  assert.match(full, /Each call must advance required work, not add an optional branch/i);
+  assert.match(full, /Check required behavior, exact outputs and essential integrity\/security\/\s+compatibility\/buildability/i);
+  assert.match(full, /Supplied\/home\/environment paths need no locator/i);
+  assert.match(full, /Use documented non-mutating readers directly, without prerequisite copies/i);
+  assert.match(full, /preserve\s+exact originals and inspect a separate working copy before opening them/i);
+  assert.match(full, /text\/regex→`grep`; content\/ranges\/images→`read`/i);
+  assert.match(full, /Retry deterministic failures only after relevant change/i);
+  assert.match(full, /allow one safe,\s+bounded transient retry/i);
+  assert.match(full, /Never bypass denial\/cancellation or repeat unknown\s+mutations/i);
+  assert.match(full, /Follow miss causes; a missing `code_graph` symbol alone gets one literal `grep` fallback/i);
+  assert.match(full, /UI\/edit sites use `grep` and only missing anchored ranges/i);
+  assert.match(full, /one\s+runner reports every outcome despite failures\. Otherwise use separate calls/i);
+  assert.match(full, /No stricter flags or unrequested umbrella suites/i);
+  assert.match(full, /A passed check settles only that check; finish the remaining required checks/i);
+  assert.match(full, /Collect failures, finish fixes, and rerun only failed or invalidated checks/i);
+  assert.match(full, /Completion requires the verified objective, not a turn-ending response/i);
   assert.doesNotMatch(full, /affected failed checks once/i);
   assert.match(full, /Git commands→`git`; source-file edits stay with `edit`\./i);
   assert.match(full, /Git commands→`git`; source-file edits stay with `apply_patch`\./i);
   assert.doesNotMatch(full, /Every repository mutation→`git`/i);
   assert.doesNotMatch(full, /always batch safely in parallel/i);
-  assert.match(full, /A required new file is created directly: Add File is itself the atomic\s+absence check/i);
-  assert.match(full, /Source: use exact current target text from any visible evidence/i);
-  assert.match(full, /Placement: use an exact unique target string/i);
-  assert.match(full, /Placement: use exact unchanged context/i);
-  assert.match(full, /Apply all determined changes in the fewest safe calls the active tool\s+supports/i);
-  assert.match(full, /One file, several changes: one Update File block carries every hunk/i);
-  assert.match(full, /One file, several changes: issue the calls together in one turn/i);
+  // Dialect-specific contracts live in tool descriptions; their tests are
+  // separate from these shared-policy anchors.
+  assert.match(full, /Use exact current target text from visible evidence/i);
+  assert.match(full, /Apply determined edits in the fewest safe supported calls/i);
   assert.match(full, /Defer only ambiguous or result-dependent changes/i);
   assert.match(full, /Commit, push, release, and deployment happen only on the user's explicit\s+request/i);
   assert.match(full, /past facts recorded in prior work or sessions→`recall`/i);
@@ -194,12 +216,17 @@ test('agent common policy delegates verification unless AGENT.md explicitly owns
   assert.match(rules, /Lead or an explicitly verification-assigned agent owns verification/i);
 });
 
-test('apply_patch keeps grammar and mutation behavior on the freeform surface', () => {
+test('apply_patch descriptions keep creation and placement contracts on both surfaces', () => {
   const applyPatch = PATCH_TOOL_DEFS.find((tool) => tool.name === 'apply_patch');
-  assert.match(applyPatch.freeformDescription, /Add File atomically creates the file and missing parent directories/i);
-  assert.match(applyPatch.freeformDescription, /failing without changes if the target already exists/i);
-  assert.match(applyPatch.freeformDescription, /one Add\/Delete\/Update File block per target path/i);
-  assert.match(applyPatch.freeformDescription, /Multi-file patches commit valid files and report rejected files separately/i);
+  for (const description of [applyPatch.description, applyPatch.freeformDescription]) {
+    assert.match(description, /exact, unique context; add a class\/function locator/i);
+    assert.match(description, /New files and parents are created atomically/i);
+    assert.match(description, /existing targets reject creation unchanged/i);
+    assert.match(description, /Attempt it directly, without read\/list\/mkdir/i);
+    assert.match(description, /Valid files commit; rejected files are reported separately/i);
+  }
+  assert.match(applyPatch.freeformDescription, /one Add\/Delete\/Update File block per path/i);
+  assert.match(applyPatch.freeformDescription, /group its @@ hunks/i);
   assert.equal(applyPatch.inputSchema.properties.patch.minLength, 1);
 });
 
@@ -367,6 +394,7 @@ test('Goal stays active while legacy Goal schemas are removed from restored sess
 test('empty session refresh strips denied tools and BP1 routes', async () => {
   const session = {
     id: 'sess_empty',
+    schemaAllowedTools: modelToolSchemaAllowlist('headless'),
     messages: [
       { role: 'system', content: '# Tool Use\nweb/current→`web_search`; returned URL body→`web_fetch`;\nprior work→`recall` (history only, never current local state);\ndurable compact English memory→`memory`;\n' },
       { role: 'system', content: '# Profile' },
@@ -403,6 +431,7 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
   const bp1 = session.messages[0].content;
   assert.equal(bp1.includes('`web_search`'), false);
   assert.equal(bp1.includes('`memory`'), false);
+  assert.doesNotMatch(`${bp1}\n${session.messages[2].content}`, /\bSkills?\b|\bGoals?\b|`goal`|goal-management/);
   assert.notEqual(session.messages[0], bp1BeforeRefresh);
   assert.notEqual(session.messages[2], bp3BeforeRefresh);
   assert.match(session.messages[2].content, /# Active Workflow: Solo/);

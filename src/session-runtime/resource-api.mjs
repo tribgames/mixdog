@@ -290,7 +290,7 @@ export function createResourceApi(deps) {
         if (Array.isArray(disabled) && disabled.includes(skill.originalName)) {
           setDisabledSkills?.(disabled.map((name) =>
             name === skill.originalName ? skill.name : name));
-          flushSkillsSave?.();
+          await flushSkillsSave?.();
         }
       }
       await refreshGlobalExtensionSurface('skills');
@@ -299,7 +299,7 @@ export function createResourceApi(deps) {
     },
     async setDisabledSkills(names = []) {
       const result = setDisabledSkills?.(names);
-      flushSkillsSave?.();
+      await flushSkillsSave?.();
       invalidateSkills?.();
       await refreshGlobalExtensionSurface('skills');
       await publishGlobalChange('skills');

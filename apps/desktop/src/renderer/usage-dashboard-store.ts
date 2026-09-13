@@ -322,6 +322,34 @@ export function publishUsageDashboard(dashboard: unknown): boolean {
   return true;
 }
 
+/** Account switch repaint: the newly selected account's own last-known quota
+ *  windows replace that provider's meters at once, so the surface never keeps
+ *  showing the PREVIOUS account's numbers while the confirming refresh is in
+ *  flight. Nothing is invented — an unknown provider row or an account with no
+ *  recorded usage leaves the snapshot untouched — and `refreshedAt` is NOT
+ *  advanced, because this is last-known data, not a live result. */
+export function applyAccountUsageWindows(provider: string, windows: unknown): boolean {
+  const win = ensureHost();
+  if (!win) return false;
+  const id = String(provider || "");
+  const rows = Array.isArray(snapshot.dashboard.rows)
+    ? (snapshot.dashboard.rows as UsageRecord[])
+    : [];
+  const index = rows.findIndex((row) => String(row?.id || "") === id);
+  if (!id || index < 0) return false;
+  const accountWindows = scalarRecordList(windows, MAX_WINDOWS, MAX_WINDOW_KEYS);
+  if (!accountWindows.length) return false;
+  const dashboard: UsageRecord = {
+    ...snapshot.dashboard,
+    rows: rows.map((row, position) => (
+      position === index ? { ...row, windows: accountWindows } : row
+    )),
+  };
+  writeCache(win, dashboard);
+  publish({ ...snapshot, dashboard });
+  return true;
+}
+
 function isFresh(): boolean {
   return snapshot.refreshedAt > 0
     && rowCount(snapshot.dashboard) > 0
@@ -387,6 +415,7 @@ async function runRefresh(
   api: UsageApi,
   id: number,
   generation: number,
+  providers: readonly string[] | undefined,
 ): Promise<void> {
   let result: unknown;
   try {
@@ -394,8 +423,14 @@ async function runRefresh(
       api.invokeCapability!<unknown>({
         capability: "getUsageDashboard",
         // Refresh provider quotas without repeating the slower keychain/local
-        // setup scan on every cadence tick.
-        args: [{ refresh: true, refreshSetup: false }],
+        // setup scan on every cadence tick. `refreshProviders` narrows the LIVE
+        // sweep to the provider whose credentials just changed, so an account
+        // switch is not paced by an unrelated provider's quota call.
+        args: [{
+          refresh: true,
+          refreshSetup: false,
+          ...(providers?.length ? { refreshProviders: [...providers] } : {}),
+        }],
       }),
       USAGE_DASHBOARD_REQUEST_TIMEOUT_MS,
       win,
@@ -410,19 +445,26 @@ async function runRefresh(
   acceptRefresh(win, (result as { value?: unknown } | undefined)?.value);
 }
 
-/** Credentials changed: do not adopt a request started by the previous account.
- *  The refresh remains best effort and independent of the successful login. */
-export function refreshUsageDashboardAfterAuth(api: UsageApi | undefined): Promise<void> {
+/** Credentials changed (login, account switch): do not adopt a request started
+ *  by the previous account — coalescing into it kept the previous account's
+ *  meters until the next cadence tick. `providers` scopes the live sweep to the
+ *  provider that changed. Best effort and independent of the auth outcome. */
+export function refreshUsageDashboardAfterAuth(
+  api: UsageApi | undefined,
+  providers?: readonly string[],
+): Promise<void> {
   ensureHost();
   retire();
-  return refreshUsageDashboard(api, { force: true });
+  return refreshUsageDashboard(api, { force: true, providers });
 }
 
 /** One in-flight request for the whole renderer. `force` skips the TTL check
  *  (cadence ticks and retries); everything else is stale-while-revalidate. */
 export function refreshUsageDashboard(
   api: UsageApi | undefined,
-  { force = false, retry = false }: { force?: boolean; retry?: boolean } = {},
+  { force = false, retry = false, providers }: {
+    force?: boolean; retry?: boolean; providers?: readonly string[];
+  } = {},
 ): Promise<void> {
   const win = ensureHost();
   if (pending) return pending;
@@ -438,7 +480,7 @@ export function refreshUsageDashboard(
   const id = ++requestSequence;
   const generation = epoch;
   pendingId = id;
-  const request = runRefresh(win, api, id, generation).finally(() => {
+  const request = runRefresh(win, api, id, generation, providers).finally(() => {
     // Ownership is per REQUEST id: an old finally can never release the pending
     // slot of a newer request, nor one a retirement already cleared.
     if (pendingId !== id) return;

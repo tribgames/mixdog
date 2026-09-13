@@ -106,6 +106,7 @@ export function createToolPolicyRefresh({
     const allowsAgents = workflow?.delegatesAgents !== false;
     const baseRules = _buildSharedRules({
       omitTools: [...denied, unusedModelEditToolName(getRoute()?.model)],
+      allowTools: session.schemaAllowedTools,
     });
     const roleRules = _buildLeadRules({ includeLeadBrief: allowsAgents });
     let coreMemoryContext = '';

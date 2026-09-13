@@ -1,4 +1,4 @@
-import { Pin, Plus } from "lucide-react";
+import { Info, Pin, Plus } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -261,6 +261,7 @@ export function SidebarUsage({
   sidebarOpen = true,
   pinned = false,
   onTogglePin,
+  onOpenStats,
   onAddProviders,
 }: {
   api?: UsageApi;
@@ -269,6 +270,9 @@ export function SidebarUsage({
    *  per-brand icon + % stack (user: 핀모드). */
   pinned?: boolean;
   onTogglePin?(): void;
+  /** Opens the token-usage statistics surface: this panel answers what is
+   *  LEFT, that one answers what was SPENT. */
+  onOpenStats?(): void;
   onAddProviders?(): void;
 }) {
   // The popup mounts and unmounts with the flyout; the snapshot, the in-flight
@@ -402,6 +406,12 @@ export function SidebarUsage({
             onClick={onTogglePin}>
             {/* Diagonal pushpin; the tilt comes from the CSS rotate. */}
             <Pin size={16} aria-hidden="true" />
+          </button>}
+          {onOpenStats && <button type="button"
+            className="session-panel-action sidebar-usage-stats"
+            aria-label={t("Show token usage")} data-tooltip={t("Show token usage")}
+            onClick={onOpenStats}>
+            <Info size={16} aria-hidden="true" />
           </button>}
           <button type="button" className="session-panel-action sidebar-provider-add"
             aria-label={t("Connect provider")} data-tooltip={t("Connect provider")} disabled={!onAddProviders}

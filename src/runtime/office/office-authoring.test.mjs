@@ -54,6 +54,60 @@ test('author writes a deck from a pptxgenjs script and opens a session on it', a
   assert.notEqual(again.session, authored.session);
 });
 
+test('text contrast is read against the background a slide inherits from its layout', async (t) => {
+  const cwd = await workspace(t);
+  // A deck's dark field lives on the master it defines, not on the slide; the
+  // contrast reading has to follow that chain or every dark slide goes unread.
+  const script = (ink) => `const pptxgen = require('pptxgenjs');
+const pres = new pptxgen();
+pres.layout = 'LAYOUT_WIDE';
+pres.defineSlideMaster({ title: 'DARK', background: { color: '0F1824' } });
+const slide = pres.addSlide({ masterName: 'DARK' });
+slide.addText('야간 인력 증원을 승인해 주십시오', { x: 0.6, y: 3, w: 9, h: 0.8, fontFace: 'Arial', fontSize: 36, bold: true, color: '${ink}' });
+await pres.writeFile({ fileName: OUTPUT });`;
+  const onDark = value(await executeOfficeTool({
+    action: 'author', path: join(cwd, 'dark-ink.pptx'), script: script('171F2B'), mode: 'portable', render: false,
+  }, { cwd }));
+  const reported = (value(await executeOfficeTool({ action: 'issues', session: onDark.session }, { cwd })).issues || [])
+    .filter((entry) => entry.code === 'low_contrast');
+  assert.equal(reported.length, 1, JSON.stringify(reported));
+  assert.match(reported[0].message, /1\.\d\d:1/);
+  const readable = value(await executeOfficeTool({
+    action: 'author', path: join(cwd, 'light-ink.pptx'), script: script('F2F5F8'), mode: 'portable', render: false,
+  }, { cwd }));
+  const clean = (value(await executeOfficeTool({ action: 'issues', session: readable.session }, { cwd })).issues || [])
+    .filter((entry) => entry.code === 'low_contrast');
+  assert.deepEqual(clean, []);
+});
+
+test('table cells are read for contrast against their own fill', async (t) => {
+  const cwd = await workspace(t);
+  const script = `const pptxgen = require('pptxgenjs');
+const pres = new pptxgen();
+pres.layout = 'LAYOUT_WIDE';
+const slide = pres.addSlide();
+slide.addTable([
+  [
+    { text: '라인', options: { fill: { color: '16283C' }, color: '1B2A3B', bold: true } },
+    { text: '판정', options: { fill: { color: '16283C' }, color: 'FFFFFF', bold: true } },
+  ],
+  [
+    { text: '서울 1호', options: { color: '101820' } },
+    { text: '정상', options: { color: '101820' } },
+  ],
+], { x: 0.6, y: 1.6, w: 9, h: 1.6, fontFace: 'Arial', fontSize: 14, border: { pt: 0.5, color: 'C7D2DC' } });
+await pres.writeFile({ fileName: OUTPUT });`;
+  const authored = value(await executeOfficeTool({
+    action: 'author', path: join(cwd, 'table-ink.pptx'), script, mode: 'portable', render: false,
+  }, { cwd }));
+  const contrast = (value(await executeOfficeTool({ action: 'issues', session: authored.session }, { cwd })).issues || [])
+    .filter((entry) => entry.code === 'low_contrast');
+  // Only the header cell whose ink matches its dark fill is unreadable; the
+  // white header beside it and the dark body ink on white are left alone.
+  assert.deepEqual(contrast.map((entry) => entry.path), ['/slide[1]/table[1]/row[1]/cell[1]']);
+  assert.match(contrast[0].message, /against its fill/);
+});
+
 test('author reports script failures with the offending line', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'broken.pptx');
@@ -233,6 +287,39 @@ await pres.writeFile({ fileName: OUTPUT });
 `, join(cwd, 'icons.pptx'));
   assert.equal(run.ok, true, run.error?.message);
   assert.ok(run.logs.some((line) => /Nearest: /.test(line.text)));
+});
+
+// An icon is drawn as vectors, then placed as a raster: sharp at the size it was
+// written, soft at any zoom or print scale. The saved file carries the SVG beside
+// the picture so PowerPoint draws the vector and everything else the PNG.
+test('a kit icon is saved as a vector beside its raster fallback', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'icons.pptx');
+  const run = await runPptxAuthoringScript(`
+// BRIEF
+// style: editorial · palette: hue 205 · script: ko · pairing: serif · fonts: noto
+deck({ hue: 205, mode: 'balanced', script: 'ko', pairing: 'serif', fonts: 'noto' });
+{ const s = light(); await icon(s, 1, 1, 'disc', 'truck'); await icon(s, 3, 1, 'marker', 'shield');
+  await vector(s, '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="60" viewBox="0 0 240 60"><path d="M10 30 H230" stroke="#1F6F8B" stroke-width="3"/></svg>', 1, 3, 8, 2); }
+await pres.writeFile({ fileName: OUTPUT });
+`, path);
+  assert.equal(run.ok, true, `${run.error?.message}\n${run.error?.excerpt || ''}`);
+  assert.equal(run.vectorIcons, 3, 'both icons and the script-drawn diagram carry their vector source');
+  const zip = await loadPackage(path);
+  const vectors = Object.keys(zip.files).filter((name) => name.endsWith('.svg'));
+  assert.equal(vectors.length, 3, JSON.stringify(vectors));
+  assert.match(await zipText(zip, vectors[0]), /^<svg/);
+  const slide = await zipText(zip, 'ppt/slides/slide1.xml');
+  assert.equal((slide.match(/asvg:svgBlip/g) || []).length, 3, 'each picture points at its vector');
+  assert.match(slide, /<a:blip r:embed="rId\d+">\s*<a:extLst><a:ext uri="\{96DAC541-7B7A-43D3-8B79-37D633B846F1\}">/);
+  assert.doesNotMatch(slide, /mixdog-svg:/, 'the marker name is cleared');
+  // The raster stays the fallback, and the package declares what it now holds.
+  assert.ok(Object.keys(zip.files).some((name) => /^ppt\/media\/.*\.png$/.test(name)), 'the PNG fallback is still there');
+  assert.match(await zipText(zip, '[Content_Types].xml'), /Extension="svg" ContentType="image\/svg\+xml"/);
+  const rels = await zipText(zip, 'ppt/slides/_rels/slide1.xml.rels');
+  for (const id of [...slide.matchAll(/asvg:svgBlip[^>]*r:embed="(rId\d+)"/g)].map((match) => match[1])) {
+    assert.match(rels, new RegExp(`Id="${id}"[^>]*Target="\\.\\./media/[^"]+\\.svg"`), `${id} resolves to an svg part`);
+  }
 });
 
 test('a script without its own presentation runs on the kit prelude: deck() colors the masters, gradients save native', async (t) => {

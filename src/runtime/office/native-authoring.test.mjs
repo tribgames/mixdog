@@ -81,6 +81,60 @@ test('page observations record agent judgement without requiring boilerplate boo
   }, state).acknowledged, false);
 });
 
+test('a section break gives the wide table its own landscape page and content keeps flowing after it', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'sections.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '운영 리뷰', style: 'Heading 1' },
+      { op: 'set_header_footer', text: '운영기획팀' },
+      { op: 'insert_break', kind: 'section_next' },
+      { op: 'set_page', properties: { orientation: 'landscape' } },
+      { op: 'add_table', values: [['라인', '10월', '11월'], ['1호', '1,200건', '1,320건']] },
+      { op: 'insert_break', kind: 'section_next' },
+      { op: 'set_page', properties: { orientation: 'portrait' } },
+      { op: 'append_text', text: '결정 요청', style: 'Heading 2' },
+    ],
+  }, { cwd }));
+  try {
+    const broken = created.batch.results.filter((entry) => entry.op === 'insert_break');
+    assert.deepEqual(broken.map((entry) => [entry.kind, entry.sections]), [['section_next', 2], ['section_next', 3]]);
+    const packaged = await parts(path);
+    const xml = await packaged.text('word/document.xml');
+    const body = /<w:body>([\s\S]*)<\/w:body>/.exec(xml)[1];
+    // Section one keeps portrait, the table's section turns the page, and the
+    // closing text is back to portrait in the document's own trailing section.
+    const orientations = [...body.matchAll(/<w:pgSz\b[^>]*\bw:w="(\d+)"/g)].map((match) => Number(match[1]));
+    assert.deepEqual(orientations, [11906, 16838, 11906]);
+    // The heading after the second break sits in the body, not inside the break
+    // paragraph that carries the section properties.
+    assert.match(body, /<\/w:sectPr><\/w:pPr><\/w:p><w:p><w:pPr><w:pStyle w:val="Heading2"\/>/);
+    assert.equal((body.match(/<w:headerReference\b/g) || []).length, 3, 'the running header carries into every section');
+    const validation = value(await executeOfficeTool({ action: 'validate', session: created.session }, { cwd }));
+    assert.equal(validation.ok, true);
+    // An explicit section number edits that section alone.
+    value(await executeOfficeTool({
+      action: 'batch',
+      session: created.session,
+      operations: [{ op: 'set_page', section: 1, properties: { leftMargin: 100 } }],
+    }, { cwd }));
+    const edited = /<w:body>([\s\S]*)<\/w:body>/.exec(await (await parts(path)).text('word/document.xml'))[1];
+    assert.deepEqual([...edited.matchAll(/<w:pgMar\b[^>]*\bw:left="(\d+)"/g)].map((match) => Number(match[1])), [2000, 1418, 1418]);
+    const missing = await executeOfficeTool({
+      action: 'batch',
+      session: created.session,
+      operations: [{ op: 'set_page', section: 9, properties: { orientation: 'landscape' } }],
+    }, { cwd });
+    assert.equal(missing.isError, true);
+    assert.match(missing.content[0].text, /has 3 sections; section 9 does not exist/);
+  } finally {
+    value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  }
+});
+
 test('native Word authoring persists distinct author-chosen treatments and remains editable', async (t) => {
   const cwd = await workspace(t);
   for (const [name, size, bold, margin] of [['essay', 19, false, 80], ['letter', 13, true, 62]]) {

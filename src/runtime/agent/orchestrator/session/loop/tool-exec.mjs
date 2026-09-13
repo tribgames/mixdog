@@ -1,8 +1,4 @@
-// Tool dispatch/execution cluster, extracted from loop.mjs.
-// executeTool routes a single tool call (Skill/skills/mcp/code_graph/internal/
-// shell/apply_patch/builtin/external-adapter) through before/after hooks and the
-// scoped-cache outcome bookkeeping. No behavior change: bodies are verbatim from
-// loop.mjs, re-exported via the facade so existing importers keep working.
+// Route tool calls through policy hooks, cancellation and scoped-cache tracking.
 import { executeMcpTool, isMcpTool, isRegisteredMcpTool, mcpToolHasField } from '../../mcp/client.mjs';
 import { executeBuiltinTool, formatUnknownBuiltinToolMessage, isBuiltinTool, isExternalAdapterTool } from '../../tools/builtin.mjs';
 import { executePatchTool } from '../../tools/patch.mjs';
@@ -23,6 +19,7 @@ import { coerceToolArgsForSession } from './arg-schema-coerce.mjs';
 import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
 import { runWithToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 import { runWithLocalSearchTelemetry } from '../../tools/builtin/local-search-telemetry.mjs';
+import { runAbortable, throwIfAborted } from '../../../../shared/abort-race.mjs';
 
 const READ_ONLY_IO_TOOL_NAMES = new Set([
     'read', 'head', 'tail', 'wc', 'summary', 'hex',
@@ -161,6 +158,7 @@ export function executeTool(name, args, cwd, callerSessionId, sessionRef, execut
 }
 
 async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, executeOpts = {}) {
+    throwIfAborted(executeOpts.signal);
     // cwd is captured when the turn starts. The deferred cwd tool updates
     // sessionRef.cwd in place, so every later tool call must re-read that live
     // value instead of continuing to use the stale turn snapshot.
@@ -225,21 +223,29 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
         : sessionRef?.toolApprovalHook;
     if (beforeToolHook) {
         try {
-            const decision = await beforeToolHook({
+            const decision = await runAbortable(executeOpts.signal, () => beforeToolHook({
                 name,
                 args,
                 cwd,
                 sessionId: callerSessionId,
                 toolCallId: executeOpts.toolCallId || null,
-            });
+            }, { signal: executeOpts.signal }));
             const action = String(decision?.action || decision?.decision || '').toLowerCase();
             if (action === 'deny' || action === 'block') {
                 const reason = decision?.reason ? `: ${decision.reason}` : '';
                 return `Error: tool "${name}" denied by hook${reason}`;
             }
+            if (action === 'ask' || action === 'modify' || action === 'rewrite') {
+                if (decision?.args && typeof decision.args === 'object' && !Array.isArray(decision.args)) {
+                    args = decision.args;
+                }
+                if (typeof decision?.name === 'string' && decision.name.trim()) {
+                    name = decision.name.trim();
+                }
+            }
             if (action === 'ask') {
                 const askReason = String(decision?.reason || 'approval requested by hook').trim();
-                const askOutcome = await resolvePreToolAskApproval({
+                const askOutcome = await runAbortable(executeOpts.signal, () => resolvePreToolAskApproval({
                     toolName: name,
                     args,
                     cwd,
@@ -247,23 +253,20 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
                     toolCallId: executeOpts.toolCallId || null,
                     askReason,
                     toolApprovalHook,
-                });
+                }));
                 if (askOutcome.denial) return askOutcome.denial;
                 const approval = askOutcome.approval;
                 if (approval && typeof approval === 'object' && approval.args && typeof approval.args === 'object' && !Array.isArray(approval.args)) {
                     args = approval.args;
                 }
             }
-            if ((action === 'modify' || action === 'rewrite') && decision?.args && typeof decision.args === 'object' && !Array.isArray(decision.args)) {
-                args = decision.args;
-            }
-            if ((action === 'modify' || action === 'rewrite') && typeof decision?.name === 'string' && decision.name.trim()) {
-                name = decision.name.trim();
-            }
         } catch {
             // Hooks are policy extensions. A broken hook must not wedge the agent loop.
         }
     }
+    // A decision can settle after its turn was cancelled. It must never
+    // authorize a new mutation, even if the hook ignores the abort signal.
+    throwIfAborted(executeOpts.signal);
     // A hook may replace the tool name, so pass the final call through the
     // same eager/serial boundary again. This prevents a rename from bypassing
     // role scoping and also applies built-in web_fetch transport routing.

@@ -64,6 +64,15 @@ test('font slots stay independent and spacing uses points, not OOXML line multip
   assert.match(wordRunProperties({ nameEastAsia: 'Batang' }), /w:eastAsia="Batang"/);
   assert.doesNotMatch(wordRunProperties({ nameEastAsia: 'Batang' }), /w:ascii=/);
   assert.match(paragraphFormatXml({ lineSpacing: 14.7 }), /w:line="294" w:lineRule="atLeast"/);
+  // A callout is a shaded paragraph with a rule at its left; a quote is set in from the margin. Both are
+  // points in, twips out, and the elements land in the schema's pPr order (pBdr, shd, spacing, ind, jc).
+  const callout = paragraphFormatXml({ border: { side: 'left', size: 12, color: '1F6F8B' }, shading: '#EEF2F7', indentLeft: 12, indentRight: 12, spacingAfter: 8, alignment: 'left' });
+  assert.match(callout, /<w:pBdr><w:left [^>]*w:sz="12"[^>]*w:color="1F6F8B"\/><\/w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="EEF2F7"\/><w:spacing w:after="160"\/><w:ind w:left="240" w:right="240"\/><w:jc w:val="left"\/>/);
+  assert.match(paragraphFormatXml({ indentFirstLine: 10.5 }), /<w:ind w:firstLine="210"\/>/);
+  // A rule keeps Word's own distance from the text unless the caller sets one: 4 pt beside, 1 pt above or below.
+  assert.match(callout, /<w:left [^>]*w:space="4"/);
+  assert.match(paragraphFormatXml({ border: { side: 'bottom', size: 8, color: '1F6F8B' } }), /<w:bottom [^>]*w:space="1"/);
+  assert.match(paragraphFormatXml({ border: { side: 'left', size: 8, color: '1F6F8B', space: 0 } }), /<w:left [^>]*w:space="0"/);
 });
 
 test('prose composition preserves content without synthetic labels or forced page breaks', () => {

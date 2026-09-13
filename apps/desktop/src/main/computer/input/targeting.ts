@@ -89,7 +89,7 @@ export function createWindowTargeting(host: WindowTargetingHost) {
   }
 
   async function listComputerApps(command: ComputerCommand): Promise<ComputerCommandResult> {
-    const windows = await readComputerWindows(command);
+    const windows = await readComputerWindows(command, true);
     if (!windows) throw new Error('could not enumerate apps');
     const groups = new Map<string, {
       name: string;

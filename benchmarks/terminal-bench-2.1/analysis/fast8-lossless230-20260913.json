@@ -1,0 +1,2084 @@
+{
+  "schemaVersion": 1,
+  "run": "jobs-sol-xhigh-fast-lossless230-20260913",
+  "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+  "ratesUsdPerMillion": {
+    "input": 4,
+    "cached": 0.4,
+    "cacheWrite": 5,
+    "output": 20
+  },
+  "verification": {
+    "nonDescriptionContracts": 13,
+    "rawReportMatchedTasks": 8,
+    "traceUsageMatchedTasks": 8,
+    "modelFailures": 0,
+    "remainingContainers": 0
+  },
+  "dashboard": {
+    "run": "jobs-sol-xhigh-fast-lossless230-20260913",
+    "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+    "result": {
+      "passed": 8,
+      "total": 8,
+      "completed": 8,
+      "errors": 0,
+      "retries": 0,
+      "cancelled": 0,
+      "pending": 0,
+      "running": 0,
+      "clean": true,
+      "benchmarkExitCode": 0
+    },
+    "timing": {
+      "startedAt": "2026-09-13T17:30:24.136417",
+      "finishedAt": "2026-09-13T17:34:18.902615",
+      "wallSeconds": 234.766,
+      "agentTotalSeconds": 682.012,
+      "environmentSetupTotalSeconds": 25.088000000000005,
+      "agentSetupTotalSeconds": 81.035,
+      "verifierTotalSeconds": 109.969,
+      "teardownTotalSeconds": 92.83900000000003,
+      "apiTotalSeconds": 603.543
+    },
+    "tokens": {
+      "input": 334097,
+      "cached": 250624,
+      "cacheWrite": 0,
+      "output": 28364
+    },
+    "cost": {
+      "usd": 1.0014216,
+      "trials": 8,
+      "unsupported": false
+    },
+    "usdPerAgentMinute": 0.0881000568904946,
+    "activity": {
+      "providerRequests": 44,
+      "toolCalls": 52
+    },
+    "finalContext": {
+      "medianTokens": 10180.5,
+      "trials": 8
+    },
+    "reduction": {
+      "evidence": {
+        "projections": 4,
+        "beforeBytes": 116679,
+        "afterBytes": 114915,
+        "savedBytes": 1764,
+        "rowSavedBytes": 1764,
+        "exactSavedBytes": 0,
+        "reusedRows": 84,
+        "exactRefs": 0
+      },
+      "artifactOffload": {
+        "results": 0,
+        "beforeBytes": 0,
+        "visibleBytes": 0,
+        "savedBytes": 0
+      },
+      "shell": {
+        "results": 21,
+        "rawBytes": 30380,
+        "visibleBytes": 5229,
+        "savedBytes": 25736
+      },
+      "activity": {
+        "providerRequests": 44,
+        "toolBatches": 36,
+        "toolCalls": 52,
+        "artifactReads": 0
+      },
+      "tokens": {
+        "input": 334097,
+        "cached": 250624,
+        "output": 28364
+      },
+      "totalSavedBytes": 27500
+    },
+    "contract": {
+      "promptBytes": 8699,
+      "toolBytes": 12949
+    },
+    "thinking": 16540,
+    "finalThinking": 3625,
+    "errorKinds": [],
+    "rows": [
+      {
+        "task": "code-from-image",
+        "passed": true,
+        "agent": 25.63,
+        "input": 15876,
+        "cached": 11648,
+        "output": 577,
+        "cacheWrite": 0,
+        "requests": 3,
+        "usageResponses": 3,
+        "failedRequests": 0,
+        "calls": 2,
+        "thinking": 342,
+        "finalThinking": 57,
+        "batching": {
+          "groups_total": 2,
+          "detailed_groups": 2,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 0,
+            "by_tool": {
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 0,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 2,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "095d7220-32ee-40e4-911e-8ee7279ba233",
+              "session_id": "exec_bffd35a10a554a8ca54d07203b4f54e2",
+              "calls": [
+                {
+                  "tool_call_id": "call_khjlXASVlqe7aaoQIww6JfI5",
+                  "tool_name": "read",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "e45ae29b-a6b7-41ef-9ca3-cc9bc89f4114",
+              "session_id": "exec_bffd35a10a554a8ca54d07203b4f54e2",
+              "calls": [
+                {
+                  "tool_call_id": "call_zhopLUC8udU0v8QRHLgVWzgl",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "db-wal-recovery",
+        "passed": true,
+        "agent": 99.755,
+        "input": 58181,
+        "cached": 46976,
+        "output": 4267,
+        "cacheWrite": 0,
+        "requests": 8,
+        "usageResponses": 8,
+        "failedRequests": 0,
+        "calls": 8,
+        "thinking": 2284,
+        "finalThinking": 120,
+        "batching": {
+          "groups_total": 7,
+          "detailed_groups": 7,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 1,
+            "by_tool": {
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 1,
+                "arrays": {
+                  "path": {
+                    "calls": 1,
+                    "items": 2
+                  }
+                }
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 1,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 7,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "0b564b92-9859-4158-b124-d2306019f959",
+              "session_id": "exec_dd6f67fb991b42bfa679435abef4fbd5",
+              "calls": [
+                {
+                  "tool_call_id": "call_pF2jo6END5Zrmwfq2lWe8c8d",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "6ef5285a-350c-405f-821e-0abb4cc7a766",
+              "session_id": "exec_dd6f67fb991b42bfa679435abef4fbd5",
+              "calls": [
+                {
+                  "tool_call_id": "call_Je4QTyguVtT5sqsfBtWBKVUx",
+                  "tool_name": "read",
+                  "array_lengths": {
+                    "path": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "45d628cd-85e4-4a0d-a426-3c2a1caf478d",
+              "session_id": "exec_dd6f67fb991b42bfa679435abef4fbd5",
+              "calls": [
+                {
+                  "tool_call_id": "call_TkqMxDjWvsDmqszcxeNFF7eK",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "b06c705a-aa87-4234-a2a3-29c272f4c408",
+              "session_id": "exec_dd6f67fb991b42bfa679435abef4fbd5",
+              "calls": [
+                {
+                  "tool_call_id": "call_dMcxoC4dH6W8aYVezwCYhchB",
+                  "tool_name": "list",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "ca204c61-255b-4c4e-a325-6a5f7c6a5d25",
+              "session_id": "exec_dd6f67fb991b42bfa679435abef4fbd5",
+              "calls": [
+                {
+                  "tool_call_id": "call_jl9ajsza3dBR9qAa3Hs0cCEq",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "1cb1e27e-575a-4061-ba71-ae0a5ddf1099",
+              "session_id": "exec_dd6f67fb991b42bfa679435abef4fbd5",
+              "calls": [
+                {
+                  "tool_call_id": "call_h6KR0MwIS3XaAMbDXsrYLmbe",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_g7D6AmXmiq4W6ao9SaDAbp01",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 2,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "f5db9b26-57b3-48c7-9400-8c7131fcdf27",
+              "session_id": "exec_dd6f67fb991b42bfa679435abef4fbd5",
+              "calls": [
+                {
+                  "tool_call_id": "call_v6j0ps8b8kDCUGNsqo6xkGCu",
+                  "tool_name": "list",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "fix-code-vulnerability",
+        "passed": true,
+        "agent": 49.241,
+        "input": 67357,
+        "cached": 51072,
+        "output": 1915,
+        "cacheWrite": 0,
+        "requests": 6,
+        "usageResponses": 6,
+        "failedRequests": 0,
+        "calls": 13,
+        "thinking": 963,
+        "finalThinking": 107,
+        "batching": {
+          "groups_total": 5,
+          "detailed_groups": 5,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 10,
+            "array_batched_calls": 7,
+            "by_tool": {
+              "git": {
+                "calls": 3,
+                "array_batched_calls": 3,
+                "arrays": {
+                  "command": {
+                    "calls": 3,
+                    "items": 7
+                  }
+                }
+              },
+              "code_graph": {
+                "calls": 1,
+                "array_batched_calls": 1,
+                "arrays": {
+                  "symbols": {
+                    "calls": 1,
+                    "items": 2
+                  }
+                }
+              },
+              "grep": {
+                "calls": 4,
+                "array_batched_calls": 2,
+                "arrays": {
+                  "pattern": {
+                    "calls": 2,
+                    "items": 12
+                  }
+                }
+              },
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 1,
+                "arrays": {
+                  "path": {
+                    "calls": 1,
+                    "items": 2
+                  }
+                }
+              },
+              "glob": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 3,
+            "mixed_tool_groups": 3,
+            "timing_complete_groups": 5,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 3,
+            "groups_with_observed_mixed_tool_overlap": 3,
+            "max_observed_concurrency": 4
+          },
+          "groups": [
+            {
+              "batch_id": "b02eb9f3-0182-4705-bb44-d6660798f5ee",
+              "session_id": "exec_1a32cbc625164d88b8eb19aa6b9cd004",
+              "calls": [
+                {
+                  "tool_call_id": "call_H5xqHh5N1JVBtdW1bzO45bev",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 3
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "194cd531-8c5f-4cf8-a85a-de91b712f904",
+              "session_id": "exec_1a32cbc625164d88b8eb19aa6b9cd004",
+              "calls": [
+                {
+                  "tool_call_id": "call_cFIsN3kB00LQ0nHhOjq0srDI",
+                  "tool_name": "code_graph",
+                  "array_lengths": {
+                    "symbols": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_LJYu3kpFMhRGf47Ik1NKrTlP",
+                  "tool_name": "grep",
+                  "array_lengths": {
+                    "pattern": 7
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_h1mBnyNQSxoePufnWUHiLdVF",
+                  "tool_name": "grep",
+                  "array_lengths": {
+                    "pattern": 5
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_cdbNsLfdErqIk1IoYwJRqvjG",
+                  "tool_name": "read",
+                  "array_lengths": {
+                    "path": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 4,
+              "observed_max_concurrency": 4,
+              "observed_mixed_tool_overlap": true
+            },
+            {
+              "batch_id": "7cb79765-4ddb-4473-830e-02c07a162e8e",
+              "session_id": "exec_1a32cbc625164d88b8eb19aa6b9cd004",
+              "calls": [
+                {
+                  "tool_call_id": "call_w0N1BApfJKO2ofeDfnjJOTVm",
+                  "tool_name": "glob",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_NnNPzvbHAHRkUJYDdEaZAsvM",
+                  "tool_name": "grep",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_ZPTk987X30Pqt6EMOhmJfPTd",
+                  "tool_name": "grep",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_wiTB6AcjsieMaY41Jn3nQXsy",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 4,
+              "observed_max_concurrency": 2,
+              "observed_mixed_tool_overlap": true
+            },
+            {
+              "batch_id": "46ac8a88-9fa9-44ad-a67c-ff26dee0de11",
+              "session_id": "exec_1a32cbc625164d88b8eb19aa6b9cd004",
+              "calls": [
+                {
+                  "tool_call_id": "call_XjZmpMXWy0eM7sWSEQWr1fmM",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "c2388a95-8b79-462f-bc39-2e3ca7dffe18",
+              "session_id": "exec_1a32cbc625164d88b8eb19aa6b9cd004",
+              "calls": [
+                {
+                  "tool_call_id": "call_8aML474kQIx2y9WTdU4hpoT0",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_lgSw7YxCfJtbRwGEQ7QmuiUL",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_pDV2NP47RLlzBMHHTd5W0DJD",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 3,
+              "observed_max_concurrency": 3,
+              "observed_mixed_tool_overlap": true
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "git-leak-recovery",
+        "passed": true,
+        "agent": 100.579,
+        "input": 43609,
+        "cached": 33152,
+        "output": 3933,
+        "cacheWrite": 0,
+        "requests": 6,
+        "usageResponses": 6,
+        "failedRequests": 0,
+        "calls": 7,
+        "thinking": 3289,
+        "finalThinking": 572,
+        "batching": {
+          "groups_total": 5,
+          "detailed_groups": 5,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 6,
+            "array_batched_calls": 4,
+            "by_tool": {
+              "git": {
+                "calls": 4,
+                "array_batched_calls": 4,
+                "arrays": {
+                  "command": {
+                    "calls": 4,
+                    "items": 16
+                  }
+                }
+              },
+              "grep": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              },
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 1,
+            "mixed_tool_groups": 1,
+            "timing_complete_groups": 5,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 1,
+            "groups_with_observed_mixed_tool_overlap": 1,
+            "max_observed_concurrency": 2
+          },
+          "groups": [
+            {
+              "batch_id": "3fb8f86d-5be6-4743-bf17-50cd77412f04",
+              "session_id": "exec_304e91922d894cd4bb8a1b62d152010e",
+              "calls": [
+                {
+                  "tool_call_id": "call_6lsQQuJzEjW37JAtcb7Z8nia",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 5
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "b4be8156-c3b8-412e-9c50-509ae46976bb",
+              "session_id": "exec_304e91922d894cd4bb8a1b62d152010e",
+              "calls": [
+                {
+                  "tool_call_id": "call_NijsTVX0pZ7mOITzmMc59foY",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 4
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "fc694286-32ab-46c7-b0cb-76f8245ee7b4",
+              "session_id": "exec_304e91922d894cd4bb8a1b62d152010e",
+              "calls": [
+                {
+                  "tool_call_id": "call_PmOINYRaBD9edquvfkKoJk46",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "c8960d42-62bf-47cb-93b4-6786214ea330",
+              "session_id": "exec_304e91922d894cd4bb8a1b62d152010e",
+              "calls": [
+                {
+                  "tool_call_id": "call_aAxT25hL7UitvL0KXs9hhQpI",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "9c973bce-773f-4d64-8222-9de56f7496c6",
+              "session_id": "exec_304e91922d894cd4bb8a1b62d152010e",
+              "calls": [
+                {
+                  "tool_call_id": "call_BdHx9N0nJREAcjTHazEAyqGK",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 5
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_UOzaPmIb2vQgTloldDztB22B",
+                  "tool_name": "grep",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_fxyrlJFCj2BETI4w6mBOArpY",
+                  "tool_name": "read",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 3,
+              "observed_max_concurrency": 2,
+              "observed_mixed_tool_overlap": true
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "log-summary-date-ranges",
+        "passed": true,
+        "agent": 77.268,
+        "input": 38736,
+        "cached": 29952,
+        "output": 3419,
+        "cacheWrite": 0,
+        "requests": 5,
+        "usageResponses": 5,
+        "failedRequests": 0,
+        "calls": 6,
+        "thinking": 1899,
+        "finalThinking": 74,
+        "batching": {
+          "groups_total": 4,
+          "detailed_groups": 4,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 3,
+            "array_batched_calls": 1,
+            "by_tool": {
+              "glob": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              },
+              "read": {
+                "calls": 2,
+                "array_batched_calls": 1,
+                "arrays": {
+                  "path": {
+                    "calls": 1,
+                    "items": 4
+                  }
+                }
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 1,
+            "mixed_tool_groups": 1,
+            "timing_complete_groups": 4,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 1,
+            "groups_with_observed_mixed_tool_overlap": 1,
+            "max_observed_concurrency": 2
+          },
+          "groups": [
+            {
+              "batch_id": "d6dae442-18ee-4644-93f2-edccc46b4470",
+              "session_id": "exec_94532185056e46128df725cad0cd58c5",
+              "calls": [
+                {
+                  "tool_call_id": "call_gS2k4gzHYKQ7RJHFFh4MBxhm",
+                  "tool_name": "glob",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "a028db23-7d1d-4a04-8144-a144382739f5",
+              "session_id": "exec_94532185056e46128df725cad0cd58c5",
+              "calls": [
+                {
+                  "tool_call_id": "call_0279R07PksGd5mQeSGZLxvIN",
+                  "tool_name": "read",
+                  "array_lengths": {
+                    "path": 4
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "6f665522-cca4-4b25-9c6b-1e684af01b33",
+              "session_id": "exec_94532185056e46128df725cad0cd58c5",
+              "calls": [
+                {
+                  "tool_call_id": "call_pLBdrE20c6sIdUkMgI9H7YiI",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "0e4caeb2-3f5c-48ac-b850-5539e449eda4",
+              "session_id": "exec_94532185056e46128df725cad0cd58c5",
+              "calls": [
+                {
+                  "tool_call_id": "call_t9geqvML59zET7df5JPR4ase",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_LiXjtsVuyR5gCMB8Z63OTWeS",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_nSQEYDt09Tez33BwToQm862S",
+                  "tool_name": "read",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 3,
+              "observed_max_concurrency": 2,
+              "observed_mixed_tool_overlap": true
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "multi-source-data-merger",
+        "passed": true,
+        "agent": 118.832,
+        "input": 35291,
+        "cached": 18048,
+        "output": 5232,
+        "cacheWrite": 0,
+        "requests": 5,
+        "usageResponses": 5,
+        "failedRequests": 0,
+        "calls": 7,
+        "thinking": 2247,
+        "finalThinking": 117,
+        "batching": {
+          "groups_total": 4,
+          "detailed_groups": 4,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 1,
+            "by_tool": {
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 1,
+                "arrays": {
+                  "path": {
+                    "calls": 1,
+                    "items": 2
+                  }
+                }
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 2,
+            "mixed_tool_groups": 1,
+            "timing_complete_groups": 4,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 1,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 2
+          },
+          "groups": [
+            {
+              "batch_id": "3a120497-4ba0-414f-afb5-422bf2da605b",
+              "session_id": "exec_ba776df9c3fd4843be09efa53636f7e9",
+              "calls": [
+                {
+                  "tool_call_id": "call_PLswZKL4Zq1p2uls4GkNe7JL",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "8b0342aa-89c1-4684-bdab-f7f3414154b7",
+              "session_id": "exec_ba776df9c3fd4843be09efa53636f7e9",
+              "calls": [
+                {
+                  "tool_call_id": "call_p84oqJfDti3QG1Tl9skUBpMh",
+                  "tool_name": "read",
+                  "array_lengths": {
+                    "path": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_Zyz8Mpp8tv7UyGnKUdZd60eX",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 2,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "4c74b8b7-821f-43fc-8161-13e17a528e99",
+              "session_id": "exec_ba776df9c3fd4843be09efa53636f7e9",
+              "calls": [
+                {
+                  "tool_call_id": "call_byX8aBzn3k57JHC1uYtXy3Aj",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "9d065ccf-0da6-4896-9946-7e4f16c5decb",
+              "session_id": "exec_ba776df9c3fd4843be09efa53636f7e9",
+              "calls": [
+                {
+                  "tool_call_id": "call_Jsf5f8WPSpwyrWbNKnzlfLUy",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_HjOUKe6pRzLYvajRgReOhMUg",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_TK9XaJy7bDeHprnP5L72Qow1",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 3,
+              "observed_max_concurrency": 2,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "polyglot-c-py",
+        "passed": true,
+        "agent": 179.437,
+        "input": 55705,
+        "cached": 43776,
+        "output": 8185,
+        "cacheWrite": 0,
+        "requests": 7,
+        "usageResponses": 7,
+        "failedRequests": 0,
+        "calls": 6,
+        "thinking": 4921,
+        "finalThinking": 2481,
+        "batching": {
+          "groups_total": 6,
+          "detailed_groups": 6,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 0,
+            "array_batched_calls": 0,
+            "by_tool": {}
+          },
+          "inter_tool": {
+            "multi_call_groups": 0,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 6,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "16837c84-d12c-4855-9d49-48a6cb254cbb",
+              "session_id": "exec_b5a67b090c5a4942be0e57d20e769a50",
+              "calls": [
+                {
+                  "tool_call_id": "call_TEBrsuGCpoco0dpXhrahq9Lg",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "791fced5-434d-445f-8ef7-d84e81f6a875",
+              "session_id": "exec_b5a67b090c5a4942be0e57d20e769a50",
+              "calls": [
+                {
+                  "tool_call_id": "call_TLysXdDli17DBwziHx7trErj",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "a0082671-ee19-460f-803a-a5e5f663ebba",
+              "session_id": "exec_b5a67b090c5a4942be0e57d20e769a50",
+              "calls": [
+                {
+                  "tool_call_id": "call_eupvmMJ6kAGKlN4JHjPWNLfe",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "3031dbbc-5a88-4520-835a-c1fbb1c046cf",
+              "session_id": "exec_b5a67b090c5a4942be0e57d20e769a50",
+              "calls": [
+                {
+                  "tool_call_id": "call_JNJqGeGHXasAB0nYHur2YNQ0",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "a0bc37e3-9299-4f25-9d49-6d0712859190",
+              "session_id": "exec_b5a67b090c5a4942be0e57d20e769a50",
+              "calls": [
+                {
+                  "tool_call_id": "call_5Pl0LW3hUY8yCNOSWzJJfXHh",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "f6a75ca7-f8ed-4b60-a07e-3050eca4fb9a",
+              "session_id": "exec_b5a67b090c5a4942be0e57d20e769a50",
+              "calls": [
+                {
+                  "tool_call_id": "call_9E9rUFOTDkHrDAIjt2dpvse6",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "prove-plus-comm",
+        "passed": true,
+        "agent": 31.27,
+        "input": 19342,
+        "cached": 16000,
+        "output": 836,
+        "cacheWrite": 0,
+        "requests": 4,
+        "usageResponses": 4,
+        "failedRequests": 0,
+        "calls": 3,
+        "thinking": 595,
+        "finalThinking": 97,
+        "batching": {
+          "groups_total": 3,
+          "detailed_groups": 3,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 0,
+            "by_tool": {
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 0,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 3,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "de1b6b01-82da-4fa9-bb1a-314303dba379",
+              "session_id": "exec_0bbcedc0a830407e9fa0d22b47d7ccd9",
+              "calls": [
+                {
+                  "tool_call_id": "call_waMVypaGXTReQcqXmWT4IiDs",
+                  "tool_name": "read",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "7676cc53-6251-4b1f-bb89-d3ba738f4008",
+              "session_id": "exec_0bbcedc0a830407e9fa0d22b47d7ccd9",
+              "calls": [
+                {
+                  "tool_call_id": "call_WvmqqxrwYFvStfCgJB1NIgja",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "6fee792e-d8a2-4529-b37b-180859fcdbc9",
+              "session_id": "exec_0bbcedc0a830407e9fa0d22b47d7ccd9",
+              "calls": [
+                {
+                  "tool_call_id": "call_eB6T7Z1xLvFQ2PESLc7WQPYJ",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      }
+    ],
+    "baseline": "jobs-sol-xhigh-fast-20260825-033022",
+    "paired": [
+      {
+        "task": "code-from-image",
+        "outputDelta": -107,
+        "secondsDelta": 2.103999999999999,
+        "callsDelta": -1
+      },
+      {
+        "task": "db-wal-recovery",
+        "outputDelta": 1116,
+        "secondsDelta": 25.47099999999999,
+        "callsDelta": 4
+      },
+      {
+        "task": "fix-code-vulnerability",
+        "outputDelta": 579,
+        "secondsDelta": 9.607999999999997,
+        "callsDelta": 2
+      },
+      {
+        "task": "git-leak-recovery",
+        "outputDelta": 923,
+        "secondsDelta": 26.90299999999999,
+        "callsDelta": -7
+      },
+      {
+        "task": "log-summary-date-ranges",
+        "outputDelta": 1341,
+        "secondsDelta": 28.611000000000004,
+        "callsDelta": 3
+      },
+      {
+        "task": "multi-source-data-merger",
+        "outputDelta": 1076,
+        "secondsDelta": 44.15499999999999,
+        "callsDelta": 2
+      },
+      {
+        "task": "polyglot-c-py",
+        "outputDelta": 4975,
+        "secondsDelta": 108.84500000000001,
+        "callsDelta": 5
+      },
+      {
+        "task": "prove-plus-comm",
+        "outputDelta": -147,
+        "secondsDelta": 3.1660000000000004,
+        "callsDelta": 0
+      }
+    ]
+  },
+  "metrics": {
+    "input": 334097,
+    "cached": 250624,
+    "output": 28364,
+    "cost": 1.0014216,
+    "wall": 234.766,
+    "agent": 682.012,
+    "requests": 44,
+    "calls": 52,
+    "context": 21648
+  },
+  "batching": {
+    "internalArrayCalls": 14,
+    "groups": 36,
+    "completeTimingGroups": 36,
+    "overlapGroups": 6,
+    "mixedToolOverlapGroups": 5
+  },
+  "comparisons": {
+    "bestCost": {
+      "run": "jobs-sol-xhigh-fast-20260825-033022",
+      "metrics": {
+        "input": 265870,
+        "cached": 197632,
+        "output": 18608,
+        "cost": 0.7241648,
+        "wall": 136.208,
+        "agent": 433.149,
+        "requests": 36,
+        "calls": 44,
+        "context": 22726
+      },
+      "delta": {
+        "input": {
+          "absolute": 68227,
+          "percent": 25.661789596419293
+        },
+        "cached": {
+          "absolute": 52992,
+          "percent": 26.81347150259068
+        },
+        "output": {
+          "absolute": 9756,
+          "percent": 52.42906276870163
+        },
+        "cost": {
+          "absolute": 0.27725679999999997,
+          "percent": 38.28642320090674
+        },
+        "wall": {
+          "absolute": 98.55799999999999,
+          "percent": 72.35845177963114
+        },
+        "agent": {
+          "absolute": 248.86299999999994,
+          "percent": 57.45436327914872
+        },
+        "requests": {
+          "absolute": 8,
+          "percent": 22.222222222222232
+        },
+        "calls": {
+          "absolute": 8,
+          "percent": 18.181818181818187
+        },
+        "context": {
+          "absolute": -1078,
+          "percent": -4.7434656340755055
+        }
+      },
+      "regressions": {
+        "output": [
+          "db-wal-recovery",
+          "fix-code-vulnerability",
+          "git-leak-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py"
+        ],
+        "time": [
+          "code-from-image",
+          "db-wal-recovery",
+          "fix-code-vulnerability",
+          "git-leak-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py",
+          "prove-plus-comm"
+        ]
+      },
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -107,
+          "secondsDelta": 2.103999999999999,
+          "callsDelta": -1
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 1116,
+          "secondsDelta": 25.47099999999999,
+          "callsDelta": 4
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": 579,
+          "secondsDelta": 9.607999999999997,
+          "callsDelta": 2
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": 923,
+          "secondsDelta": 26.90299999999999,
+          "callsDelta": -7
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 1341,
+          "secondsDelta": 28.611000000000004,
+          "callsDelta": 3
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 1076,
+          "secondsDelta": 44.15499999999999,
+          "callsDelta": 2
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 4975,
+          "secondsDelta": 108.84500000000001,
+          "callsDelta": 5
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": -147,
+          "secondsDelta": 3.1660000000000004,
+          "callsDelta": 0
+        }
+      ]
+    },
+    "bestOutput": {
+      "run": "jobs-sol-xhigh-fast-20260825-025406",
+      "metrics": {
+        "input": 324968,
+        "cached": 216576,
+        "output": 16945,
+        "cost": 0.8590984,
+        "wall": 150.266,
+        "agent": 423.99,
+        "requests": 40,
+        "calls": 58,
+        "context": 22797
+      },
+      "delta": {
+        "input": {
+          "absolute": 9129,
+          "percent": 2.8091996750449377
+        },
+        "cached": {
+          "absolute": 34048,
+          "percent": 15.7210401891253
+        },
+        "output": {
+          "absolute": 11419,
+          "percent": 67.38861020950134
+        },
+        "cost": {
+          "absolute": 0.14232319999999998,
+          "percent": 16.56657723958046
+        },
+        "wall": {
+          "absolute": 84.5,
+          "percent": 56.23361239402127
+        },
+        "agent": {
+          "absolute": 258.02199999999993,
+          "percent": 60.85568055850372
+        },
+        "requests": {
+          "absolute": 4,
+          "percent": 10.000000000000009
+        },
+        "calls": {
+          "absolute": -6,
+          "percent": -10.344827586206895
+        },
+        "context": {
+          "absolute": -1149,
+          "percent": -5.040136860113176
+        }
+      },
+      "regressions": {
+        "output": [
+          "db-wal-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py"
+        ],
+        "time": [
+          "db-wal-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py"
+        ]
+      },
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -189,
+          "secondsDelta": -2.0130000000000017,
+          "callsDelta": -1
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 3054,
+          "secondsDelta": 62.056999999999995,
+          "callsDelta": 3
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -147,
+          "secondsDelta": -7.256,
+          "callsDelta": -3
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -624,
+          "secondsDelta": -0.2360000000000042,
+          "callsDelta": -13
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 2247,
+          "secondsDelta": 40.368,
+          "callsDelta": 3
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 1259,
+          "secondsDelta": 43.56099999999999,
+          "callsDelta": 2
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 6160,
+          "secondsDelta": 132.198,
+          "callsDelta": 5
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": -341,
+          "secondsDelta": -10.657,
+          "callsDelta": -2
+        }
+      ]
+    },
+    "bestTime": {
+      "run": "jobs-sol-xhigh-fast-20260824-190440",
+      "metrics": {
+        "input": 352705,
+        "cached": 261632,
+        "output": 17237,
+        "cost": 0.8136848000000001,
+        "wall": 108.837,
+        "agent": 337.04200000000003,
+        "requests": 41,
+        "calls": 62,
+        "context": 22157
+      },
+      "delta": {
+        "input": {
+          "absolute": -18608,
+          "percent": -5.27579705419543
+        },
+        "cached": {
+          "absolute": -11008,
+          "percent": -4.207436399217224
+        },
+        "output": {
+          "absolute": 11127,
+          "percent": 64.5529964611011
+        },
+        "cost": {
+          "absolute": 0.18773679999999993,
+          "percent": 23.072423129939246
+        },
+        "wall": {
+          "absolute": 125.92899999999999,
+          "percent": 115.70421823460771
+        },
+        "agent": {
+          "absolute": 344.9699999999999,
+          "percent": 102.352229099044
+        },
+        "requests": {
+          "absolute": 3,
+          "percent": 7.317073170731714
+        },
+        "calls": {
+          "absolute": -10,
+          "percent": -16.129032258064512
+        },
+        "context": {
+          "absolute": -509,
+          "percent": -2.2972424064629737
+        }
+      },
+      "regressions": {
+        "output": [
+          "code-from-image",
+          "db-wal-recovery",
+          "fix-code-vulnerability",
+          "git-leak-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py"
+        ],
+        "time": [
+          "code-from-image",
+          "db-wal-recovery",
+          "fix-code-vulnerability",
+          "git-leak-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py",
+          "prove-plus-comm"
+        ]
+      },
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": 81,
+          "secondsDelta": 6.420999999999999,
+          "callsDelta": -1
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 549,
+          "secondsDelta": 37.571999999999996,
+          "callsDelta": 2
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": 136,
+          "secondsDelta": 11.674999999999997,
+          "callsDelta": -6
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": 1389,
+          "secondsDelta": 45.403999999999996,
+          "callsDelta": -11
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 2197,
+          "secondsDelta": 47.872,
+          "callsDelta": 2
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 1858,
+          "secondsDelta": 65.744,
+          "callsDelta": 2
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 5323,
+          "secondsDelta": 129.72400000000002,
+          "callsDelta": 4
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": -406,
+          "secondsDelta": 0.5579999999999998,
+          "callsDelta": -2
+        }
+      ]
+    },
+    "T12": {
+      "run": "jobs-sol-xhigh-fast-ten-20260913-t12",
+      "metrics": {
+        "input": 277973,
+        "cached": 206336,
+        "output": 22207,
+        "cost": 0.8132224,
+        "wall": 149.966,
+        "agent": 486.3440000000001,
+        "requests": 38,
+        "calls": 38,
+        "context": 22292
+      },
+      "delta": {
+        "input": {
+          "absolute": 56124,
+          "percent": 20.19045015163343
+        },
+        "cached": {
+          "absolute": 44288,
+          "percent": 21.464019851116632
+        },
+        "output": {
+          "absolute": 6157,
+          "percent": 27.725491961993963
+        },
+        "cost": {
+          "absolute": 0.1881992,
+          "percent": 23.142402373569638
+        },
+        "wall": {
+          "absolute": 84.79999999999998,
+          "percent": 56.546150460771095
+        },
+        "agent": {
+          "absolute": 195.66799999999984,
+          "percent": 40.232428075600765
+        },
+        "requests": {
+          "absolute": 6,
+          "percent": 15.789473684210531
+        },
+        "calls": {
+          "absolute": 14,
+          "percent": 36.8421052631579
+        },
+        "context": {
+          "absolute": -644,
+          "percent": -2.8889287636820415
+        }
+      },
+      "regressions": {
+        "output": [
+          "code-from-image",
+          "fix-code-vulnerability",
+          "git-leak-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py",
+          "prove-plus-comm"
+        ],
+        "time": [
+          "code-from-image",
+          "db-wal-recovery",
+          "fix-code-vulnerability",
+          "git-leak-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py",
+          "prove-plus-comm"
+        ]
+      },
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": 51,
+          "secondsDelta": 4.539999999999999,
+          "callsDelta": 0
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": -88,
+          "secondsDelta": 12.198999999999998,
+          "callsDelta": 3
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": 365,
+          "secondsDelta": 4.2520000000000024,
+          "callsDelta": 5
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": 148,
+          "secondsDelta": 24.427999999999997,
+          "callsDelta": -1
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 777,
+          "secondsDelta": 7.891999999999996,
+          "callsDelta": 2
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 390,
+          "secondsDelta": 43.635999999999996,
+          "callsDelta": 3
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 4356,
+          "secondsDelta": 92.32300000000001,
+          "callsDelta": 2
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 158,
+          "secondsDelta": 6.398,
+          "callsDelta": 0
+        }
+      ]
+    },
+    "A1R": {
+      "run": "jobs-sol-xhigh-fast-balance-20260913-a1r",
+      "metrics": {
+        "input": 379080,
+        "cached": 307840,
+        "output": 25151,
+        "cost": 0.911116,
+        "wall": 197.895,
+        "agent": 655.823,
+        "requests": 52,
+        "calls": 49,
+        "context": 21863
+      },
+      "delta": {
+        "input": {
+          "absolute": -44983,
+          "percent": -11.86636066265696
+        },
+        "cached": {
+          "absolute": -57216,
+          "percent": -18.58627858627858
+        },
+        "output": {
+          "absolute": 3213,
+          "percent": 12.774839966601736
+        },
+        "cost": {
+          "absolute": 0.09030559999999999,
+          "percent": 9.911537060045038
+        },
+        "wall": {
+          "absolute": 36.87099999999998,
+          "percent": 18.63159756436492
+        },
+        "agent": {
+          "absolute": 26.188999999999965,
+          "percent": 3.993303071103016
+        },
+        "requests": {
+          "absolute": -8,
+          "percent": -15.384615384615385
+        },
+        "calls": {
+          "absolute": 3,
+          "percent": 6.1224489795918435
+        },
+        "context": {
+          "absolute": -215,
+          "percent": -0.9833966061382204
+        }
+      },
+      "regressions": {
+        "output": [
+          "db-wal-recovery",
+          "log-summary-date-ranges",
+          "multi-source-data-merger",
+          "polyglot-c-py",
+          "prove-plus-comm"
+        ],
+        "time": [
+          "db-wal-recovery",
+          "multi-source-data-merger",
+          "polyglot-c-py",
+          "prove-plus-comm"
+        ]
+      },
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -930,
+          "secondsDelta": -12.284000000000002,
+          "callsDelta": -2
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": 581,
+          "secondsDelta": 21.542,
+          "callsDelta": 0
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": -229,
+          "secondsDelta": -8.415,
+          "callsDelta": 5
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -63,
+          "secondsDelta": -0.5460000000000065,
+          "callsDelta": -2
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 1376,
+          "secondsDelta": -16.254000000000005,
+          "callsDelta": 1
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 247,
+          "secondsDelta": 8.864999999999995,
+          "callsDelta": 2
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": 2066,
+          "secondsDelta": 26.965000000000003,
+          "callsDelta": -1
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": 165,
+          "secondsDelta": 6.315999999999999,
+          "callsDelta": 0
+        }
+      ]
+    },
+    "A2": {
+      "run": "jobs-sol-xhigh-fast-balance-20260913-a2",
+      "metrics": {
+        "input": 390821,
+        "cached": 311680,
+        "output": 33551,
+        "cost": 1.112256,
+        "wall": 254.569,
+        "agent": 785.5429999999999,
+        "requests": 51,
+        "calls": 46,
+        "context": 21863
+      },
+      "delta": {
+        "input": {
+          "absolute": -56724,
+          "percent": -14.514061424539626
+        },
+        "cached": {
+          "absolute": -61056,
+          "percent": -19.589322381930184
+        },
+        "output": {
+          "absolute": -5187,
+          "percent": -15.460045900271224
+        },
+        "cost": {
+          "absolute": -0.11083439999999989,
+          "percent": -9.964828240980484
+        },
+        "wall": {
+          "absolute": -19.802999999999997,
+          "percent": -7.779030439684331
+        },
+        "agent": {
+          "absolute": -103.53099999999995,
+          "percent": -13.179545868272003
+        },
+        "requests": {
+          "absolute": -7,
+          "percent": -13.725490196078427
+        },
+        "calls": {
+          "absolute": 6,
+          "percent": 13.043478260869556
+        },
+        "context": {
+          "absolute": -215,
+          "percent": -0.9833966061382204
+        }
+      },
+      "regressions": {
+        "output": [
+          "fix-code-vulnerability",
+          "log-summary-date-ranges",
+          "multi-source-data-merger"
+        ],
+        "time": [
+          "log-summary-date-ranges",
+          "multi-source-data-merger"
+        ]
+      },
+      "paired": [
+        {
+          "task": "code-from-image",
+          "outputDelta": -130,
+          "secondsDelta": -1.9160000000000004,
+          "callsDelta": -1
+        },
+        {
+          "task": "db-wal-recovery",
+          "outputDelta": -1540,
+          "secondsDelta": -26.489000000000004,
+          "callsDelta": 0
+        },
+        {
+          "task": "fix-code-vulnerability",
+          "outputDelta": 122,
+          "secondsDelta": -22.107,
+          "callsDelta": 4
+        },
+        {
+          "task": "git-leak-recovery",
+          "outputDelta": -3246,
+          "secondsDelta": -50.32700000000001,
+          "callsDelta": -1
+        },
+        {
+          "task": "log-summary-date-ranges",
+          "outputDelta": 953,
+          "secondsDelta": 5.994,
+          "callsDelta": 2
+        },
+        {
+          "task": "multi-source-data-merger",
+          "outputDelta": 132,
+          "secondsDelta": 24.032999999999987,
+          "callsDelta": 3
+        },
+        {
+          "task": "polyglot-c-py",
+          "outputDelta": -924,
+          "secondsDelta": -26.510999999999996,
+          "callsDelta": 1
+        },
+        {
+          "task": "prove-plus-comm",
+          "outputDelta": -554,
+          "secondsDelta": -6.208000000000002,
+          "callsDelta": -2
+        }
+      ]
+    }
+  },
+  "Amean": {
+    "metrics": {
+      "input": 384950.5,
+      "cached": 309760,
+      "output": 29351,
+      "cost": 1.011686,
+      "wall": 226.232,
+      "agent": 720.683,
+      "requests": 51.5,
+      "calls": 47.5,
+      "context": 21863
+    },
+    "deltaPercent": {
+      "input": -13.210399778672844,
+      "cached": -19.090909090909093,
+      "output": -3.362747436203195,
+      "cost": -1.0145835763270439,
+      "wall": 3.7722338130768307,
+      "agent": -5.365882086853723,
+      "requests": -14.563106796116509,
+      "calls": 9.473684210526322,
+      "context": -0.9833966061382204
+    }
+  }
+}

@@ -28,6 +28,10 @@ const CHECKS = [
   ['carriers', 2, 'slides carrying something besides text'],
   ['presence', 2, 'the largest carrier on a content slide at a readable share of the canvas'],
   ['alignment', 1, 'text boxes whose right edge aligns with nothing'],
+  ['density', 2, 'characters a body page carries (the reference decks: 330-900 median)'],
+  ['deck_shape', 2, 'beats (dark or field pages) kept to about one page in eight'],
+  ['colour_pacing', 2, 'colourfulness varying across the rendered sequence (frontier spread 16-36)'],
+  ['object_scale', 2, 'the largest rendered object on a body page (the reference decks: median 0.4 of the canvas)'],
 ];
 const WEIGHT = new Map(CHECKS.map(([id, weight]) => [id, weight]));
 const NOTE = new Map(CHECKS.map(([id, , note]) => [id, note]));
@@ -80,6 +84,25 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
 
   const strays = observed.map((o) => o.textColumns?.rightStray).filter((v) => typeof v === 'number');
   if (strays.length) add('alignment', band(mean(strays), 1, 4), Number(mean(strays).toFixed(1)));
+
+  // Body pages (evidence and text, never a beat) by the characters they carry: the reference decks run 330-900
+  // per page at the median, ours ran 60-150 before this work — a page that says one sentence beside its chart.
+  const body = slides.filter((slide) => slide.grammar && slide.grammar !== 'beat' && typeof slide.chars === 'number').map((slide) => slide.chars);
+  if (body.length) {
+    const sorted = [...body].sort((a, b) => a - b), median = sorted[Math.floor(sorted.length / 2)];
+    add('density', clamp01((median - 80) / (280 - 80)), median);
+  }
+
+  const shape = receipt?.deck?.shape;
+  if (shape && slides.length >= 4) add('deck_shape', band(shape.beat, 0.2, 0.45), shape.beat);
+
+  const pacing = receipt?.deck?.pacing;
+  if (typeof pacing?.colourSpread === 'number') add('colour_pacing', clamp01((pacing.colourSpread - 5) / (15 - 5)), pacing.colourSpread);
+
+  // The largest rendered object on the body pages (beats are a field by design and are left out): a chart with its
+  // bars, a table, a picture row. The reference pages sit at 0.4 of the canvas at the median; 0.1 is a strip.
+  const objects = slides.filter((slide) => slide.grammar && slide.grammar !== 'beat' && typeof slide.observe?.renderLargest === 'number').map((slide) => slide.observe.renderLargest);
+  if (objects.length) add('object_scale', clamp01((mean(objects) - 0.1) / (0.35 - 0.1)), Number(mean(objects).toFixed(2)));
 
   const total = checks.reduce((sum, check) => sum + check.weight, 0);
   const score = total ? Math.round(checks.reduce((sum, check) => sum + check.weight * check.score, 0) / total * 100) : null;

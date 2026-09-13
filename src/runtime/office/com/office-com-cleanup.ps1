@@ -90,6 +90,14 @@ function Close-SessionState($state, [bool]$save) {
     } catch { $errors.Add("Chart application cleanup failed: $($_.Exception.Message)") }
   }
   if ($ownsApplication -and $empty -and [int]$state.AppPid -gt 0) {
+    # Office stays alive while any reference to it is still held, and the
+    # wrappers this host created along the way (sheets, ranges, collections)
+    # are freed by the garbage collector, not by releasing the application.
+    # Without this the accepted Quit never took effect: a background session
+    # was killed instead, and a visible one was reported as still running.
+    [System.GC]::Collect()
+    [System.GC]::WaitForPendingFinalizers()
+    [System.GC]::Collect()
     $process = $null
     try { $process = [System.Diagnostics.Process]::GetProcessById([int]$state.AppPid) } catch {}
     if ($null -eq $process) {
@@ -100,12 +108,17 @@ function Close-SessionState($state, [bool]$save) {
         if (-not $sameProcess) {
           $errors.Add('Application process identity changed; forced cleanup refused.')
         } else {
-          $result.processExited = [bool]$process.WaitForExit(1000)
+          # Office shuts itself down in its own time: flushing settings and
+          # unloading add-ins takes seconds, not the one second this used to
+          # allow. Too short a wait killed an application that was quitting
+          # normally, and reported a visible session — which is never killed —
+          # as still running. The poll returns the moment it exits.
+          $result.processExited = [bool]$process.WaitForExit(8000)
           if (-not $result.processExited -and $result.applicationQuit -and $state.Mode -eq 'background') {
             # Only an isolated, empty, identity-matched application is eligible.
             $process.Kill()
             $result.forcedProcessCleanup = $true
-            $result.processExited = [bool]$process.WaitForExit(1000)
+            $result.processExited = [bool]$process.WaitForExit(5000)
           }
           if (-not $result.processExited) { $errors.Add('Owned Office application is still running after cleanup.') }
         }

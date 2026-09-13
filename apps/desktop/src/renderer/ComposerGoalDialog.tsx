@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties, type RefObject 
 import { PaneDialogLayer } from './sidebar-dialog';
 import { ErrorNotice } from './ErrorNotice';
 import { MxIcon } from './MxIcon';
+import { OpenSelect } from './OpenSelect';
 import { t } from './i18n';
 import type { GoalSnapshot } from './desktop-types';
 
@@ -29,7 +30,7 @@ export function ComposerGoalDialog({ anchor, disabled, onStart, onSave, initialG
   useEffect(() => () => focusReturn.current(), []);
   const close = () => { if (!busy) onClose(); };
   return <React.Fragment><PaneDialogLayer anchor={anchor} onClose={close}>
-    <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}
+    <section className="schedules-dialog composer-goal-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}
       style={{ '--mx-editor-width': '520px' } as CSSProperties}
       onKeyDown={event => {
         if (event.key !== 'Tab') return;
@@ -78,13 +79,15 @@ export function ComposerGoalDialog({ anchor, disabled, onStart, onSave, initialG
             disabled={busy} onChange={event => setMinutes(event.target.value)} />
           <small>{t('Use 0 for no time limit. Paused time does not count.')}</small>
         </label>
-        <label className="schedules-field">
+        <div className="schedules-field">
           <span>{t('Time budget mode')}</span>
-          <select value={timeMode} disabled={busy} onChange={event => setTimeMode(event.target.value as 'max' | 'duration')}>
-            <option value="max">{t('Maximum time — finish early when verified')}</option>
-            <option value="duration">{t('Sustained work — continue for the full duration')}</option>
-          </select>
-        </label>
+          <OpenSelect ariaLabel={t('Time budget mode')} value={timeMode} disabled={busy}
+            options={[
+              { value: 'max', label: 'Maximum time — finish early when verified' },
+              { value: 'duration', label: 'Sustained work — continue for the full duration' },
+            ]}
+            onChange={value => setTimeMode(value as 'max' | 'duration')} />
+        </div>
         <footer>
           {error && <ErrorNotice error={error} />}
           <button type="button" className="secondary" disabled={busy} onClick={close}>{t('Cancel')}</button>

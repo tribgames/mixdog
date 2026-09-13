@@ -113,6 +113,7 @@ test('manual compaction starts a fresh read epoch', async (t) => {
         compaction: {},
     };
     const result = await runSessionCompaction(session, {
+        config: {},
         mode: 'manual',
         force: true,
         provider: handoffProvider('compact-read-manual'),
@@ -151,6 +152,7 @@ test('automatic pre-send compaction resets reads only after transcript change', 
         compaction: { auto: true },
     };
     const state = {
+        compactionConfig: {},
         provider: handoffProvider('compact-read-auto'),
         messages: session.messages,
         model: session.model,

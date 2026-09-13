@@ -1222,6 +1222,11 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 /* Goal island: the summary remains directly above the composer. Opening
    grows the host upward while the task drawer unfolds below the raised
    capsule, so progress never floats over the transcript as a dialog. */
+.composer-goal-dialog textarea {
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
 .session-goal-host {
   position: relative;
   z-index: 9;
@@ -1238,8 +1243,12 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .session-goal-host > .session-goal-island {
   --session-island-frame-bg:
     color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
-  --session-goal-width: 320px;
+  /* Three controls + progress·time take ~150px of the capsule, so a 416px
+     pill left the objective ~200px — most goals ellipsized after a few
+     words (user: goal도 많이 잘리던데). The title now gets the room. */
+  --session-goal-width: 560px;
   --session-goal-trigger-height: 32px;
+  --session-goal-control-size: 28px;
   position: relative;
   width: min(var(--session-goal-width), calc(100% - 16px));
   height: var(--session-goal-trigger-height);
@@ -1258,6 +1267,8 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   border: .5px solid var(--mx-border);
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text);
+  font-family: var(--mx-font-sans);
+  font-weight: var(--mx-weight-regular);
   background: var(--session-island-frame-bg);
   box-shadow: var(--mx-raised);
   overflow: hidden;
@@ -1268,7 +1279,8 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .session-goal-summary {
   min-width: 0;
-  display: block;
+  display: flex;
+  align-items: center;
 }
 /* Open drawer: separate the header from the task list. */
 .session-goal-island[data-open="true"] .session-goal-summary {
@@ -1276,7 +1288,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .session-goal-trigger {
   min-width: 0;
-  width: 100%;
+  flex: 1 1 auto;
   box-sizing: border-box;
   height: var(--session-goal-trigger-height, 28px);
   display: grid;
@@ -1312,6 +1324,38 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .session-goal-trigger:focus-visible {
   box-shadow: inset 0 0 0 2px var(--mx-focus);
+}
+.session-goal-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+}
+.session-goal-control {
+  width: var(--session-goal-control-size);
+  height: var(--session-goal-control-size);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.session-goal-control:hover:not(:disabled),
+.session-goal-control:focus-visible {
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-text) 6%, transparent);
+}
+.session-goal-control:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--mx-focus);
+}
+.session-goal-control:disabled {
+  opacity: .45;
+  cursor: default;
 }
 .session-goal-glyph {
   width: var(--mx-icon-md);
@@ -1354,9 +1398,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   flex: 1 1 auto;
   overflow: hidden;
   color: var(--mx-text);
-  font-size: var(--mx-font-minor);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-minor);
+  line-height: var(--mx-line-emphasis);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1401,6 +1445,13 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   max-height: min(360px, 48dvh);
   box-sizing: border-box;
   display: grid;
+  /* The content row MUST be allowed to shrink under this max-height. As an
+     auto row it kept its max-content size, so a long checklist pushed the
+     stop confirmation past the clip: the button was still there, but the
+     press landed on the composer behind it (user: 골 중단버튼이 안 눌려).
+     With minmax(0, 1fr) the task list scrolls and the row below it stays
+     inside the drawer. */
+  grid-template-rows: minmax(0, 1fr);
   margin-top: 0;
   /* Same inline inset as the trigger (6px left / 8px right) so the task
      glyph column and text sit directly under the header glyph and title. */
@@ -1454,7 +1505,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .session-goal-tasks li > span {
   width: var(--mx-icon-md);
   /* Match the text line box so the glyph centers on the first line. */
-  height: var(--mx-line-minor);
+  height: var(--mx-line-ui);
   display: grid;
   place-items: center;
   color: var(--mx-text-faint);
@@ -1479,13 +1530,14 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .session-goal-tasks li > div > span {
   overflow-wrap: anywhere;
   font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
 }
 .session-goal-empty,
 .session-goal-blocker {
   margin: 0;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
+  font-size: var(--mx-font-meta);
   line-height: var(--mx-line-minor);
 }
 .session-goal-details {
@@ -1494,6 +1546,21 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-minor);
+}
+/* Full objective, wrapped: the header's one-line ellipsis is only a handle
+   (user: goal도 많이 잘리던데). Capped so a paragraph-long goal scrolls
+   instead of pushing the task list out of the drawer. */
+.session-goal-objective-full {
+  margin: 0 0 4px;
+  max-height: calc(var(--mx-line-ui) * 4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .session-goal-actions {
   display: flex;
@@ -1514,11 +1581,19 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .session-goal-blocker { color: var(--mx-warning); }
 
 html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island {
+  --session-goal-width: calc(560px * var(--mx-device-scale, 2.5));
   --session-goal-trigger-height: calc(36px * var(--mx-device-scale, 2.5));
-  max-width: 72vw;
+  --session-goal-control-size: calc(32px * var(--mx-device-scale, 2.5));
+  /* A phone never has 560dp: the capsule takes the composer column, same
+     edge as the input below it. The old 72vw cap left the title ~80dp. */
+  max-width: none;
 }
 html[data-mixdog-mobile-tabs] .session-goal-trigger {
   padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .session-goal-control > svg {
+  width: calc(16px * var(--mx-device-scale, 2.5));
+  height: calc(16px * var(--mx-device-scale, 2.5));
 }
 /* Phone drawer rows: the same header-aligned grid, at a finger's row height
    and the phone's 14/20 body line (user: 모바일도 PC에 맞춰). */
@@ -1539,9 +1614,12 @@ html[data-mixdog-mobile-tabs] .session-goal-tasks li > span > svg {
   width: calc(14px * var(--mx-device-scale, 2.5));
   height: calc(14px * var(--mx-device-scale, 2.5));
 }
-html[data-mixdog-mobile-tabs] .session-goal-tasks li > div > span,
-html[data-mixdog-mobile-tabs] .session-goal-empty,
-html[data-mixdog-mobile-tabs] .session-goal-blocker {
+html[data-mixdog-mobile-tabs] .session-goal-tasks li > div > span {
   font-size: calc(14px * var(--mx-device-scale, 2.5));
   line-height: calc(20px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .session-goal-empty,
+html[data-mixdog-mobile-tabs] .session-goal-blocker {
+  font-size: calc(13px * var(--mx-device-scale, 2.5));
+  line-height: calc(18px * var(--mx-device-scale, 2.5));
 }

@@ -23,6 +23,7 @@ import {
 } from './messages.mjs';
 import { activeTurnContinuationMessage } from './continuation.mjs';
 import { buildExecutionTail } from './execution-tail.mjs';
+import { latestSkillBodies } from '../../context/skill-state.mjs';
 import { effectiveBudget } from './budget.mjs';
 import {
     normalizeIngestRole,
@@ -35,7 +36,7 @@ import {
     COMPACTION_SYSTEM_PROMPT,
     enforceCompactSummarySchema,
     extractResponseText,
-    fitCompactionPrompt,
+    fitCompleteCompactionPrompt,
     fitFreshContextSummaryMessage,
     fitGeneratedHandoffMessage,
 } from './summary.mjs';
@@ -108,25 +109,25 @@ export async function generateFreshHandoffSummary(provider, messages, model, bud
     const startedAt = Date.now();
     const budget = effectiveBudget(budgetTokens, opts);
     const source = splitFreshSource(messages);
-    const head = opts.filterOldHistoryForIngest === true
+    let head = opts.filterOldHistoryForIngest === true
         ? pureConversationForHandoff(source.live)
         : source.live;
     if (head.length === 0 && !source.previousSummary) {
         throw new Error('generateFreshHandoffSummary: no compactable session history');
     }
-    const promptInput = {
-        head,
-        tail: [],
-        previousSummary: source.previousSummary,
-        preservedFacts: null,
-    };
     const callBudget = Math.max(
         1,
         Math.floor((opts.compactionInputBudgetTokens || budget) * COMPACTION_PROMPT_HEADROOM),
     );
-    const prompt = fitCompactionPrompt(promptInput, callBudget);
-    if (!prompt) {
-        throw new Error(`generateFreshHandoffSummary: prompt cannot fit call budget=${callBudget}`);
+    let previousSummary = source.previousSummary;
+    const fit = (items, previous) => fitCompleteCompactionPrompt({
+        head: items, tail: [], previousSummary: previous, preservedFacts: null,
+    }, callBudget);
+    // Old installations may carry an enormous verbatim Memory handoff. Feed
+    // every fragment through the same bounded pass; never silently cut it.
+    if (previousSummary && !fit([], previousSummary)) {
+        head = [...chunkConversationMessage('assistant', previousSummary), ...head];
+        previousSummary = null;
     }
     const sendOpts = {
         ...(opts.sendOpts || {}),
@@ -165,16 +166,67 @@ export async function generateFreshHandoffSummary(provider, messages, model, bud
     const codexWire = codexWireSendOpts(sendOpts.session, { requestKind: 'compaction' });
     if (codexWire) Object.assign(sendOpts, codexWire);
 
-    const response = await provider.send([
-        { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
-        { role: 'user', content: prompt },
-    ], model, undefined, sendOpts);
-    const rawSummary = extractResponseText(response);
-    if (!rawSummary) {
-        throw new Error('generateFreshHandoffSummary: summary provider returned empty output');
-    }
-    const enforced = enforceCompactSummarySchema(rawSummary, { head, tail: [] });
-    const summary = enforced.summary;
+    let offset = 0;
+    let calls = 0;
+    let promptChars = 0;
+    let promptBytes = 0;
+    let promptTokens = 0;
+    let summary = '';
+    let rawSummary = '';
+    let summaryRepaired = false;
+    let usage = null;
+    do {
+        sendOpts.signal?.throwIfAborted();
+        // Find the largest complete next batch that fits beside the previous
+        // summary. Each successful call advances the source cursor, so this
+        // cannot retry the same failed input or loop indefinitely.
+        let end = head.length;
+        let prompt = fit(head.slice(offset), previousSummary);
+        if (!prompt) {
+            let low = offset + 1;
+            let high = head.length;
+            end = offset;
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                const candidate = fit(head.slice(offset, mid), previousSummary);
+                if (candidate) {
+                    prompt = candidate;
+                    end = mid;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+        }
+        if (!prompt || (end === offset && offset < head.length)) {
+            throw new Error(`generateFreshHandoffSummary: complete source cannot fit call budget=${callBudget}`);
+        }
+        const response = await provider.send([
+            { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+            { role: 'user', content: prompt },
+        ], model, undefined, sendOpts);
+        sendOpts.signal?.throwIfAborted();
+        rawSummary = extractResponseText(response);
+        if (!rawSummary) {
+            throw new Error('generateFreshHandoffSummary: summary provider returned empty output');
+        }
+        const enforced = enforceCompactSummarySchema(rawSummary, { head: head.slice(offset, end), tail: [] });
+        summary = enforced.summary;
+        summaryRepaired ||= enforced.repaired === true;
+        if (response?.usage) {
+            usage ||= { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 };
+            for (const key of Object.keys(usage)) usage[key] += Number(response.usage[key]) || 0;
+        }
+        calls += 1;
+        promptChars += prompt.length;
+        promptBytes += textByteLength(prompt);
+        promptTokens = Math.max(promptTokens, safeEstimateMessagesTokens([
+            { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+            { role: 'user', content: prompt },
+        ]) || 0);
+        previousSummary = summary;
+        offset = end;
+    } while (offset < head.length);
     const summaryMessage = fitGeneratedHandoffMessage(
         source.live,
         summary,
@@ -196,25 +248,22 @@ export async function generateFreshHandoffSummary(provider, messages, model, bud
         sourceMessages: source.live.length,
         handoffInputMessages: head.length,
         previousSummary: !!source.previousSummary,
-        promptChars: prompt.length,
-        promptBytes: textByteLength(prompt),
-        promptTokens: safeEstimateMessagesTokens([
-            { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
-            { role: 'user', content: prompt },
-        ]),
+        calls,
+        promptChars,
+        promptBytes,
+        promptTokens,
         summaryChars: summary.length,
         rawSummaryChars: rawSummary.length,
-        summaryRepaired: enforced.repaired === true,
+        summaryRepaired,
         durationMs: Date.now() - startedAt,
     };
     compactDebugLog('fresh handoff generation', diagnostics);
     return {
         messages: resultMessages,
-        usage: response?.usage || null,
-        providerState: response?.providerState,
+        usage,
         handoffGenerated: true,
         summary,
-        summaryRepaired: enforced.repaired === true,
+        summaryRepaired,
         diagnostics,
     };
 }
@@ -248,7 +297,8 @@ function prependLatestUserContext(message, prefix) {
 
 export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     const startedAt = Date.now();
-    const budget = effectiveBudget(budgetTokens, opts);
+    const targetBudget = effectiveBudget(budgetTokens, opts);
+    let budget = targetBudget;
     const baseSanitized = reconcileDedupStubs(sanitizeToolPairs(messages));
     const baseTokens = safeEstimateMessagesTokens(baseSanitized);
     if (baseTokens != null && baseTokens <= budget && opts.force !== true) {
@@ -288,9 +338,20 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         ? activeTurnContinuationMessage(source.live)
         : null;
     const stableAck = latestUser ? { role: 'assistant', content: '.' } : null;
+    // Older compacted sessions may have only synthetic Goal turns left.
+    // Preserve the current snapshot without inventing a human instruction
+    // to attach it to or resurrecting every historical Goal reminder.
+    const standaloneContext = !latestUser && String(opts.latestUserPrefix || '').trim()
+        ? {
+            role: 'user',
+            content: String(opts.latestUserPrefix).trim(),
+            meta: { source: 'compact-context', synthetic: true },
+        }
+        : null;
     const volatileTail = [
         ...retainedTail,
         ...(activeTurnContinuation ? [activeTurnContinuation] : []),
+        ...(standaloneContext ? [standaloneContext] : []),
     ];
     const mandatory = [
         ...source.protectedPrefix,
@@ -298,6 +359,16 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         ...volatileTail,
     ];
     const mandatoryCost = estimateMessagesTokens(mandatory);
+    if (opts.maxBudgetTokens > budgetTokens && handoffText) {
+        const complete = fitFreshContextSummaryMessage(source.live, handoffText, Number.MAX_SAFE_INTEGER);
+        const required = mandatoryCost + estimateMessagesTokens([complete]);
+        // The target is soft, the model window is not. Never trim the latest
+        // instruction or an execution record just to claim a 25% result.
+        budget = Math.min(
+            effectiveBudget(opts.maxBudgetTokens, opts),
+            Math.max(targetBudget, required),
+        );
+    }
     if (mandatoryCost >= budget) {
         throw new Error(
             `freshContextCompactMessages: mandatory session context/latest instruction exceeds compact budget=${budget} ` +
@@ -327,10 +398,33 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
             'refusing to drop older context',
         );
     }
+    const baseResult = [
+        ...source.protectedPrefix,
+        summaryMessage,
+        ...(stableAck ? [stableAck] : []),
+        ...volatileTail,
+    ];
+    // Preserve complete, most-recent skill bodies from the durable transcript.
+    // Never summarize/truncate operating instructions or displace the handoff
+    // and current task. An omitted body remains eligible for a normal reload.
+    const skillBudget = Math.max(0, Math.min(
+        25_000,
+        Math.floor(targetBudget * 0.2),
+        budget - estimateMessagesTokens(baseResult),
+    ));
+    const restoredSkills = [];
+    let skillTokens = 0;
+    for (const { message } of latestSkillBodies(source.live).reverse()) {
+        const cost = estimateMessagesTokens([message]);
+        if (skillTokens + cost > skillBudget) continue;
+        restoredSkills.unshift(message);
+        skillTokens += cost;
+    }
     const result = rebaseCompactedEffortConfiguration(baseSanitized, reconcileDedupStubs(sanitizeToolPairs([
         ...source.protectedPrefix,
         summaryMessage,
         ...(stableAck ? [stableAck] : []),
+        ...restoredSkills,
         ...volatileTail,
     ])));
     const finalTokens = estimateMessagesTokens(result);
@@ -343,6 +437,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         ...source.protectedPrefix,
         summaryMessage,
         ...(stableAck ? [stableAck] : []),
+        ...restoredSkills,
     ];
     const diagnostics = {
         noOp: false,
@@ -361,6 +456,8 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         tailTokens: safeEstimateMessagesTokens(volatileTail),
         mandatoryCost,
         finalTokens,
+        targetBudgetTokens: targetBudget,
+        targetExceeded: finalTokens > targetBudget,
         stablePrefixTokens: safeEstimateMessagesTokens(stablePrefixMessages),
         volatileTailTokens: safeEstimateMessagesTokens(volatileTail),
         latestUserRetained: !!latestUser,
@@ -368,6 +465,9 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         retainedAssistantToolMessages: retainedTail.filter(message => message.toolCalls?.length).length,
         retainedProviderReplayMessages: retainedTail.filter(message => message.providerReplay).length,
         toolHistoryBudget: execution.toolBudget,
+        restoredSkillBodies: restoredSkills.length,
+        skillBodyBudget: skillBudget,
+        skillBodyTokens: skillTokens,
         toolHistoryTokens: execution.toolTokens,
         omittedToolGroups: execution.omittedGroups || 0,
         budgetTokens: budget,

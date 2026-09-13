@@ -131,6 +131,7 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
     kit: run.kit,
     ...(run.normalizedParagraphs ? { normalizedParagraphs: run.normalizedParagraphs } : {}),
     ...(run.nativeGradients ? { nativeGradients: run.nativeGradients } : {}),
+    ...(run.vectorIcons ? { vectorIcons: run.vectorIcons } : {}),
     ...(replacedSession ? { replacedSession } : {}),
     ...(reusedSession ? { reusedSession: true } : {}),
     ...(audit ? { audit } : {}),

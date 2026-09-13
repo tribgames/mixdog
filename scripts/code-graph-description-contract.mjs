@@ -70,6 +70,7 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
     mutate: (parts) => ({
       ...parts,
       description: parts.description.replace(/file modes (?:take|use) files\[\]/i, "file modes aren't assigned files[]"),
+      filesDescription: String(parts.filesDescription || '').replace(/required for file modes/i, 'not required for file modes'),
     }),
   },
   {
@@ -132,16 +133,19 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
   },
 ];
 
-function hasCodeGraphDescriptionContract({ description, modeDescription, symbolsDescription }) {
+function hasCodeGraphDescriptionContract({ description, modeDescription, filesDescription, symbolsDescription }) {
   return (
-    hasPositiveClause(description, ['file modes', 'files[]'])
-    && hasPositiveClause(description, ['symbol modes', 'symbols[]'])
+    (hasPositiveClause(description, ['file modes', 'files[]'])
+      || hasPositiveClause(filesDescription, ['required for file modes']))
+    && (hasPositiveClause(description, ['symbol modes', 'symbols[]'])
+      || hasPositiveClause(symbolsDescription, ['required for symbol modes']))
     && hasPositiveClause(description, ['exact identifiers', ...EXACT_MODES])
     && hasPositiveClause(description, ['keywords', ...KEYWORD_MODES])
     && !hasContradictoryTargetAssignment(description)
     && hasModeClause(modeDescription, 'file modes', FILE_MODES)
     && hasPositiveClause(modeDescription, ['symbols with files', 'files[]', 'file outline'])
     && !hasContradictoryTargetAssignment(modeDescription)
+    && !hasContradictoryTargetAssignment(filesDescription)
     && hasPositiveClause(symbolsDescription, ['exact identifiers'])
     && hasPositiveClause(symbolsDescription, ['keywords'])
     && !hasContradictoryTargetAssignment(symbolsDescription)

@@ -6,8 +6,9 @@ import { renderedPageImages } from './assurance-rendered.mjs';
 // empty). A region with no local pixel variation is air whether the surface is paper, a dark field,
 // or the flat sky inside a picture — which is exactly what the shape footprint cannot see.
 // The downsample stands in for the smoothing pass: a texture finer than one cell averages out.
-// Returns { air, balance } — air a share in [0, 1], balance the visual-weight read below — or null when
-// the image cannot be read. Numbers, never a verdict.
+// Returns { air, balance, colour, largest } — air a share in [0, 1], balance the visual-weight read below, colour the
+// page's colourfulness, largest the share of the biggest connected object — or null when the image cannot be read.
+// Numbers, never a verdict.
 export async function renderedAir(base64, { width = 320, window = 0.05, threshold = 0.05, border = 0.04 } = {}) {
   let loaded;
   try {
@@ -25,10 +26,21 @@ export async function renderedAir(base64, { width = 320, window = 0.05, threshol
   context.drawImage(loaded, 0, 0, w, h);
   const pixels = context.getImageData(0, 0, w, h).data;
   const gray = new Float64Array(w * h);
+  // Colourfulness (Hasler & Süsstrunk 2003) of the whole page, the scale the reference reads use: rg = R − G,
+  // yb = (R + G) / 2 − B; sqrt(σrg² + σyb²) + 0.3 · sqrt(µrg² + µyb²). Paper with black type reads under 10,
+  // a page with one accent chart 15-30, a saturated field or a picture 40-90. Across a deck its spread is the
+  // colour pacing (composition.md §7): the frontier decks run 16-36, a one-template IR deck 5-8.
+  let rg = 0, yb = 0, rg2 = 0, yb2 = 0;
   for (let i = 0; i < w * h; i += 1) {
     const o = i * 4;
-    gray[i] = (0.299 * pixels[o] + 0.587 * pixels[o + 1] + 0.114 * pixels[o + 2]) / 255;
+    const red = pixels[o], green = pixels[o + 1], blue = pixels[o + 2];
+    gray[i] = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+    const a = red - green, b = (red + green) / 2 - blue;
+    rg += a; yb += b; rg2 += a * a; yb2 += b * b;
   }
+  const n = w * h;
+  const colour = Math.sqrt(Math.max(0, rg2 / n - (rg / n) ** 2) + Math.max(0, yb2 / n - (yb / n) ** 2))
+    + 0.3 * Math.sqrt((rg / n) ** 2 + (yb / n) ** 2);
   // Integral images of x and x² give the local mean and variance in constant time per cell.
   const stride = w + 1;
   const sum = new Float64Array(stride * (h + 1)), sq = new Float64Array(stride * (h + 1));
@@ -67,7 +79,40 @@ export async function renderedAir(base64, { width = 320, window = 0.05, threshol
   return {
     air: cells ? Number((air / cells).toFixed(2)) : null,
     balance: weightBalance(gray, sum, stride, w, h, r),
+    colour: Number(colour.toFixed(1)),
+    largest: largestObject(gray, w, h),
   };
+}
+
+// The largest object on the page: the share of the canvas the biggest connected region of non-background pixels
+// covers (a chart's frame with its bars, a picture, a dark field, a table), the way the reference reads measured it
+// (thirteen decks: 0.21-0.71, median 0.4; our pages 0.12-0.21 before the R11 work). The background is the tone the
+// borders show; a pixel a tenth of the range away from it is ink, and ink is joined four ways. Numbers, never a verdict.
+function largestObject(gray, w, h, { tolerance = 0.04 } = {}) {
+  const border = [];
+  for (let x = 0; x < w; x += 1) border.push(gray[x], gray[(h - 1) * w + x]);
+  for (let y = 0; y < h; y += 1) border.push(gray[y * w], gray[y * w + w - 1]);
+  border.sort((a, b) => a - b);
+  const bg = border[Math.floor(border.length / 2)];
+  const seen = new Uint8Array(w * h);
+  const stack = new Int32Array(w * h);
+  let best = 0;
+  for (let start = 0; start < w * h; start += 1) {
+    if (seen[start] || Math.abs(gray[start] - bg) <= tolerance) continue;
+    let top = 0, size = 0;
+    stack[top++] = start; seen[start] = 1;
+    while (top) {
+      const i = stack[--top];
+      size += 1;
+      const x = i % w, y = (i - x) / w;
+      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
+        if (j < 0 || seen[j] || Math.abs(gray[j] - bg) <= tolerance) continue;
+        seen[j] = 1; stack[top++] = j;
+      }
+    }
+    if (size > best) best = size;
+  }
+  return Number((best / (w * h)).toFixed(2));
 }
 
 // Visual-weight balance, as DeepSlides (arXiv 2605.26451 §C.2) defines it: a weight map mixing each
@@ -101,7 +146,7 @@ function weightBalance(gray, sum, stride, w, h, r, lambda = 0.5) {
   return { centered: clamp(centered), leftRight: clamp(leftRight), topBottom: clamp(topBottom), score: clamp((centered + leftRight + topBottom) / 3) };
 }
 
-// Every rendered page of a deck (contact sheets unfolded to their pages) → Map page → { air, balance }.
+// Every rendered page of a deck (contact sheets unfolded to their pages) → Map page → { air, balance, colour }.
 export async function renderedAirByPage(images = []) {
   const byPage = new Map();
   for (const image of renderedPageImages(images)) {

@@ -954,16 +954,20 @@ export function SourceControlDock({
         onMerge={mergeIntoCurrent}
         onToggleMergeMode={() => setMergeMode((current) => !current)}
       />
-      {[pushEntry, fetchEntry].map((entry) =>
-        <div key={entry.key}
+      {[pushEntry, fetchEntry].map((entry) => {
+        /* Each count rides the action that CLEARS it: ahead on Push (user:
+           푸쉬 우상단에 태그), behind on Fetch. Split that way every corner
+           carries ONE count, so a diverged branch (↑11 ↓32) never has to fit a
+           pair into a section that is a THIRD of a 252px/300px dock. */
+        const count = entry.key === "push" ? aheadCount : behindCount;
+        const direction = entry.key === "push" ? "ahead" : "behind";
+        const badged = Boolean(status.upstream) && count > 0;
+        return <div key={entry.key}
           className={`dock-scm-toolbar-section dock-scm-toolbar-${entry.key}`}>
           <button type="button" className="dock-scm-remote-button"
             data-remote-action={entry.key}
-            title={entry.key === "push" && (aheadCount > 0 || behindCount > 0)
-              ? `${entry.reason || entry.label} (${[
-                aheadCount > 0 ? `${aheadCount} ahead` : "",
-                behindCount > 0 ? `${behindCount} behind` : "",
-              ].filter(Boolean).join(", ")})`
+            title={badged
+              ? `${entry.reason || entry.label} (${count} ${direction})`
               : entry.reason || entry.label}
             aria-label={entry.label}
             disabled={Boolean(busy) || Boolean(status.operation) || entry.blocked}
@@ -978,25 +982,22 @@ export function SourceControlDock({
                 : null}
             </span>
           </button>
-        </div>)}
+          {/* The button clips its own content, so the badge is the SECTION's
+              child and overlaps the corner from OUTSIDE that clip. It keeps
+              its direction arrow even though it sits on the matching button:
+              a bare number on a hovered button would read as part of it. */}
+          {badged && <span className="dock-scm-ahead-behind" data-i18n-skip
+            data-direction={direction} aria-hidden="true">
+            {entry.key === "push"
+              ? <ArrowUp size={8} aria-hidden="true" />
+              : <ArrowDown size={8} aria-hidden="true" />}
+            {/* A three-digit count would stretch the badge across its own
+                button's label, so it caps instead. */}
+            {count > 99 ? "99+" : count}
+          </span>}
+        </div>;
+      })}
     </div>}
-    {/* Ahead/behind owns its OWN band under the toolbar. Pinned to the Push
-        button's corner it had no room in a section that is a THIRD of a dock
-        flooring at 252px (left slot) / 300px (right slot), and even a single
-        count collapsed into a stray dot there. The band spans the dock, so
-        BOTH counts fit at every width, each with its own direction arrow, in
-        the counter capsule the Changes tab already uses. */}
-    {status && !prOnly && status.upstream && (aheadCount > 0 || behindCount > 0) &&
-      <div className="dock-scm-sync" data-i18n-skip
-        title={[aheadCount > 0 ? `${aheadCount} ahead` : "",
-          behindCount > 0 ? `${behindCount} behind` : ""].filter(Boolean).join(", ")}>
-        <span className="dock-scm-sync-count">
-          {aheadCount > 0 &&
-            <span data-direction="ahead"><ArrowUp size={8} aria-hidden="true" />{aheadCount}</span>}
-          {behindCount > 0 &&
-            <span data-direction="behind"><ArrowDown size={8} aria-hidden="true" />{behindCount}</span>}
-        </span>
-      </div>}
     <div className="dock-scm-view-stage">
     {!prOnly && <SourceControlViewControls
       fileCount={files.length}

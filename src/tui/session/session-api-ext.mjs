@@ -445,11 +445,44 @@ export function sessionContextSnapshotProjection(session, contextStatus) {
   };
 }
 
+// Route fields a selection already carries at request time. Everything else on
+// the route (effort options, Fast capability, context window) is provider
+// metadata the runtime resolves while the preview is already on screen.
+const ROUTE_PREVIEW_KEYS = ['provider', 'model', 'effort', 'fast', 'modelParameters', 'contextPercent'];
+
+/**
+ * The patch that publishes a requested route before the runtime write settles.
+ * Returns null when the request carries nothing previewable.
+ */
+export function optimisticRoutePatch(requested = {}, current = {}) {
+  const route = requested && typeof requested === 'object' ? requested : {};
+  const has = (key) => Object.prototype.hasOwnProperty.call(route, key);
+  const patch = {};
+  for (const key of ROUTE_PREVIEW_KEYS) {
+    if (has(key)) patch[key] = route[key];
+  }
+  if (!has('provider') && !has('model')) {
+    return Object.keys(patch).length > 0 ? patch : null;
+  }
+  const sameModel = String(patch.provider ?? current.provider ?? '') === String(current.provider ?? '')
+    && String(patch.model ?? current.model ?? '') === String(current.model ?? '');
+  // A different model carries none of the previous model's tuning: an omitted
+  // key means "this model has no such control", not "keep the old value".
+  if (!sameModel) {
+    if (!has('effort')) patch.effort = null;
+    if (!has('fast')) patch.fast = false;
+    if (!has('modelParameters')) patch.modelParameters = {};
+  }
+  return patch;
+}
+
 export function createSessionApiB(bag) {
   const {
     runtime, nextId, flags, lifecycle, listeners, getState, set, flushEmitImmediate, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, disposeGoalContinuation, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
   } = bag;
   const oauthFlows = createSessionOAuthFlowRegistry();
+  let routeWrite = null;
+  let routeSequence = 0;
   /**
    * Session inheritance as ONE addressable session action. THIS session is the
    * already-created heir, so only the carry step runs here — the desktop
@@ -672,6 +705,9 @@ export function createSessionApiB(bag) {
     getUsageDashboard: async (options = {}) => {
       return await runtime.getUsageDashboard?.(options);
     },
+    getUsageStats: async (options = {}) => {
+      return await runtime.getUsageStats?.(options);
+    },
     consumeCodexRateLimitResetCredit: async (options = {}) => {
       // Desktop capability parity: without this delegation the session runtime surface
       // rejects the sidebar's reset-credit invoke as unsupported even though
@@ -851,20 +887,42 @@ export function createSessionApiB(bag) {
       return result;
     },
     setRoute: async (opts) => {
-      if (getState().commandBusy) return false;
-      set({ commandBusy: true });
+      if (getState().commandBusy && !routeWrite) return false;
+      const token = ++routeSequence;
+      const previousWrite = routeWrite;
+      const routeOpts = opts && typeof opts === 'object' ? opts : {};
+      const preview = optimisticRoutePatch(routeOpts, getState());
+      // Preview immediately, serialize persistence without dropping a later
+      // click. Earlier completions cannot replace the newest visible choice.
+      set({ commandBusy: true, ...(preview || {}) });
+      const write = (async () => {
+        if (previousWrite) await previousWrite.catch(() => {});
+        const previousRoute = routeState();
+        try {
+          // Explicit addressing initializes an empty session in place; the
+          // runtime continues to own established-session route policy.
+          const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
+          const { applyToCurrentSession: _drop, ...nextRoute } = routeOpts;
+          const resolvedRoute = await runtime.setRoute(nextRoute, { applyToCurrentSession });
+          if (token === routeSequence) {
+            if (applyToCurrentSession) syncContextStats({ allowEstimated: true });
+            set({ ...routeState(), stats: { ...getState().stats } });
+          }
+          return resolvedRoute;
+        } catch (error) {
+          if (token === routeSequence && preview) {
+            set({ ...previousRoute, stats: { ...getState().stats } });
+          }
+          throw error;
+        } finally {
+          if (token === routeSequence) set({ commandBusy: false });
+        }
+      })();
+      routeWrite = write;
       try {
-        const routeOpts = opts && typeof opts === 'object' ? opts : {};
-        // The explicit address initializes an empty session in place. Once
-        // conversation history exists, only same-model effort/Fast may change.
-        const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
-        const { applyToCurrentSession: _drop, ...nextRoute } = routeOpts;
-        const resolvedRoute = await runtime.setRoute(nextRoute, { applyToCurrentSession });
-        if (applyToCurrentSession) syncContextStats({ allowEstimated: true });
-        set({ ...routeState(), stats: { ...getState().stats } });
-        return resolvedRoute;
+        return await write;
       } finally {
-        set({ commandBusy: false });
+        if (routeWrite === write) routeWrite = null;
       }
     },
     pushNotice,
@@ -963,12 +1021,26 @@ export function createSessionApiB(bag) {
      * two transcripts share a prefix and then diverge.
      */
     inheritFrom,
+    /** Read-only verdict for the heir this session would open, on the route it
+     *  would open with. Every surface asks this before offering the carry. */
+    inheritancePreflight: (sourceSessionId = null, selection = null) => (
+      typeof runtime.inheritancePreflight === 'function'
+        ? runtime.inheritancePreflight(sourceSessionId || getState().sessionId || null, selection)
+        : null
+    ),
     inheritSession: async () => {
       if (getState().commandBusy) return false;
       const sourceId = getState().sessionId || null;
       if (!sourceId) return false;
       set({ commandBusy: true });
       try {
+        // Refuse before a heir exists. Creating the new session first left the
+        // user sitting in an empty one whenever the carry was rejected. An
+        // oversized conversation is NOT a rejection: inheritFrom compacts it
+        // for the heir, so only a route with nothing to compact toward stops
+        // here.
+        const fit = runtime.inheritancePreflight?.(sourceId, null);
+        if (fit?.known && fit.fits === false && !fit.willCompact) throw new Error(fit.reason);
         await runtime.newSession();
         return await inheritFrom(sourceId);
       } finally {

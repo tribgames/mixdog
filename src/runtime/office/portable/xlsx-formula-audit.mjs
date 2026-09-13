@@ -16,6 +16,7 @@ import {
   cellPath,
   falseValue,
   formulaBody,
+  hasVisibleStyle,
   insideTableBody,
   isMarkedInputStyle,
   notedRefs,
@@ -25,6 +26,28 @@ import {
   tableAreas,
 } from './xlsx-audit-support.mjs';
 import { auditSheetHygiene, auditSheetLayout } from './xlsx-sheet-hygiene.mjs';
+
+// Cells that sit side by side in the same row are one input line to the reader.
+function contiguousRuns(entries) {
+  const byRow = new Map();
+  for (const entry of entries) {
+    if (!byRow.has(entry.row)) byRow.set(entry.row, []);
+    byRow.get(entry.row).push(entry);
+  }
+  const runs = [];
+  for (const row of [...byRow.keys()].sort((left, right) => left - right)) {
+    let current = [];
+    for (const entry of byRow.get(row).sort((left, right) => left.column - right.column)) {
+      if (current.length && entry.column !== current[current.length - 1].column + 1) {
+        runs.push(current);
+        current = [];
+      }
+      current.push(entry);
+    }
+    if (current.length) runs.push(current);
+  }
+  return runs;
+}
 
 // Unit and calendar constants belong in a formula; a rate or a factor does not.
 const UNIT_LITERALS = new Set([0, 1, 2, 7, 10, 12, 24, 52, 60, 100, 365, 1000, 10000, 100000, 1000000]);
@@ -138,7 +161,7 @@ function auditModelDiscipline(list, sheet, cells) {
   for (const cell of cells) {
     const at = position(cell);
     if (!at) continue;
-    if (cell.style && typeof cell.style === 'object') styledCells += 1;
+    if (hasVisibleStyle(cell.style)) styledCells += 1;
     if (cell.formula) {
       const beyond = singleCellReferences(cell.formula)
         .filter((reference) => reference.row > extent.row || reference.column > extent.column)
@@ -171,6 +194,10 @@ function auditModelDiscipline(list, sheet, cells) {
       if (isMarkedInputStyle(cell.style)) markedHardcodes += 1;
     }
   }
+  // One input row missing its source is one decision the reader cannot check,
+  // not four: reported per cell it fills the answer and pushes other findings
+  // out of the list.
+  const unsourced = [];
   for (const cell of cells) {
     const value = numericValue(cell);
     if (cell.formula || value === null) continue;
@@ -185,7 +212,7 @@ function auditModelDiscipline(list, sheet, cells) {
     );
     const headerYear = at.row === extent.firstRow && Number.isInteger(value) && value >= 1900 && value <= 2100;
     if (feedsModel && !headerYear && !noted.has(String(cell.ref).toUpperCase()) && !insideTableBody(bodies, at)) {
-      list.push('warning', 'hardcode_missing_source', path, 'Hardcoded input has no note naming its source or the assumption behind it; add_provenance or add_note on the cell.');
+      unsourced.push({ row: at.row, column: at.column, ref: String(cell.ref).toUpperCase(), path });
     }
     const formulaColumns = formulaRows.get(at.row);
     if (!formulaColumns || formulaColumns.length < 2) continue;
@@ -196,6 +223,12 @@ function auditModelDiscipline(list, sheet, cells) {
     } else if (at.column > last) {
       list.push('warning', 'rogue_hardcode', path, 'Numeric hardcode sits after the formulas of its row; a pasted result where a formula belongs.');
     }
+  }
+  for (const run of contiguousRuns(unsourced)) {
+    const span = run.length > 1 ? `${run[0].ref}:${run[run.length - 1].ref}` : run[0].ref;
+    list.push('warning', 'hardcode_missing_source', run[0].path, run.length > 1
+      ? `${run.length} hardcoded inputs (${span}) have no note naming their source or the assumption behind them; add_provenance or add_note on the row.`
+      : 'Hardcoded input has no note naming its source or the assumption behind it; add_provenance or add_note on the cell.');
   }
   for (const line of byRow.values()) auditLine(list, sheet, line.sort((a, b) => a.index - b.index), 'row');
   for (const line of byColumn.values()) auditLine(list, sheet, line.sort((a, b) => a.index - b.index), 'column');
@@ -230,12 +263,28 @@ export function auditXlsxFormulas(sheets, { auditProfile = '', sheetNames = null
 // Folds the shared audit into a backend's own issues result (Excel's issues
 // come from its host, which reports a subset of these codes); a finding the
 // host already made is not repeated, and a sheet-scoped request stays scoped.
+// The model-discipline verdicts the shared audit owns outright. Excel's host
+// makes cruder versions of these (every numeric cell on a data sheet with no
+// comment was "unsourced", one per cell), so its findings for them are replaced
+// by the shared audit's, and both backends report the same workbook the same way.
+const SHARED_MODEL_VERDICTS = new Set(['hardcode_missing_source', 'rogue_hardcode', 'formula_inconsistency']);
+
 export function mergeXlsxFormulaAudit(result, document, { auditProfile = '', sheet = '' } = {}) {
   const sheets = Array.isArray(document?.sheets) ? document.sheets : [];
   const scope = sheet ? `/sheet[${String(sheet).toLowerCase()}]` : '';
   const findings = auditXlsxFormulas(sheets, { auditProfile, sheetNames: sheets.map((entry) => entry?.name) })
     .filter((finding) => !scope || finding.path === '/' || String(finding.path).toLowerCase().startsWith(scope));
-  const issues = Array.isArray(result?.issues) ? result.issues : [];
+  // Only a sheet whose cells came back was read: Excel's full snapshot carries
+  // no cells for a sheet past 500 cells, and the host's own verdicts for such
+  // a sheet stay — the shared audit saw nothing there to replace them with.
+  const readSheets = new Set(sheets
+    .filter((entry) => Array.isArray(entry?.cells) && entry.cells.length > 0)
+    .map((entry) => `/sheet[${String(entry?.name || '').toLowerCase()}]`));
+  const issues = (Array.isArray(result?.issues) ? result.issues : []).filter((entry) => {
+    if (!SHARED_MODEL_VERDICTS.has(entry?.code)) return true;
+    const owner = /^\/sheet\[[^\]]*\]/.exec(String(entry?.path || '').toLowerCase())?.[0];
+    return !(owner && readSheets.has(owner));
+  });
   const seen = new Set(issues.map((entry) => `${entry?.code}|${entry?.path}`));
   const added = findings.filter((finding) => !seen.has(`${finding.code}|${finding.path}`));
   return {

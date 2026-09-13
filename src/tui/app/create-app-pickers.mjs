@@ -148,7 +148,6 @@ export function createAppPickers({
     providerModelsCacheRef,
     webSearchModelsCacheRef,
     modelPickerRequestRef,
-    clearModelCaches,
     modelSwitchNotice,
     openProviderSetupPicker,
   });

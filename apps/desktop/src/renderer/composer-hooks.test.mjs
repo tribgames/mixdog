@@ -268,14 +268,6 @@ test("keyboard hook restores history, inserts mentions, and scrolls only appende
           setDismissed() {},
           setResults() {},
         },
-        slash: {
-          open: false,
-          commands: [],
-          index: 0,
-          setIndex() {},
-          setDismissedDraft() {},
-          commandToken: (command) => command?.name || "",
-        },
         selector: {
           open: false,
           setOpen() {},

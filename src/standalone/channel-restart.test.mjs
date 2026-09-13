@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { setImmediate } from 'node:timers/promises';
 import { createChannelTransport } from './channel-transport.mjs';
 
 async function post(endpoint, path, body) {
@@ -33,6 +34,83 @@ function writeIntent(path, {
   }));
   return transcriptPath;
 }
+
+test('restored binding and manual ON share one ordered binding lifetime', { timeout: 5000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-binding-order-'));
+  const intentPath = join(dir, 'channel-remote-intent.json');
+  writeIntent(intentPath);
+  let releaseRestore;
+  const restored = new Promise((resolve) => { releaseRestore = resolve; });
+  let enterRestore;
+  const entered = new Promise((resolve) => { enterRestore = resolve; });
+  let releaseManual;
+  const manuallyActivated = new Promise((resolve) => { releaseManual = resolve; });
+  let activeBinding = null;
+  const transport = createChannelTransport({
+    remoteIntentPath: intentPath,
+    handleCall: async (_name, args) => {
+      if (args.restore) { enterRestore(); await restored; }
+      else await manuallyActivated;
+      activeBinding = args.sessionId;
+      return { ok: true };
+    },
+  });
+  t.after(async () => {
+    releaseRestore();
+    releaseManual();
+    await transport.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const endpoint = await transport.start();
+  const client = await post(endpoint, '/client/register', { leadPid: process.pid, passive: true });
+  const restoring = transport.restoreRemoteIntent();
+  await entered;
+  const manual = post(endpoint, '/call', {
+    token: client.token,
+    name: 'activate_channel_bridge',
+    args: { active: true, sessionId: 'session_manual', transcriptPath: join(dir, 'session_manual.jsonl') },
+  });
+  // Wait for the request to enter the transport's active lane, not a wall-clock
+  // guess about when the HTTP request will arrive.
+  while (transport.activeCount === 0) {
+    t.signal.throwIfAborted();
+    await setImmediate();
+  }
+  releaseManual();
+  await setImmediate();
+  releaseRestore();
+  await Promise.all([restoring, manual]);
+  assert.equal(activeBinding, 'session_manual');
+  assert.equal(transport.remoteSessionId, 'session_manual');
+});
+
+test('channel retries reuse results only for the same payload', async (t) => {
+  let calls = 0;
+  const transport = createChannelTransport({ handleCall: async () => ({ call: ++calls }) });
+  t.after(() => transport.stop());
+  const endpoint = await transport.start();
+  const client = await post(endpoint, '/client/register', { leadPid: process.pid, passive: true });
+  const original = { token: client.token, callId: 'same-call', name: 'send_reply', args: { text: 'first' } };
+  assert.deepEqual(await post(endpoint, '/call', original), { result: { call: 1 } });
+  assert.deepEqual(await post(endpoint, '/call', original), { result: { call: 1 } });
+  const conflict = await post(endpoint, '/call', { ...original, args: { text: 'second' } });
+  assert.equal(conflict.code, 'ECALLIDCONFLICT');
+  assert.match(conflict.error, /reused with a different payload/);
+  assert.equal(calls, 1);
+});
+
+test('channel call ids belong to the calling process, not the addressed session', async (t) => {
+  let calls = 0;
+  const transport = createChannelTransport({ handleCall: async () => ({ call: ++calls }) });
+  t.after(() => transport.stop());
+  const endpoint = await transport.start();
+  const first = await post(endpoint, '/client/register', { leadPid: process.pid, passive: true });
+  const second = await post(endpoint, '/client/register', { leadPid: process.ppid, passive: true });
+  const payload = { callId: 'shared-id', name: 'send_reply', args: { sessionId: 'same_session', text: 'hello' } };
+  await post(endpoint, '/call', { ...payload, token: first.token });
+  const reply = await post(endpoint, '/call', { ...payload, token: second.token });
+  assert.deepEqual(reply, { result: { call: 2 } });
+});
 
 test('daemon boot restores the pinned session without a registered client', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-restart-'));

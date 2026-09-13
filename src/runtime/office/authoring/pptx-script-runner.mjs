@@ -137,6 +137,7 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
     kit: kit ? 'runtime' : 'script',
     normalizedParagraphs: normalized.removed,
     ...(normalized.gradients ? { nativeGradients: normalized.gradients } : {}),
+    ...(normalized.vectorIcons ? { vectorIcons: normalized.vectorIcons } : {}),
     elapsedMs: Math.round(performance.now() - startedAt),
   };
 }

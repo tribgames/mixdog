@@ -59,6 +59,22 @@ export function createProviderAuthApi({
   // One in-flight usage sweep per provider; a reopened picker reuses it.
   const accountUsageSweeps = new Map();
 
+  // Switching the selected account makes every later request use a different
+  // credential, so its quota is fetched RIGHT AWAY instead of when the surface
+  // next asks. The fetch is keyed by provider+account, so the dashboard refresh
+  // the picker starts next joins this one rather than queueing behind it.
+  function prefetchSelectedAccountUsage(providerId, accountId) {
+    if (!accountId) return;
+    const provider = getProvider(providerId);
+    if (typeof provider?.forAccount !== 'function') return;
+    void fetchOAuthUsageSnapshot(
+      { provider: providerId, model: '', accountId },
+      provider.forAccount(accountId),
+      () => {},
+      { force: true },
+    ).catch(() => { /* usage display must not affect the switch itself */ });
+  }
+
   return {
     // The account roster is a local file read: it must paint the moment the
     // picker opens (user: 불러오는 중이 계속 뜬다). The roster never blocks on
@@ -91,6 +107,10 @@ export function createProviderAuthApi({
       reloadFullConfig();
       invalidateProviderCaches();
       warmProviderModelCache();
+      if (change?.selectedId !== undefined) {
+        releaseAdmissionCooldowns();
+        prefetchSelectedAccountUsage(providerId, result.selectedId);
+      }
       return result;
     },
     listProviders() {

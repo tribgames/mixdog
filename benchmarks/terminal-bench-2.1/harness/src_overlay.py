@@ -20,9 +20,13 @@ SNAPSHOT_ENV = "MIXDOG_TB_SRC_SNAPSHOT"
 ARCHIVE_ROOT = "src"
 NATIVE_ROOT = "native-tools"
 SPAWN_MEMBER = f"{NATIVE_ROOT}/mixdog-spawn"
+GRAPH_BINARY_ENV = "MIXDOG_TB_GRAPH_BIN"
+GRAPH_MEMBER = f"{ARCHIVE_ROOT}/.bench-graph"
 REQUIRED_SPAWN_CAPS = ("trackedForeground", "promoteTask", "cancelOwner", "fileCapture")
 SPAWN_BUILD_IMAGE = "rust:1.89-alpine3.22"
 SPAWN_PROBE_IMAGE = "alpine:3.20"
+GRAPH_BUILD_IMAGE = "rust:1.89-alpine3.22"
+GRAPH_PROBE_IMAGE = "alpine:3.20"
 
 
 def spawn_capability_shell(binary_expr: str) -> str:
@@ -83,29 +87,29 @@ class _DigestReader:
         return chunk
 
 
-def _spawn_source_digest(spawn_source: Path) -> str:
+def _native_source_digest(source_root: Path) -> str:
     digest = hashlib.sha256()
     try:
         entries = sorted(
-            spawn_source.rglob("*"),
-            key=lambda path: _path_order(path.relative_to(spawn_source).as_posix()),
+            source_root.rglob("*"),
+            key=lambda path: _path_order(path.relative_to(source_root).as_posix()),
         )
     except OSError as exc:
-        raise SrcOverlayError(f"cannot enumerate native spawn source: {exc}") from exc
+        raise SrcOverlayError(f"cannot enumerate native source: {exc}") from exc
     for source in entries:
-        relative = source.relative_to(spawn_source)
+        relative = source.relative_to(source_root)
         if relative.parts and relative.parts[0] == "target":
             continue
         try:
             info = os.lstat(source)
         except OSError as exc:
-            raise SrcOverlayError(f"cannot inspect native spawn source {source}: {exc}") from exc
+            raise SrcOverlayError(f"cannot inspect native source {source}: {exc}") from exc
         if stat.S_ISLNK(info.st_mode):
-            raise SrcOverlayError(f"refusing symlink in native spawn source: {source}")
+            raise SrcOverlayError(f"refusing symlink in native source: {source}")
         if stat.S_ISDIR(info.st_mode):
             continue
         if not stat.S_ISREG(info.st_mode):
-            raise SrcOverlayError(f"refusing unsupported native spawn source: {source}")
+            raise SrcOverlayError(f"refusing unsupported native source: {source}")
         digest.update(relative.as_posix().encode("utf-8"))
         digest.update(b"\0")
         digest.update(str(stat.S_IMODE(info.st_mode)).encode("ascii"))
@@ -121,7 +125,10 @@ def _docker_mount(path: Path) -> str:
     return path.resolve().as_posix()
 
 
-def _run_docker(arguments: list[str], label: str) -> None:
+def _run_docker(
+    arguments: list[str], label: str, *, input_text: str | None = None,
+    timeout: int | None = None,
+) -> str:
     try:
         result = subprocess.run(
             ["docker", *arguments],
@@ -130,12 +137,17 @@ def _run_docker(arguments: list[str], label: str) -> None:
             encoding="utf-8",
             errors="replace",
             check=False,
+            input=input_text,
+            timeout=timeout,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise SrcOverlayError(f"{label} timed out after {timeout}s") from exc
     except OSError as exc:
         raise SrcOverlayError(f"{label} could not start Docker: {exc}") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
         raise SrcOverlayError(f"{label} failed: {detail[-4000:]}")
+    return result.stdout
 
 
 def _spawn_capability_probe(binary_path: Path) -> None:
@@ -163,7 +175,7 @@ def _spawn_capability_probe(binary_path: Path) -> None:
 def build_local_spawn(repo_root: Path, build_dir: Path) -> Path:
     """Build or reuse the current Linux spawn binary outside the prebake cache."""
     spawn_source = repo_root / "native" / "mixdog-spawn"
-    source_digest = _spawn_source_digest(spawn_source)
+    source_digest = _native_source_digest(spawn_source)
     build_dir.mkdir(parents=True, exist_ok=True)
     binary_path = build_dir / "mixdog-spawn-linux-x64"
     manifest_path = build_dir / "manifest.json"
@@ -234,6 +246,114 @@ def build_local_spawn(repo_root: Path, build_dir: Path) -> Path:
         return binary_path
     finally:
         shutil.rmtree(temporary, ignore_errors=True)
+
+
+def _graph_capability_probe(binary_path: Path) -> None:
+    """Exercise binary-text opt-in on the exact Linux executable to be bundled."""
+    if not binary_path.is_file() or binary_path.is_symlink():
+        raise SrcOverlayError(f"selected graph binary is not a regular file: {binary_path}")
+    with tempfile.TemporaryDirectory(prefix="mixdog-graph-probe-") as raw:
+        fixture = Path(raw)
+        (fixture / "input.bin").write_bytes(b"\0needle\n")
+        requests = [
+            {
+                "id": index,
+                "cwd": "/fixture",
+                "args": [
+                    "--no-ignore", *flags, "-l", "-e", "needle",
+                    "--", "/fixture/input.bin",
+                ],
+                "offset": 0,
+                "limit": 0,
+            }
+            for index, flags in ((1, ["--text"]), (2, []))
+        ]
+        output = _run_docker(
+            [
+                "run", "--rm", "-i", "--platform", "linux/amd64",
+                "-v", f"{_docker_mount(binary_path)}:/runtime/graph:ro",
+                "-v", f"{_docker_mount(fixture)}:/fixture:ro",
+                GRAPH_PROBE_IMAGE, "sh", "-c",
+                "set -eu; cp /runtime/graph /tmp/mixdog-graph; "
+                "chmod 0755 /tmp/mixdog-graph; "
+                "exec /tmp/mixdog-graph /fixture --serve-search",
+            ],
+            "native graph capability preflight",
+            input_text="".join(json.dumps(request) + "\n" for request in requests),
+            timeout=60,
+        )
+    try:
+        messages = [json.loads(line) for line in output.splitlines() if line.strip()]
+        responses = {row["id"]: row for row in messages if "id" in row}
+        text_result = responses[1]
+        binary_result = responses[2]
+        matched = [str(line).rsplit("/", 1)[-1] for line in text_result["lines"]]
+        valid = (
+            any(row.get("ready") is True for row in messages)
+            and not text_result.get("error") and not binary_result.get("error")
+            and text_result.get("complete") is True
+            and binary_result.get("complete") is True
+            and matched == ["input.bin"] and binary_result["lines"] == []
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        raise SrcOverlayError(f"native graph preflight returned invalid protocol: {output[-2000:]}") from exc
+    if not valid:
+        raise SrcOverlayError(f"native graph does not honor binary-text opt-in: {output[-2000:]}")
+
+
+def build_local_graph(repo_root: Path, build_dir: Path) -> Path:
+    """Build once per source/image identity; never substitute a packaged binary."""
+    graph_source = repo_root / "native" / "mixdog-graph"
+    source_digest = _native_source_digest(graph_source)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    binary_path = build_dir / "mixdog-graph-linux-x64"
+    manifest_path = build_dir / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        manifest = {}
+    if (
+        binary_path.is_file()
+        and manifest.get("schemaVersion") == 1
+        and manifest.get("sourceSha256") == source_digest
+        and manifest.get("buildImage") == GRAPH_BUILD_IMAGE
+        and manifest.get("binarySha256") == _sha256_file(binary_path)
+    ):
+        _graph_capability_probe(binary_path)
+        return binary_path
+
+    with tempfile.TemporaryDirectory(prefix=".graph-build-", dir=build_dir) as raw:
+        temporary = Path(raw)
+        _run_docker(
+            [
+                "run", "--rm", "--platform", "linux/amd64",
+                "-v", f"{_docker_mount(graph_source)}:/src:ro",
+                "-v", f"{_docker_mount(temporary)}:/out",
+                GRAPH_BUILD_IMAGE, "sh", "-c",
+                "set -eu; apk add --no-cache build-base >/dev/null; "
+                "PCRE2_SYS_STATIC=1 CARGO_TARGET_DIR=/tmp/target "
+                "cargo build --locked --release --manifest-path /src/Cargo.toml; "
+                "install -m 0755 /tmp/target/release/mixdog-graph "
+                "/out/mixdog-graph-linux-x64",
+            ],
+            "local native graph build",
+        )
+        candidate = temporary / binary_path.name
+        _graph_capability_probe(candidate)
+        binary_digest = _sha256_file(candidate)
+        candidate.replace(binary_path)
+        manifest_temp = temporary / "manifest.json"
+        manifest_temp.write_text(
+            json.dumps({
+                "schemaVersion": 1,
+                "sourceSha256": source_digest,
+                "binarySha256": binary_digest,
+                "buildImage": GRAPH_BUILD_IMAGE,
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        manifest_temp.replace(manifest_path)
+    return binary_path
 
 
 def _path_order(value: str) -> bytes:
@@ -405,9 +525,9 @@ def _tar_info(entry: _SourceEntry) -> tarfile.TarInfo:
 
 
 def build_src_snapshot(
-    repo_src: Path, output_path: Path, spawn_binary: Path
+    repo_src: Path, output_path: Path, spawn_binary: Path, graph_binary: Path | None = None
 ) -> SrcSnapshot:
-    """Capture current source and its matching native spawn binary."""
+    """Capture source and the selected native runtime binaries."""
     try:
         spawn_info = os.lstat(spawn_binary)
     except OSError as exc:
@@ -421,6 +541,16 @@ def build_src_snapshot(
         _SourceEntry(spawn_binary.parent, NATIVE_ROOT, 0o755, 0, True),
         _SourceEntry(spawn_binary, SPAWN_MEMBER, 0o755, spawn_info.st_size, False),
     )
+    if graph_binary is not None:
+        try:
+            graph_info = os.lstat(graph_binary)
+        except OSError as exc:
+            raise SrcOverlayError(f"cannot inspect selected graph binary: {exc}") from exc
+        if not stat.S_ISREG(graph_info.st_mode) or graph_info.st_size == 0:
+            raise SrcOverlayError("selected graph binary must be a nonempty regular file")
+        if any(entry.archive_name == GRAPH_MEMBER for entry in entries):
+            raise SrcOverlayError(f"selected graph binary conflicts with source member: {GRAPH_MEMBER}")
+        entries = (*entries, _SourceEntry(graph_binary, GRAPH_MEMBER, 0o755, graph_info.st_size, False))
     files: list[dict[str, object]] = []
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -586,7 +716,17 @@ def main(argv: list[str] | None = None) -> int:
         spawn_binary = args.spawn_binary or build_local_spawn(
             repo_root, Path(__file__).resolve().parents[1] / ".runtime-build"
         )
-        snapshot = build_src_snapshot(repo_src, args.output, spawn_binary)
+        selected_graph = os.environ.get(GRAPH_BINARY_ENV, "").strip()
+        if selected_graph:
+            graph_binary = Path(selected_graph)
+            _graph_capability_probe(graph_binary)
+        else:
+            graph_binary = build_local_graph(
+                repo_root, Path(__file__).resolve().parents[1] / ".runtime-build" / "graph"
+            )
+        snapshot = build_src_snapshot(
+            repo_src, args.output, spawn_binary, graph_binary,
+        )
         manifest = bundle_manifest(snapshot, _sha256_file(spawn_binary))
         if args.manifest is not None:
             write_bundle_manifest(args.manifest, manifest)

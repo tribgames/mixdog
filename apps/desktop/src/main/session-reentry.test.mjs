@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createSessionService } from '../../../../src/standalone/session-service.mjs';
 import { SessionHost } from './session-host.ts';
+import { setTranscriptReadDiagnosticSink } from '../shared/transcript-read-diagnostics.ts';
 
 async function sessionFixture(t) {
   t.mock.timers.enable({
@@ -162,4 +163,40 @@ test('a delayed stored reply cannot overwrite a newly materialized turn', async 
   held.release.resolve();
   await reading;
   assert.deepEqual(f.texts().slice(-2), ['new turn', 'reply: new turn']);
+});
+
+test('read tracing measures a held host read and propagates its correlation without changing the result', async (t) => {
+  const f = await sessionFixture(t);
+  f.persist('private saved answer');
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const records = [];
+  const restore = setTranscriptReadDiagnosticSink((entry) => records.push(entry));
+  t.after(restore);
+  const held = f.holdRead();
+  const reading = f.host.prefetchSession(f.id, undefined, 'read-host-1');
+  await held.captured.promise;
+  assert.deepEqual(records.map(r => r.stage), ['host-start', 'host-read-start']);
+  now = 321;
+  held.release.resolve();
+  assert.equal(await reading, true);
+  assert.equal(records.find(r => r.stage === 'host-read-result').durationMs, 321);
+  assert.deepEqual(records.map(r => r.stage), [
+    'host-start', 'host-read-start', 'host-read-result', 'host-projected', 'host-published',
+  ]);
+  assert.equal(f.updates.at(-1).readTraceId, 'read-host-1');
+  assert.deepEqual(f.texts(), ['private saved answer']);
+  assert.equal(JSON.stringify(records).includes('private saved answer'), false);
+});
+
+test('a traced host read preserves its original rejection', async (t) => {
+  const f = await sessionFixture(t);
+  const failure = new Error('private read failure');
+  t.mock.method(f.host.sessionClient, 'read', async () => { throw failure; });
+  const records = [];
+  const restore = setTranscriptReadDiagnosticSink((entry) => records.push(entry));
+  t.after(restore);
+  await assert.rejects(f.host.prefetchSession(f.id, undefined, 'read-host-failure'), error => error === failure);
+  assert.equal(records.at(-1).stage, 'host-failed');
+  assert.equal(records.some(r => r.stage === 'host-published'), false);
 });

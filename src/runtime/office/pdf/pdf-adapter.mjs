@@ -20,6 +20,7 @@ import { embedDocumentFont } from './pdf-fonts.mjs';
 import { activeContentIssues } from './pdf-safety.mjs';
 import {
   addFormField,
+  clippedFormValues,
   describeFormField,
   fieldText,
   fieldWidgets,
@@ -36,6 +37,9 @@ export { lintPdfFormFields } from './pdf-forms.mjs';
 
 export const PDF_ENCRYPTED_HINT = "PDF is encrypted: write an unencrypted copy first with action:'secure' security:'decrypt' path password output:<copy.pdf>, then open that copy";
 const NO_TEXT_MARKER = '(no extractable text on this page)';
+// How much page text one audit call reads: the bound on its work, not on the
+// document. Past it the answer says how many pages it covered.
+const PDF_AUDIT_MAX_CHARS = 4_000_000;
 const MARK_OPERATIONS = new Set(['highlight', 'add_link']);
 // pdf.js analysis takes at most this many pages per call.
 const MEASURE_CHUNK = 100;
@@ -260,6 +264,22 @@ async function writeSibling(path, target, bytes) {
   return output;
 }
 
+// A page's own /Rotate, normalized: the quarter turns a viewer applies before
+// anyone sees the page.
+function pageSpin(page) {
+  const angle = Math.round(Number(page.getRotation?.()?.angle) || 0);
+  return ((angle % 360) + 360) % 360;
+}
+
+// A point on the page as displayed (bottom-left origin, after the page's own
+// rotation) back to the user space a drawing operator writes in.
+function displayPointToUser(spin, width, height, x, y) {
+  if (spin === 90) return { x: width - y, y: x };
+  if (spin === 180) return { x: width - x, y: height - y };
+  if (spin === 270) return { x: y, y: height - x };
+  return { x, y };
+}
+
 // Display coordinates (top-left, page as shown) back to PDF user space through
 // the inverse of pdf.js's page transform; the four corners keep a rotated box honest.
 function displayToUser(transform, box) {
@@ -326,17 +346,22 @@ async function targetBoxes(document, operation, measure = null) {
       : `page${selected.length > 1 ? 's' : ''} ${selected.map(({ index }) => index + 1).join(', ')}`;
     throw new Error(`${operation.op} found no text matching "${find}" in ${scope}; check the snapshot text or pass page, x, y, width, height`);
   }
+  // A phrase that wraps comes back as one rect per line, and each is marked on
+  // its own; `first` selects a match, so its lines stay together.
   const all = matches.map((match) => {
     const index = match.page - 1;
     const page = layout.pages.find((entry) => entry.page === match.page);
-    // The layout is measured on the page as displayed (rotation and crop box
-    // applied); inverting the page's transform puts the box back into user space.
-    const rect = Array.isArray(page?.transform) && page.transform.length === 6
-      ? displayToUser(page.transform, match)
-      : { x: match.x, y: page.height - match.top - match.height, width: match.width, height: match.height };
-    return { index, ...rect, text: match.text };
+    const rects = Array.isArray(match.rects) && match.rects.length ? match.rects : [match];
+    return rects.map((part) => {
+      // The layout is measured on the page as displayed (rotation and crop box
+      // applied); inverting the page's transform puts the box back into user space.
+      const rect = Array.isArray(page?.transform) && page.transform.length === 6
+        ? displayToUser(page.transform, part)
+        : { x: part.x, y: page.height - part.top - part.height, width: part.width, height: part.height };
+      return { index, ...rect, text: match.text };
+    });
   });
-  const boxes = operation.first === true ? all.slice(0, 1) : all;
+  const boxes = (operation.first === true ? all.slice(0, 1) : all).flat();
   return { document: current, boxes, measure: next };
 }
 
@@ -380,18 +405,33 @@ export async function applyPdfBatch(path, operations, context = {}) {
           // {page} and {pages} number an existing file the way create's pageNumbers does.
           const text = template.replace(/\{page\}/g, String(index + 1)).replace(/\{pages\}/g, String(pageCount));
           const textWidth = font.widthOfTextAtSize(text, size);
+          // A rotated page is stamped as the reader sees it: x and y are points
+          // on the displayed page, mapped back into user space, and the run is
+          // turned by the page's own rotation so the stamp reads with the page
+          // instead of lying sideways along an edge.
+          const spin = pageSpin(page);
+          const upright = spin % 180 === 0;
+          const displayWidth = upright ? page.getWidth() : page.getHeight();
+          const displayHeight = upright ? page.getHeight() : page.getWidth();
           // A watermark centres its rotated run on the page unless placed
           // explicitly; add_text with align centres or right-aligns the run
           // between the page margins when x is omitted.
           const spanX = textWidth * Math.cos((angle * Math.PI) / 180);
           const spanY = textWidth * Math.sin((angle * Math.PI) / 180);
           const defaultX = align === 'center'
-            ? (page.getWidth() - spanX) / 2
+            ? (displayWidth - spanX) / 2
             : align === 'right'
-              ? page.getWidth() - 36 - spanX
+              ? displayWidth - 36 - spanX
               : 36;
-          const x = Number(operation.x ?? defaultX);
-          const y = Number(operation.y ?? (watermark ? (page.getHeight() - spanY) / 2 : 36));
+          const defaultY = watermark ? (displayHeight - spanY) / 2 : 36;
+          const placed = displayPointToUser(
+            spin,
+            page.getWidth(),
+            page.getHeight(),
+            operation.x === undefined || operation.x === null ? defaultX : Number(operation.x),
+            operation.y === undefined || operation.y === null ? defaultY : Number(operation.y),
+          );
+          const { x, y } = placed;
           page.drawText(text, {
             x,
             y,
@@ -399,7 +439,7 @@ export async function applyPdfBatch(path, operations, context = {}) {
             font,
             color: color(operation.color),
             opacity,
-            rotate: degrees(angle),
+            rotate: degrees(angle + spin),
           });
           pages.push(index + 1);
         }
@@ -477,13 +517,13 @@ export async function applyPdfBatch(path, operations, context = {}) {
       }
       case 'stamp_image': {
         const imagePath = resolve(dirname(path), String(operation.path || ''));
-        const image = await embedImage(document, imagePath);
+        const placed = await embedImage(document, imagePath);
         const pages = [];
         for (const { page, index } of selectedPages(document, operation)) {
           // Pixels become points one-to-one, so a photo would run off the page; keep it inside the margins unless sized.
-          const width = Number(operation.width || Math.min(image.width, page.getWidth() - 72));
-          const height = Number(operation.height || (image.height * width / image.width));
-          page.drawImage(image, {
+          const width = Number(operation.width || Math.min(placed.width, page.getWidth() - 72));
+          const height = Number(operation.height || (placed.height * width / placed.width));
+          page.drawImage(placed.image, {
             x: Number(operation.x || 0),
             y: Number(operation.y || 0),
             width,
@@ -563,6 +603,9 @@ export async function applyPdfBatch(path, operations, context = {}) {
         const coverage = Object.values(operation.values || {}).flat().map((value) => String(value ?? '')).join(' ');
         const { font, fontPath, embedded } = await embedDocumentFont(document, { fontPath: operation.fontPath, text: coverage });
         form.updateFieldAppearances(font);
+        // The appearances exist now, so the values can be measured against the
+        // boxes that will show them before the document is handed on.
+        const clipped = clippedFormValues(document, form, operation.values, font);
         if (operation.flatten) form.flatten();
         results.push({
           op: operation.op,
@@ -571,6 +614,10 @@ export async function applyPdfBatch(path, operations, context = {}) {
           flattened: Boolean(operation.flatten),
           fontEmbedded: embedded,
           ...(fontPath ? { fontPath } : {}),
+          ...(clipped.length ? {
+            clipped,
+            warning: `${clipped.length} value(s) do not fit their field box: ${clipped.map((entry) => entry.message).join(' ')}`,
+          } : {}),
         });
         break;
       }
@@ -777,8 +824,20 @@ export async function validatePdf(path) {
 }
 
 export async function issuesPdf(path, options = {}) {
-  const snapshot = await snapshotPdf(path, { ...options, maxChars: options.maxChars || 30_000, outline: false });
+  // The audit reads the whole document, not the readable excerpt a snapshot
+  // shows: bounded to 30K the text stopped a few pages in, and a scanned page
+  // past that boundary went unreported under "ok, nothing found".
+  const snapshot = await snapshotPdf(path, { ...options, maxChars: options.maxChars || PDF_AUDIT_MAX_CHARS, outline: false });
   const issues = [];
+  if (!snapshot.encrypted && snapshot.pages.length < snapshot.pageCount) {
+    issues.push({
+      // A fact about this call's reach, not a defect in the document.
+      severity: 'info',
+      code: 'audit_scope_limited',
+      path: '/',
+      message: `Only ${snapshot.pages.length} of ${snapshot.pageCount} pages were read for this audit; audit the rest with issues pages:[…].`,
+    });
+  }
   if (snapshot.encrypted) {
     issues.push({
       severity: snapshot.passwordRequired ? 'error' : 'warning',

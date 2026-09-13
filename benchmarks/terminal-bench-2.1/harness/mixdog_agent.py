@@ -46,6 +46,7 @@ from .routing_profiles import (
     reject_profile_conflicts,
 )
 from .src_overlay import (
+    GRAPH_MEMBER,
     SNAPSHOT_ENV,
     load_src_snapshot,
     spawn_capability_shell,
@@ -158,12 +159,45 @@ def _host_data_dir() -> Path:
     return Path(data_dir)
 
 
+def _host_selected_account_id(provider: str) -> str:
+    """Selected account id from the host account pool; 'default' when unset.
+
+    Mirrors src/runtime/shared/provider-accounts.mjs: the pool file is
+    data/provider-accounts.json and each provider entry carries `selectedId`.
+    Only that one field is read; usage, labels, and other state stay untouched.
+    """
+    pool_path = _host_data_dir() / "provider-accounts.json"
+    try:
+        pool = json.loads(pool_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "default"
+    entry = (pool.get("providers") or {}).get(provider) if isinstance(pool, dict) else None
+    selected = entry.get("selectedId") if isinstance(entry, dict) else None
+    return selected if isinstance(selected, str) and selected.strip() else "default"
+
+
+def _host_provider_credentials_path(provider: str) -> Path:
+    """Host credentials file for one OAuth provider, following its account binding.
+
+    Mirrors providerAccountPath(): the 'default' account lives at
+    data/<credentialFile>; any other selected account lives at
+    data/provider-accounts/<provider>/<id>.json. Pinning the default file
+    regardless of the binding broke every trial once accounts moved: the
+    default file was left as `{}` while the live lease sat under the account id.
+    """
+    data_dir = _host_data_dir()
+    selected = _host_selected_account_id(provider)
+    if selected != "default":
+        return data_dir / "provider-accounts" / provider / f"{selected}.json"
+    return data_dir / PROVIDER_CREDENTIAL_FILES[provider]
+
+
 def _host_credentials_path() -> Path:
-    """Resolve the host Anthropic OAuth credentials file (override or default)."""
+    """Resolve the host Anthropic OAuth credentials file (override or binding)."""
     override = os.environ.get("ANTHROPIC_OAUTH_CREDENTIALS_PATH")
     if override:
         return Path(override)
-    return _host_data_dir() / "anthropic-oauth-credentials.json"
+    return _host_provider_credentials_path("anthropic-oauth")
 
 
 def _collect_provider_files(providers: set[str]) -> dict[str, Path]:
@@ -187,7 +221,7 @@ def _collect_provider_files(providers: set[str]) -> dict[str, Path]:
         credential_path = (
             _host_credentials_path()
             if provider == "anthropic-oauth"
-            else data_dir / credential_name
+            else _host_provider_credentials_path(provider)
         )
         if not credential_path.is_file():
             raise RuntimeError(
@@ -352,9 +386,17 @@ def _mixdog_exec_command(
     cache = (
         "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; " if compile_cache else ""
     )
+    graph = (
+        'MIXDOG_ENTRY="$(readlink -f "$(command -v mixdog)")"; '
+        'MIXDOG_PACKAGE="$(dirname "$(dirname "$MIXDOG_ENTRY")")"; '
+        f'export MIXDOG_GRAPH_BIN="$MIXDOG_PACKAGE/{GRAPH_MEMBER}"; '
+        'export MIXDOG_SEARCH_SERVER_BIN="$MIXDOG_GRAPH_BIN"; '
+        'test -x "$MIXDOG_GRAPH_BIN" || exit 1; '
+    )
     pipeline = (
         "mkdir -p /logs/agent; "
         f"{cache}"
+        f"{graph}"
         f"mixdog exec --json --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
         f"{route_args} "
         f"-- {shlex.quote(instruction)} "

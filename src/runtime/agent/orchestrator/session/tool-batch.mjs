@@ -6,6 +6,8 @@
 // steering. Mutable counters (dedupStubTotal/editCount) are threaded in/out;
 // crossTurnCalls/epoch/pending mutate by reference. Behavior identical.
 import { resolve as resolvePath, isAbsolute } from 'path';
+import { skillBodyPresentInSession } from '../context/collect.mjs';
+import { isInjectedSkillBodyMessage } from './compact/messages.mjs';
 import { canonicalizeBuiltinToolName, isBuiltinTool } from '../tools/builtin.mjs';
 import { takeApplyPatchUiDiff } from '../tools/patch.mjs';
 import {
@@ -287,6 +289,9 @@ export async function processToolBatch(ctx) {
             if (sessionId) markSessionToolCall(sessionId, call.name, resolveToolSelfDeadlineMs(call.name, call.arguments));
             let dispatchStartedAt = Date.now();
             let executionStartedAt;
+            const executionIntervals = [];
+            let eagerExecution = null;
+            let serialExecutionStartedAt = null;
             let result;
             let toolStartedAt;
             let toolEndedAt;
@@ -370,6 +375,7 @@ export async function processToolBatch(ctx) {
                     eager = undefined;
                 }
                 if (eager !== undefined) {
+                    eagerExecution = eager;
                     toolStartedAt = eager.startedAt;
                     dispatchStartedAt = eager.dispatchStartedAt ?? eager.startedAt;
                     executionStartedAt = eager.executionStartedAt ?? eager.endedAt;
@@ -410,6 +416,7 @@ export async function processToolBatch(ctx) {
                     } else {
                         await opts.beforeToolExecution?.();
                         executionStartedAt = Date.now();
+                        serialExecutionStartedAt = executionStartedAt;
                         _localSearchTelemetry = {};
                         result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: iterations, localSearchTelemetry: _localSearchTelemetry, resultTelemetry: _resultTelemetry });
                         toolEndedAt = Date.now();
@@ -434,6 +441,19 @@ export async function processToolBatch(ctx) {
                 result = `Error: ${err instanceof Error ? err.message : String(err)}`;
                 _resultKind = 'error';
             }
+            // Eager timestamps are mutable until settlement. Read them now,
+            // not before awaiting a call queued behind a mutation barrier.
+            if (eagerExecution?.executionStartedAt != null && eagerExecution?.endedAt != null) {
+                executionIntervals.push({
+                    started_at_ms: eagerExecution.executionStartedAt,
+                    completed_at_ms: eagerExecution.endedAt,
+                });
+            } else if (serialExecutionStartedAt !== null) {
+                executionIntervals.push({
+                    started_at_ms: serialExecutionStartedAt,
+                    completed_at_ms: toolEndedAt,
+                });
+            }
             // Same-anchor batch occupation retry (_editSeqGroups above): an
             // ambiguity-rejected member of a known batch group re-executes once
             // in call order. With 2+ occurrences remaining it passes the
@@ -448,6 +468,7 @@ export async function processToolBatch(ctx) {
                 const _group = _editSeqGroupFor(call);
                 const _remaining = _group ? _group.total - _group.applied : 0;
                 if (_group && _remaining >= 1) {
+                    const retryStartedAt = Date.now();
                     try {
                         const _retry = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, {
                             toolCallId: call.id,
@@ -470,6 +491,9 @@ export async function processToolBatch(ctx) {
                             epoch.mutation += 1;
                         }
                     } catch { /* keep the original ambiguity error */ }
+                    finally {
+                        executionIntervals.push({ started_at_ms: retryStartedAt, completed_at_ms: Date.now() });
+                    }
                 }
             }
             if (_executeOk && _resultKind !== 'skipped') {
@@ -651,6 +675,7 @@ export async function processToolBatch(ctx) {
                 result,
                 dispatchStartedAt,
                 executionStartedAt,
+                executionIntervals,
                 toolStartedAt,
                 toolEndedAt,
                 toolKind,
@@ -742,6 +767,9 @@ export async function processToolBatch(ctx) {
                 traceAgentTool({
                     sessionId,
                     iteration: iterations,
+                    toolBatchId: ctx.toolBatchId,
+                    toolCallId: call.id,
+                    executionIntervals: completed.executionIntervals,
                     toolName: call.name,
                     toolKind,
                     toolMs: toolEndedAt - toolStartedAt,
@@ -887,6 +915,11 @@ export async function processToolBatch(ctx) {
         // selection does not mistake them for the user's request.
         for (const _nm of _batchNewMessages) {
             if (!_nm || _nm.role !== 'user' || typeof _nm.content !== 'string' || !_nm.content) continue;
+            // Equivalent Skill calls can finish eagerly before either body
+            // reaches the live transcript. Deduplicate at the shared commit
+            // boundary too, without dropping changed bodies or tool outcomes.
+            if (isInjectedSkillBodyMessage(_nm)
+                && skillBodyPresentInSession({ messages }, _nm.content.trimStart())) continue;
             messages.push({ role: 'user', content: _nm.content, ...(_nm.meta ? { meta: _nm.meta } : {}) });
         }
         // PostToolBatch: the full parallel batch of tool calls for this

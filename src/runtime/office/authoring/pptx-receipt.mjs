@@ -28,6 +28,22 @@ function backgroundRole(slide) {
   return l < 0.2 ? 'dark' : l > 0.6 ? 'light' : 'mid';
 }
 
+function saturation(hex) {
+  const value = String(hex || '').replace('#', '');
+  if (!/^[0-9A-Fa-f]{6}$/.test(value)) return 0;
+  const channels = [0, 2, 4].map((i) => parseInt(value.slice(i, i + 2), 16));
+  const max = Math.max(...channels);
+  return max ? (max - Math.min(...channels)) / max : 0;
+}
+
+// A field that owns the page: a dark or saturated surface over three fifths of the canvas is what a reader
+// sees as a beat (a cover, a section mark, a claim on a field), whatever the slide's own background says.
+function isBeatField(fill, area) {
+  if (!fill || area < CANVAS_AREA * 0.6) return false;
+  const l = luminance(fill);
+  return (l !== null && l < 0.35) || saturation(fill) > 0.35;
+}
+
 function isPicture(shape) {
   return shape?.type === 'p:pic' || Number(shape?.type) === 13;
 }
@@ -288,9 +304,12 @@ export function slideReceipt(slide) {
     textBoxes: 0, drawn: 0, fields: 0, lines: 0,
     presets: [],
     largestText: 0,
+    chars: 0,
     coverage: 0,
+    grammar: 'text',
   };
   let covered = 0;
+  let beatField = false;
   const presets = new Set();
   const textBoxes = [];
   const visuals = [];
@@ -311,6 +330,11 @@ export function slideReceipt(slide) {
     if (fill && box) fills.set(fill, (fills.get(fill) || 0) + area);
     if (shape.chart) { receipt.charts += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
     if (shape.table) { receipt.tables += 1; covered += area; noteSpec(specs, shape); if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
+    // A vector the kit drew (an icon, a motif) is a device the page carries, not a picture the page shows: the writer
+    // names it `mixdog-svg:<svg>` and the normalizer renames it "Icon" once the SVG is attached (pptx-script-normalize.mjs).
+    // A raster the kit drew as a device with no vector source (the beat's sphere, `orb()`) is named `mixdog-device:<kind>`
+    // and reads the same way, so a cover with its object stays a beat.
+    if (isPicture(shape) && /^(?:mixdog-svg:|mixdog-device:|Icon$)/.test(String(shape.name || ''))) { receipt.drawn += 1; covered += area; if (box) visuals.push(box); continue; }
     if (isPicture(shape)) { receipt.pictures += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
     if (shape.group) { receipt.groups += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
     const hasText = Boolean(String(shape.text || '').trim());
@@ -320,6 +344,7 @@ export function slideReceipt(slide) {
       const size = Number(shape.font?.size) || 0;
       if (size > receipt.largestText) { receipt.largestText = size; titleBox = box; }
       if (box) { textBoxes.push(box); if (!isChrome(shape)) { content.push(box); blocks.push(box); } }
+      if (!isChrome(shape)) receipt.chars += String(shape.text).replace(/\s+/g, ' ').trim().length;
       covered += area;
       continue;
     }
@@ -327,12 +352,22 @@ export function slideReceipt(slide) {
     if (box) visuals.push(box);
     const geometry = String(shape.geometry || '');
     if (geometry === 'line' || geometry.includes('Connector')) { receipt.lines += 1; const span = box || extent(shape); if (span) constructs.push(span); }
-    else if (geometry === 'rect' || geometry === 'roundRect') { receipt.fields += 1; covered += area; if (box && fill) surfaces.push(box); }
+    else if (geometry === 'rect' || geometry === 'roundRect') { receipt.fields += 1; covered += area; if (box && fill) surfaces.push(box); if (isBeatField(fill, area)) beatField = true; }
     else if (geometry) { presets.add(geometry); covered += area; if (box) { content.push(box); constructs.push(box); } }
   }
   receipt.presets = [...presets];
   if (Object.keys(specs).length) receipt.specs = specs;
   receipt.coverage = Math.min(1, Number((covered / CANVAS_AREA).toFixed(2)));
+  // Page grammar (composition.md §7): a beat is a dark page or one a dark or saturated field owns; an evidence page
+  // carries a chart, a table, a picture, a group, a stat, or a drawn construction (three or more contours and
+  // connectors); the rest is a text page. The reference decks (thirteen, 400 pages) run beats on one page in eight
+  // and evidence on two of three; the deck's shares sit in deck.shape and the sequence in deck.rhythm.grammar.
+  // Evidence first: a chart on a dark page is an evidence page of a dark deck (Krafton), not a beat.
+  receipt.grammar = receipt.charts + receipt.tables + receipt.pictures + receipt.groups > 0 || constructs.length >= 3 || specs.stat || specs.structure || specs.chevrons
+    ? 'evidence'
+    : receipt.background === 'dark' || beatField
+      ? 'beat'
+      : 'text';
   // Diagram labels — small text bound to a contour or connector (a node's name, an axis tick, a dumbbell value,
   // a legend entry) — belong to their device, not to the page's columns and spacing steps: they leave the
   // alignment and gap readings and are counted instead.
@@ -370,6 +405,12 @@ export function compositionReceipt(document, brief = null) {
     }
   }
   if (Object.keys(specs).length) deck.specs = specs;
+  // The deck's shape: the share of beat, evidence, and text pages (composition.md §7 — the reference decks run
+  // about 0.13 / 0.67 / 0.13; a deck with a beat on every third page reads as a slideshow of covers).
+  if (slides.length) {
+    const share = (grammar) => Number((slides.filter((s) => s.grammar === grammar).length / slides.length).toFixed(2));
+    deck.shape = { beat: share('beat'), evidence: share('evidence'), text: share('text') };
+  }
   const absent = ['charts', 'tables', 'pictures', 'presets', 'fields', 'lines']
     .filter((family) => deck[family] === 0);
   // The deck read as a sequence: air per slide is the density rhythm, title tops the composition variety.
@@ -383,6 +424,11 @@ export function compositionReceipt(document, brief = null) {
       bodyFills: observed.map((s) => s.observe.bodyFill ?? null),
       fieldFills: observed.map((s) => s.observe.fieldFill?.[0] ?? null),
       presence: observed.map((s) => s.observe.presence ?? null),
+      chars: observed.map((s) => s.chars),
+      grammar: observed.map((s) => s.grammar),
+      ...(Array.isArray(brief?.plan) && brief.plan.length
+        ? { planned: observed.map((s) => brief.plan.find((entry) => entry.slide === s.slide)?.rhythm || null) }
+        : {}),
       gapSet: [...new Set(observed.flatMap((s) => s.observe.gaps || []))].sort((a, b) => a - b),
       typeSet: [...new Set(observed.flatMap((s) => s.observe.typeSet || []))].sort((a, b) => a - b),
       textColors: [...new Set(observed.flatMap((s) => s.observe.textColors || []))],
@@ -405,9 +451,32 @@ export function compositionReceipt(document, brief = null) {
       + ' centroid = area-weighted [x, y] in canvas fractions; centroidOffset normalizes distance from center by 0.05 horizontally and 0.15 vertically.'
       + ' renderAir = pixels without local variation; renderBalance reports centered, leftRight, topBottom and their mean score (higher means more centered or even, not necessarily better design).'
       + ' gaps = vertical gaps in 0.05-inch steps; typeSet and textColors = observed sizes and colors; deck.rhythm sequences these observations.'
+      + ' chars = characters of authored text per slide (the reference decks carry 330-900 on a body page; a page under 120 with no carrier is a claim or a hollow); grammar = beat | evidence | text per slide and deck.shape their shares.'
+      + ' renderLargest = the share of the page the biggest connected object covers after a render (the reference decks: 0.21-0.71, median 0.4).'
+      + ' After a render, deck.rhythm.colour is each page\'s colourfulness and deck.pacing reads the sequence: colourSpread (the frontier decks run 16-36, one template 5-8), longestQuiet (consecutive pages under the deck median with no beat), quietAnchors (plan lines that promised an anchor on a page that rendered quiet).'
       + ' specs = the kit\'s spec carriers (badge, callout, chevrons, stat, table) read from their signatures: count, slides, variants, and the distinct anatomies (type sizes|face) they show — one anatomy per carrier is the spec kept, two is a per-call override to explain.'
       + ' Relevance, legibility, grouping, and visual emphasis must be judged from the rendered pages, not from balanced ratios or short token sets.',
   };
+}
+
+// Colour pacing (composition.md §7), read from the rendered colourfulness beside the shape grammar: the spread
+// across the pages (population standard deviation — the frontier decks run 16-36, a one-template IR deck 5-8,
+// the preferred deck-level spread 15 ± 6), the longest run of quiet pages (under the deck's median colour and
+// not a beat), and the plan lines that promised `rhythm: anchor` on a page that rendered quiet. Numbers only.
+function colourPacing(receipt, colours) {
+  const measured = colours.filter((value) => typeof value === 'number');
+  if (measured.length < 2) return null;
+  const mean = measured.reduce((a, b) => a + b, 0) / measured.length;
+  const spread = Math.sqrt(measured.reduce((sum, value) => sum + (value - mean) ** 2, 0) / measured.length);
+  const median = [...measured].sort((a, b) => a - b)[Math.floor(measured.length / 2)];
+  const quiet = receipt.slides.map((slide, index) => typeof colours[index] === 'number' && colours[index] < median && slide.grammar !== 'beat');
+  let longestQuiet = 0, run = 0;
+  for (const isQuiet of quiet) { run = isQuiet ? run + 1 : 0; if (run > longestQuiet) longestQuiet = run; }
+  const planned = receipt.deck?.rhythm?.planned || [];
+  const quietAnchors = receipt.slides
+    .filter((slide, index) => /^anchor/i.test(String(planned[index] || '')) && quiet[index])
+    .map((slide) => slide.slide);
+  return { colourSpread: Number(spread.toFixed(1)), median: Number(median.toFixed(1)), longestQuiet, quietAnchors };
 }
 
 // The rendered page, read after the fact: renderAir per slide joins the shape-based observation so
@@ -416,16 +485,22 @@ export function compositionReceipt(document, brief = null) {
 // with topBottom the number for "the top of the page is empty".
 export function attachRenderedAir(receipt, airByPage) {
   if (!receipt?.slides?.length || !airByPage?.size) return receipt;
-  const sequence = [], balance = [];
+  const sequence = [], balance = [], colours = [], largest = [];
   for (const slide of receipt.slides) {
     const read = airByPage.get(slide.slide);
     const air = typeof read === 'number' ? read : read?.air;
+    const colour = typeof read?.colour === 'number' ? read.colour : null;
+    const object = typeof read?.largest === 'number' ? read.largest : null;
     if (typeof air === 'number') {
-      slide.observe = { ...(slide.observe || {}), renderAir: air, ...(read?.balance ? { renderBalance: read.balance } : {}) };
+      slide.observe = { ...(slide.observe || {}), renderAir: air, ...(read?.balance ? { renderBalance: read.balance } : {}), ...(colour !== null ? { renderColour: colour } : {}), ...(object !== null ? { renderLargest: object } : {}) };
       sequence.push(air);
       balance.push(read?.balance?.topBottom ?? null);
     } else { sequence.push(null); balance.push(null); }
+    colours.push(colour);
+    largest.push(object);
   }
-  if (receipt.deck) receipt.deck.rhythm = { ...(receipt.deck.rhythm || {}), renderAir: sequence, topBottom: balance };
+  if (receipt.deck) receipt.deck.rhythm = { ...(receipt.deck.rhythm || {}), renderAir: sequence, topBottom: balance, ...(largest.some((v) => v !== null) ? { renderLargest: largest } : {}) };
+  const pacing = colourPacing(receipt, colours);
+  if (receipt.deck && pacing) { receipt.deck.rhythm.colour = colours; receipt.deck.pacing = pacing; }
   return receipt;
 }

@@ -22,10 +22,13 @@ eof_line: "*** End of File" LF
 // GPT-family contract: OpenAI Responses receives the raw V4A patch through the
 // Lark custom tool. The tiny JSON schema remains only for function-only
 // compatibility paths; runtime knobs stay off the model surface.
+const APPLY_PATCH_CONTRACT =
+  'Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.';
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'Edit files with one raw V4A patch; do not wrap it in JSON. Use exact source context and combine all determined edits in one patch. Use one Add/Delete/Update File block per target path and multiple @@ hunks within one Update File block. Add File atomically creates the file and missing parent directories, failing without changes if the target already exists; call it directly without a prior read, list, or mkdir. Never re-open unchanged content to build context or verify a successful patch. Multi-file patches commit valid files and report rejected files separately. Replaces sed/awk and echo redirection.';
+  `Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once: literal "hello" becomes "+hello", not "++hello". ${APPLY_PATCH_CONTRACT}`;
 
-const APPLY_PATCH_JSON_DESCRIPTION = 'Edit files with one complete V4A patch in `patch`. Use exact source context and combine all determined edits in one patch.';
+const APPLY_PATCH_JSON_DESCRIPTION =
+  `Edit files with one complete V4A patch in \`patch\`. One file block per target, with all its hunks. ${APPLY_PATCH_CONTRACT}`;
 
 export const PATCH_TOOL_DEFS = [
   {

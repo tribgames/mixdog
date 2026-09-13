@@ -3,7 +3,13 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import type { DesktopCapability } from '../shared/contract';
 import { t } from './i18n';
 import { record } from './record-utils';
-import { refreshUsageDashboard, subscribeUsageDashboard, type UsageApi } from './usage-dashboard-store';
+import {
+  applyAccountUsageWindows,
+  refreshUsageDashboard,
+  refreshUsageDashboardAfterAuth,
+  subscribeUsageDashboard,
+  type UsageApi,
+} from './usage-dashboard-store';
 import { ProviderIcon } from './provider-display';
 import './provider-accounts.css';
 
@@ -88,9 +94,20 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
     setPending(true);
     setError('');
     try {
-      setPool(await invoke('updateProviderAccounts', [provider, value]));
+      const next = await invoke('updateProviderAccounts', [provider, value]);
+      setPool(next);
       window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
-      void refreshUsageDashboard(api, { force: true });
+      if (value.selectedId !== undefined) {
+        // The active credential changed. Paint the chosen account's own last
+        // known windows immediately, then confirm with a refresh that cannot be
+        // served by a request the previous account started.
+        applyAccountUsageWindows(provider, next.accounts.find((row) => row.id === next.selectedId)?.usage?.windows);
+        void refreshUsageDashboardAfterAuth(api, [provider]);
+      } else {
+        // Order / auto-switch / rename change no quota: revalidate only when the
+        // shared snapshot is already stale.
+        void refreshUsageDashboard(api);
+      }
       onChange?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

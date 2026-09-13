@@ -92,17 +92,19 @@ export function ComposerAddMenu({ anchor, disabled, goalDisabled, sessionId, onA
         buttons[next]?.focus();
       }}>
         <button type="button" role="menuitem" onClick={() => { close(); onAttach(); }}>
-          <CapabilityIcon name="attach-files" /><span>{t('Attach files')}</span>
+          <CapabilityIcon name="attach-files" /><span><b>{t('Attach files')}</b>
+            <small>{t('Add images or documents to this message.')}</small></span>
         </button>
         <button type="button" role="menuitem" disabled={goalDisabled} onClick={() => { setOpen(false); void onGoal('/goal'); }}>
-          <CapabilityIcon name="goal-management" /><span>{t('Set a goal')}</span>
+          <CapabilityIcon name="goal-management" /><span><b>{t('Set a goal')}</b>
+            <small>{t('Track work that runs past this turn.')}</small></span>
         </button>
         <div className="composer-add-heading">{t('Skills')}</div>
         {loading && <p role="status">{t('Loading skills…')}</p>}
         {!loading && !skills.length && !error && <p>{t('No enabled skills.')}</p>}
         {skills.map(skill => <button type="button" role="menuitem" key={skill.name}
           onClick={() => { setOpen(false); onSkill(skill.name); }}>
-          <CapabilityIcon name={skill.name} /><span><b>{t(skillTitle(skill.name))}</b>
+          <CapabilityIcon name={skill.name} /><span><b>{skillTitle(skill.name)}</b>
             <small>{skill.description}</small></span>
         </button>)}
         <div className="composer-add-divider" role="separator" />

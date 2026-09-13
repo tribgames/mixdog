@@ -270,6 +270,7 @@ function promptSurfaceDigest(repoRoot, workflowId, routeContract) {
   const shared = builder.buildSharedToolContent({
     PLUGIN_ROOT,
     omitTools: [...routeContract.disabledTools, unusedEditTool],
+    allowTools: routeContract.toolCatalogNames,
   });
   const lead = builder.buildLeadRoleContent({
     PLUGIN_ROOT,

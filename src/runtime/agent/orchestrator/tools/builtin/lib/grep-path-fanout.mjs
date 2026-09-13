@@ -3,7 +3,6 @@
 // execution flow; `executeGrepTool` is injected to avoid an import cycle.
 import { isAbsolute } from 'path';
 import {
-    coerceShapeFlex,
     GREP_AUTO_CONTEXT_LINES,
     hasGlobMagic,
     normalizeInputPath,
@@ -14,7 +13,6 @@ import {
 import {
     isUncOrSmbPath,
     resolveSearchScope,
-    stripEmbeddedPathQuotes,
 } from '../search-path-diagnostics.mjs';
 import { buildGrepRgArgs } from '../search-builders.mjs';
 import { runRgWindowedLines } from '../native-search-runner.mjs';
@@ -59,7 +57,7 @@ export async function runGrepPathFanout({
         && args['-n'] !== false
         && args['-A'] === undefined
         && args['-B'] === undefined) {
-        const rawPat = coerceShapeFlex(args.pattern);
+        const rawPat = args.pattern;
         const singleList = Array.isArray(rawPat)
             ? rawPat.filter((p) => typeof p === 'string' && p)
             : (typeof rawPat === 'string' && rawPat ? [rawPat] : []);
@@ -92,7 +90,7 @@ export async function runGrepPathFanout({
         const caseInsensitive = args['-i'] === true;
         const roots = [];
         for (const p of capped) {
-            const cleaned = stripEmbeddedPathQuotes(normalizeInputPath(p));
+            const cleaned = normalizeInputPath(p);
             if (hasGlobMagic(cleaned)) break combinedPaths;
             const resolved = resolveSearchScope(cleaned, workDir);
             if (isUncOrSmbPath(cleaned) || isUncOrSmbPath(resolved)) break combinedPaths;
@@ -106,6 +104,8 @@ export async function runGrepPathFanout({
         }
         const rgArgs = buildGrepRgArgs({
             patterns: [pattern],
+            includeNoise: args.include_noise === true,
+            text: args.text === true,
             searchPath: workDir,
             globPatterns: [],
             outputMode: outMode,

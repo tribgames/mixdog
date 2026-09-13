@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto';
 import { clone, plainObject, stableValue } from '../shared/values.mjs';
 
-function safeId(value, label) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(normalized)) {
-    throw new Error(`Office content ${label} must use 1-64 lowercase letters, digits, dots, underscores, or hyphens`);
+// A content id names a figure inside this package — nothing in the file format
+// reads it — so it takes letters of any script: a Korean deck should identify
+// 정시_출고율 by its own name instead of inventing an ASCII key for it. The
+// message names the entry it came from, since a list of facts all fail alike.
+function safeId(value, label, where = '') {
+  const at = where ? ` (${where})` : '';
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) throw new Error(`Office content ${label} is required${at}`);
+  if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,63}$/u.test(normalized)) {
+    throw new Error(`Office content ${label} "${normalized}" must use 1-64 letters, digits, dots, underscores, or hyphens${at}`);
   }
   return normalized;
 }
@@ -19,6 +25,32 @@ function normalizeSource(value) {
     ...(value.target ? { target: String(value.target) } : {}),
     ...(value.label ? { label: String(value.label) } : {}),
   };
+}
+
+// What a fact may carry. The keys are checked because an unread one is worse
+// than a rejected one: the figure ships in the wrong notation and nothing says so.
+const FACT_KEYS = new Set(['id', 'label', 'value', 'unit', 'detail', 'numberFormat', 'format', 'source']);
+
+// A caller writes the format the way they say it out loud. Named formats reach
+// the spreadsheet notation the composers already apply; an explicit pattern is
+// taken as written.
+const NAMED_NUMBER_FORMATS = Object.freeze({
+  percent: '0.0%',
+  percentage: '0.0%',
+  number: '#,##0',
+  integer: '#,##0',
+  decimal: '#,##0.0',
+  currency: '#,##0',
+  money: '#,##0',
+});
+
+// One resolution for every figure the composers print — a bound fact and a
+// preset's metric are written the same way, so `format: 'percent'` reaches the
+// notation whichever entry carries it.
+export function officeNumberFormat(entry = {}) {
+  const written = String(entry?.numberFormat || entry?.format || '').trim();
+  if (!written) return '';
+  return NAMED_NUMBER_FORMATS[written.toLowerCase()] || written;
 }
 
 function sourceText(value) {
@@ -39,29 +71,44 @@ export function normalizeOfficeContentModel(value) {
     throw new Error('Office content model exceeds the supported fact or claim count');
   }
   const factIds = new Set();
-  const facts = rawFacts.map((fact) => {
+  const facts = rawFacts.map((fact, index) => {
     if (!plainObject(fact)) throw new Error('Office content facts must be objects');
-    const id = safeId(fact.id, 'fact id');
+    const id = safeId(fact.id, 'fact id', `fact ${index + 1}${fact?.label ? `: ${fact.label}` : ''}`);
     if (factIds.has(id)) throw new Error(`Office content model has duplicate fact id ${id}`);
     factIds.add(id);
+    // A key the model does not read is dropped, and the figure then ships in
+    // the wrong notation: a fact written with format:'percent' printed 0.928
+    // beside "92.8%" in the prose. The natural spellings reach numberFormat,
+    // and anything else is named rather than ignored.
+    const numberFormat = officeNumberFormat(fact);
+    const unknown = Object.keys(fact).filter((key) => !FACT_KEYS.has(key));
+    if (unknown.length) {
+      throw new Error(`Office content fact ${id} has unknown key(s): ${unknown.join(', ')}.`
+        + ` A fact takes: ${[...FACT_KEYS].join(', ')}.`);
+    }
     return {
       id,
       label: String(fact.label || id),
       value: clone(fact.value),
       ...(fact.unit ? { unit: String(fact.unit) } : {}),
       ...(fact.detail ? { detail: String(fact.detail) } : {}),
-      ...(fact.numberFormat ? { numberFormat: String(fact.numberFormat) } : {}),
+      ...(numberFormat ? { numberFormat } : {}),
       ...(normalizeSource(fact.source) ? { source: normalizeSource(fact.source) } : {}),
     };
   });
   const claimIds = new Set();
-  const claims = rawClaims.map((claim) => {
+  const claims = rawClaims.map((claim, index) => {
     if (!plainObject(claim)) throw new Error('Office content claims must be objects');
-    const id = safeId(claim.id, 'claim id');
+    const id = safeId(claim.id, 'claim id', `claim ${index + 1}${claim?.text ? `: ${claim.text}` : ''}`);
     if (claimIds.has(id)) throw new Error(`Office content model has duplicate claim id ${id}`);
     claimIds.add(id);
-    const factRefs = [...new Set((Array.isArray(claim.factIds) ? claim.factIds : [])
-      .map((entry) => safeId(entry, `claim ${id} fact reference`)))];
+    // The references are the point of a claim: naming them "facts" instead of
+    // factIds used to bind the claim to nothing at all, and the deck then
+    // reported the figure it carried as unsourced.
+    const references = Array.isArray(claim.factIds) ? claim.factIds
+      : Array.isArray(claim.facts) ? claim.facts
+        : [];
+    const factRefs = [...new Set(references.map((entry) => safeId(entry, `claim ${id} fact reference`)))];
     for (const factId of factRefs) {
       if (!factIds.has(factId)) throw new Error(`Office content claim ${id} references unknown fact ${factId}`);
     }
@@ -133,16 +180,26 @@ export function bindOfficeContent(operation, model) {
     for (const factId of claim.factIds) used.add(factId);
     if (!bound.title) bound.title = claim.text;
     if (!bound.takeaway) bound.takeaway = claim.implication || claim.text;
+    // The claim is the sentence the document exists to make. When the caller
+    // also titled the operation, binding it to the title alone dropped it: the
+    // memo shipped with its metrics and its evidence but no recommendation.
+    if (bound.op === 'compose_document' && !bound.summary && bound.title !== claim.text) {
+      bound.summary = claim.implication || claim.text;
+    }
   }
   if (Array.isArray(bound.metrics)) {
     bound.metrics = bound.metrics.map((metric) => {
       if (!plainObject(metric) || !metric.factId) return resolveValue(metric);
       const resolved = fact(metric.factId);
+      // The unit stays a unit: it closes on the figure the composers print
+      // ("47,210 orders"), where parking it in `detail` left an orphan word on
+      // a row of otherwise empty cells and a value with no unit above it.
       return {
         ...metric,
         value: metric.value ?? clone(resolved.value),
         label: metric.label || resolved.label,
-        detail: metric.detail || resolved.detail || resolved.unit || '',
+        ...(metric.unit || resolved.unit ? { unit: String(metric.unit || resolved.unit) } : {}),
+        detail: metric.detail || resolved.detail || '',
         numberFormat: metric.numberFormat || resolved.numberFormat || '',
       };
     });

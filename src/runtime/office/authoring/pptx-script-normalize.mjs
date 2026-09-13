@@ -207,6 +207,69 @@ export function nativeGradients(xml) {
   return { xml: output, changed };
 }
 
+// An icon is drawn as vectors and placed as a raster: crisp at the size it was
+// written, soft the moment a reader zooms or a printer scales it. PowerPoint
+// 2016 and later read an SVG beside the picture through this extension and draw
+// that instead, falling back to the PNG everywhere else — so the kit ships both
+// and the file stays as sharp as the shapes around it.
+const SVG_PREFIX = 'mixdog-svg:';
+const SVG_EXTENSION_URI = '{96DAC541-7B7A-43D3-8B79-37D633B846F1}';
+const SVG_NAMESPACE = 'http://schemas.microsoft.com/office/drawing/2016/SVG/main';
+const PICTURE = /<p:pic>[\s\S]*?<\/p:pic>/g;
+
+function relationshipsPart(slidePart) {
+  const slash = slidePart.lastIndexOf('/');
+  return `${slidePart.slice(0, slash)}/_rels${slidePart.slice(slash)}.rels`;
+}
+
+function nextRelationshipId(relationships) {
+  const used = [...String(relationships || '').matchAll(/\bId="rId(\d+)"/g)].map((match) => Number(match[1]));
+  return `rId${Math.max(0, ...used) + 1}`;
+}
+
+/** Attach the SVG each kit icon carries on its name as the picture's vector source. */
+export async function attachSvgIcons(zip, slidePart, xml) {
+  if (!xml.includes(SVG_PREFIX)) return { xml, attached: 0 };
+  const relationshipPath = relationshipsPart(slidePart);
+  let relationships = await zipText(zip, relationshipPath);
+  if (!relationships) return { xml, attached: 0 };
+  let attached = 0;
+  let output = xml;
+  for (const picture of xml.match(PICTURE) || []) {
+    const name = /<p:cNvPr\b[^>]*\bname="([^"]*)"/.exec(picture)?.[1] || '';
+    if (!name.startsWith(SVG_PREFIX)) continue;
+    let svg = '';
+    try {
+      svg = decodeURIComponent(name.slice(SVG_PREFIX.length));
+    } catch {
+      continue;
+    }
+    if (!svg.trim().startsWith('<svg')) continue;
+    const blip = /<a:blip\b[^>]*(?:\/>|>[\s\S]*?<\/a:blip>)/.exec(picture)?.[0] || '';
+    if (!blip || blip.includes(SVG_EXTENSION_URI)) continue;
+    attached += 1;
+    const mediaName = `ppt/media/mixdog-icon-${Object.keys(zip.files).filter((entry) => /^ppt\/media\/mixdog-icon-/.test(entry)).length + 1}.svg`;
+    zip.file(mediaName, svg);
+    const id = nextRelationshipId(relationships);
+    relationships = relationships.replace('</Relationships>', `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName.split('/').pop()}"/></Relationships>`);
+    const extension = `<a:extLst><a:ext uri="${SVG_EXTENSION_URI}"><asvg:svgBlip xmlns:asvg="${SVG_NAMESPACE}" r:embed="${id}"/></a:ext></a:extLst>`;
+    const withSvg = blip.endsWith('/>')
+      ? `${blip.slice(0, -2)}>${extension}</a:blip>`
+      : blip.replace('</a:blip>', `${extension}</a:blip>`);
+    output = output.replace(picture, picture
+      .replace(blip, withSvg)
+      .replace(/(<p:cNvPr\b[^>]*\bname=)"[^"]*"/, '$1"Icon"'));
+  }
+  if (!attached) return { xml: output, attached: 0 };
+  zip.file(relationshipPath, relationships);
+  const contentTypesPath = '[Content_Types].xml';
+  const contentTypes = await zipText(zip, contentTypesPath);
+  if (contentTypes && !/Extension="svg"/i.test(contentTypes)) {
+    zip.file(contentTypesPath, contentTypes.replace('<Default', '<Default Extension="svg" ContentType="image/svg+xml"/><Default'));
+  }
+  return { xml: output, attached };
+}
+
 export async function normalizeAuthoredPptx(path) {
   const zip = await loadPackage(path);
   const parts = Object.keys(zip.files).filter((name) => TEXT_PARTS.test(name) || CHART_PARTS.test(name));
@@ -214,6 +277,7 @@ export async function normalizeAuthoredPptx(path) {
   let changedParts = 0;
   let mergedCharts = 0;
   let gradients = 0;
+  let vectorIcons = 0;
   for (const part of parts) {
     const xml = await zipText(zip, part);
     let result = CHART_PARTS.test(part) ? normalizeChartSeries(xml) : normalizeParagraphProperties(xml);
@@ -222,6 +286,11 @@ export async function normalizeAuthoredPptx(path) {
       if (native.changed) {
         result = { ...result, xml: native.xml, changed: true };
         gradients += native.changed;
+      }
+      const icons = await attachSvgIcons(zip, part, result.xml);
+      if (icons.attached) {
+        result = { ...result, xml: icons.xml, changed: true };
+        vectorIcons += icons.attached;
       }
     }
     if (CHART_PARTS.test(part)) {
@@ -240,5 +309,5 @@ export async function normalizeAuthoredPptx(path) {
     changedParts += 1;
   }
   if (changedParts) await savePackage(zip, path);
-  return { removed, changedParts, mergedCharts, gradients };
+  return { removed, changedParts, mergedCharts, gradients, vectorIcons };
 }

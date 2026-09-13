@@ -182,6 +182,56 @@ test('rendered air joins the receipt per slide and in the deck rhythm', () => {
   assert.deepEqual(receipt.deck.rhythm.centroidX.length, 2);
 });
 
+test('the receipt reads each page\'s grammar and characters, the deck\'s shape, and the colour pacing against the planned rhythm', () => {
+  const paper = 'F7F9FB';
+  const title = { text: 'Title', font: { size: 36 }, left: 43, top: 72, width: 600, height: 60 };
+  const prose = 'A body page carries the argument in the source\'s own words, three hundred characters or more beside its chart.';
+  const document = { slides: [
+    // The cover's motif is a vector the kit drew (renamed "Icon" by the normalizer): a device, never the picture that makes an evidence page.
+    { index: 1, background: { color: '0F1B26' }, shapes: [{ text: 'Cover', font: { size: 47 }, left: 43, top: 200, width: 600, height: 120 }, { type: 'p:pic', name: 'Icon', left: 500, top: 20, width: 440, height: 500 }] },
+    { index: 2, background: { color: paper }, shapes: [title, { chart: {}, left: 43, top: 150, width: 800, height: 340 }, { text: prose, font: { size: 15 }, left: 43, top: 500, width: 800, height: 30 }] },
+    // A saturated field over the whole canvas is a beat whatever the slide background says.
+    { index: 3, background: { color: paper }, shapes: [{ geometry: 'rect', fill: { color: '0E7C86' }, left: 0, top: 0, width: 960, height: 540 }, { text: 'Section', font: { size: 40 }, left: 43, top: 200, width: 600, height: 80 }] },
+    { index: 4, background: { color: paper }, shapes: [title, { text: prose, font: { size: 15 }, left: 43, top: 150, width: 800, height: 200 }] },
+    { index: 5, background: { color: paper }, shapes: [title, { text: 'A stat band', name: 'mixdog-spec:stat:band', font: { size: 54 }, left: 43, top: 150, width: 300, height: 100 }] },
+    { index: 6, background: { color: paper }, shapes: [title, { geometry: 'ellipse', left: 100, top: 200, width: 80, height: 80 }, { geometry: 'ellipse', left: 400, top: 200, width: 80, height: 80 }, { geometry: 'line', left: 180, top: 240, width: 220, height: 0 }] },
+  ] };
+  const brief = parseAuthoringBrief(`
+// BRIEF
+// slide plan: 1 job: cover · rhythm: anchor · 2 job: evidence · rhythm: dense · 3 job: section · rhythm: anchor · 4 job: claim · rhythm: anchor · 5 job: evidence · rhythm: dense · 6 job: process · rhythm: dense
+`);
+  const receipt = compositionReceipt(document, brief);
+  assert.deepEqual(receipt.slides.map((s) => s.grammar), ['beat', 'evidence', 'beat', 'text', 'evidence', 'evidence'], 'dark and field pages are beats; a chart, a signed stat, and a drawn construction are evidence; prose alone is text');
+  assert.equal(receipt.slides[1].chars, 5 + prose.length, 'characters of authored text');
+  assert.deepEqual(receipt.deck.shape, { beat: 0.33, evidence: 0.5, text: 0.17 });
+  assert.deepEqual(receipt.deck.rhythm.grammar, receipt.slides.map((s) => s.grammar));
+  assert.deepEqual(receipt.deck.rhythm.planned, ['anchor', 'dense', 'anchor', 'anchor', 'dense', 'dense']);
+  // Rendered colour: the cover and section read saturated, the chart page carries some colour, the rest is paper.
+  const read = (air, colour, largest = 0.2) => ({ air, colour, largest, balance: { centered: 0.9, leftRight: 0.9, topBottom: 0.9, score: 0.9 } });
+  attachRenderedAir(receipt, new Map([[1, read(0.8, 30, 0.9)], [2, read(0.4, 18, 0.45)], [3, read(0.85, 45, 0.95)], [4, read(0.6, 6, 0.08)], [5, read(0.6, 7, 0.12)], [6, read(0.5, 8, 0.3)]]));
+  assert.deepEqual(receipt.deck.rhythm.colour, [30, 18, 45, 6, 7, 8]);
+  assert.deepEqual(receipt.deck.rhythm.renderLargest, [0.9, 0.45, 0.95, 0.08, 0.12, 0.3]);
+  assert.equal(receipt.slides[1].observe.renderLargest, 0.45);
+  assert.equal(receipt.slides[3].observe.renderColour, 6);
+  assert.equal(receipt.deck.pacing.median, 18);
+  assert.ok(receipt.deck.pacing.colourSpread > 14 && receipt.deck.pacing.colourSpread < 15, `population spread of the six readings: ${receipt.deck.pacing.colourSpread}`);
+  assert.equal(receipt.deck.pacing.longestQuiet, 3, 'slides 4-6 sit under the median with no beat; slide 2 is at the median');
+  assert.deepEqual(receipt.deck.pacing.quietAnchors, [4], 'slide 4 promised an anchor and rendered as quiet paper');
+});
+
+test('a raster the kit drew as a device keeps its page a beat, while a placed picture makes it evidence', () => {
+  const cover = (name) => ({ slides: [
+    { index: 1, background: { color: '0F1B26' }, shapes: [{ text: 'Cover', font: { size: 47 }, left: 43, top: 200, width: 600, height: 120 }, { type: 'p:pic', name, altText: 'sphere', left: 560, top: 60, width: 460, height: 460 }] },
+  ] });
+  const device = compositionReceipt(cover('mixdog-device:orb'));
+  assert.equal(device.slides[0].grammar, 'beat', 'the sphere is the beat\'s object, not a picture page');
+  assert.equal(device.slides[0].drawn, 1);
+  assert.equal(device.slides[0].pictures, 0);
+  const photo = compositionReceipt(cover('Picture 3'));
+  assert.equal(photo.slides[0].grammar, 'evidence', 'a placed picture is read as the page\'s evidence');
+  assert.equal(photo.slides[0].pictures, 1);
+});
+
 test('a receipt without a brief still reports the deck and never throws on an empty document', () => {
   const receipt = compositionReceipt({ slides: [] });
   assert.equal(receipt.deck.slides, 0);

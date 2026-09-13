@@ -37,11 +37,21 @@ export function createModelPicker({
   providerModelsCacheRef,
   webSearchModelsCacheRef,
   modelPickerRequestRef,
-  clearModelCaches,
   modelSwitchNotice,
   openProviderSetupPicker,
 }) {
   let providerModelsTtlRefreshPromise = null;
+  // A saved route changes each row's remembered effort/Fast, never the catalog
+  // itself. Dropping the cached rows after a save forced the NEXT open to paint
+  // a "Loading models..." panel before the list (the picker looked like it
+  // closed and reopened). Marking them stale keeps that open instant — cached
+  // rows paint at once — and the TTL path force-refreshes in the background.
+  const markModelCatalogStale = () => {
+    for (const ref of [providerModelsCacheRef, webSearchModelsCacheRef]) {
+      const models = Array.isArray(ref?.current?.models) ? ref.current.models : null;
+      if (models && models.length > 0) ref.current = { models, at: 0 };
+    }
+  };
   const openModelPicker = async (options = {}) => {
     const state = getState();
     // Surface claim for this picker (panel-surface.mjs): every paint — the
@@ -381,6 +391,15 @@ export function createModelPicker({
             ...(selected.fastCapable ? { fast: fastCapable && getSelectedFast(selected) } : {}),
             ...((selected.modelParameterOptions || []).length ? { modelParameters: modelParametersFor(selected) } : {}),
           };
+          // The keypress owns the hop: paint the destination and hand the
+          // surface back on the spot. Waiting for the write to ack first left a
+          // "Switching model..." panel (or a closed picker with an unchanged
+          // statusline) on screen for as long as the runtime took — provider
+          // readiness, config save, empty-session rebuild. store.setRoute
+          // previews the route immediately and reverts it if the write fails.
+          const handBackSurface = () => {
+            if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
+          };
           if (typeof options.onSelectRoute === 'function') {
             const savePromise = Promise.resolve(options.onSelectRoute(routeInput, selected, effort));
             if (typeof options.onImmediateSelect === 'function') {
@@ -388,43 +407,23 @@ export function createModelPicker({
             } else {
               own.paint(handoffPanel);
             }
-            // Post-ack delegation (return to the caller's panel), bound to the
-            // claim AFTER this keypress's own navigation: an Esc between the
-            // save and its ack must cancel the hop, not paint over the surface
-            // the user moved to.
-            const afterSelect = own.defer(() => {
-              if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
+            handBackSurface();
+            markModelCatalogStale();
+            void savePromise.catch((e) => {
+              store.pushNotice(`Couldn’t save model: ${e?.message || e}`, 'error');
             });
-            void savePromise
-              .then((result) => {
-                if (result) clearModelCaches('all');
-                afterSelect();
-                return result;
-              })
-              .catch((e) => {
-                store.pushNotice(`Couldn’t save model: ${e?.message || e}`, 'error');
-                if (handoffPanel) afterSelect();
-              });
             return;
           }
           own.paint(handoffPanel);
-          const afterSelect = own.defer(() => {
-            if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
-          });
+          handBackSurface();
+          markModelCatalogStale();
+          store.pushNotice(modelSwitchNotice(), 'info');
           void store.setRoute(routeInput)
             .then((ok) => {
-              if (ok) clearModelCaches('provider');
-              store.pushNotice(
-                ok
-                  ? modelSwitchNotice()
-                  : 'Model switch is already running',
-                ok ? 'info' : 'warn',
-              );
-              if (ok) afterSelect();
+              if (ok === false) store.pushNotice('Model switch is already running', 'warn');
             })
             .catch((e) => {
               store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error');
-              if (handoffPanel) afterSelect();
             });
         };
         const renderProviderModels = () => {

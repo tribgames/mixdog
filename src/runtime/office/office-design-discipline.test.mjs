@@ -58,6 +58,19 @@ test('design tokens replace unsafe typefaces and keep palettes readable', () => 
   assert.equal(withStates, accents, 'state words and fields stay under the saturated band');
   assert.equal(normalizePaletteTokens({ canvas: 'FFFFFF', ink: '111111', critical: 'B00020' }).colors.critical, 'B00020', 'a pack-set state color is kept');
 
+  // onAccent carries 10pt table values in the composers, so it clears the
+  // readable minimum. A mid-toned accent cannot be answered by lightening
+  // white any further: the repair has to reach for dark ink instead.
+  for (const accent of ['73A527', '27A56A', 'D89224', '1F7A55']) {
+    const repaired = normalizePaletteTokens({
+      canvas: 'F8F9F6', ink: '17221C', muted: '66716B', accent, inverse: '132C24', onAccent: 'FFFFFF', onInverse: 'FFFFFF',
+    }).colors;
+    assert.ok(
+      contrastRatio(repaired.onAccent, repaired.accent) >= 4.5,
+      `${repaired.onAccent} on ${accent} measured ${contrastRatio(repaired.onAccent, repaired.accent)}`,
+    );
+  }
+
   const design = resolveOfficeDesign('pptx', {
     typography: { display: 'Aptos Display', body: 'Consolas' },
     palette: { inverse: '#07080B' },

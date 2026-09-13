@@ -32,8 +32,11 @@ const status: DesktopGitStatus = {
   upstreamName: "origin/feature/source-control-overlays",
   remote: true,
   remoteUrl: "https://github.com/example/project.git",
-  ahead: 2,
-  behind: 1,
+  /* The WIDEST corner counts the badges can ever paint (`99+` and a two-digit
+     behind): if these fit their button's corner at 290px, every smaller count
+     does. */
+  ahead: 128,
+  behind: 99,
   operation: "",
   files: [
     changedFile("apps/desktop/src/renderer/SourceControlDock.tsx"),
@@ -439,16 +442,17 @@ const measure = async (scenario: {
       labelReport(".dock-scm-branch-button > span"),
       labelReport(".dock-project-select .mx-select-value"),
     ],
-    // Ahead/behind is a BAND under the toolbar now: every count is measured
-    // with its own direction arrow, the capsule keeps a capsule's shape, and
-    // the old chip that straddled the Push button must not come back.
-    syncBand: rectOf(".dock-scm-sync"),
-    syncCapsule: rectOf(".dock-scm-sync-count"),
-    syncCounts: [...document.querySelectorAll(".dock-scm-sync-count > span")].map((node, index) => ({
-      ...lineReport(node, `sync-count-${index}`),
-      direction: lineReport(node.querySelector("svg"), `sync-direction-${index}`),
+    // Ahead rides the Push corner and behind rides the Fetch corner: each
+    // badge is measured on its OWN button, with its digits and its direction
+    // arrow, and the old band under the toolbar must not come back.
+    syncBadges: [...document.querySelectorAll(".dock-scm-ahead-behind")].map((node, index) => ({
+      ...lineReport(node, `sync-badge-${index}`),
+      direction: (node as HTMLElement).dataset.direction || "",
+      arrow: lineReport(node.querySelector("svg"), `sync-arrow-${index}`),
+      section: [...(node.parentElement?.classList || [])].find((name) =>
+        name.startsWith("dock-scm-toolbar-") && name !== "dock-scm-toolbar-section") || "",
     })),
-    floatingBadges: document.querySelectorAll(".dock-scm-ahead-behind").length,
+    syncBands: document.querySelectorAll(".dock-scm-sync").length,
     // Changes tab: the shared filter box must share the file rows' EDGES
     // (the dock gutter + the scrollbar reserve the rows sit inside of), and
     // it is the SAME component as the History box (height + insets).

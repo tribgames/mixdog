@@ -49,6 +49,62 @@ test('portable pie charts persist distinct category colors and page setup includ
   assert.match(area, /\$N\$30$/);
 });
 
+test('the worksheet snapshot places charts on the cell grid beside the print area', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'anchored.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create', path, mode: 'portable', operations: [
+      { op: 'set_range', range: 'A1:B5', values: [['Quarter', 'Revenue'], ['Q1', 120], ['Q2', 140], ['Q3', 160], ['Q4', 190]] },
+      { op: 'add_chart', range: 'A1:B5', chartType: 'column', left: 260, top: 20, width: 420, height: 260, title: 'Revenue' },
+      { op: 'set_page_setup', fitToContent: true, orientation: 'landscape', fitToPagesWide: 1 },
+    ],
+  }, { cwd }));
+  const sheet = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd })).document.sheets[0];
+  assert.equal(sheet.chartCount, 1);
+  const chart = sheet.charts[0];
+  assert.equal(chart.seriesCount, 1);
+  // A column and a bar share one OOXML element; the reader must still name the
+  // kind the caller asked for.
+  assert.equal(chart.chartType, 'column');
+  assert.equal(chart.series[0].valueFormula, 'Sheet1!$B$2:$B$5');
+  assert.equal(chart.title, 'Revenue');
+  // The chart sits to the right of the data, so the print area has to reach it.
+  assert.ok(chart.anchor.startColumn > 2, `chart starts at ${chart.anchor.from}`);
+  assert.equal(sheet.pageSetup.orientation, 'landscape');
+  assert.equal(sheet.pageSetup.fitToPagesWide, 1);
+  const bounds = /^A1:([A-Z]+)(\d+)$/.exec(sheet.pageSetup.printArea);
+  assert.ok(bounds, `unexpected print area ${sheet.pageSetup.printArea}`);
+  const endColumn = [...bounds[1]].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0);
+  assert.ok(endColumn >= chart.anchor.endColumn, `print area ends at ${bounds[1]}, chart at ${chart.anchor.to}`);
+  assert.ok(Number(bounds[2]) >= chart.anchor.endRow, `print area ends at row ${bounds[2]}, chart at ${chart.anchor.to}`);
+});
+
+// A chart part written without a style or colour map leaves its fill to the
+// reader: Excel resolves the theme, everything else draws nothing, so the
+// rendered sheet shows value labels floating over an empty plot.
+test('a chart authored without colors still carries a visible fill on every series and slice', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'defaults.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create', path, mode: 'portable', operations: [
+      { op: 'set_range', range: 'A1:C4', values: [['구간', '처리량', '오류'], ['1분기', 12, 3], ['2분기', 18, 2], ['3분기', 24, 1]] },
+      { op: 'add_chart', range: 'A1:C4', chartType: 'column', title: '분기별 처리량' },
+      { op: 'add_chart', range: 'A1:B4', chartType: 'pie', top: 320 },
+    ],
+  }, { cwd }));
+  const zip = await JSZip.loadAsync(await readFile(created.output || path));
+  const column = await zip.file('xl/charts/chart1.xml').async('string');
+  const seriesFills = [...column.matchAll(/<c:ser>[\s\S]*?<c:spPr><a:solidFill><a:srgbClr val="([0-9A-F]{6})"\/>/g)]
+    .map((match) => match[1]);
+  assert.equal(seriesFills.length, 2, column.slice(0, 400));
+  assert.equal(new Set(seriesFills).size, 2, 'two series never share one fill');
+  const pie = await zip.file('xl/charts/chart2.xml').async('string');
+  const slices = [...pie.matchAll(/<c:dPt><c:idx val="\d+"\/><c:spPr><a:solidFill><a:srgbClr val="([0-9A-F]{6})"\/>/g)]
+    .map((match) => match[1]);
+  assert.equal(slices.length, 3, 'every slice of an uncoloured pie is filled');
+  assert.equal(new Set(slices).size, 3, 'slices are told apart by colour');
+});
+
 test('print fitting uses stored nonuniform dimensions and ignores style-only blank cells', async () => {
   const zip = new JSZip();
   const sheet = { name: 'Report', path: 'xl/worksheets/sheet1.xml' };

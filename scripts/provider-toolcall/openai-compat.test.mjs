@@ -225,7 +225,7 @@ test('openai-compat/xai Responses: freeform apply_patch downgrades to function s
     // `root` was intentionally dropped with the out-of-session Root: line
     // (a2ae023e); the JSON fallback carries the single `patch` argument.
     assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch']);
-    assert.equal(patch.description, 'Edit files with one complete V4A patch in `patch`.');
+    assert.equal(patch.description, PATCH_TOOL_DEFS.find((tool) => tool.name === 'apply_patch').description);
     assert.doesNotMatch(JSON.stringify(patch), /Begin Patch|Add File|Delete File|Update File|exact current context|roll ?back/i);
 });
 

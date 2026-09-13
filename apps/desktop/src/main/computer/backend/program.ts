@@ -12,6 +12,7 @@ import { PS_RUNTIME } from './ps-runtime';
 import { PS_AUTHORIZATION } from './ps-authorization';
 import { PS_SEQUENCE } from './ps-sequence';
 import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
 
 export { RESPONSE_MARKER } from '../shared/common';
 
@@ -93,6 +94,7 @@ public static class MixdogAbortCleanup {
 export function powershellHostProgram(): string {
   return [
     PS_SESSION,
+    `$script:MaximumForegroundTextCharacters = ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS}`,
     PS_AUTHORIZATION,
     PS_OBSERVATION,
     PS_INPUT,

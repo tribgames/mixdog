@@ -477,6 +477,7 @@ export function createRunTurn(bag) {
       const { result, session } = await runtime.ask(userText, {
         id: submittedIds[0],
         submittedAt: options.submittedAt,
+        promptSource: options.promptSource,
         transcriptMeta: turnTranscriptMeta,
         context: options.context || null,
         drainSteering: (_sessionId, drainOptions) => (isCurrentTurn() ? drainPendingSteering(drainOptions) : []),
@@ -1123,7 +1124,7 @@ export function createRunTurn(bag) {
     try {
       await bag.onGoalTurnSettled?.({
         status: finalStatus,
-        error: turnFailureDetail || null,
+        error: turnFailureDiagnostic || turnFailureDetail || null,
         usageLimited: turnFailureUsageLimited,
         preserveGoalState: preserveGoalStateAfterTurn({
           cancelled,

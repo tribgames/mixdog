@@ -94,7 +94,7 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     // loops: the model-visible tool_result is the short stub and the SKILL.md
     // body is delivered ONCE as a separate injected user message.
     return loadSkillToolDependencies(
-      contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir, skill), session, mode,
+      contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir, skill, session), session, mode,
     );
   }
 

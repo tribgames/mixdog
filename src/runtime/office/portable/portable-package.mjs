@@ -97,7 +97,11 @@ function wordStyles() {
     + '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Malgun Gothic" w:cs="Arial"/>'
     + '<w:sz w:val="22"/><w:szCs w:val="22"/>'
     + '</w:rPr></w:rPrDefault>'
-    + '<w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault>'
+    // wordWrap on keeps a Hangul word whole at the line end. Korean Word's own
+    // Normal style writes wordWrap="0" (its "한글 단어 잘림 허용" default) and
+    // breaks 내려갔다 as 내려/갔다 at the margin; verified in Word 2026-09-12:
+    // val="1" (or the element absent) wraps by word.
+    + '<w:pPrDefault><w:pPr><w:wordWrap w:val="1"/><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault>'
     + '</w:docDefaults>'
     + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>'
     + '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>'

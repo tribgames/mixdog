@@ -5,12 +5,7 @@
 // owns scheduling / stage gating and simply calls runSessionCompaction().
 import { getProvider } from '../../providers/registry.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage, resolveCompactBufferRatio } from '../context-utils.mjs';
-import { executeInternalTool } from '../../internal-tools.mjs';
-import {
-    callMemoryColdStart,
-    memoryHandoffTimeoutMs,
-    runFreshContextCompact,
-} from '../loop/fresh-context.mjs';
+import { runFreshContextCompact } from '../loop/fresh-context.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
 import { resolveHandoffSummaryModel } from '../loop/compact-policy.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
@@ -63,13 +58,13 @@ export function resolveSessionCompactionPolicy(session, messages = session?.mess
         compaction: { ...(session.compaction || {}), auto: true },
     }, requestTools);
 }
-function addCompactUsageToSession(session, usage) {
+function addCompactUsageToSession(session, usage, provider = session?.provider) {
     if (!session || !usage) return;
     const inputTokens = usage.inputTokens || 0;
     const outputTokens = usage.outputTokens || 0;
     const cachedTokens = usage.cachedTokens || 0;
     const cacheWriteTokens = usage.cacheWriteTokens || 0;
-    const uncachedInputTokens = uncachedInputTokensForProvider(session.provider, inputTokens, cachedTokens, cacheWriteTokens);
+    const uncachedInputTokens = uncachedInputTokensForProvider(provider, inputTokens, cachedTokens, cacheWriteTokens);
     session.totalInputTokens = (session.totalInputTokens || 0) + inputTokens;
     session.totalOutputTokens = (session.totalOutputTokens || 0) + outputTokens;
     session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + cachedTokens;
@@ -97,9 +92,6 @@ function withoutLegacyCompactFields(value) {
     ]) delete next[key];
     return next;
 }
-// Memory bounds live with the fresh-context pipeline, so every caller
-// — this one and the pre-send
-// compaction — shares one timeout contract instead of each wiring its own.
 // Handoff-summary timeout scales with transcript size (clear/manual path):
 // default max(30s, ~10s per 25k estimated message tokens) capped at 120s, so a
 // large (~100k-token) transcript no longer dies on a fixed 30s bound.
@@ -110,6 +102,54 @@ function handoffSummaryTimeoutMs(session, messageTokens) {
     const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
     return Math.min(120_000, Math.max(30_000, scaled));
 }
+/**
+ * ONE wiring for the fresh-context handoff pass: provider, summary model,
+ * isolated summary call and the timeout that scales with the transcript.
+ *
+ * It is pure with respect to the session — new messages come back, nothing is
+ * mutated and nothing is persisted — so a caller may compact a COPY of a
+ * conversation. Session inheritance relies on exactly that: an oversized
+ * transcript is compacted for the heir while the session that owns it keeps
+ * every message (user: 자동으로 컴팩트하고 승계).
+ */
+export async function runHandoffCompaction({
+    session,
+    messages,
+    budgetTokens,
+    boundaryTokens,
+    reserveTokens,
+    contextWindow = null,
+    sessionId = null,
+    signal = null,
+    provider = null,
+    model = null,
+    config,
+    messageTokensEst = null,
+} = {}) {
+    const transcriptTokens = Number.isFinite(Number(messageTokensEst))
+        ? Number(messageTokensEst)
+        : estimateMessagesTokens(Array.isArray(messages) ? messages : []);
+    return runFreshContextCompact({
+        sessionRef: session,
+        messages,
+        compactBudgetTokens: budgetTokens,
+        compactPolicy: {
+            reserveTokens,
+            contextWindow: positiveInt(contextWindow)
+                || positiveInt(session?.contextWindow)
+                || boundaryTokens,
+            boundaryTokens,
+            handoffTimeoutMs: handoffSummaryTimeoutMs(session, transcriptTokens),
+        },
+        sessionId,
+        signal,
+        config,
+        provider: provider || getProvider(session?.provider) || null,
+        model: model || resolveHandoffSummaryModel(session, { budgetTokens }) || session?.model,
+        sendOpts: { session },
+    });
+}
+
 export async function runSessionCompaction(session, opts = {}) {
     if (!session || session.closed === true) return null;
     const resolvedSessionId = opts.sessionId || session.id || null;
@@ -184,33 +224,23 @@ export async function runSessionCompaction(session, opts = {}) {
     let freshContextError = null;
     {
         try {
-            const contextWindow = positiveInt(session.contextWindow) || boundary;
-            const memoryTimeoutMs = memoryHandoffTimeoutMs(session);
-            const executeMemory = typeof opts.executeInternalToolFn === 'function'
-                ? opts.executeInternalToolFn
-                : executeInternalTool;
-            freshContextResult = await runFreshContextCompact({
-                sessionRef: session,
+            freshContextResult = await runHandoffCompaction({
+                session,
                 messages,
-                compactBudgetTokens: budget,
-                compactPolicy: {
-                    reserveTokens,
-                    contextWindow,
-                    boundaryTokens: boundary,
-                    handoffTimeoutMs: handoffSummaryTimeoutMs(session, beforeMessageTokens),
-                },
+                budgetTokens: budget,
+                boundaryTokens: boundary,
+                reserveTokens,
+                contextWindow: positiveInt(session.contextWindow) || boundary,
                 sessionId: resolvedSessionId,
                 signal: opts.signal || null,
                 provider,
-                model: opts.model || resolveHandoffSummaryModel(session, { budgetTokens: budget }) || session.model,
-                sendOpts: { session },
-                executeMemorySearch: (args, callerCtx) => (
-                    callMemoryColdStart(args, callerCtx, memoryTimeoutMs, executeMemory)
-                ),
+                model: opts.model,
+                config: opts.config,
+                messageTokensEst: beforeMessageTokens,
             });
             if (Array.isArray(freshContextResult?.messages)) {
                 compacted = freshContextResult.messages;
-                addCompactUsageToSession(session, freshContextResult.usage);
+                addCompactUsageToSession(session, freshContextResult.usage, freshContextResult.summaryProvider);
             }
         } catch (err) {
             freshContextError = err;
@@ -346,7 +376,9 @@ export async function runSessionCompaction(session, opts = {}) {
         lastFreshContext: freshContextResult?.freshContext === true,
         lastFreshContextError: null,
         lastError: null,
-        lastHandoffSource: freshContextResult?.handoffSource || 'memory',
+        lastHandoffSource: freshContextResult?.handoffSource || 'session-local',
+        lastSummaryProvider: freshContextResult?.summaryProvider || session.provider,
+        lastSummaryModel: freshContextResult?.summaryModel || session.model,
         lastSummaryUsage: freshContextResult?.usage ? {
             inputTokens: freshContextResult.usage.inputTokens || 0,
             outputTokens: freshContextResult.usage.outputTokens || 0,
@@ -418,7 +450,7 @@ export async function runSessionCompaction(session, opts = {}) {
         reserveTokens,
         freshContext: freshContextResult?.freshContext === true,
         freshContextError: null,
-        handoffSource: freshContextResult?.handoffSource || 'memory',
+        handoffSource: freshContextResult?.handoffSource || 'session-local',
         usage: freshContextResult?.usage || null,
     };
 }

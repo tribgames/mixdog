@@ -22,6 +22,12 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     command: ComputerCommand, action: string, target: ResolvedInputTarget, batchSequenceStep = false,
   ): Promise<PowerShellResponse> {
     const { targetWindowId, physicalX, physicalY, physicalToX, physicalToY, allowedWindowIds } = target;
+    const inputObservation = command.delivery === 'foreground'
+      && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID ? target.observedScope?.inputObservation : undefined;
+    if (command.delivery === 'foreground' && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID
+      && (!inputObservation?.ready || !inputObservation.monitor || !Number.isSafeInteger(inputObservation.sequence))) {
+      throw new Error('input_observation_unavailable: capture a fresh foreground-ready observation before input');
+    }
     const authorizeDispatch = async () => {
       assertExecutionNotAborted();
       computerUseCoordinator.assertOperationAllowed(action);
@@ -92,6 +98,10 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
       include_noninteractive: command.include_noninteractive ?? null, max_elements: command.max_elements ?? null,
       continuation: command.continuation ?? null, known_injection_tick: command.known_injection_tick ?? null,
       session_id: sessionIdFor(command),
+      ...(inputObservation ? {
+        observed_input_monitor_id: inputObservation.monitor,
+        observed_input_user_sequence: inputObservation.sequence,
+      } : {}),
     };
     const integrity = command.delivery === 'foreground'
       ? await readWindowIntegrity(targetWindowId, sessionIdFor(command))
@@ -101,7 +111,12 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     }
     const usePrivilegedWorker = integrity.known && integrity.higher;
     assertExecutionNotAborted();
-    if (usePrivilegedWorker) policy.assertElevated();
+    if (usePrivilegedWorker) {
+      policy.assertElevated();
+      if (command.ref || command.to) {
+        throw new Error('privileged_worker_ref_unsupported: use frame-bound coordinates or direct keys/text; no UAC request was opened');
+      }
+    }
     const authority = await authorizeDispatch();
     assertObservationInputAllowed(command, host.isObserveOnly());
     const response = usePrivilegedWorker

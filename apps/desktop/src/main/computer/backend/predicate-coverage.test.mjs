@@ -29,28 +29,38 @@ function Format-ObservationValue($value, $maximum = 120) {
 }
 function Resolve-WindowInfo($title, $id) { return @{Id='hwnd:0x1'; Title='fixture'; Handle=[IntPtr]1} }
 $mockWindow = [pscustomobject]@{}
-$mockWindow | Add-Member ScriptMethod FindAll { param($scope, $condition) return $script:elements }
+$mockWindow | Add-Member ScriptMethod FindAll {
+  param($scope, $condition)
+  # Evaluate the provider query rather than returning controls its filter excludes.
+  return @($script:elements | Where-Object {
+    if ([object]::ReferenceEquals($condition, [System.Windows.Automation.Condition]::TrueCondition)) { return $true }
+    $type = $_.Cached.ControlType
+    return @($condition.GetConditions() | Where-Object { $_.Value -eq $type }).Count -gt 0
+  })
+}
 function Find-Window($title, $id) { return $mockWindow }
 $rows = @()
-foreach ($case in @('empty','complete','truncated','long-text','partial-provider')) {
+foreach ($case in @('empty','complete','truncated','long-text','partial-provider','custom-error')) {
   [MixMsaa]::Complete = $case -ne 'partial-provider'
   $names = switch ($case) {
     'empty' { @() }
     'truncated' { @('one','two','error') }
     'long-text' { @('x' * 201) }
+    'custom-error' { @('error') }
     default { @('ready') }
   }
   $script:elements = @($names | ForEach-Object {
     [pscustomobject]@{ Cached=[pscustomobject]@{
-      IsOffscreen=$false; Name=$_; IsEnabled=$true; ControlType=[System.Windows.Automation.ControlType]::Text
+      IsOffscreen=$false; Name=$_; IsEnabled=$true
+      ControlType=$(if ($case -eq 'custom-error') { [System.Windows.Automation.ControlType]::Custom } else { [System.Windows.Automation.ControlType]::Text })
     }}
   })
   $result = Get-WindowPredicates ([pscustomobject]@{
     window_id='hwnd:0x1'; window=$null; max_elements=2; include_elements=$true
   })
-  $rows += @{case=$case; complete=$result.text_complete; returned=$result.returned}
+  $rows += @{case=$case; complete=$result.text_complete; returned=$result.returned; elements=$result.elements}
 }
-$rows | ConvertTo-Json -Compress
+$rows | ConvertTo-Json -Compress -Depth 6
 `;
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-predicate-coverage-'));
   const path = join(directory, 'probe.ps1');
@@ -66,7 +76,9 @@ $rows | ConvertTo-Json -Compress
       ['truncated', false, 2],
       ['long-text', false, 1],
       ['partial-provider', false, 1],
+      ['custom-error', true, 1],
     ]);
+    assert.equal(results.at(-1).elements[0].name, 'error');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

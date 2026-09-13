@@ -192,8 +192,19 @@ function ensureContrast(colors, foregroundRole, backgroundRole, minimum, adjustm
   const background = colors[backgroundRole];
   const ratio = contrastRatio(foreground, background);
   if (ratio == null || ratio >= minimum) return;
-  const direction = relativeLuminance(background) >= 0.5 ? -1 : 1;
-  const repaired = adjustLightnessForContrast(foreground, background, minimum, direction);
+  // A mid-toned field cannot be answered by pushing the ink further the way it
+  // already leans: white has nowhere lighter to go, so the repair silently gave
+  // up and left unreadable text. Both directions are measured, the ink keeps
+  // leaning away from the field when that works, and the darker answer is taken
+  // when it does not.
+  const preferred = relativeLuminance(background) >= 0.5 ? -1 : 1;
+  const candidates = [preferred, -preferred].map((direction) => {
+    const candidate = adjustLightnessForContrast(foreground, background, minimum, direction);
+    return { candidate, ratio: contrastRatio(candidate, background) ?? 0 };
+  });
+  const best = candidates.find((entry) => entry.ratio >= minimum)
+    || candidates.reduce((left, right) => (right.ratio > left.ratio ? right : left));
+  const repaired = best.candidate;
   if (repaired !== foreground) {
     colors[foregroundRole] = repaired;
     adjustments.push({
@@ -235,7 +246,11 @@ export function normalizePaletteTokens(source) {
     if (hexToRgb(colors[panel])) ensureContrast(colors, 'muted', panel, TEXT_CONTRAST_MINIMUM, adjustments);
   }
   ensureContrast(colors, 'onInverse', 'inverse', TEXT_CONTRAST_MINIMUM, adjustments);
-  ensureContrast(colors, 'onAccent', 'accent', LARGE_TEXT_CONTRAST_MINIMUM, adjustments);
+  // onAccent is the ink every composer puts on an accent field, including
+  // 10pt table values and headers, so it has to clear the readable minimum
+  // rather than the large-text one: a light accent takes dark ink instead of
+  // white, and the runtime stops failing its own contrast rule.
+  ensureContrast(colors, 'onAccent', 'accent', TEXT_CONTRAST_MINIMUM, adjustments);
   // A second dark step gives panels and cards on a dark field a planned tone,
   // so authors stop inventing near-black hexes for every card.
   const darkField = hexToHsl(colors.inverse);

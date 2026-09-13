@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import {
   mkdir,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -587,19 +588,97 @@ export async function extractPdfOutline(path, { maxEntries = 500 } = {}) {
   }
 }
 
+// The engine's own column order. Tesseract writes this table with a header
+// row through its command line and without one through the worker API, so the
+// reader accepts both: taking the first data row as a header dropped that word
+// and left every lookup undefined, which is an empty result, not an error.
+const OCR_TSV_COLUMNS = Object.freeze([
+  'level', 'page_num', 'block_num', 'par_num', 'line_num', 'word_num',
+  'left', 'top', 'width', 'height', 'conf', 'text',
+]);
+
+function ocrTsvRows(value) {
+  const lines = String(value || '').split(/\r?\n/).filter((line) => line.trim());
+  if (!lines.length) return { at: {}, rows: [] };
+  const first = lines[0].split('\t');
+  const headed = first.includes('text') && first.includes('conf');
+  const at = headed
+    ? Object.fromEntries(first.map((name, index) => [name, index]))
+    : Object.fromEntries(OCR_TSV_COLUMNS.map((name, index) => [name, index]));
+  const rows = (headed ? lines.slice(1) : lines)
+    .map((line) => line.split('\t'))
+    .filter((columns) => columns.length >= OCR_TSV_COLUMNS.length);
+  return { at, rows };
+}
+
+function ocrTsvWord(columns, at) {
+  return {
+    text: columns[at.text] || '',
+    confidence: Number(columns[at.conf] || -1),
+    left: Number(columns[at.left] || 0),
+    top: Number(columns[at.top] || 0),
+    width: Number(columns[at.width] || 0),
+    height: Number(columns[at.height] || 0),
+  };
+}
+
 export function parseOcrTsv(value) {
-  const rows = String(value || '').split(/\r?\n/);
-  if (!rows.length) return [];
-  const header = rows.shift().split('\t');
-  const position = Object.fromEntries(header.map((name, index) => [name, index]));
-  return rows.map((line) => line.split('\t')).filter((columns) => columns.length >= header.length).map((columns) => ({
-    text: columns[position.text] || '',
-    confidence: Number(columns[position.conf] || -1),
-    left: Number(columns[position.left] || 0),
-    top: Number(columns[position.top] || 0),
-    width: Number(columns[position.width] || 0),
-    height: Number(columns[position.height] || 0),
-  })).filter((word) => word.text.trim() && word.width > 0 && word.height > 0);
+  const { at, rows } = ocrTsvRows(value);
+  if (at.text === undefined) return [];
+  return rows
+    .map((columns) => ocrTsvWord(columns, at))
+    .filter((word) => word.text.trim() && word.width > 0 && word.height > 0);
+}
+
+// One text line per recognized row, with the words that belong to it.
+//
+// A word box is where ink sits, not where a word begins and ends: Korean and
+// CJK come back split at syllable boundaries ("출" "고" "율" for 출고율) while a
+// real word break can measure a single pixel. Geometry therefore cannot rebuild
+// the line, but the engine's own line text can — it is the reading the OCR
+// result already reports. The rows and the text come back in the same order, so
+// a line takes that text when it carries exactly the same characters, and falls
+// back to its word boxes when it does not.
+export function ocrTextLines(value, plainText = '') {
+  const { at, rows } = ocrTsvRows(value);
+  if (['line_num', 'left', 'text'].some((name) => at[name] === undefined)) return [];
+  const groups = new Map();
+  for (const columns of rows) {
+    const word = ocrTsvWord(columns, at);
+    if (!word.text.trim() || !(word.width > 0) || !(word.height > 0)) continue;
+    const key = [at.page_num, at.block_num, at.par_num, at.line_num].map((index) => columns[index]).join('/');
+    const group = groups.get(key) || { words: [] };
+    group.words.push(word);
+    groups.set(key, group);
+  }
+  const spoken = String(plainText || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const compact = (line) => line.replace(/\s+/g, '');
+  return [...groups.values()].map((group, index) => {
+    const words = group.words.slice().sort((left, right) => left.left - right.left);
+    const left = Math.min(...words.map((word) => word.left));
+    const top = Math.min(...words.map((word) => word.top));
+    const width = Math.max(...words.map((word) => word.left + word.width)) - left;
+    const height = Math.max(...words.map((word) => word.top + word.height)) - top;
+    const engine = spoken[index] || '';
+    const joined = words.map((word) => word.text).join(' ');
+    // The widest space between two boxes on this row. A column gap means the
+    // row is really two, and one stretched run would put every character in it
+    // at the wrong place.
+    const columnGap = words.slice(1).reduce((widest, word, position) => {
+      const previous = words[position];
+      return Math.max(widest, word.left - (previous.left + previous.width));
+    }, 0);
+    return {
+      text: compact(engine) === compact(joined) && engine ? engine : joined,
+      fromEngine: Boolean(engine) && compact(engine) === compact(joined),
+      words,
+      left,
+      top,
+      width,
+      height,
+      columnGap,
+    };
+  });
 }
 
 export function parseOcrBlocks(blocks) {
@@ -628,6 +707,34 @@ export function parseOcrBlocks(blocks) {
     }
   }
   return words;
+}
+
+// Whether a scanned page can be read here and now. The engine ships with the
+// runtime, but each language's data is downloaded on first use and kept in the
+// cache: promising OCR of a Korean scan on a machine with no network and no
+// cached kor data fails in the middle of the task instead of before it.
+export async function pdfOcrReadiness(dataDir) {
+  const cachePath = join(dataDir, 'office', 'ocr', 'languages');
+  let available = true;
+  try {
+    require.resolve('tesseract.js');
+  } catch {
+    available = false;
+  }
+  let languages = [];
+  try {
+    languages = (await readdir(cachePath))
+      .map((name) => /^(.+?)\.traineddata(?:\.gz)?$/.exec(name)?.[1])
+      .filter(Boolean)
+      .sort();
+  } catch {}
+  return {
+    available,
+    backend: 'tesseract',
+    cachedLanguages: languages,
+    cachePath,
+    note: 'A language not listed is downloaded on first use; without network access only the cached ones work.',
+  };
 }
 
 export async function ocrPdf(path, operation, {
@@ -669,10 +776,10 @@ export async function ocrPdf(path, operation, {
       const image = rendered.images[0];
       temporaryImages.push(image.path);
       const recognized = await worker.recognize(image.path, {}, { text: true, tsv: true, blocks: true });
-      const positionedWords = parseOcrTsv(recognized.data.tsv);
-      const words = (positionedWords.length ? positionedWords : parseOcrBlocks(recognized.data.blocks))
+      const lines = ocrTextLines(recognized.data.tsv, recognized.data.text);
+      const words = (lines.length ? lines.flatMap((line) => line.words) : parseOcrBlocks(recognized.data.blocks))
         .filter((word) => word.confidence >= Number(operation.minConfidence ?? 40));
-      recognizedPages.push({ pageNumber, image, words });
+      recognizedPages.push({ pageNumber, image, lines, words });
       text += `${text ? '\n\n' : ''}--- Page ${pageNumber} ---\n${recognized.data.text || ''}`;
     }
     const coverage = recognizedPages.flatMap((entry) => entry.words.map((word) => word.text)).join(' ');
@@ -686,28 +793,46 @@ export async function ocrPdf(path, operation, {
       selected = await embedDocumentFont(document, { text: '' });
     }
     const { font, fontPath, embedded } = selected;
-    for (const { pageNumber, image, words } of recognizedPages) {
+    for (const { pageNumber, image, lines, words } of recognizedPages) {
       const page = document.getPage(pageNumber - 1);
       const scaleX = page.getWidth() / image.width;
       const scaleY = page.getHeight() / image.height;
-      for (const word of words) {
-        if (!fontCovers(font, word.text)) {
-          skippedWords += 1;
-          continue;
-        }
-        // Fit the invisible word to its box in both directions so text
-        // extraction sees single spaces between words and layout queries
-        // land where the picture shows the word.
-        const naturalWidth = font.widthOfTextAtSize(word.text, 1);
-        const byWidth = naturalWidth > 0 ? (word.width * scaleX) / naturalWidth : Infinity;
-        page.drawText(word.text, {
-          x: word.left * scaleX,
-          y: page.getHeight() - (word.top + word.height) * scaleY,
-          size: Math.max(3, Math.min(word.height * scaleY * 0.8, byWidth)),
+      // Fit the invisible text to its box in both directions so extraction
+      // reads it as one phrase and layout queries land where the picture
+      // shows it.
+      const place = (value, box) => {
+        const naturalWidth = font.widthOfTextAtSize(value, 1);
+        const byWidth = naturalWidth > 0 ? (box.width * scaleX) / naturalWidth : Infinity;
+        page.drawText(value, {
+          x: box.left * scaleX,
+          y: page.getHeight() - (box.top + box.height) * scaleY,
+          size: Math.max(3, Math.min(box.height * scaleY * 0.8, byWidth)),
           font,
           color: rgb(0, 0, 0),
           opacity: 0,
         });
+      };
+      const settled = new Set();
+      for (const line of lines) {
+        const kept = line.words.filter((word) => word.confidence >= Number(operation.minConfidence ?? 40));
+        // A dropped word, a column gap, or a glyph the font lacks sends this
+        // row back to its boxes: a stretched run would then carry text the
+        // page does not show, or show it in the wrong place.
+        if (kept.length !== line.words.length) continue;
+        if (line.columnGap > line.height * 1.5) continue;
+        if (!line.text || !fontCovers(font, line.text)) continue;
+        place(line.text, line);
+        for (const word of line.words) settled.add(word);
+        wordCount += kept.length;
+        totalConfidence += kept.reduce((sum, word) => sum + word.confidence, 0);
+      }
+      for (const word of words) {
+        if (settled.has(word)) continue;
+        if (!fontCovers(font, word.text)) {
+          skippedWords += 1;
+          continue;
+        }
+        place(word.text, word);
         wordCount += 1;
         totalConfidence += word.confidence;
       }

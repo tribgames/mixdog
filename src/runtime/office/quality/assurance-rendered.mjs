@@ -85,9 +85,20 @@ async function renderedPageMetric(image) {
   };
 }
 
+// A worksheet that fits a page at full scale is small, not scaled down: its
+// print reads at the size the author set, however little of the page it uses.
+export function isSmallWorksheetDocument(document) {
+  const sheets = Array.isArray(document?.sheets) ? document.sheets : [];
+  return sheets.length > 0 && sheets.every((sheet) => (
+    (Number(sheet?.rows) || 0) < 40 && (Number(sheet?.columns) || 0) < 12
+    && (Number(sheet?.pageSetup?.zoom) || 100) >= 100
+  ));
+}
+
 export async function reviewRenderedOfficePages(images = [], {
   format = '',
   pageRoles = {},
+  smallWorksheet = false,
 } = {}) {
   const normalized = String(format || '').toLowerCase();
   const pageImages = renderedPageImages(images);
@@ -138,6 +149,7 @@ export async function reviewRenderedOfficePages(images = [], {
     }
     if (
       normalized === 'xlsx'
+      && !smallWorksheet
       && metric.inkCoverage < 0.095
       && (
         (metric.horizontalSpan < 0.7 && metric.verticalSpan < 0.5)

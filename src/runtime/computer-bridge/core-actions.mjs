@@ -1,4 +1,5 @@
 import { hasOwn } from '../shared/object.mjs';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from './limits.mjs';
 
 export const COMPUTER_DEFAULT_DELIVERY = 'background';
 
@@ -46,7 +47,8 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
     },
     direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
     amount: { type: 'integer', minimum: 1, maximum: 100 },
-    text: { type: 'string', maxLength: 30_000 },
+    text: { type: 'string', maxLength: 30_000,
+      description: `Literal text. Foreground typing accepts at most ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} characters per action; split longer text into separate observed acts.` },
     keys: {
       type: 'string',
       minLength: 1,
@@ -152,6 +154,10 @@ export function validateComputerCoreActions(
     for (const [field, value] of Object.entries(action)) {
       const valueError = fieldValueError(field, value, label);
       if (valueError) return valueError;
+    }
+    if (type === 'type' && delivery === 'foreground'
+      && typeof action.text === 'string' && action.text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS) {
+      return `${label} foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} characters; split the text into separate observed acts`;
     }
     for (const field of ['ref', 'to']) {
       if (hasOwn(action, field) && !action[field].trim()) {

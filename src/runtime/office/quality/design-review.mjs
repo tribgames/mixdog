@@ -78,15 +78,21 @@ function reviewPptxTheme(document, design, issues) {
   if (backgrounds.some((color) => !color)) return;
   // An authored deck drew its own palette: judge it against its own ladder
   // (cover = inverse, dominant content color = canvas), not the composer's.
-  const ownLadder = plansBySlide.size ? null : authoredBackgroundLadder(backgrounds, design.tokens.colors);
+  // A brief gives an authored deck slide plans too, so plan presence does not
+  // mean the composer drew it; only a plan that names the background role does.
+  const composedBackgrounds = [...plansBySlide.values()]
+    .some((plan) => String(plan?.backgroundRole || '').trim());
+  const ownLadder = composedBackgrounds ? null : authoredBackgroundLadder(backgrounds, design.tokens.colors);
   const colorFor = (role) => String((ownLadder || design.tokens.colors)[role] || '').toUpperCase();
   const mismatches = [];
   slides.forEach((slide, index) => {
     const role = pptxExpectedBackgroundRole(slide, roleSlides, deck, plansBySlide);
     const expected = colorFor(role);
-    // With its own ladder a content slide may drop to the inverse field (a
-    // breathing or section slide); only a third color is drift.
-    const allowed = ownLadder && backgrounds[index] === ownLadder.inverse;
+    // With its own ladder the author decides which slide takes the inverse
+    // field (a light cover with a dark closing is a composition, not an error);
+    // only a third color — outside the deck's own two backgrounds — is drift.
+    const allowed = ownLadder
+      && (backgrounds[index] === ownLadder.inverse || backgrounds[index] === ownLadder.canvas);
     if (expected && backgrounds[index] !== expected && !allowed) {
       mismatches.push(`${slide.index}:${backgrounds[index]}→${role}`);
     }

@@ -27,8 +27,9 @@ import type {
   DesktopServiceInbound,
   DesktopServiceOutbound,
 } from './desktop-service-protocol';
-import { localProviderInstallRequestTimeout } from './local-provider-install-timeout';
+import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
+import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 
 export interface DesktopTransport {
   postMessage(message: DesktopServiceInbound): void;
@@ -62,6 +63,10 @@ interface PendingRequest {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+// Carrying an oversized conversation compacts it for the heir first — one
+// summarization pass over the whole transcript. That work outlives the
+// ordinary request deadline, which is sized for interactive calls.
+const INHERIT_SESSION_TIMEOUT_MS = 600_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_RESTART_BASE_DELAY_MS = 250;
 const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
@@ -351,6 +356,8 @@ export class DesktopServiceClient implements DesktopService {
       else decoder = createSnapshotDeltaDecoder();
       this.sessionStateDecoders.set(sessionId, decoder);
       const decoded = decoder.decode(message.wire);
+      reportTranscriptRead(sessionId, message.readTraceId,
+        decoded.ok ? 'main-received' : 'main-resync');
       if (!decoded.ok) {
         decoder.reset();
         try { transport.postMessage({ kind: 'session-state-resync', sessionId }); } catch {}
@@ -360,6 +367,7 @@ export class DesktopServiceClient implements DesktopService {
       const update: DesktopSessionStateUpdate = {
         sessionId,
         snapshot: decoded.snapshot as SessionSnapshot,
+        ...(message.readTraceId ? { readTraceId: message.readTraceId } : {}),
         frameSource: message.frameSource,
         ...(message.laneEnd ? { laneEnd: message.laneEnd } : {}),
         ...(typeof message.contentRevision === 'number'
@@ -708,8 +716,10 @@ export class DesktopServiceClient implements DesktopService {
   deleteSession(sessionId: string): Promise<unknown> {
     return this.invoke('deleteSession', [sessionId]);
   }
-  prefetchSession(sessionId: string, transcriptItemLimit?: number): Promise<boolean> {
-    return this.invokeRead('prefetchSession', [sessionId, transcriptItemLimit]);
+  prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
+    return this.invokeRead('prefetchSession', [
+      sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : []),
+    ]);
   }
   setVisibleSessions(sessionIds: string[]): Promise<boolean> {
     this.visibleSessionIds = [...new Set(sessionIds
@@ -745,7 +755,11 @@ export class DesktopServiceClient implements DesktopService {
     sourceSessionId: string,
     route?: DesktopModelSelection | null,
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    return this.invoke('inheritSession', [sourceSessionId, route ?? null]);
+    return this.invoke(
+      'inheritSession',
+      [sourceSessionId, route ?? null],
+      INHERIT_SESSION_TIMEOUT_MS,
+    );
   }
   submitToSession(
     sessionId: string,
@@ -782,7 +796,7 @@ export class DesktopServiceClient implements DesktopService {
       capability,
       args,
       sessionId,
-    ], localProviderInstallRequestTimeout(capability, args));
+    ], longRunningRequestTimeout(capability, args));
   }
   readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,

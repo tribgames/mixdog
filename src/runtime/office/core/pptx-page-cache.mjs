@@ -23,8 +23,11 @@ export async function pptxPageSignatures(path) {
   const seed = global.digest('hex');
   const locals = new Map();
   const links = new Map();
+  // A hidden slide is skipped by every renderer, so it owns no exported page.
+  const hidden = new Set();
   for (const slide of slides) {
     const xml = await zipText(zip, slide.path);
+    if (/^[\s\S]*?<p:sld\b[^>]*\bshow="(?:0|false)"/.test(xml)) hidden.add(slide.path);
     const rels = await zipText(zip, partRelationshipPath(slide.path));
     locals.set(slide.path, digest(xml + '\0' + rels));
     const linked = [];
@@ -36,7 +39,7 @@ export async function pptxPageSignatures(path) {
     }
     links.set(slide.path, linked);
   }
-  return slides.map((slide, index) => {
+  return slides.filter((slide) => !hidden.has(slide.path)).map((slide, index) => {
     const dependencies = new Set();
     const visit = (path) => {
       if (dependencies.has(path)) return;

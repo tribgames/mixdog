@@ -127,7 +127,7 @@ export function createSessionProjection({
     if (entry.externalView === true) return nextId;
     const existing = sessionsById.get(nextId);
     if (existing && existing !== entry && !existing.disposed) {
-      // Do not redirect an established address to a second session runtime. The load
+      // Never redirect an established address to a second session runtime.
       throw new Error(`duplicate session address: ${nextId}`);
     }
     const external = externalViewEntries.get(nextId);
@@ -169,6 +169,7 @@ export function createSessionProjection({
   }
 
   function publishExternalSessionState(update) {
+    if (isClosed()) return;
     const sessionId = String(update?.sessionId || '');
     const snapshot = update?.snapshot;
     if (!sessionId || !snapshot || typeof snapshot !== 'object') return;
@@ -263,7 +264,8 @@ export function createSessionProjection({
       if (!step.changed) return;
       publishStep(entry, step);
     } catch (err) {
-      log(`publish failed session=${currentSessionId(entry) || '(creating)'}: ${err?.message || err}`);
+      const sessionId = entry.addressedSessionId || entry.indexedSessionId || '(creating)';
+      log(`publish failed session=${sessionId}: ${err?.message || err}`);
     }
   }
 

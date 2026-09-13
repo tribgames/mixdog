@@ -1,5 +1,18 @@
 import { join } from 'node:path';
 
+// A template placeholder: {{name}}, where the name is written in the document's
+// own script. A Latin-only name would leave {{계약명}} unrecognised — neither
+// filled nor reported as unresolved, so it would ship as written.
+export const TEMPLATE_TOKEN_SOURCE = '\\{\\{\\s*([\\p{L}\\p{N}_.-]+)\\s*\\}\\}';
+
+// One sectPr element and nothing past it. A document with section breaks
+// carries a sectPr inside each break paragraph as well, and a pattern allowed
+// to run across them reads the first of those as the document's own — which
+// puts appended content inside that paragraph.
+export const SECTION_PROPERTIES_SOURCE = '<w:sectPr(?:\\s[^>]*)?(?:\\/>|>(?:(?!<w:sectPr)[\\s\\S])*?<\\/w:sectPr>)';
+
+export const TRAILING_SECTION_PATTERN = new RegExp(`${SECTION_PROPERTIES_SOURCE}\\s*$`);
+
 export const OOXML_REQUIRED = {
   docx: ['[Content_Types].xml', 'word/document.xml'],
   xlsx: ['[Content_Types].xml', 'xl/workbook.xml'],
@@ -251,4 +264,16 @@ export function upsertOrderedChild(xml, order, tag, element) {
 
 export function xmlAttribute(attributes, name) {
   return new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(attributes)?.[1] || '';
+}
+
+
+// Whether word/settings.xml says new edits are recorded as revisions. Word
+// drops the element when the author turns tracking off, but a converted or
+// template-based file writes it as w:val="false" instead — reading the element
+// alone would call that document tracked and leave its edits silently plain.
+export function settingsTrackChanges(settingsXml = '') {
+  const element = /<w:trackRevisions\b([^>]*)\/?>/.exec(settingsXml || '');
+  if (!element) return false;
+  const declared = xmlAttribute(element[1], 'w:val');
+  return !['0', 'false', 'off'].includes(declared.toLowerCase());
 }

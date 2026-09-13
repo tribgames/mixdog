@@ -5,6 +5,7 @@
  * re-exports for provider test and integration entry points.
  */
 import { randomBytes } from 'crypto';
+import { runAbortable } from '../../../shared/abort-race.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
@@ -497,10 +498,10 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             try {
                 // Race the read against the idle timer's rejector so a stuck
                 // reader.read() (cancel did not settle it) still unblocks here.
-                chunk = await new Promise((resolve, reject) => {
+                chunk = await runAbortable(signal, () => new Promise((resolve, reject) => {
                     idleReject = reject;
                     reader.read().then(resolve, reject);
-                });
+                }), 'Anthropic OAuth SSE stream aborted');
             } catch (err) {
                 if (idleTimedOut) {
                     throw _attachStallPartial(streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS, { emittedToolCall: !!state?.emittedToolCall }));
@@ -515,6 +516,8 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                         : new Error('Anthropic OAuth SSE stream aborted');
                 }
                 throw err;
+            } finally {
+                idleReject = null;
             }
             const { done, value } = chunk;
             if (done) break;

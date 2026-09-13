@@ -6,6 +6,7 @@
 // tool; cross-tool policy lives in rules/shared/*.md.
 // Platform-specific command syntax belongs next to the command argument.
 import { GIT_STAGE_TOOL_DEF, GIT_TOOL_DEF } from './git-command-tool.mjs';
+import { PUBLIC_PATH_BATCH_LIMIT, PUBLIC_READ_WINDOW_MAX } from './arg-guard.mjs';
 import { GITHUB_TOOL_DEF } from '../../../../github/tool.mjs';
 // action=wait ceiling, colocated with the schema that publishes it so the
 // documented bounds and the runtime clamp cannot drift. The wait returns the
@@ -28,13 +29,8 @@ export const TASK_WAIT_TIMEOUT_MIN_MS = 10_000;
 export const TASK_WAIT_TIMEOUT_MAX_MS = 600_000;
 const _shellSyntaxCheat =
     process.platform === 'win32'
-        ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved.'
-        : ' Bash: use && between dependent commands.';
-// Keep the routing map short and adjacent to the shell's primary description.
-// PowerShell aliases appear only on win32.
-const _shellToolRouting = process.platform === 'win32'
-    ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; git, NOT a plain git command; task, NOT Start-Job or a wait loop.'
-    : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; git, NOT a plain git command; task, NOT & or a wait loop.';
+        ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved. For multiline program input, use a literal here-string.'
+        : ' Bash: chain dependent commands with &&. For multiline input, use a quoted heredoc delimiter, not extra quoting/escape layers.';
 // Process-stable switch used to describe foreground-only execution accurately.
 const _shellBackgroundDisabled = /^(1|true|yes|on)$/i.test(
     String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
@@ -45,22 +41,47 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Known-file contents or line ranges. Read missing evidence, not unchanged content already available. Use the narrowest sufficient range; include all unseen context needed to decide. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Read known file ranges or images. First batch all known required paths in file_path, using per-entry windows for different ranges; never split a supported read array. Then parallelize with independent tools. Acquire missing source context; planned output checks need no extra preview. Diff hunks and grep/graph spans are sufficient source context; unchanged results refer to prior context. No directories: use list. Other binaries return bounded hex, not decoded contents; request format-aware decoding directly. Literal paths unless a glob is explicit; missing paths are reported, never replaced.',
         inputSchema: {
             type: 'object',
             properties: {
                 file_path: {
-                    type: 'string',                    description: 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10 files, newest first; limit applies per file and is capped at 25 lines; all files share a 10 KB output budget); literal-named files win over expansion.',
+                    anyOf: [
+                        { type: 'string' },
+                        {
+                            type: 'array',
+                            minItems: 1,
+                            maxItems: PUBLIC_PATH_BATCH_LIMIT,
+                            items: {
+                                anyOf: [
+                                    { type: 'string' },
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            file_path: { type: 'string' },
+                                            offset: { type: 'integer', minimum: 1, maximum: PUBLIC_READ_WINDOW_MAX },
+                                            limit: { type: 'integer', minimum: 1, maximum: PUBLIC_READ_WINDOW_MAX },
+                                        },
+                                        required: ['file_path'],
+                                        additionalProperties: false,
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                    description: 'Known path(s) or per-file windows. Entry windows override batch defaults. A glob fans out to per-file results: max 10, newest first, 25 lines/file; literal-named files win. Shared 10 KB cap; per-entry results/errors.',
                 },
                 offset: {
                     type: 'integer',
                     minimum: 1,
-                    description: '1-based start line as a bare integer; default 1.',
+                    maximum: PUBLIC_READ_WINDOW_MAX,
+                    description: '1-based start line; default 1. Shared default for batch entries.',
                 },
                 limit: {
                     type: 'integer',
                     minimum: 1,
-                    description: 'Maximum line count as a bare integer; default 500 for one exact file, capped at 25 per file for glob expansion.',
+                    maximum: PUBLIC_READ_WINDOW_MAX,
+                    description: 'Maximum line count: default 500 per exact file, 25 per glob-expanded file. Shared batch default.',
                 },
             },
             required: ['file_path'],
@@ -71,7 +92,7 @@ export const BUILTIN_TOOLS = [
         name: 'edit',
         title: 'Edit',
         annotations: { title: 'Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-        description: 'Replace exact text in one file. Use exact text already in context, without reopening unchanged content to prepare or confirm the edit. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file. Replaces sed/awk and echo redirection.',
+        description: 'Replace exact text in one file. old_string must match once unless replace_all is true. Batch non-overlapping edits in call order using existing text, not text another edit creates. Widened replacements must keep intervening lines verbatim.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -80,7 +101,7 @@ export const BUILTIN_TOOLS = [
                 },
                 old_string: {
                     type: 'string',
-                    description: 'Exact text to replace. Empty only to create a missing file or fill an empty file.',
+                    description: 'Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check.',
                 },
                 new_string: {
                     type: 'string',
@@ -100,7 +121,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, generated artifacts, and execution-based data transformations or unsupported-format inspection. Run independent commands in parallel calls; use dedicated tools for file inspection and editing. Edit source files: apply_patch/edit, NOT sed/awk. Write source files: apply_patch/edit, NOT printf/echo redirection or cat heredocs. Do not use scripts to write source files or invoke editing tools through shell. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Continue independent work while it runs; when the result or a requested report is due, use task wait, not read polling. Completion notifications are automatic; yielding for one is not a final completion report.'}`,
+        description: `Run programs, runtime/state operations, and data computation/generation/decoding. Stateful reads need preserved originals and a working copy unless all source artifacts stay unchanged. Allocate unique temporary directories; never clear existing paths to prepare them. No shell substitutes for inspection/search or Git: use read/list/find/glob/grep/code_graph/git. Author source with the available apply_patch or edit tool, never shell scripts. First batch supported tool arrays, then parallelize independent jobs. Chain dependencies with failure propagation. Use supplied/default check commands; after a pass, do not edit or rerun for warnings unless they prove a required contract violation. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id. Use task wait, not read polling, for completion or a due report.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -108,7 +129,7 @@ export const BUILTIN_TOOLS = [
                 timeout_ms: {
                     type: 'number',
                     minimum: 0,
-                    description: 'Hard process-kill deadline in ms; unrelated to the automatic 10s foreground window and still applies after background promotion. Omit for normal builds/tests; use only when forced termination is intended. Omit or 0 = no deadline.',
+                    description: 'Hard process-kill deadline in ms, including after background promotion; separate from the 10s foreground window. Omit for normal builds/tests unless forced termination is intended. Omit or 0 = no deadline.',
                 },
             },
             required: ['command'],
@@ -142,7 +163,7 @@ export const BUILTIN_TOOLS = [
         //      gates approval on the result, while selection keeps treating the
         //      tool as non-destructive.
         annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'List shell tasks, read one snapshot, wait for one to finish, or cancel by task_id. Wait for completion instead of repeatedly polling task output. Replaces shell job control (jobs/wait/Start-Job). Completion notifications are automatic; yielding for one is not a final completion report. Continue independent work while it runs. Use wait when the result or a requested report is due; read is for one-shot status.',
+        description: 'Manage shell tasks. Wait for completion instead of repeatedly polling task output. Completion notifications are automatic, not final completion reports. Continue independent work; wait when a result/report is due.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -151,7 +172,7 @@ export const BUILTIN_TOOLS = [
                 timeout_ms: {
                     type: 'integer',
                     minimum: 0,
-                    description: `Ceiling for action=wait; returns as soon as the task settles, and a still-running task comes back with its current output. Default ${TASK_WAIT_TIMEOUT_DEFAULT_MS}, clamped to ${TASK_WAIT_TIMEOUT_MIN_MS}-${TASK_WAIT_TIMEOUT_MAX_MS}.`,
+                    description: `Wait ceiling in ms; returns on completion or, at the ceiling, current output. Default ${TASK_WAIT_TIMEOUT_DEFAULT_MS}; clamped to ${TASK_WAIT_TIMEOUT_MIN_MS}-${TASK_WAIT_TIMEOUT_MAX_MS}.`,
                 },
             },
             required: ['action'],
@@ -162,7 +183,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search file contents for literal or regex matches and return contextual path:line blocks. Use returned source spans directly; read only missing context. All rendered output is capped at 10 KB. A wide reconnaissance pattern goes to mode:files first; context:0 when only the location is needed. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
+        description: 'Search literal/regex file contents; return contextual path:line blocks. Symbol relations: use code_graph. First batch only patterns/scopes needed for unresolved evidence; then parallelize independent tools. If a pending diff or lookup determines the search, wait; do not prefetch speculative alternatives. Reuse returned spans. Broad reconnaissance: mode:files; locations only: context:0. Single-line ripgrep; 10 KB cap. include_noise/text opt into ignored files/binary data separately.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -171,18 +192,24 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, maxItems: 10 },
                     ],
-                    description: 'Required literal text or regex, or array for independent fan-out.',
+                    description: 'Ripgrep regex(es) for independent searches. Escape literal metacharacters; invalid regex is reported, never reinterpreted.',
                 },
                 path: {
-                    type: 'string',                    description: 'One plain existing file or directory scope; if unsure, omit to search the project root.',
+                    anyOf: [
+                        { type: 'string' },
+                        { type: 'array', minItems: 1, maxItems: PUBLIC_PATH_BATCH_LIMIT, items: { type: 'string' } },
+                    ],
+                    description: 'Plain file/directory scopes; array scopes are independent. Omit for Project root. Missing explicit scopes are reported, never widened or replaced.',
                 },
                 glob: {
-                    type: 'string',                    description: 'Relative file-path glob filter evaluated inside path (e.g. "*.cs", "src/**/*.ts"). Never pass an absolute or exact file path here; use path instead.',
+                    type: 'string',                    description: 'Relative glob filter evaluated inside path, e.g. "*.cs" or "src/**/*.ts". For exact/absolute paths, use path instead.',
                 },
                 mode: { type: 'string', enum: ['content', 'files', 'count'], description: 'content default; files lists matching paths; count totals all patterns together per file.' },
-                limit: { type: 'integer', minimum: 0, description: 'Requested results; default 250. Context-mode requests are capped at 40 match blocks; 0 does not remove output caps. Continue with the returned offset when truncated.' },
+                limit: { type: 'integer', minimum: 0, description: 'Requested results; default 250. Context output caps at 40 match blocks, even with 0. All output remains capped; follow returned offset when truncated.' },
                 offset: { type: 'integer', minimum: 0, description: 'Result offset.' },
                 context: { type: 'integer', minimum: 0, maximum: 200, description: 'Omit for automatic context; 0 for matches only.' },
+                include_noise: { type: 'boolean', description: 'Also search gitignored/dependency trees. Explicit exclusions still apply.' },
+                text: { type: 'boolean', description: 'Search binary data as text instead of stopping at NUL bytes. Does not decode archives or Git objects.' },
             },
             required: ['pattern'],
             additionalProperties: false,
@@ -192,7 +219,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Return wildcard-matching file paths under a known base directory when those paths are needed. Batch known patterns in one call; skip preliminary directory listings. Omit path for the current Project; an unknown base directory goes to find first. Directories never match. Newest first by default. Replaces find -name.',
+        description: 'Wildcard file-path lookup under a known directory; directories never match. First batch required patterns; then parallelize with independent tools. No preliminary listing. Unknown base: find first. Gitignored paths need include_noise:true.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -201,7 +228,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, maxItems: 10 },
                     ],
-                    description: 'Glob or array of globs (max 10).',
+                    description: 'Glob pattern(s).',
                 },
                 path: {
                     type: 'string',                    description: 'Known existing base directory; omit for the current Project.',
@@ -209,6 +236,7 @@ export const BUILTIN_TOOLS = [
                 sort: { type: 'string', enum: ['natural', 'mtime'], description: 'mtime default (newest first); natural = raw walk order, cheaper on huge trees.' },
                 limit: { type: 'integer', minimum: 0, description: 'Max entries; default 100; 0 unlimited.' },
                 offset: { type: 'integer', minimum: 0, description: 'Entry offset.' },
+                include_noise: { type: 'boolean', description: 'Also search gitignored/dependency trees. Explicit exclusions still apply.' },
             },
             required: ['pattern'],
             additionalProperties: false,
@@ -218,7 +246,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Find Files',
         annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Fuzzy filename/directory path lookup; returns paths only. Use only when the target path is unknown and cannot be directly resolved.',
+        description: 'Read-only. Fuzzy filename/directory path lookup; returns paths only. Use only when the target path is unknown and cannot be directly resolved.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -237,7 +265,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'List Directory',
         annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: "Return a known directory's immediate entries (path + type). List a directory only when its immediate entries are needed, not as a prerequisite for another tool. No wildcard; meta:true adds size/mtime/mode. Replaces ls/dir.",
+        description: "Return a known directory's immediate entries (path + type); no wildcard. Not a prerequisite for read/glob.",
         inputSchema: {
             type: 'object',
             properties: {

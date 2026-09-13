@@ -1,13 +1,77 @@
 import { join } from 'node:path';
 import { PIXELS_TO_POINTS, addPackageRelationship, ensureContentTypeOverride, fillTemplateParts, partRelationshipPath, provenanceCitation, zipText } from './portable-opc.mjs';
 import { appendDocxBlock, docxBodyModel } from './portable-snapshot.mjs';
-import { OFFICE_RELATIONSHIP_BASE, XML_HEADER, paragraphTexts, rebuildTextNodes, replaceAcrossRuns, textNodes, upsertOrderedChild, xmlEncode } from './portable-xml.mjs';
-import { SETTINGS_CONTENT_TYPE, SETTINGS_ORDER, WORD_2010_NS, WORD_MAIN_NS, addDocumentImage, anchorDocxComment, commentParagraphId, documentTracksChanges, ensureCommentsPart, ensureNumbering, forgetCommentIdentity, markRunsDeleted, nextRevisionId, registerCommentIdentity, registerCommentThread, revisionAttributes, trailingSectionProperties, upsertSectionChild, upsertSectionReference, wordDrawingXml, writeHeaderFooterPart, writeSectionProperties } from './portable-docx-parts.mjs';
-import { blankTableCells, docxStyleId, docxTable, insertDocxBlockAt, paragraphFormatXml, replaceDocxTable, replaceWordProperties, rewriteTableColumns, rowCellMatches, tableRowMatches, wordCellProperties, wordParagraph, wordRunProperties, wordTableProperties, wordTableXml } from './portable-docx-xml.mjs';
+import { OFFICE_RELATIONSHIP_BASE, XML_HEADER, paragraphTexts, rebuildTextNodes, replaceAcrossRuns, textNodes, upsertOrderedChild, xmlDecode, xmlEncode } from './portable-xml.mjs';
+import { SETTINGS_CONTENT_TYPE, SETTINGS_ORDER, WORD_2010_NS, WORD_MAIN_NS, addDocumentImage, anchorDocxComment, commentParagraphId, documentTracksChanges, ensureCommentsPart, ensureNotePart, ensureNumbering, forgetCommentIdentity, markRunsDeleted, nextRevisionId, registerCommentIdentity, registerCommentThread, revisionAttributes, documentSectionSpans, trailingSectionProperties, upsertSectionChild, upsertSectionReference, wordDrawingXml, writeHeaderFooterPart, writeSectionProperties, writeSectionPropertiesAt } from './portable-docx-parts.mjs';
+import { alignWordTableColumns, applyWordRunFormat, blankTableCells, docxStyleId, docxTable, insertDocxBlockAt, justifyWordParagraphs, mergeWordCellProperties, paragraphFormatXml, replaceDocxTable, replaceWordProperties, rewriteTableColumns, rowCellMatches, tableRowMatches, wordJustification, wordParagraph, wordRunProperties, wordTableProperties, wordTableXml } from './portable-docx-xml.mjs';
 import { docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
 import { normalizeDocxRuns, settleDocxStory } from './docx-runs.mjs';
 import { anchorPhraseInParagraph, trackedParagraphReplace, trackedParagraphRewrite } from './docx-tracked-edits.mjs';
 import { formatFirstBodyPhrase, patchParagraphFormat } from './docx-formatting.mjs';
+
+// Word rebuilds a TOC field when the reader updates it; until then the cached
+// result is what every other reader shows — a preview, a PDF export, a render.
+// The cache is the document's own outline, so it is built from the headings the
+// body carries at the time it is written.
+// Which paragraph styles this document calls a heading. Word's own style ids
+// are not the only ones a real file carries: a localized or converted document
+// names its headings 제목 1 or declares an outline level under its own id, and a
+// table of contents that only knows "Heading1" lists nothing at all.
+async function docxHeadingLevels(zip) {
+  const styles = await zipText(zip, 'word/styles.xml');
+  const levels = new Map();
+  for (const match of styles.matchAll(/<w:style\b[^>]*\bw:styleId="([^"]+)"[^>]*>[\s\S]*?<\/w:style>/g)) {
+    const name = /<w:name\b[^>]*\bw:val="([^"]*)"/.exec(match[0])?.[1] || '';
+    const outline = Number(/<w:outlineLvl\b[^>]*\bw:val="(\d+)"/.exec(match[0])?.[1]);
+    const named = /^(?:heading|제목|표제)\s*([1-9])/i.exec(name.trim());
+    const level = Number.isInteger(outline) && outline >= 0 && outline <= 8
+      ? outline + 1
+      : (named ? Number(named[1]) : 0);
+    if (level) levels.set(match[1], level);
+  }
+  return levels;
+}
+
+function docxTocEntries(documentXml, lower, upper, headingLevels = new Map()) {
+  const entries = [];
+  for (const match of documentXml.matchAll(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g)) {
+    const style = /<w:pStyle\b[^>]*\bw:val="([^"]+)"/.exec(match[0])?.[1] || '';
+    const level = Number(/^Heading([1-9])$/.exec(style)?.[1]) || headingLevels.get(style) || 0;
+    if (!Number.isInteger(level) || level < lower || level > upper) continue;
+    const text = paragraphTexts(match[0], 'w:t').join('').trim();
+    if (text) entries.push({ level, text });
+  }
+  return entries;
+}
+
+function docxTocCacheRuns(entries, lower) {
+  return entries.length
+    ? entries
+      .map((entry) => `<w:r><w:t xml:space="preserve">${xmlEncode(`${'    '.repeat(entry.level - lower)}${entry.text}`)}</w:t></w:r>`)
+      .join('<w:r><w:br/></w:r>')
+    : '<w:r><w:t>Update this field in Word to build the table of contents.</w:t></w:r>';
+}
+
+/** A table of contents is usually written before the sections it lists, so the
+ *  cache captured at insert time would show an empty document forever. Every
+ *  save rebuilds it from the body as it stands. */
+export async function refreshDocxTableOfContents(zip) {
+  const current = await zipText(zip, 'word/document.xml');
+  if (!/<w:fldSimple\b[^>]*\bw:instr="[^"]*TOC/.test(current)) return false;
+  const headingLevels = await docxHeadingLevels(zip);
+  const next = current.replace(
+    /<w:fldSimple\b([^>]*\bw:instr="([^"]*TOC[^"]*)"[^>]*)>[\s\S]*?<\/w:fldSimple>/g,
+    (whole, attributes, instruction) => {
+      const range = /\\o\s*(?:"|&quot;)(\d+)-(\d+)(?:"|&quot;)/.exec(instruction);
+      const lower = Math.max(1, Number(range?.[1]) || 1);
+      const upper = Math.max(lower, Number(range?.[2]) || 3);
+      return `<w:fldSimple${attributes}>${docxTocCacheRuns(docxTocEntries(current, lower, upper, headingLevels), lower)}</w:fldSimple>`;
+    },
+  );
+  if (next === current) return false;
+  zip.file('word/document.xml', next);
+  return true;
+}
 
 /** Tracked find-and-replace cuts only the matched characters out of their
  *  runs (deletion plus insertion in the run's own formatting). A match that
@@ -318,7 +382,15 @@ export async function applyDocx(zip, operations) {
     if (op.op === 'set_table_style') {
       let current = await zipText(zip, 'word/document.xml');
       const table = docxTable(current, op.table);
-      const nextTable = replaceWordProperties(table[0], 'tbl', 'tblPr', wordTableProperties(op.properties));
+      // Restyling a table must not undo its width: the declared width is part
+      // of the layout, not of the style being replaced.
+      const declaredWidth = /<w:tblW\b[^>]*\bw:w="(\d+)"[^>]*\bw:type="dxa"/.exec(table[0])?.[1];
+      const nextTable = alignWordTableColumns(replaceWordProperties(
+        table[0],
+        'tbl',
+        'tblPr',
+        wordTableProperties(op.properties, { totalWidth: Number(declaredWidth) || 0 }),
+      ), Array.isArray(op.properties?.columnAlignments) ? op.properties.columnAlignments : []);
       current = replaceDocxTable(current, table, nextTable);
       zip.file('word/document.xml', current);
       results.push({ op: op.op, changed: nextTable !== table[0], table: Number(op.table) });
@@ -335,21 +407,36 @@ export async function applyDocx(zip, operations) {
       if (!cell) throw new Error(`DOCX table cell ${op.col} not found`);
       let nextTable = table[0];
       if (op.op === 'set_table_cell_style') {
-        let nextCell = replaceWordProperties(cell[0], 'tc', 'tcPr', wordCellProperties(op.properties));
+        let nextCell = mergeWordCellProperties(cell[0], op.properties);
+        // The same properties the Word backend applies to the cell's range: a
+        // stat band's label row set at 9 pt under a 22 pt value row is one
+        // set_table_cell_style per cell, on either backend.
+        const cellSize = Number(op.properties?.fontSize);
+        const cellFont = op.properties?.fontName ? xmlEncode(String(op.properties.fontName)) : '';
+        const cellEastAsia = op.properties?.fontNameEastAsia ? xmlEncode(String(op.properties.fontNameEastAsia)) : '';
         const runFormat = [
+          cellFont || cellEastAsia
+            ? `<w:rFonts${cellFont ? ` w:ascii="${cellFont}" w:hAnsi="${cellFont}" w:cs="${cellFont}"` : ''}${cellEastAsia ? ` w:eastAsia="${cellEastAsia}"` : ''}/>`
+            : '',
           op.properties?.bold ? '<w:b/>' : '',
           op.properties?.italic ? '<w:i/>' : '',
           op.properties?.color ? `<w:color w:val="${xmlEncode(String(op.properties.color).replace(/^#/, ''))}"/>` : '',
+          Number.isFinite(cellSize) && cellSize > 0 ? `<w:sz w:val="${Math.round(cellSize * 2)}"/><w:szCs w:val="${Math.round(cellSize * 2)}"/>` : '',
         ].join('');
-        if (runFormat) {
-          nextCell = /<w:rPr(?:\s[^>]*)?>/.test(nextCell)
-            ? nextCell.replace(/<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>/, (_, inner) => {
-              const fonts = /<w:rFonts\b[^>]*\/>/.exec(inner);
-              return fonts
-                ? `<w:rPr>${fonts[0]}${runFormat}${inner.replace(fonts[0], '')}</w:rPr>`
-                : `<w:rPr>${runFormat}${inner}</w:rPr>`;
-            })
-            : nextCell.replace(/<w:r(?:\s[^>]*)?>/, (open) => `${open}<w:rPr>${runFormat}</w:rPr>`);
+        nextCell = applyWordRunFormat(nextCell, runFormat);
+        // The cell's line pitch follows its new size (the table convention, 1.3× the size, at least): a 9 pt
+        // label row under a 22 pt value row otherwise keeps the value row's 29 pt lines and floats the labels.
+        if (Number.isFinite(cellSize) && cellSize > 0) {
+          nextCell = nextCell.replace(/(<w:spacing\b[^>]*\bw:line=")(\d+)("[^>]*\bw:lineRule="atLeast")/g, (_, open, __, close) => `${open}${Math.round(cellSize * 1.3 * 20)}${close}`);
+        }
+        // A cell's horizontal alignment is its paragraphs' justification: a
+        // centred metric that stays left-aligned reads as a different number
+        // column from the header above it.
+        const alignment = String(op.properties?.horizontalAlignment || '').trim().toLowerCase();
+        if (alignment) {
+          const justification = wordJustification(alignment);
+          if (!justification) throw new Error(`set_table_cell_style horizontalAlignment must be left, center, right, or justify, not ${alignment}`);
+          nextCell = justifyWordParagraphs(nextCell, justification);
         }
         nextTable = table[0].replace(cell[0], nextCell);
       } else {
@@ -418,9 +505,17 @@ export async function applyDocx(zip, operations) {
         name: media.name,
         width,
         height,
+        altText: op.altText,
       })}</w:r></w:p>`;
       zip.file('word/document.xml', insertDocxBlockAt(current, block, op.paragraph));
-      results.push({ op: op.op, changed: true, image: media.part, width, height });
+      results.push({
+        op: op.op,
+        changed: true,
+        image: media.part,
+        width,
+        height,
+        ...(String(op.altText ?? '').trim() ? { altText: String(op.altText).trim() } : {}),
+      });
       continue;
     }
     if (op.op === 'set_page') {
@@ -430,7 +525,7 @@ export async function applyDocx(zip, operations) {
       if (orientation && !['portrait', 'landscape'].includes(orientation)) {
         throw new Error('set_page orientation must be portrait or landscape');
       }
-      const next = writeSectionProperties(current, (section) => {
+      const next = writeSectionPropertiesAt(current, op.section, (section) => {
         const size = /<w:pgSz\b([^>]*)\/>/.exec(section)?.[1] || '';
         let pageWidth = Number(/\bw:w="(\d+)"/.exec(size)?.[1]) || 11_906;
         let pageHeight = Number(/\bw:h="(\d+)"/.exec(size)?.[1]) || 16_838;
@@ -523,7 +618,10 @@ export async function applyDocx(zip, operations) {
     }
     if (op.op === 'add_hyperlink') {
       const address = String(op.address || '').trim();
-      const display = String(op.display || address || '').trim();
+      // Linking a phrase must not rewrite it: the reader asked for 정시 출고율
+      // to become a link, not to be replaced by the raw address. Only a caller
+      // naming display, or a link with no phrase to sit on, uses other text.
+      const display = String(op.display || op.find || address || '').trim();
       if (!address && !op.subAddress) throw new Error('add_hyperlink requires address or subAddress');
       if (!display) throw new Error('add_hyperlink requires display text');
       let current = await zipText(zip, 'word/document.xml');
@@ -540,18 +638,35 @@ export async function applyDocx(zip, operations) {
         + `<w:t${/^\s|\s$/.test(display) ? ' xml:space="preserve"' : ''}>${xmlEncode(display)}</w:t></w:r>`;
       const link = `<w:hyperlink${relationshipId ? ` r:id="${relationshipId}"` : ''}`
         + `${op.subAddress ? ` w:anchor="${xmlEncode(op.subAddress)}"` : ''}>${run}</w:hyperlink>`;
-      if (op.paragraph) {
+      // A link asked for by phrase replaces that phrase, the way Word does it.
+      // Appending it to the end of the document instead put the link somewhere
+      // the caller never named and still reported success.
+      const find = String(op.find || '');
+      let anchor = 'appended';
+      if (find) {
+        const model = docxBodyModel(current);
+        const paragraph = model.blocks
+          .filter((block) => block.name === 'w:p')
+          .find((entry) => paragraphTexts(entry.xml, 'w:t').join('').includes(find));
+        if (!paragraph) throw new Error(`DOCX text not found for hyperlink: ${find}`);
+        const linked = anchorPhraseInParagraph(paragraph.xml, find, 0, { start: link, end: '', replace: true });
+        if (!linked) throw new Error(`DOCX hyperlink phrase crosses a tab, break, field, or drawing: ${find}`);
+        const nextInner = `${model.body.inner.slice(0, paragraph.start)}${linked}${model.body.inner.slice(paragraph.end)}`;
+        current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
+        anchor = 'phrase';
+      } else if (op.paragraph) {
         const model = docxBodyModel(current);
         const paragraph = model.blocks.filter((block) => block.name === 'w:p')[Number(op.paragraph) - 1];
         if (!paragraph) throw new Error(`DOCX paragraph ${op.paragraph} not found`);
         const nextParagraph = paragraph.xml.replace(/<\/w:p>$/, `${link}</w:p>`);
         const nextInner = `${model.body.inner.slice(0, paragraph.start)}${nextParagraph}${model.body.inner.slice(paragraph.end)}`;
         current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
+        anchor = 'paragraph';
       } else {
         current = appendDocxBlock(current, `<w:p>${link}</w:p>`);
       }
       zip.file('word/document.xml', current);
-      results.push({ op: op.op, changed: true, address, display });
+      results.push({ op: op.op, changed: true, address, display, anchor });
       continue;
     }
     if (op.op === 'set_font') {
@@ -801,10 +916,113 @@ export async function applyDocx(zip, operations) {
       const lower = Math.max(1, Number(op.lowerHeadingLevel) || 1);
       const upper = Math.max(lower, Number(op.upperHeadingLevel) || 3);
       const instruction = ` TOC \\o "${lower}-${upper}" \\h \\z \\u `;
-      const block = `<w:p><w:fldSimple w:instr="${xmlEncode(instruction)}">`
-        + '<w:r><w:t>Update this field in Word to build the table of contents.</w:t></w:r></w:fldSimple></w:p>';
+      const cached = docxTocCacheRuns(docxTocEntries(current, lower, upper, await docxHeadingLevels(zip)), lower);
+      const block = `<w:p><w:fldSimple w:instr="${xmlEncode(instruction)}">${cached}</w:fldSimple></w:p>`;
       zip.file('word/document.xml', insertDocxBlockAt(current, block, op.paragraph));
       results.push({ op: op.op, changed: true, levels: `${lower}-${upper}` });
+      continue;
+    }
+    if (op.op === 'set_content_control') {
+      const text = String(op.text ?? '');
+      const tag = String(op.tag || '').trim();
+      const wanted = Number(op.control);
+      if (!tag && !Number.isInteger(wanted)) throw new Error('set_content_control requires tag or control');
+      const parts = Object.keys(zip.files)
+        .filter((name) => /^word\/(document|header\d+|footer\d+)\.xml$/i.test(name))
+        .sort((left, right) => (left === 'word/document.xml' ? -1 : right === 'word/document.xml' ? 1 : left.localeCompare(right)));
+      let ordinal = 0;
+      let filled = null;
+      for (const part of parts) {
+        const xml = await zipText(zip, part);
+        if (!xml) continue;
+        let changed = false;
+        const next = xml.replace(/<w:sdt\b[^>]*>[\s\S]*?<\/w:sdt>/g, (control) => {
+          if (filled) return control;
+          ordinal += 1;
+          const properties = /<w:sdtPr\b[^>]*>([\s\S]*?)<\/w:sdtPr>/.exec(control)?.[1] || '';
+          const controlTag = xmlDecode(/<w:tag\b[^>]*\bw:val="([^"]*)"/.exec(properties)?.[1] || '');
+          if (tag ? controlTag !== tag : ordinal !== wanted) return control;
+          const lock = /<w:lock\b[^>]*\bw:val="([^"]*)"/.exec(properties)?.[1] || '';
+          if (/contentLocked|sdtContentLocked/i.test(lock)) {
+            throw new Error(`DOCX content control ${tag || wanted} is locked for editing (lock: ${lock})`);
+          }
+          const body = /<w:sdtContent\b[^>]*>([\s\S]*?)<\/w:sdtContent>/.exec(control);
+          if (!body) return control;
+          // One run carries the value, the rest are dropped: a control filled
+          // across its old runs keeps fragments of the placeholder it replaced.
+          const first = /<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/.exec(body[1]);
+          const runProperties = first ? /<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>/.exec(first[0])?.[0] || '' : '';
+          const run = `<w:r>${runProperties}<w:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</w:t></w:r>`;
+          const [firstParagraph] = body[1].match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/) || [];
+          const paragraph = firstParagraph
+            ? `${/^<w:p(?:\s[^>]*)?>(?:<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>)?/.exec(firstParagraph)?.[0] || '<w:p>'}${run}</w:p>`
+            : run;
+          changed = true;
+          filled = { part, ordinal, tag: controlTag };
+          // A placeholder control shows grey prompt text until the flag goes.
+          const cleaned = control.replace(/<w:showingPlcHdr\b[^>]*\/>/g, '');
+          return cleaned.replace(/<w:sdtContent\b[^>]*>[\s\S]*?<\/w:sdtContent>/, `<w:sdtContent>${paragraph}</w:sdtContent>`);
+        });
+        if (changed) {
+          zip.file(part, next);
+          break;
+        }
+      }
+      if (!filled) {
+        throw new Error(tag
+          ? `DOCX content control not found for tag: ${tag}`
+          : `DOCX content control ${wanted} not found`);
+      }
+      results.push({
+        op: op.op,
+        changed: true,
+        control: filled.ordinal,
+        ...(filled.tag ? { tag: filled.tag } : {}),
+        text,
+      });
+      continue;
+    }
+    if (op.op === 'add_note') {
+      const text = String(op.text || '');
+      if (!text) throw new Error('add_note requires text');
+      const definition = await ensureNotePart(zip, op.kind || 'footnote');
+      let current = await zipText(zip, 'word/document.xml');
+      const model = docxBodyModel(current);
+      const paragraphs = model.blocks.filter((block) => block.name === 'w:p');
+      const find = String(op.find || '');
+      const paragraph = op.paragraph
+        ? paragraphs[Number(op.paragraph) - 1]
+        : paragraphs.find((entry) => paragraphTexts(entry.xml, 'w:t').join('').includes(find));
+      if (!paragraph) {
+        throw new Error(op.paragraph
+          ? `DOCX paragraph ${op.paragraph} not found`
+          : `DOCX text not found for note anchor: ${find}`);
+      }
+      const ids = [...definition.xml.matchAll(new RegExp(`<${definition.tag}\\b[^>]*\\bw:id="(-?\\d+)"`, 'g'))]
+        .map((match) => Number(match[1]));
+      const id = Math.max(0, ...ids) + 1;
+      const entry = `<${definition.tag} w:id="${id}">`
+        + `<w:p><w:pPr><w:pStyle w:val="${definition.textStyle}"/></w:pPr>`
+        + `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/><w:vertAlign w:val="superscript"/></w:rPr>`
+        + `<w:${definition.reference === 'w:footnoteReference' ? 'footnoteRef' : 'endnoteRef'}/></w:r>`
+        + `<w:r><w:t xml:space="preserve"> ${xmlEncode(text)}</w:t></w:r></w:p></${definition.tag}>`;
+      zip.file(definition.part, definition.xml.replace(`</${definition.root}>`, `${entry}</${definition.root}>`));
+      // The mark belongs right after the phrase it cites; a phrase split across
+      // a tab, field, or drawing falls back to the end of its paragraph.
+      const mark = `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/><w:vertAlign w:val="superscript"/></w:rPr>`
+        + `<${definition.reference} w:id="${id}"/></w:r>`;
+      const phrase = find ? anchorPhraseInParagraph(paragraph.xml, find, id, { start: '', end: mark }) : null;
+      const anchored = phrase || paragraph.xml.replace(/<\/w:p>$/, `${mark}</w:p>`);
+      const nextInner = `${model.body.inner.slice(0, paragraph.start)}${anchored}${model.body.inner.slice(paragraph.end)}`;
+      current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
+      zip.file('word/document.xml', current);
+      results.push({
+        op: op.op,
+        changed: true,
+        kind: definition.tag === 'w:footnote' ? 'footnote' : 'endnote',
+        note: id,
+        anchor: phrase ? 'phrase' : 'paragraph',
+      });
       continue;
     }
     if (op.op === 'add_bookmark') {
@@ -830,15 +1048,28 @@ export async function applyDocx(zip, operations) {
     }
     if (op.op === 'set_header_footer') {
       const current = await zipText(zip, 'word/document.xml');
-      const header = op.header !== false;
-      const kind = ['default', 'first', 'even'].includes(String(op.kind || '').toLowerCase())
-        ? String(op.kind).toLowerCase()
-        : 'default';
+      // A caller that names the thing it wants — kind:'footer' — must get a
+      // footer. Reading that name as an unknown page variant wrote the text into
+      // a second header instead, and reported success for a document whose
+      // footer never existed.
+      const named = String(op.kind || '').toLowerCase();
+      const variants = ['default', 'first', 'even'];
+      if (named && !['header', 'footer', ...variants].includes(named)) {
+        throw new Error(`set_header_footer kind must be header, footer, ${variants.join(', ')}`);
+      }
+      const requested = String(op.variant || '').toLowerCase();
+      if (requested && !variants.includes(requested)) {
+        throw new Error(`set_header_footer variant must be ${variants.join(', ')}`);
+      }
+      const header = named === 'footer' ? false : named === 'header' ? true : op.header !== false;
+      const kind = requested || (variants.includes(named) ? named : 'default');
       const written = await writeHeaderFooterPart(zip, {
         header,
+        documentXml: current,
+        kind,
         body: wordParagraph(op.text, { alignment: header ? '' : 'center' }),
       });
-      const next = writeSectionProperties(current, (section) => {
+      const next = writeSectionPropertiesAt(current, op.section, (section) => {
         const referenced = upsertSectionReference(
           section,
           header ? 'headerReference' : 'footerReference',
@@ -850,15 +1081,26 @@ export async function applyDocx(zip, operations) {
           : referenced;
       });
       zip.file('word/document.xml', next);
-      results.push({ op: op.op, changed: true, part: written.part, header, kind });
+      // replaced says the section already had this story: whatever stood there
+      // — a page number, an earlier line — is gone, not beside the new text.
+      results.push({ op: op.op, changed: true, part: written.part, header, kind, ...(written.replaced ? { replaced: true } : {}) });
       continue;
     }
     if (op.op === 'add_page_numbers') {
       const current = await zipText(zip, 'word/document.xml');
-      const header = false;
-      const kind = ['default', 'first', 'even'].includes(String(op.kind || '').toLowerCase())
-        ? String(op.kind).toLowerCase()
-        : 'default';
+      // Same vocabulary as set_header_footer: kind names the story (the footer
+      // unless the caller asks for the header), variant names the page.
+      const named = String(op.kind || '').toLowerCase();
+      const variants = ['default', 'first', 'even'];
+      if (named && !['header', 'footer', ...variants].includes(named)) {
+        throw new Error(`add_page_numbers kind must be header, footer, ${variants.join(', ')}`);
+      }
+      const requested = String(op.variant || '').toLowerCase();
+      if (requested && !variants.includes(requested)) {
+        throw new Error(`add_page_numbers variant must be ${variants.join(', ')}`);
+      }
+      const header = named === 'header';
+      const kind = requested || (variants.includes(named) ? named : 'default');
       const alignment = ['left', 'center', 'right'].includes(String(op.alignment || '').toLowerCase())
         ? String(op.alignment).toLowerCase()
         : 'center';
@@ -870,22 +1112,38 @@ export async function applyDocx(zip, operations) {
       const body = `<w:p><w:pPr><w:jc w:val="${alignment}"/></w:pPr>${prefix}`
         + '<w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple>'
         + `${separator}</w:p>`;
-      const written = await writeHeaderFooterPart(zip, { header, body });
-      const next = writeSectionProperties(current, (section) => upsertSectionReference(
+      const written = await writeHeaderFooterPart(zip, { header, body, documentXml: current, kind });
+      const next = writeSectionPropertiesAt(current, op.section, (section) => upsertSectionReference(
         section,
         header ? 'headerReference' : 'footerReference',
         kind,
         written.relationshipId,
       ));
       zip.file('word/document.xml', next);
-      results.push({ op: op.op, changed: true, part: written.part, includeTotal: op.includeTotal === true });
+      results.push({ op: op.op, changed: true, part: written.part, header, includeTotal: op.includeTotal === true, ...(written.replaced ? { replaced: true } : {}) });
       continue;
     }
     if (op.op === 'insert_break') {
       const current = await zipText(zip, 'word/document.xml');
       const kind = String(op.kind || 'page').toLowerCase();
-      if (!['page', 'column'].includes(kind)) {
-        throw new Error('Portable insert_break supports page or column breaks');
+      if (!['page', 'column', 'section_next', 'section_continuous'].includes(kind)) {
+        throw new Error('insert_break supports page, column, section_next, or section_continuous');
+      }
+      if (kind.startsWith('section')) {
+        // A section break paragraph carries the properties of the section it
+        // closes, so the text before it keeps the page it was written for and
+        // the trailing sectPr — which set_page edits — governs what follows.
+        const { match } = trailingSectionProperties(current);
+        const closing = upsertSectionChild(
+          match ? match[0] : '<w:sectPr></w:sectPr>',
+          'type',
+          `<w:type w:val="${kind === 'section_continuous' ? 'continuous' : 'nextPage'}"/>`,
+        );
+        const block = `<w:p><w:pPr>${closing}</w:pPr></w:p>`;
+        const next = insertDocxBlockAt(current, block, op.paragraph);
+        zip.file('word/document.xml', next);
+        results.push({ op: op.op, changed: true, kind, sections: documentSectionSpans(next).spans.length });
+        continue;
       }
       const block = `<w:p><w:r><w:br w:type="${kind}"/></w:r></w:p>`;
       zip.file('word/document.xml', insertDocxBlockAt(current, block, op.paragraph));

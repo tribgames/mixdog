@@ -5,13 +5,15 @@ import { VALID_CATEGORY, embeddingToSql } from './memory.mjs'
 import { buildRecallScopeFilter } from './memory-recall-scope-filter.mjs'
 import { recallReadQuery } from './memory-recall-read-query.mjs'
 import { rankRecallCandidates, recallLaneRanks, recallRrfScore } from './recall-fusion.mjs'
+import { recallSubstringPredicate } from './recall-substring-predicate.mjs'
 
 // Per-db cache of mv_hot_active populated state. The main recall path currently
 // uses entries directly; this guard remains for explicit useHotActive callers.
 import { memberTsInWindow, buildExactTerms, _checkMvHotActivePopulated } from './recall-scoring.mjs';
 
 // Bounded lexical scan window. The trgm/exact CTE legs run `ILIKE '%…%'`
-// which no index accelerates, so their worst case grows linearly with the
+// which are indexable when optional pg_trgm indexes exist. On portable
+// runtimes without them, their worst case grows linearly with the
 // entries table — on a years-old memory DB every recall pays a full-table
 // substring scan twice. Bound both legs to the newest N rows by id (bigserial
 // ⇒ insertion order; MAX(id) resolves via the pk index, no sort). Dense
@@ -302,8 +304,8 @@ trgm AS (
   FROM entries
   WHERE (
       content ILIKE '%' || $3 || '%'
-      OR coalesce(element, '') ILIKE '%' || $3 || '%'
-      OR coalesce(summary, '') ILIKE '%' || $3 || '%'
+      OR ${recallSubstringPredicate('element', '$3')}
+      OR ${recallSubstringPredicate('summary', '$3')}
     )
     ${trgmFilterClause}
     ${entryRootFilter}
@@ -321,8 +323,8 @@ exact_matches AS (
   FROM entries ee
   JOIN LATERAL unnest($${exactTermsParam}::text[]) AS q(term) ON (
        ee.content ILIKE '%' || q.term || '%'
-       OR coalesce(ee.element, '') ILIKE '%' || q.term || '%'
-       OR coalesce(ee.summary, '') ILIKE '%' || q.term || '%'
+       OR ${recallSubstringPredicate('ee.element', 'q.term')}
+       OR ${recallSubstringPredicate('ee.summary', 'q.term')}
   )
   WHERE true
     ${exactFilterClause}

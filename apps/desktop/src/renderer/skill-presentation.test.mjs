@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import i18next, { SUPPORTED_UI_LANGUAGES, t } from './i18n.ts';
 import { skillDisplayDescription } from './skill-presentation.ts';
-import { selectableComposerSkills } from './composer-skill.ts';
+import { selectableComposerSkills, skillTitle } from './composer-skill.ts';
 import { BUILT_IN_FEATURES } from './settings/built-in-feature-registry.ts';
 
 const names = [
@@ -27,7 +27,9 @@ test('every shipped skill and built-in feature has translated UI descriptions in
         assert.notEqual(description, originals[index], `${language}: ${name}`);
         assert.notEqual(description, 'MODEL_ONLY_TEXT');
         assert.ok(description.trim());
-        assert.equal(selectableComposerSkills({ skills: [skill] })[0].description, description);
+        const listed = selectableComposerSkills({ skills: [skill] });
+        if (name === 'goal-management') assert.equal(listed.length, 0);
+        else assert.equal(listed[0].description, description);
         assert.equal(skill.description, 'MODEL_ONLY_TEXT');
       }
       for (const feature of BUILT_IN_FEATURES) {
@@ -52,6 +54,21 @@ test('custom skills and plugin skills retain their authors descriptions even whe
       'PDF 문서를 읽고 만들고 편집합니다.',
     );
     assert.equal(skillDisplayDescription({ name: 'future-skill', source: 'builtin', description: 'Future description' }), 'Future description');
+  } finally {
+    await i18next.changeLanguage('en');
+  }
+});
+
+test('composer skill titles follow the active catalog; product names and custom skills keep their own text', async () => {
+  const catalog = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
+  i18next.addResourceBundle('ko', 'translation', catalog);
+  await i18next.changeLanguage('ko');
+  try {
+    assert.equal(skillTitle('history-recall'), '이전 대화 검색');
+    assert.equal(skillTitle('skill-creator'), '스킬 만들기');
+    assert.equal(skillTitle('memory-management'), '메모리');
+    assert.equal(skillTitle('pdf'), 'PDF');
+    assert.equal(skillTitle('team-review'), 'team-review');
   } finally {
     await i18next.changeLanguage('en');
   }

@@ -227,10 +227,10 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
 
     let out = collected.join('\n');
     if (truncated) {
-        const nextOffset = lastEmitted || offset;
+        const nextOffset = (lastEmitted || offset) + 1;
         out += `\n\n... [output truncated at ${Math.max(1, Math.round(maxOutputBytes/1024))} KB; pass offset:${nextOffset} to continue] ...`;
     } else if (stoppedAtLimit) {
-        out += `${out ? '\n' : ''}... [range limit reached; next offset: ${offset + collected.length}]`;
+        out += `${out ? '\n' : ''}... [range limit reached; next offset: ${offset + collected.length + 1}]`;
     } else if (!out && offset >= lineIdx) {
         out = `(no lines in range; file has ${lineIdx} lines)`;
     }

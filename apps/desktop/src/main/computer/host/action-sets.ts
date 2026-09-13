@@ -23,10 +23,13 @@ export function isComputerLifecycleControl(command: ComputerCommand): boolean {
 
 export function requiresForegroundLane(command: ComputerCommand): boolean {
   const action = String(command.action || '');
+  const guardsFocus = (step: Partial<ComputerCommand>) =>
+    computerActionHas(String(step.action || ''), 'focusGuard')
+      || (step.action === 'click' && Boolean(step.ref) && !step.modifiers);
   return command.delivery === 'foreground' || computerActionHas(action, 'foreground')
-    || computerActionHas(action, 'focusGuard')
+    || guardsFocus(command)
     || (action === 'sequence' && Array.isArray(command.steps)
-      && command.steps.some(step => computerActionHas(String(step.action || ''), 'focusGuard')));
+      && command.steps.some(guardsFocus));
 }
 
 /** Resource serialization does not change the chosen input delivery. */

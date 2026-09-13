@@ -169,7 +169,7 @@ export function createInternalToolExecutor({
     if (name === 'Skill') {
       return skillToolContent(args?.name, activeToolSurface(), rt.mode);
     }
-    if (name === 'goal' || name === 'get_goal' || name === 'create_goal' || name === 'set_goal_tasks' || name === 'update_goal') {
+    if (name === 'goal') {
       return await goalRuntime.executeTool(name, args || {}, {
         callerSessionId: callerCtx?.callerSessionId || rt.session?.id || rt.reservedSessionId || null,
       });

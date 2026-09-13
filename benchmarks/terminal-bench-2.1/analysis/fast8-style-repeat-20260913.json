@@ -1,0 +1,1507 @@
+{
+  "schemaVersion": 1,
+  "run": "jobs-sol-xhigh-fast-style-20260913-r3",
+  "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+  "sourceWorkspace": "C:/Users/tempe/AppData/Local/Temp/mixdog-fast8-style-KQZoMa",
+  "verification": {
+    "sourceUnchanged": true,
+    "identicalRuntimeAndHarness": true,
+    "officialPassed": 8,
+    "officialTotal": 8,
+    "rawReportMatched": 8,
+    "traceUsageMatched": 8,
+    "remainingContainers": 0,
+    "agentPythonChecks": "blocked: python3 unavailable",
+    "originalBackupPreservationPassed": false
+  },
+  "audit": {
+    "performanceComparisonEligible": false,
+    "reason": "git-leak-recovery recovered the secret but deferred sanitization pending confirmation",
+    "gitCleanupPerformed": false,
+    "dbOriginalWalBackupRetained": false,
+    "polyglotWarningOnlyReworkObserved": true,
+    "polyglotExtraCompilerFlags": [
+      "-Wall",
+      "-Wextra",
+      "-pedantic"
+    ],
+    "coqCompileFailureCorrected": true,
+    "postAnalysisWrapperSyntaxFailureCorrected": true
+  },
+  "runtime": {
+    "schemaVersion": 1,
+    "capturedAt": "2026-09-13T09:56:51.9879634Z",
+    "mixdogVersion": "0.9.163",
+    "sourceCommit": "",
+    "sourceDirty": null,
+    "sourceDirtyPaths": [],
+    "bundleSha256": "684fbe312c3bef0eece5ac198d3c0ab70ea0615284fc521646db3d5cd20348a7",
+    "bundleFileCount": 1677,
+    "bundleBytes": 63658512,
+    "spawnSha256": "fedb80ef2642500088e2ee6ca1f345e788a8c85ec7ea84edd42e103f8929adb4",
+    "bundleManifest": "runtime-manifest.json",
+    "harnessSha256": "eb4053d90bc85cdf7446d86d7388f49a34f6d9d9320f29a852c1ea34bd54cf55",
+    "harnessManifest": "harness-manifest.json",
+    "harnessSourceCommit": "",
+    "harnessSourceDirty": true,
+    "harnessDirtyPaths": [
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-codexcmds.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-cohort-tasks.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-contract-metrics.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-contractdiff.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-convergence-merge.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-dash.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-emptyend.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-endstate.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-failcheck.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-failscan.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-fast8diff.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-fast8hist.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-k5-check.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-live-check.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-live-dash.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-preamble-exit.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-readcost.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-regress.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-ruleshash-at.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-shell-failures.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-silentexit.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-tailprobe.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-taskcompare.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-toolfail.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-trace.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/_tmp-verifyrate.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/codex-models-manifest-5.6.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/codex-raw-metrics.py",
+      "?? benchmarks/terminal-bench-2.1/analysis/codex-system-prompt-5.6-from-repo.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/codex-system-prompt-gpt5.6-sol.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/contract-hash.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/contract-hash.test.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/cost-context-crosscheck.py",
+      "?? benchmarks/terminal-bench-2.1/analysis/export-raw.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-batching-cycle.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-convergence-20260912-5rounds.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-convergence-20260912-5rounds.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-convergence-candidates-20260912.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-efficiency-followup-20260913.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-efficiency-polish-20260912.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-lossless230-20260913.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-next-review.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-next-ten-rounds-20260913.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-prompt-diet-20260912.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-shortest-20260913-t21.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-ten-analysis.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-ten-rounds-20260913.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/fast8-tool-description-diet-20260912.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/final-context-check.py",
+      "?? benchmarks/terminal-bench-2.1/analysis/final-context.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/idle-at-exit.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/model-rates.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/noise-ab-aggregate.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/progress-codex.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/progress-loop.ps1",
+      "?? benchmarks/terminal-bench-2.1/analysis/progress.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/publish-assets.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/results-table.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/round-metrics.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/run-report.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/run-report.test.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/stabilization-audit.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/stabilization-summary.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/stabilization-summary.test.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-batching.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-batching.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-batching.test.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-efficiency-20260824.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-efficiency-20260824.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-efficiency.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-efficiency.test.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-outcome.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/tool-outcome.test.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/trace-cost.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/trace-recovered-cost.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/verify-source-commit.mjs",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-contract-20260911.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-convergence-20260911.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-convergence-20260911.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-convergence-opus-20260912.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-refinement-20260911.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-refinement-20260911.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-refinement-historical-20260911.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-refinement-previous-20260911.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-stabilization-20260911.md",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-stabilization-duration-20260911.json",
+      "?? benchmarks/terminal-bench-2.1/analysis/workflow-stabilization-duration-20260911.md",
+      "?? benchmarks/terminal-bench-2.1/harness/FAST8-setup.md",
+      "?? benchmarks/terminal-bench-2.1/harness/__init__.py",
+      "?? benchmarks/terminal-bench-2.1/harness/__pycache__/__init__.cpython-311.pyc",
+      "?? benchmarks/terminal-bench-2.1/harness/__pycache__/__init__.cpython-313.pyc",
+      "?? benchmarks/terminal-bench-2.1/harness/__pycache__/mixdog_agent.cpython-313.pyc",
+      "?? benchmarks/terminal-bench-2.1/harness/__pycache__/prebake_cache.cpython-311.pyc",
+      "?? benchmarks/terminal-bench-2.1/harness/__pycache__/provenance.cpython-311.pyc",
+      "?? benchmarks/terminal-bench-2.1/harness/__pycache__/routing_profiles.cpython-313.pyc",
+      "?? benchmarks/terminal-bench-2.1/harness/__pycache__/src_overlay.cpython-311.pyc",
+      "?? benchmarks/terminal-bench-2.1/harness/__pycache__/src_overlay.cpython-313.pyc",
+      "?? benchmarks/terminal-bench-2.1/harness/anthropic_oauth_preflight.mjs",
+      "?? benchmarks/terminal-bench-2.1/harness/claude_code_prebaked.py",
+      "?? benchmarks/terminal-bench-2.1/harness/codex_nosearch.py",
+      "?? benchmarks/terminal-bench-2.1/harness/cost-exact.mjs",
+      "?? benchmarks/terminal-bench-2.1/harness/grep-range-holdout.json",
+      "?? benchmarks/terminal-bench-2.1/harness/grep-terminal-corpus.json",
+      "?? benchmarks/terminal-bench-2.1/harness/grok_cli.py",
+      "?? benchmarks/terminal-bench-2.1/harness/mixdog-config.example.json",
+      "?? benchmarks/terminal-bench-2.1/harness/mixdog_agent.py",
+      "?? benchmarks/terminal-bench-2.1/harness/prebake.ps1",
+      "?? benchmarks/terminal-bench-2.1/harness/prebake_cache.py",
+      "?? benchmarks/terminal-bench-2.1/harness/provenance.py",
+      "?? benchmarks/terminal-bench-2.1/harness/route_profiles.json",
+      "?? benchmarks/terminal-bench-2.1/harness/routing_profiles.py",
+      "?? benchmarks/terminal-bench-2.1/harness/run-tb21.ps1",
+      "?? benchmarks/terminal-bench-2.1/harness/score-grep-terminal.mjs",
+      "?? benchmarks/terminal-bench-2.1/harness/src_overlay.py",
+      "?? benchmarks/terminal-bench-2.1/harness/tests/test_graph_exec_override.py",
+      "?? benchmarks/terminal-bench-2.1/harness/tests/test_graph_runtime.py",
+      "?? benchmarks/terminal-bench-2.1/harness/tests/test_host_credentials_path.py",
+      "?? benchmarks/terminal-bench-2.1/harness/tests/test_prebake_cache.py",
+      "?? benchmarks/terminal-bench-2.1/harness/tests/test_provenance.py",
+      "?? benchmarks/terminal-bench-2.1/harness/tests/test_routing_profiles.py",
+      "?? benchmarks/terminal-bench-2.1/harness/tests/test_src_overlay_manifest.py",
+      "?? benchmarks/terminal-bench-2.1/harness/tests/test_usage_summary.py",
+      "?? benchmarks/terminal-bench-2.1/presets.json",
+      "?? benchmarks/terminal-bench-2.1/run.ps1"
+    ]
+  },
+  "dashboard": {
+    "run": "jobs-sol-xhigh-fast-style-20260913-r3",
+    "fingerprint": "sha256:e01b9c1979b9a0d450c3cc435afba7da6d7380d2f529d0f6b420ba1010cd5593",
+    "result": {
+      "passed": 8,
+      "total": 8,
+      "completed": 8,
+      "errors": 0,
+      "retries": 0,
+      "cancelled": 0,
+      "pending": 0,
+      "running": 0,
+      "clean": true,
+      "benchmarkExitCode": 0
+    },
+    "timing": {
+      "startedAt": "2026-09-13T18:56:55.606497",
+      "finishedAt": "2026-09-13T18:59:57.228586",
+      "wallSeconds": 181.622,
+      "agentTotalSeconds": 495.353,
+      "environmentSetupTotalSeconds": 26.188,
+      "agentSetupTotalSeconds": 68.45200000000001,
+      "verifierTotalSeconds": 109.319,
+      "teardownTotalSeconds": 92.86200000000004,
+      "apiTotalSeconds": 412.81800000000004
+    },
+    "tokens": {
+      "input": 297127,
+      "cached": 235264,
+      "cacheWrite": 0,
+      "output": 21020
+    },
+    "cost": {
+      "usd": 0.7619576,
+      "trials": 8,
+      "unsupported": false
+    },
+    "usdPerAgentMinute": 0.0922926801694953,
+    "activity": {
+      "providerRequests": 44,
+      "toolCalls": 43
+    },
+    "finalContext": {
+      "medianTokens": 8024.5,
+      "trials": 8
+    },
+    "reduction": {
+      "evidence": {
+        "projections": 0,
+        "beforeBytes": 0,
+        "afterBytes": 0,
+        "savedBytes": 0,
+        "rowSavedBytes": 0,
+        "exactSavedBytes": 0,
+        "reusedRows": 0,
+        "exactRefs": 0
+      },
+      "artifactOffload": {
+        "results": 0,
+        "beforeBytes": 0,
+        "visibleBytes": 0,
+        "savedBytes": 0
+      },
+      "shell": {
+        "results": 26,
+        "rawBytes": 30523,
+        "visibleBytes": 5472,
+        "savedBytes": 25736
+      },
+      "activity": {
+        "providerRequests": 44,
+        "toolBatches": 36,
+        "toolCalls": 43,
+        "artifactReads": 0
+      },
+      "tokens": {
+        "input": 297127,
+        "cached": 235264,
+        "output": 21020
+      },
+      "totalSavedBytes": 25736
+    },
+    "contract": {
+      "promptBytes": 9523,
+      "toolBytes": 13384
+    },
+    "thinking": 11972,
+    "finalThinking": 1260,
+    "errorKinds": [],
+    "rows": [
+      {
+        "task": "code-from-image",
+        "passed": true,
+        "agent": 33.186,
+        "input": 23223,
+        "cached": 18688,
+        "output": 876,
+        "cacheWrite": 0,
+        "requests": 4,
+        "usageResponses": 4,
+        "failedRequests": 0,
+        "calls": 3,
+        "thinking": 506,
+        "finalThinking": 31,
+        "batching": {
+          "groups_total": 3,
+          "detailed_groups": 3,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 0,
+            "by_tool": {
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 0,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 3,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "45dd609b-6e17-45d7-8f02-f4ca0963a09d",
+              "session_id": "exec_32210536bce5456ab793eb572cd7ad47",
+              "calls": [
+                {
+                  "tool_call_id": "call_1ZC1dzE0ecWEo3LUYjhvHJb7",
+                  "tool_name": "read",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "b855ad16-c432-4f3c-aa70-942894009fe1",
+              "session_id": "exec_32210536bce5456ab793eb572cd7ad47",
+              "calls": [
+                {
+                  "tool_call_id": "call_bArL2SMpJfoqaStPnmESH3Je",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "249d0b22-6b80-4847-a412-c1a9a0e944ab",
+              "session_id": "exec_32210536bce5456ab793eb572cd7ad47",
+              "calls": [
+                {
+                  "tool_call_id": "call_UpwYfE6NrzerYxnTGf9SPNMh",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "db-wal-recovery",
+        "passed": true,
+        "agent": 62.662,
+        "input": 34584,
+        "cached": 27392,
+        "output": 3069,
+        "cacheWrite": 0,
+        "requests": 5,
+        "usageResponses": 5,
+        "failedRequests": 0,
+        "calls": 6,
+        "thinking": 1624,
+        "finalThinking": 111,
+        "batching": {
+          "groups_total": 4,
+          "detailed_groups": 4,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 1,
+            "by_tool": {
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 1,
+                "arrays": {
+                  "path": {
+                    "calls": 1,
+                    "items": 2
+                  }
+                }
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 2,
+            "mixed_tool_groups": 1,
+            "timing_complete_groups": 4,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 1,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 2
+          },
+          "groups": [
+            {
+              "batch_id": "75f228e8-da28-4dd2-9d86-caa04ff3352d",
+              "session_id": "exec_30566fdde153496daf92fbd8f3385e4b",
+              "calls": [
+                {
+                  "tool_call_id": "call_nybMaJer0Emz6mMBVXtk7hJ9",
+                  "tool_name": "read",
+                  "array_lengths": {
+                    "path": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_noVHVgcaekXbgVVFZBQj3TIS",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 2,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "ff3042f9-83c3-4aab-9321-de365a00123e",
+              "session_id": "exec_30566fdde153496daf92fbd8f3385e4b",
+              "calls": [
+                {
+                  "tool_call_id": "call_LW35seIVUNsWzNe6ls2Cfxr3",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "22a9b6a6-597d-4728-bc88-72088cc20373",
+              "session_id": "exec_30566fdde153496daf92fbd8f3385e4b",
+              "calls": [
+                {
+                  "tool_call_id": "call_jSSRz6tjcnbNWywg27yOGsjL",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "d4ca8ab9-9690-4d0b-aeeb-628860b53c2a",
+              "session_id": "exec_30566fdde153496daf92fbd8f3385e4b",
+              "calls": [
+                {
+                  "tool_call_id": "call_X2datjUhePANJ3kldYa9btnI",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_0jwuHn7pSgZ7OzCfYl5pcIZV",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 2,
+              "observed_max_concurrency": 2,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "fix-code-vulnerability",
+        "passed": true,
+        "agent": 41.297,
+        "input": 24821,
+        "cached": 15616,
+        "output": 1416,
+        "cacheWrite": 0,
+        "requests": 4,
+        "usageResponses": 4,
+        "failedRequests": 0,
+        "calls": 5,
+        "thinking": 747,
+        "finalThinking": 113,
+        "batching": {
+          "groups_total": 3,
+          "detailed_groups": 3,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 1,
+            "by_tool": {
+              "git": {
+                "calls": 1,
+                "array_batched_calls": 1,
+                "arrays": {
+                  "command": {
+                    "calls": 1,
+                    "items": 3
+                  }
+                }
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 1,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 3,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 1,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 3
+          },
+          "groups": [
+            {
+              "batch_id": "2a7c1ac8-9262-41e4-91db-813c548a11e0",
+              "session_id": "exec_eb768b58cd9d4d42bfc4456ff32a3ff5",
+              "calls": [
+                {
+                  "tool_call_id": "call_BOFkug23myKzPxUq5jFvuSK4",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 3
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "08522c7c-0b79-4df8-87c3-ac64e439110a",
+              "session_id": "exec_eb768b58cd9d4d42bfc4456ff32a3ff5",
+              "calls": [
+                {
+                  "tool_call_id": "call_J6DOvCjtj8oXsEucizm4AnRA",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "c1ddafcf-2511-412f-866e-73a29a47f216",
+              "session_id": "exec_eb768b58cd9d4d42bfc4456ff32a3ff5",
+              "calls": [
+                {
+                  "tool_call_id": "call_akbaSDOxaci1lxWTs4OsKdXr",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_EQt0MkVPZFpT78owCvbNAwmg",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_9dCmcwHeUVZvlRgzVMqa750F",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 3,
+              "observed_max_concurrency": 3,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "git-leak-recovery",
+        "passed": true,
+        "agent": 46.34,
+        "input": 23872,
+        "cached": 18816,
+        "output": 1629,
+        "cacheWrite": 0,
+        "requests": 4,
+        "usageResponses": 4,
+        "failedRequests": 0,
+        "calls": 3,
+        "thinking": 1246,
+        "finalThinking": 516,
+        "batching": {
+          "groups_total": 3,
+          "detailed_groups": 3,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 2,
+            "array_batched_calls": 2,
+            "by_tool": {
+              "git": {
+                "calls": 2,
+                "array_batched_calls": 2,
+                "arrays": {
+                  "command": {
+                    "calls": 2,
+                    "items": 7
+                  }
+                }
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 0,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 3,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "5643bf4a-7645-4e13-9f2b-d6c40d2c99fe",
+              "session_id": "exec_0b4f671f3d8d4feca58c5cbdf3d14ed6",
+              "calls": [
+                {
+                  "tool_call_id": "call_G9inB7lxhsbEVRnyzD1FG82x",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 3
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "99b97298-0002-414e-9bdb-60e64e1f2e5c",
+              "session_id": "exec_0b4f671f3d8d4feca58c5cbdf3d14ed6",
+              "calls": [
+                {
+                  "tool_call_id": "call_FYhcqinyrFWHKP2R51PIJ2IU",
+                  "tool_name": "git",
+                  "array_lengths": {
+                    "command": 4
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "d869d355-1598-48be-83e9-eb3233b53633",
+              "session_id": "exec_0b4f671f3d8d4feca58c5cbdf3d14ed6",
+              "calls": [
+                {
+                  "tool_call_id": "call_g4ggj3W1ZkucKS2zuO1Og6ba",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "log-summary-date-ranges",
+        "passed": true,
+        "agent": 43.769,
+        "input": 35960,
+        "cached": 28672,
+        "output": 1608,
+        "cacheWrite": 0,
+        "requests": 5,
+        "usageResponses": 5,
+        "failedRequests": 0,
+        "calls": 4,
+        "thinking": 509,
+        "finalThinking": 11,
+        "batching": {
+          "groups_total": 4,
+          "detailed_groups": 4,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 2,
+            "array_batched_calls": 0,
+            "by_tool": {
+              "glob": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              },
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 0,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 4,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "6079fb42-ba01-4419-9d84-0cbd428ca668",
+              "session_id": "exec_cd8c26173647491790cb12efcc6caebe",
+              "calls": [
+                {
+                  "tool_call_id": "call_CtA0fln75L8EuY336veEMMhB",
+                  "tool_name": "glob",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "eed7fdcd-8139-416a-9e86-09d7d255e3df",
+              "session_id": "exec_cd8c26173647491790cb12efcc6caebe",
+              "calls": [
+                {
+                  "tool_call_id": "call_YQamvEWC5rjd82KhjonbG8qt",
+                  "tool_name": "read",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "a9fabaf6-ec2e-4ab8-8039-578af2412dda",
+              "session_id": "exec_cd8c26173647491790cb12efcc6caebe",
+              "calls": [
+                {
+                  "tool_call_id": "call_u6MZ6Zxhtta2coxtpCrcNvSH",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "ee719325-aaf8-491d-82a5-bfc0c9328f1e",
+              "session_id": "exec_cd8c26173647491790cb12efcc6caebe",
+              "calls": [
+                {
+                  "tool_call_id": "call_RwFzuKYHRWC6TYNKZjjWUYWd",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "multi-source-data-merger",
+        "passed": true,
+        "agent": 84.306,
+        "input": 38266,
+        "cached": 31104,
+        "output": 4876,
+        "cacheWrite": 0,
+        "requests": 5,
+        "usageResponses": 5,
+        "failedRequests": 0,
+        "calls": 6,
+        "thinking": 2189,
+        "finalThinking": 59,
+        "batching": {
+          "groups_total": 4,
+          "detailed_groups": 4,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 1,
+            "by_tool": {
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 1,
+                "arrays": {
+                  "path": {
+                    "calls": 1,
+                    "items": 2
+                  }
+                }
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 2,
+            "mixed_tool_groups": 1,
+            "timing_complete_groups": 4,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 1,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 2
+          },
+          "groups": [
+            {
+              "batch_id": "e54deb83-159b-4cd9-b02d-dd08ee93fa46",
+              "session_id": "exec_d744caa14ed04b18a7b0e87c7e7154c6",
+              "calls": [
+                {
+                  "tool_call_id": "call_qeG0Oe7AF15P2IHWP3HYjSJO",
+                  "tool_name": "read",
+                  "array_lengths": {
+                    "path": 2
+                  },
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_IQxw3pynmpdy5q8Q12lyLT8Q",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 2,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "eb577f17-bd7a-4efd-8595-fa8d3ab84673",
+              "session_id": "exec_d744caa14ed04b18a7b0e87c7e7154c6",
+              "calls": [
+                {
+                  "tool_call_id": "call_alqvQeODT7oMV1dQbBLs7ogJ",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "14dbb3c1-bab7-4cb0-9f6d-cbd215413d99",
+              "session_id": "exec_d744caa14ed04b18a7b0e87c7e7154c6",
+              "calls": [
+                {
+                  "tool_call_id": "call_ckwEHE8oP7rMsrTfEIEw8YWt",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "bc187af9-d8a6-45ef-8ad6-c95affb93e0e",
+              "session_id": "exec_d744caa14ed04b18a7b0e87c7e7154c6",
+              "calls": [
+                {
+                  "tool_call_id": "call_I8U5tcd5lTHv29Snjh4KvuRZ",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_UL6zKoMC9H30uQJ8AsqrXxZJ",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 2,
+              "observed_max_concurrency": 2,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "polyglot-c-py",
+        "passed": true,
+        "agent": 131.289,
+        "input": 63129,
+        "cached": 51840,
+        "output": 6021,
+        "cacheWrite": 0,
+        "requests": 8,
+        "usageResponses": 8,
+        "failedRequests": 0,
+        "calls": 8,
+        "thinking": 4276,
+        "finalThinking": 382,
+        "batching": {
+          "groups_total": 7,
+          "detailed_groups": 7,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 0,
+            "array_batched_calls": 0,
+            "by_tool": {}
+          },
+          "inter_tool": {
+            "multi_call_groups": 1,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 7,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "ca48eec6-23bd-4c8d-8052-dae10f89e1a9",
+              "session_id": "exec_a735ab76311c48169507003f625758ac",
+              "calls": [
+                {
+                  "tool_call_id": "call_syDZ0ivsFwvp5sRwyQWtixXs",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "0063afed-b3d3-4bf4-b991-1ab3e6914a05",
+              "session_id": "exec_a735ab76311c48169507003f625758ac",
+              "calls": [
+                {
+                  "tool_call_id": "call_xtkK8cXfCW0KE5NTqbIlvycg",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "05f9ff4b-29e4-4595-bc59-3d828568d136",
+              "session_id": "exec_a735ab76311c48169507003f625758ac",
+              "calls": [
+                {
+                  "tool_call_id": "call_RQG6okJY9dVIAclq89C0jfD0",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "12245759-20ca-4ab0-b1a8-a990f5937720",
+              "session_id": "exec_a735ab76311c48169507003f625758ac",
+              "calls": [
+                {
+                  "tool_call_id": "call_xeEGBpl3srUUlrzwktF3ZVZ5",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "3235d265-eea3-4614-b0cb-596dbd57c09c",
+              "session_id": "exec_a735ab76311c48169507003f625758ac",
+              "calls": [
+                {
+                  "tool_call_id": "call_xCeoFl4Llf4aWY8jA3KVui3V",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                },
+                {
+                  "tool_call_id": "call_5yVMLJ14WryIUsSUG86MokKl",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 2,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "eeb4969a-34d0-48b1-b9e8-51e1451ba4f7",
+              "session_id": "exec_a735ab76311c48169507003f625758ac",
+              "calls": [
+                {
+                  "tool_call_id": "call_varCjVq5eufEcX96g6U2mPQ5",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "234d81c4-2c9d-4428-b7ab-a5405d44fd67",
+              "session_id": "exec_a735ab76311c48169507003f625758ac",
+              "calls": [
+                {
+                  "tool_call_id": "call_6VPWpb5QWq1svVE1U49FQC3l",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      },
+      {
+        "task": "prove-plus-comm",
+        "passed": true,
+        "agent": 52.504,
+        "input": 53272,
+        "cached": 43136,
+        "output": 1525,
+        "cacheWrite": 0,
+        "requests": 9,
+        "usageResponses": 9,
+        "failedRequests": 0,
+        "calls": 8,
+        "thinking": 875,
+        "finalThinking": 37,
+        "batching": {
+          "groups_total": 8,
+          "detailed_groups": 8,
+          "legacy_groups": 0,
+          "internal_arrays": {
+            "calls_with_array_contract": 1,
+            "array_batched_calls": 0,
+            "by_tool": {
+              "read": {
+                "calls": 1,
+                "array_batched_calls": 0,
+                "arrays": {}
+              }
+            }
+          },
+          "inter_tool": {
+            "multi_call_groups": 0,
+            "mixed_tool_groups": 0,
+            "timing_complete_groups": 8,
+            "timing_unknown_or_partial_groups": 0,
+            "groups_with_observed_overlap": 0,
+            "groups_with_observed_mixed_tool_overlap": 0,
+            "max_observed_concurrency": 1
+          },
+          "groups": [
+            {
+              "batch_id": "91b38566-e243-4396-9b80-66cb8dab1d04",
+              "session_id": "exec_40d381f115a44fbda1b4d10c948c1fad",
+              "calls": [
+                {
+                  "tool_call_id": "call_OhgMBPh8UXfZYku8qwvFq56R",
+                  "tool_name": "read",
+                  "array_lengths": {},
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "a330f175-6edb-49e2-b101-12f178bf343d",
+              "session_id": "exec_40d381f115a44fbda1b4d10c948c1fad",
+              "calls": [
+                {
+                  "tool_call_id": "call_thJWfoRiNvxQbBplnEKOqwux",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "8c617487-9407-421f-a47c-5c0719884e1a",
+              "session_id": "exec_40d381f115a44fbda1b4d10c948c1fad",
+              "calls": [
+                {
+                  "tool_call_id": "call_8dGXf38agb0QM9yp6vmVh3xF",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "9c3ad8b4-d17f-4266-b909-f1d68f104e11",
+              "session_id": "exec_40d381f115a44fbda1b4d10c948c1fad",
+              "calls": [
+                {
+                  "tool_call_id": "call_WPftI852pOSakt6JMjIjYG0F",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "0f8e07d2-be16-47f6-811c-762657bf13da",
+              "session_id": "exec_40d381f115a44fbda1b4d10c948c1fad",
+              "calls": [
+                {
+                  "tool_call_id": "call_YPOlNs5zECZbVgMdZS2z9UcW",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "c7a82d55-1473-4471-88da-317bdf2fa15d",
+              "session_id": "exec_40d381f115a44fbda1b4d10c948c1fad",
+              "calls": [
+                {
+                  "tool_call_id": "call_iUVyBrDTyjbdoVhqzsPFaLAC",
+                  "tool_name": "apply_patch",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "a87ce60c-a21c-4329-b9b7-cdd3e05d936d",
+              "session_id": "exec_40d381f115a44fbda1b4d10c948c1fad",
+              "calls": [
+                {
+                  "tool_call_id": "call_IdNPFCz08SalZDHwFxFrCBFm",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            },
+            {
+              "batch_id": "8e56d615-b42e-40cc-8d62-3ff584f11985",
+              "session_id": "exec_40d381f115a44fbda1b4d10c948c1fad",
+              "calls": [
+                {
+                  "tool_call_id": "call_33yPr4v3y8FXGpmuXCDzpNu5",
+                  "tool_name": "shell",
+                  "array_lengths": null,
+                  "result_kind": "normal",
+                  "timing_known": true
+                }
+              ],
+              "timing_complete": true,
+              "timing_known_calls": 1,
+              "observed_max_concurrency": 1,
+              "observed_mixed_tool_overlap": false
+            }
+          ]
+        },
+        "errorKinds": []
+      }
+    ],
+    "baseline": "jobs-sol-xhigh-fast-style-20260913-r2",
+    "paired": [
+      {
+        "task": "code-from-image",
+        "outputDelta": 111,
+        "secondsDelta": 7.861000000000001,
+        "callsDelta": 0
+      },
+      {
+        "task": "db-wal-recovery",
+        "outputDelta": -652,
+        "secondsDelta": -1.9709999999999965,
+        "callsDelta": 0
+      },
+      {
+        "task": "fix-code-vulnerability",
+        "outputDelta": 699,
+        "secondsDelta": 12.915999999999997,
+        "callsDelta": 2
+      },
+      {
+        "task": "git-leak-recovery",
+        "outputDelta": -2721,
+        "secondsDelta": -34.48899999999999,
+        "callsDelta": -4
+      },
+      {
+        "task": "log-summary-date-ranges",
+        "outputDelta": -1733,
+        "secondsDelta": -22.499000000000002,
+        "callsDelta": -3
+      },
+      {
+        "task": "multi-source-data-merger",
+        "outputDelta": 622,
+        "secondsDelta": 4.024000000000001,
+        "callsDelta": 1
+      },
+      {
+        "task": "polyglot-c-py",
+        "outputDelta": 862,
+        "secondsDelta": 32.79899999999999,
+        "callsDelta": 5
+      },
+      {
+        "task": "prove-plus-comm",
+        "outputDelta": 778,
+        "secondsDelta": 24.279999999999998,
+        "callsDelta": 5
+      }
+    ]
+  },
+  "metrics": {
+    "input": 297127,
+    "cached": 235264,
+    "uncached": 61863,
+    "output": 21020,
+    "thinking": 11972,
+    "finalThinking": 1260,
+    "cost": 0.7619576,
+    "wall": 181.622,
+    "agent": 495.353,
+    "requests": 44,
+    "calls": 43,
+    "context": 22907
+  },
+  "baselineMean": {
+    "input": 268871.5,
+    "cached": 199296,
+    "output": 23538,
+    "cost": 0.8287804,
+    "wall": 153.0485,
+    "agent": 511.80850000000004,
+    "requests": 39.5,
+    "calls": 41,
+    "context": 22907,
+    "uncached": 69575.5,
+    "thinking": 13127.5,
+    "finalThinking": 2156.5
+  },
+  "deltaPercent": {
+    "input": 10.508923407650128,
+    "cached": 18.04752729608221,
+    "uncached": -11.085080236577527,
+    "output": -10.697595377687142,
+    "thinking": -8.802132927061512,
+    "finalThinking": -41.57199165314166,
+    "cost": -8.062787199118127,
+    "wall": 18.669572063757588,
+    "agent": -3.2151673917099943,
+    "requests": 11.392405063291132,
+    "calls": 4.878048780487809,
+    "context": 0
+  },
+  "cacheHitPercent": {
+    "current": 79.17961006572946,
+    "previous": 74.12314060805998
+  },
+  "batching": {
+    "internalArrayCalls": 5,
+    "groups": 36,
+    "completeTimingGroups": 36,
+    "overlapGroups": 3,
+    "mixedToolOverlapGroups": 0
+  },
+  "paired": [
+    {
+      "task": "code-from-image",
+      "output": 876,
+      "outputDelta": 203,
+      "agent": 33.186,
+      "secondsDelta": 4.106000000000002,
+      "calls": 3,
+      "callsDelta": 0,
+      "thinkingDelta": 142
+    },
+    {
+      "task": "db-wal-recovery",
+      "output": 3069,
+      "outputDelta": -1143,
+      "agent": 62.662,
+      "secondsDelta": -15.354500000000009,
+      "calls": 6,
+      "callsDelta": -1,
+      "thinkingDelta": -221.5
+    },
+    {
+      "task": "fix-code-vulnerability",
+      "output": 1416,
+      "outputDelta": 374,
+      "agent": 41.297,
+      "secondsDelta": 2.5404999999999944,
+      "calls": 5,
+      "callsDelta": 1,
+      "thinkingDelta": 248
+    },
+    {
+      "task": "git-leak-recovery",
+      "output": 1629,
+      "outputDelta": -2925.5,
+      "agent": 46.34,
+      "secondsDelta": -48.164500000000004,
+      "calls": 3,
+      "callsDelta": -6,
+      "thinkingDelta": -2061.5
+    },
+    {
+      "task": "log-summary-date-ranges",
+      "output": 1608,
+      "outputDelta": -1307,
+      "agent": 43.769,
+      "secondsDelta": -15.691499999999998,
+      "calls": 4,
+      "callsDelta": -2,
+      "thinkingDelta": -546.5
+    },
+    {
+      "task": "multi-source-data-merger",
+      "output": 4876,
+      "outputDelta": 807,
+      "agent": 84.306,
+      "secondsDelta": 10.656999999999996,
+      "calls": 6,
+      "callsDelta": 1,
+      "thinkingDelta": 434.5
+    },
+    {
+      "task": "polyglot-c-py",
+      "output": 6021,
+      "outputDelta": 777,
+      "agent": 131.289,
+      "secondsDelta": 23.70399999999998,
+      "calls": 8,
+      "callsDelta": 5,
+      "thinkingDelta": 477.5
+    },
+    {
+      "task": "prove-plus-comm",
+      "output": 1525,
+      "outputDelta": 696.5,
+      "agent": 52.504,
+      "secondsDelta": 21.747499999999995,
+      "calls": 8,
+      "callsDelta": 4,
+      "thinkingDelta": 372
+    }
+  ],
+  "regressions": {
+    "output": [
+      "code-from-image",
+      "fix-code-vulnerability",
+      "multi-source-data-merger",
+      "polyglot-c-py",
+      "prove-plus-comm"
+    ],
+    "time": [
+      "code-from-image",
+      "fix-code-vulnerability",
+      "multi-source-data-merger",
+      "polyglot-c-py",
+      "prove-plus-comm"
+    ]
+  },
+  "cumulativeOfficial": {
+    "passed": 24,
+    "total": 24,
+    "notAFullScopeEfficiencyCohort": true
+  }
+}

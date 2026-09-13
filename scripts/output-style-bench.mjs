@@ -119,20 +119,17 @@ function runInjectionScaffold() {
   // One phrase per shared-format rule, each expected exactly once — a rule that
   // gets restated in a second bullet fails the scaffold instead of shipping.
   const sharedFormatMarkers = [
-    'Choose the shape from the content and the reader',
-    'no response shape is a default',
-    'never sprawl into an essay',
-    'Use tables only for short enumerable',
-    'Give each paragraph or list item one idea',
-    'State each point once and stop when the request is covered',
+    'Choose structure for clarity, not a fixed template',
+    'Distinguish facts, inference, and uncertainty',
+    'Follow explicit requests for depth; never pad',
+    'Apply the selected depth to substantive answers, not preambles or progress updates',
   ];
-  // Every built-in depth variant uses the same Retain/Omit skeleton.
-  const depthMarkers = ['- Retain:', '- Omit:'];
+  // Pin the distinct depth contracts, not an obsolete Retain/Omit layout.
   const markers = {
-    detailed: 'concrete explanation',
-    simple: 'concise summary',
-    minimal: 'conclusion and core cause',
-    'extreme-minimal': 'final decision or answer',
+    detailed: 'Explain the reasoning, mechanisms, evidence, trade-offs, and implications',
+    simple: 'Give a self-contained summary',
+    minimal: 'State the conclusion and determining cause',
+    'extreme-minimal': 'Give the direct answer or result',
   };
   // Marker checks run on whitespace-flattened text so rewrapping a rule at a
   // different column never reads as a missing rule.
@@ -150,9 +147,6 @@ function runInjectionScaffold() {
       if (!flat.includes(anchorMarker)) throw new Error(`${styleId} injection missing the user-facing-text anchor`);
       if (!flat.includes(markers[styleId])) throw new Error(`${styleId} injection marker missing`);
       if (!flat.includes(sharedMarker)) throw new Error(`${styleId} shared philosophy missing`);
-      for (const marker of depthMarkers) {
-        if (!snippets[styleId].includes(marker)) throw new Error(`${styleId} depth variation missing "${marker}" line`);
-      }
       for (const marker of sharedFormatMarkers) {
         if (!flat.includes(marker)) throw new Error(`${styleId} shared format marker missing: ${marker}`);
         if (flat.split(marker).length !== 2) throw new Error(`${styleId} shared format rule duplicated: ${marker}`);
@@ -276,7 +270,7 @@ Standalone note — shared-format opt-out sentinel.`);
         'custom styles inherit the shared format unless keep-shared-format: false',
         'user common.md overrides the shared format and never lists as a style',
         'every shared format rule stated exactly once',
-        'built-in depth variants share one Retain/Omit skeleton',
+        'built-in depth variants preserve their distinct explanation depth',
       ],
     };
   } finally {

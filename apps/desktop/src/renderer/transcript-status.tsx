@@ -10,6 +10,7 @@ import { MxIcon } from "./MxIcon";
 import { showDesktopToast } from "./notifications";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
+  inheritancePreflight,
   sessionModelSelection,
   shouldOfferSessionInheritance,
 } from "./session-inheritance";
@@ -145,20 +146,31 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   const offerInheritance = Boolean(onInherit) && Boolean(inheritRoute)
     && shouldOfferSessionInheritance(snapshot);
   // The one fact the card cannot act through is a transcript that no longer
-  // fits: the runtime rejects that carry with a raw engine sentence, so it is
-  // named here in the user's own terms before the call is made.
+  // fits — and THIS card's readings cannot answer that question: they belong to
+  // the session's own route, while the carry lands on the selected one. The
+  // runtime measures the heir's route; the refusal is named here in the user's
+  // own terms before any session is created.
   const inherit = async () => {
     if (!sessionId || !onInherit || !inheritRoute || actionBusy || actionInFlight.current) return;
-    if (context && context.limit > 0 && context.used != null && context.used >= context.limit) {
-      showDesktopToast(
-        t("This conversation no longer fits the model context. Run /compact first."),
-        "warn",
-      );
-      return;
-    }
     actionInFlight.current = true;
     setActionPending(true);
     try {
+      const fit = await inheritancePreflight(sessionId, inheritRoute);
+      if (fit?.known && !fit.fits) {
+        if (!fit.willCompact) {
+          showDesktopToast(
+            t("This conversation no longer fits the model context. Run /compact first."),
+            "warn",
+          );
+          return;
+        }
+        // The carry takes a summarization pass first. Say so: the handover is
+        // about to take a while, and this session keeps its full transcript.
+        showDesktopToast(
+          t("This conversation is compacted for the new model before it carries over."),
+          "info",
+        );
+      }
       await onInherit(sessionId, inheritRoute);
       popover.close();
     } catch (reason) {

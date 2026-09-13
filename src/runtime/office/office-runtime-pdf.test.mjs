@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { executeOfficeTool } from './index.mjs';
 import { renderPdfPages } from './pdf/pdf-render.mjs';
-import { parseOcrBlocks, parseOcrTsv } from './pdf/pdf-analysis.mjs';
+import { ocrTextLines, parseOcrBlocks, parseOcrTsv } from './pdf/pdf-analysis.mjs';
 import { wrapText } from './pdf/pdf-draw.mjs';
 import {
   classifyOoxmlValidationErrors,
@@ -116,6 +117,35 @@ test('PDF backend edits and validates without Microsoft Office', async (t) => {
   assert.equal(finalizedResult.content.filter((item) => item.type === 'image').length, 1);
 });
 
+// The audit read the same 30K excerpt a reader is shown: on a long report the
+// text ran out a few pages in, and a scanned page after that was never reported
+// while the answer still read "ok, nothing found".
+test('the PDF audit reads every page, not the excerpt a reader is shown', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'long-report.pdf');
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const line = 'Night dock throughput held at ninety two percent of the plan. ';
+  for (let page = 1; page <= 14; page += 1) {
+    const sheet = pdf.addPage([612, 792]);
+    for (let row = 0; row < 45; row += 1) {
+      sheet.drawText(`${page}-${row} ${line}`, { x: 48, y: 740 - row * 16, size: 10, font });
+    }
+  }
+  // The scanned insert at the back: a page that carries no text layer at all.
+  pdf.addPage([612, 792]);
+  await writeFile(path, await pdf.save());
+
+  const opened = value(await executeOfficeTool({ action: 'open', path, mode: 'portable' }, { cwd }));
+  const audited = value(await executeOfficeTool({ action: 'issues', session: opened.session }, { cwd }));
+  assert.ok(
+    audited.issues.some((issue) => issue.code === 'ocr_required' && issue.path === '/page[15]'),
+    JSON.stringify(audited.issues),
+  );
+  assert.equal(audited.issues.some((issue) => issue.code === 'audit_scope_limited'), false);
+  value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
+});
+
 test('PDF rendering compresses long documents into at most 12 contact sheets with full coverage', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'thirteen-pages.pdf');
@@ -223,6 +253,75 @@ test('PDF specialized queries expose positioned text, inferred tables, and embed
   assert.ok(right && Math.abs((right.x + right.width) - (400 - 36)) < 1, JSON.stringify(right));
 });
 
+// OCR is promised to the user before it runs. The engine ships with the
+// runtime, but each language's data arrives on first use, so a machine with no
+// network reads only what its cache already holds.
+test('detect reports which OCR languages this machine can already read', async (t) => {
+  await workspace(t);
+  const cache = join(process.env.MIXDOG_DATA_DIR, 'office', 'ocr', 'languages');
+  await mkdir(cache, { recursive: true });
+  await writeFile(join(cache, 'kor.traineddata'), 'x');
+  await writeFile(join(cache, 'eng.traineddata.gz'), 'x');
+  const detected = value(await executeOfficeTool({ action: 'detect' }));
+  assert.equal(detected.portable.pdfOcr.available, true);
+  assert.deepEqual(detected.portable.pdfOcr.cachedLanguages, ['eng', 'kor']);
+  assert.equal(detected.portable.pdfOcr.cachePath, cache);
+});
+
+// A PDF can only carry characters some embedded face has a glyph for. Refusing
+// is right — a dropped character would ship silently — but the refusal has to
+// name what blocks the file, or the caller hunts for a font that cannot exist.
+test('a character no installed font carries is named in the refusal, not left to a font hunt', async (t) => {
+  const cwd = await workspace(t);
+  const emoji = await executeOfficeTool({
+    action: 'create',
+    format: 'pdf',
+    path: join(cwd, 'emoji.pdf'),
+    blocks: [{ type: 'paragraph', text: '야간 처리량 😀 회의' }],
+  }, { cwd });
+  const message = emoji.content[0].text;
+  assert.match(message, /U\+1F600/);
+  assert.match(message, /Replace or remove/);
+  assert.equal(existsSync(join(cwd, 'emoji.pdf')), false, 'a refused create leaves no file behind');
+  // The same text without that one character is written normally.
+  const plain = value(await executeOfficeTool({
+    action: 'create',
+    format: 'pdf',
+    path: join(cwd, 'plain.pdf'),
+    blocks: [{ type: 'paragraph', text: '야간 처리량 92.8% — 회의' }],
+  }, { cwd }));
+  assert.match(plain.document.pages[0].text, /야간 처리량 92\.8%/);
+});
+
+// A scan becomes searchable only if the invisible layer carries the words the
+// page shows. Korean and CJK word boxes are ink extents split at syllable
+// boundaries, so rebuilding a line from geometry reads 출고율 as "출 고 율" and
+// the phrase on the page can no longer be found.
+test('the OCR text layer keeps the line the engine read, not its word boxes', () => {
+  const rows = [
+    '1\t1\t0\t0\t0\t0\t0\t0\t1191\t1684\t-1\t',
+    '4\t1\t1\t1\t1\t0\t153\t378\t245\t26\t-1\t',
+    '5\t1\t1\t1\t1\t1\t153\t378\t52\t26\t93.3\t정시',
+    '5\t1\t1\t1\t1\t2\t231\t378\t34\t26\t91.3\t출',
+    '5\t1\t1\t1\t1\t3\t281\t378\t17\t26\t93.0\t고',
+    '5\t1\t1\t1\t1\t4\t297\t374\t23\t44\t92.7\t율',
+    '5\t1\t1\t1\t1\t5\t321\t381\t77\t21\t92.4\t92.8%',
+    '5\t1\t1\t1\t2\t1\t153\t444\t55\t26\t96.2\t야간',
+    '5\t1\t1\t1\t2\t2\t900\t444\t55\t26\t96.9\t증원',
+  ].join('\n');
+  const lines = ocrTextLines(rows, '정시 출고율 92.8%\n야간                      증원\n');
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].text, '정시 출고율 92.8%');
+  assert.equal(lines[0].fromEngine, true);
+  assert.deepEqual(
+    { left: lines[0].left, top: lines[0].top, width: lines[0].width, height: lines[0].height },
+    { left: 153, top: 374, width: 245, height: 44 },
+  );
+  // Two columns the engine read as one row: stretching a single run across the
+  // gap would put every character in it far from the word it belongs to.
+  assert.ok(lines[1].columnGap > lines[1].height * 1.5, JSON.stringify(lines[1]));
+});
+
 test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic', async (t) => {
   const words = parseOcrTsv('level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t20\t30\t12\t92.5\tHello');
   assert.deepEqual(words, [{
@@ -243,6 +342,11 @@ test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic'
     width: 10,
     height: 6,
   }]);
+  // The worker API writes this table without a header row, so a reader that
+  // assumes one eats the first word and reports an empty page.
+  const headerless = parseOcrTsv('5\t1\t1\t1\t1\t1\t10\t20\t30\t12\t92.5\tHello\n5\t1\t1\t1\t1\t2\t50\t20\t20\t12\t88\tworld');
+  assert.deepEqual(headerless.map((word) => word.text), ['Hello', 'world']);
+  assert.equal(headerless[0].left, 10);
   const manifest = ooxmlValidatorManifest();
   assert.equal(manifest.version, '0.3.0');
   assert.equal(manifest.platforms.length, 6);
@@ -319,6 +423,210 @@ test('PDF text edits embed an explicit Unicode font for non-Latin text', async (
     pages: [1],
   }, { cwd }));
   assert.ok(JSON.stringify(snapshot.document.pages).includes(expected));
+});
+
+test('PDF blocks are checked before writing, and a list is drawn as a list', async (t) => {
+  const cwd = await workspace(t);
+  // A block the writer cannot read used to flow as an empty paragraph: the
+  // table and the list simply never appeared, and the result said nothing.
+  const refused = await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'refused.pdf'),
+    format: 'pdf',
+    blocks: [
+      { kind: 'title', text: 'Night shift' },
+      { type: 'bullets', items: ['hire'] },
+      { type: 'table', columns: 3 },
+    ],
+  }, { cwd });
+  assert.equal(refused.isError, true);
+  const message = refused.content[0].text;
+  assert.match(message, /block 1 names its block with kind; the field is type/);
+  assert.match(message, /block 2 has unknown type "bullets"\. Use one of: paragraph, heading, list, table, image, pagebreak, cover, callout, quote, caption, stats, rule/);
+  assert.match(message, /block 3 \(table\) has unknown field\(s\): columns/);
+  assert.match(message, /block 3 \(table\) is missing: rows/);
+  assert.equal(existsSync(join(cwd, 'refused.pdf')), false, 'a refused create leaves no file behind');
+
+  const path = join(cwd, 'listed.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    blocks: [
+      { type: 'heading', text: 'Actions' },
+      { type: 'list', items: ['Hire twelve crew', 'Add one shuttle'] },
+      { type: 'list', ordered: true, items: ['First', 'Second'] },
+      { type: 'table', headers: ['Item', 'Count'], rows: [['Crew', '12']] },
+    ],
+  }, { cwd }));
+  const layout = value(await executeOfficeTool({
+    action: 'query',
+    session: created.session,
+    queryKind: 'pdf-layout',
+  }, { cwd }));
+  const items = layout.pages[0].items.map((item) => item.text.trim());
+  assert.ok(items.includes('•'), `the bullet is drawn: ${JSON.stringify(items)}`);
+  assert.ok(
+    items.some((item) => /^1\.\s*First$/.test(item)) && items.some((item) => /^2\.\s*Second$/.test(item)),
+    `an ordered list numbers its items: ${JSON.stringify(items)}`,
+  );
+  // The marker sits left of its text, which keeps its own indent.
+  const marker = layout.pages[0].items.find((item) => item.text.trim() === '•');
+  const text = layout.pages[0].items.find((item) => item.text.includes('Hire twelve crew'));
+  assert.ok(marker.x < text.x, JSON.stringify({ marker: marker.x, text: text.x }));
+  // A table header given separately still leads the table.
+  assert.ok(items.includes('Item') && items.includes('Crew'));
+  assert.equal(created.blocks, 4, JSON.stringify({ blocks: created.blocks, fields: created.fields }));
+});
+
+// The document anatomy beyond prose — a cover group, a stat strip, a callout field, a quote with its
+// rule, a caption, a rule — is written by the same writer, in Korean, and every word lands on the page.
+test('PDF anatomy blocks — cover, stats, callout, quote, caption, rule — are drawn and their words land', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'anatomy.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    blocks: [
+      { type: 'cover', eyebrow: '운영기획팀 · 내부 검토', title: '물류 허브 증설 검토', subtitle: '도크 4 증설 예산 승인 요청', meta: ['2026년 9월', '작성: 운영기획팀'] },
+      { type: 'stats', items: [{ value: '1.6배', label: '처리량 (운영 로그)' }, { value: '0.3%', label: '오류율 (품질 시트)' }, { value: '22시', label: '피크 시간대' }] },
+      { type: 'callout', label: '결론', text: '야간 셔틀 두 대를 추가한 첫 분기에 처리량은 1.6배로 늘고 오류율은 0.3%로 내려갔다.' },
+      { type: 'quote', text: '야간에 도크가 하나 더 있었다면 셔틀을 기다리며 서 있는 시간이 없었을 겁니다.', attribution: '3번 도크 야간 조장' },
+      { type: 'rule' },
+      { type: 'paragraph', text: '본문 단락.' },
+      { type: 'caption', text: '표: 라인별 월 처리 건수. 출처: 운영 로그.' },
+    ],
+  }, { cwd }));
+  assert.equal(created.blocks, 7);
+  const layout = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd }));
+  const items = layout.pages[0].items.map((item) => item.text.trim());
+  for (const expected of ['물류 허브 증설 검토', '도크 4 증설 예산 승인 요청', '1.6배', '피크 시간대', '결론', '— 3번 도크 야간 조장', '표: 라인별 월 처리 건수. 출처: 운영 로그.']) {
+    assert.ok(items.some((item) => item.includes(expected)), `${expected} is on the page: ${JSON.stringify(items)}`);
+  }
+  // The stat strip's values share one baseline, and the callout's label sits above its text.
+  const values = layout.pages[0].items.filter((item) => ['1.6배', '0.3%', '22시'].includes(item.text.trim()));
+  assert.equal(values.length, 3);
+  assert.ok(values.every((item) => Math.abs(item.top - values[0].top) < 1), JSON.stringify(values.map((item) => item.top)));
+  const label = layout.pages[0].items.find((item) => item.text.trim() === '결론');
+  const body = layout.pages[0].items.find((item) => item.text.includes('야간 셔틀 두 대를'));
+  assert.ok(label.top < body.top, JSON.stringify({ label: label.top, body: body.top }));
+  // A block that names a stat wrongly is refused before anything is written.
+  const refused = await executeOfficeTool({ action: 'create', path: join(cwd, 'refused.pdf'), format: 'pdf', blocks: [{ type: 'stats', items: ['1.6배'] }] }, { cwd });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /stats\) items must be an array of \{ value, label \} objects/);
+});
+
+// A user's .svg logo lands in Word, Excel and PowerPoint; the PDF page draws
+// rasters only, so the same file was refused outright. It is rasterized here,
+// and the page still places it at the size the vector declares.
+test('an SVG lands on a PDF page at its own size, rasterized above it', async (t) => {
+  const cwd = await workspace(t);
+  const svg = join(cwd, '로고.svg');
+  await writeFile(
+    svg,
+    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120"><rect width="240" height="120" fill="#1F6F8B"/></svg>',
+  );
+  const path = join(cwd, 'logo.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    blocks: [{ type: 'heading', text: '로고' }, { type: 'image', path: svg }],
+  }, { cwd }));
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'stamp_image', page: 1, path: svg, x: 60, y: 60, width: 120 }],
+  }, { cwd }));
+  const images = value(await executeOfficeTool({
+    action: 'query',
+    session: created.session,
+    queryKind: 'pdf-images',
+  }, { cwd }));
+  const placements = images.images.map((image) => ({
+    placedWidth: image.placedWidth,
+    placedHeight: image.placedHeight,
+    pixels: image.width,
+  }));
+  const flowed = placements.find((image) => Math.abs(image.placedWidth - 240) < 1);
+  const stamped = placements.find((image) => Math.abs(image.placedWidth - 120) < 1);
+  // The block is placed at the vector's declared size, not at its pixel count.
+  assert.ok(flowed && Math.abs(flowed.placedHeight - 120) < 1, JSON.stringify(placements));
+  // A stamp keeps its own width and the vector's aspect ratio.
+  assert.ok(stamped && Math.abs(stamped.placedHeight - 60) < 1, JSON.stringify(placements));
+  // Both are rasterized well above the box, so zooming the page does not blur them.
+  assert.ok(flowed.pixels >= 480, JSON.stringify(placements));
+});
+
+// A table whose header looked exactly like its data, with every figure started
+// at the left edge of its column, is a grid of text rather than a table: the
+// reader cannot scan the numbers or tell which row names the columns.
+test('a written table sets its figures against the right edge and marks its header', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'hubs.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    blocks: [
+      { type: 'table', headers: ['허브', '처리량', '메모'], rows: [['대전', '128,400', '야간 증원 검토'], ['광주', '84,200', '유지']] },
+    ],
+  }, { cwd }));
+  const layout = value(await executeOfficeTool({
+    action: 'query',
+    session: created.session,
+    queryKind: 'pdf-layout',
+  }, { cwd }));
+  const { items, lines } = layout.pages[0];
+  const at = (text) => items.find((item) => item.text === text);
+  const rightEdge = (text) => at(text).x + at(text).width;
+  assert.ok(Math.abs(rightEdge('128,400') - rightEdge('84,200')) < 0.6, JSON.stringify([at('128,400'), at('84,200')]));
+  assert.ok(at('128,400').x > at('대전').x + 40, 'the figures are set against the right edge of their column');
+  // Words stay on the left: only the column of figures turns.
+  assert.ok(Math.abs(at('야간 증원 검토').x - at('유지').x) < 0.6, 'the note column stays left-aligned');
+  const headerBottom = at('허브').top + 12;
+  assert.ok(
+    lines.some((line) => Math.abs(line.y1 - line.y2) < 0.6 && line.x2 - line.x1 > 300 && Math.abs(line.y1 - headerBottom) < 14),
+    `a rule closes the header row: ${JSON.stringify(lines)} against ${headerBottom}`,
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+// `design` carries authoring content for every other format, so blocks named
+// there were the document: dropping them wrote an empty PDF and reported success.
+test('PDF blocks given as design content are written, and an empty document is visible in the result', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'hub.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    design: {
+      blocks: [
+        { type: 'heading', text: '허브별 실적' },
+        { type: 'table', headers: ['허브', '지연'], rows: [['대전', '38'], ['부산', '9']] },
+      ],
+    },
+  }, { cwd }));
+  assert.equal(created.blocks, 2, JSON.stringify({ blocks: created.blocks, fields: created.fields }));
+  const tables = value(await executeOfficeTool({
+    action: 'query',
+    session: created.session,
+    queryKind: 'pdf-tables',
+  }, { cwd }));
+  assert.equal(tables.tableCount, 1);
+  assert.deepEqual(tables.tables[0].rows, [['허브', '지연'], ['대전', '38'], ['부산', '9']]);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+
+  const empty = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'empty.pdf'),
+    format: 'pdf',
+  }, { cwd }));
+  assert.equal(empty.blocks, 0);
+  assert.equal(empty.fields, 0);
+  value(await executeOfficeTool({ action: 'close', session: empty.session }, { cwd }));
 });
 
 test('PDF create lints forms, reports OCR handoff, and preserves attachments', async (t) => {
@@ -442,6 +750,85 @@ test('PDF forms expose options, validate fill values, and report what was filled
   assert.ok(baked.document.pages[0].text.includes(unicodeName), baked.document.pages[0].text);
 });
 
+test('a form field takes a reader\'s rectangle and draws the caption it declares', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'labelled-form.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    mode: 'portable',
+    blocks: [{ type: 'heading', text: 'Request' }],
+    // rect and kind are how a PDF reader reports a field; both spellings reach
+    // the box and the type the writer draws.
+    fields: [
+      { name: 'hub', label: 'Hub', kind: 'text', page: 1, rect: [72, 600, 260, 24] },
+      { name: 'approved', label: 'Approved', kind: 'checkbox', page: 1, rect: [72, 560, 18, 18] },
+    ],
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.deepEqual(
+    snapshot.document.fields.map((field) => [field.name, field.type]),
+    [['hub', 'text'], ['approved', 'checkbox']],
+  );
+  // A field is a bare box: without its caption drawn, the page reaches the
+  // reader as unlabelled rectangles.
+  const page = snapshot.document.pages[0];
+  assert.ok(page.text.includes('Hub') && page.text.includes('Approved'), page.text);
+
+  const boxless = await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'boxless-form.pdf'),
+    format: 'pdf',
+    mode: 'portable',
+    blocks: [{ type: 'heading', text: 'Request' }],
+    fields: [{ name: 'hub', label: 'Hub', type: 'text', page: 1 }],
+  }, { cwd });
+  assert.equal(boxless.isError, true);
+  assert.match(boxless.content[0].text, /Form field hub has no usable box: give x, y, width and height/);
+});
+
+test('a filled value that will not fit its field box is reported with the fill', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'clipped-form.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    mode: 'portable',
+    blocks: [{ type: 'heading', text: 'Request' }],
+    fields: [
+      { name: 'department', type: 'text', page: 1, x: 200, y: 640, width: 120, height: 22, fontSize: 11 },
+      { name: 'reason', type: 'text', page: 1, x: 200, y: 500, width: 200, height: 40, multiline: true, fontSize: 11 },
+    ],
+  }, { cwd }));
+  // A form reads as filled whether or not the box can show the value, so the
+  // measurement rides on the fill itself.
+  const overflowing = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{
+      op: 'fill_form',
+      values: {
+        department: 'Operations planning and night logistics group',
+        reason: 'The night shift ran at sixty-eight percent of its planned headcount for the whole quarter, and the on-time dispatch rate fell with it every single week.',
+      },
+    }],
+  }, { cwd }));
+  const clipped = overflowing.results[0].clipped || [];
+  assert.deepEqual(clipped.map((entry) => entry.field).sort(), ['department', 'reason']);
+  assert.equal(clipped.find((entry) => entry.field === 'department').reason, 'width');
+  assert.equal(clipped.find((entry) => entry.field === 'reason').reason, 'height');
+  assert.match(overflowing.results[0].warning, /do not fit their field box/);
+  const fitting = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'fill_form', values: { department: 'Ops', reason: 'Short reason.' } }],
+  }, { cwd }));
+  assert.equal(fitting.results[0].clipped, undefined);
+  assert.equal(fitting.results[0].warning, undefined);
+});
+
 test('PDF create resolves a Unicode font, wraps unspaced text, grows table rows, and numbers pages', async (t) => {
   const fontPath = await unicodeFontPath();
   if (!fontPath) return t.skip('No Unicode TrueType font is installed');
@@ -481,6 +868,101 @@ test('PDF create resolves a Unicode font, wraps unspaced text, grows table rows,
   assert.ok(lineOne && lineTwo && lineTwo.top > lineOne.top);
   const last = layout.pages.at(-1);
   assert.ok(last.items.some((item) => item.text === `${last.page} / ${pageCount}`));
+});
+
+// A writer splits a line into a run per token, and Korean has no space before
+// a particle: reading the file back must return the sentence that was written,
+// and a query must answer with the text around the hit, not the whole body.
+test('PDF text reads back with its own spacing and a query answers with an excerpt', async (t) => {
+  const fontPath = await unicodeFontPath();
+  if (!fontPath) return t.skip('No Unicode TrueType font is installed');
+  const greek = /DejaVuSans/i.test(fontPath);
+  const sentence = greek
+    ? 'Η νυχτερινή βάρδια αυξήθηκε 18% το 2026.'
+    : '야간 전환 뒤 처리량이 18% 늘었습니다.';
+  const needle = greek ? 'νυχτερινή' : '야간';
+  const cwd = await workspace(t);
+  const path = join(cwd, 'spacing.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    properties: { pageNumbers: false },
+    blocks: [
+      { type: 'heading', text: greek ? 'Αναφορά' : '분기 보고' },
+      { type: 'paragraph', text: sentence },
+      ...Array.from({ length: 12 }, () => ({ type: 'paragraph', text: `${sentence} ` .repeat(6).trim() })),
+    ],
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.ok(snapshot.document.pages[0].text.includes(sentence), snapshot.document.pages[0].text.slice(0, 200));
+  const queried = value(await executeOfficeTool({ action: 'query', session: created.session, query: needle }, { cwd }));
+  const body = queried.matches.find((match) => match.excerpt === true);
+  assert.ok(body, JSON.stringify(queried.matches).slice(0, 300));
+  assert.ok(body.value.includes(needle));
+  assert.ok(body.value.length < body.valueLength, `${body.value.length} < ${body.valueLength}`);
+  assert.ok(body.occurrences > 3, `occurrences ${body.occurrences}`);
+  for (const match of queried.matches) assert.ok(String(match.value).length <= 700, String(match.value).length);
+});
+
+// A heading belongs to the section it opens, not to the paragraph it follows.
+// The writer owns that flow, so the gap above a heading is wider than the gap
+// under it without the author asking — and no gap is spent at the top of a page.
+test('PDF flow opens a section: a heading takes more space above it than below', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'flow.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    properties: { margin: 54, pageNumbers: false },
+    blocks: [
+      { type: 'heading', text: 'Opening', level: 1 },
+      { type: 'paragraph', text: 'The first section ends here.' },
+      { type: 'heading', text: 'Evidence', level: 2 },
+      { type: 'paragraph', text: 'The second section starts here.' },
+    ],
+  }, { cwd }));
+  const layout = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd }));
+  const items = layout.pages[0].items;
+  const at = (text) => items.find((item) => item.text.startsWith(text));
+  const [first, ends, heading, starts] = ['Opening', 'The first section ends', 'Evidence', 'The second section'].map(at);
+  assert.ok(first && ends && heading && starts, JSON.stringify(items.map((item) => item.text)));
+  const above = heading.top - (ends.top + ends.height);
+  const below = starts.top - (heading.top + heading.height);
+  assert.ok(above > below, `heading gap above ${above.toFixed(1)} should exceed below ${below.toFixed(1)}`);
+  // The first block still starts at the top margin: the rule never opens a page with a hole.
+  assert.ok(first.top < 60, `first heading starts at ${first.top.toFixed(1)}`);
+});
+
+// A first column of 1호, 2호 is a row label with a digit in it; figures are set
+// against the right edge, labels against the left, and a list leaves the same
+// step under it that a table does.
+test('PDF tables keep a digit-bearing label column left and figures right', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'labels.pdf');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'pdf',
+    properties: { margin: 54, pageNumbers: false },
+    blocks: [
+      { type: 'list', items: ['first point', 'second point'] },
+      { type: 'table', headers: ['Line', 'Oct', 'Nov'], rows: [['1호', '1,200', '1,320'], ['2호', '980', '1,150']], columnWidths: [2, 1, 1] },
+    ],
+  }, { cwd }));
+  const layout = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd }));
+  const items = layout.pages[0].items;
+  const at = (text) => items.find((item) => item.text === text);
+  const [line, one, two, oct, big, small, second] = ['Line', '1호', '2호', 'Oct', '1,200', '980', 'second point'].map(at);
+  assert.ok(line && one && two && oct && big && small && second, JSON.stringify(items.map((item) => item.text)));
+  // Labels share the header's left edge; figures share one right edge.
+  assert.ok(Math.abs(one.x - line.x) < 1 && Math.abs(two.x - line.x) < 1, `${one.x} ${two.x} vs ${line.x}`);
+  assert.ok(Math.abs((big.x + big.width) - (small.x + small.width)) < 1, `${big.x + big.width} vs ${small.x + small.width}`);
+  assert.ok(big.x > one.x + one.width, 'figures sit in their own column, right of the labels');
+  assert.ok(Math.abs((oct.x + oct.width) - (big.x + big.width)) < 1, 'the header over a figure column shares its right edge');
+  // The table starts a full step under the list's last item.
+  assert.ok(line.top - (second.top + second.height) >= 10, `${line.top - (second.top + second.height)}`);
 });
 
 test('PDF tables read bordered cells by geometry and ignore the prose around them', async (t) => {

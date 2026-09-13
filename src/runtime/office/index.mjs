@@ -1,13 +1,14 @@
 import { appendFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { closeMicrosoftOfficeSession, detectMicrosoftOffice, resetMicrosoftOfficeSessionsForTest } from './com/com-adapter.mjs';
-import { extractPdfImages, extractPdfTextLayout, findPdfText, inferPdfTables } from './pdf/pdf-analysis.mjs';
+import { extractPdfImages, extractPdfTextLayout, findPdfText, inferPdfTables, pdfOcrReadiness } from './pdf/pdf-analysis.mjs';
 import { describeOfficeCapabilities } from './capabilities.mjs';
 import { qpdfAvailable, securePdf } from './pdf/pdf-security.mjs';
 import { unicodeFontPath } from './pdf/pdf-fonts.mjs';
 import { defaultOfficeDataDir } from './core/journal.mjs';
 import { resolveOfficeDesign } from './design/design-system.mjs';
+import { nativeOfficeDesign, usesNativeOfficeDesign } from './design/native-design.mjs';
 import { inspectOfficeDesignLibrary, persistOfficeDesignBinding } from './design/library/design-library.mjs';
 import { applyBatch, closeSession, finalize, issues, qa, render, save, validate } from './core/office-actions.mjs';
 import { authorPptx } from './authoring/pptx-author-action.mjs';
@@ -21,6 +22,12 @@ export { initializeOfficeTransactions } from './core/office-transactions.mjs';
 // tuning goes wrong. MIXDOG_OFFICE_TRACE writes one line per call so a slow run maps itself; it
 // names a file because a test runner keeps the child process's own streams to itself.
 const OFFICE_TRACE = process.env.MIXDOG_OFFICE_TRACE || '';
+
+// Actions that only look at the document. Opening one of these on a path reads
+// the file itself instead of stamping a working copy over whatever an earlier
+// edit left at that name.
+// qa with autoFix repairs the document, so it is excluded at the call site.
+const READ_ONLY_ACTIONS = new Set(['snapshot', 'get', 'query', 'issues', 'validate', 'describe', 'render', 'qa']);
 
 export async function executeOfficeTool(args = {}, context = {}) {
   if (!OFFICE_TRACE) return await runOfficeTool(args, context);
@@ -58,6 +65,7 @@ async function runOfficeTool(args = {}, {
           formats: Object.keys(FILE_KIND_TO_FORMAT),
           pdfSecurity: { available: await qpdfAvailable(), backend: 'qpdf' },
           pdfUnicodeFont: await unicodeFontPath(),
+          pdfOcr: await pdfOcrReadiness(dataDir),
         },
         pendingTransactions: await pendingOfficeTransactions(dataDir),
         designLibrary: await inspectOfficeDesignLibrary({ dataDir }),
@@ -135,14 +143,23 @@ async function runOfficeTool(args = {}, {
         session.design = resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
       }
       session.activeSignal = signal;
+      let initialEditSettled = false;
+      // `design` carries the authoring intent and content, so operations named
+      // there are the edits this call was asked to make, not an unknown key to
+      // drop on the floor with an empty document as the answer.
+      const initialOperations = Array.isArray(args.operations) && args.operations.length
+        ? args.operations
+        : (Array.isArray(args.design?.operations) ? args.design.operations : []);
       try {
-        const initialEdit = Array.isArray(args.operations) && args.operations.length
+        const initialEdit = initialOperations.length
           ? await applyBatch(session, {
               ...args,
+              operations: initialOperations,
               __cwd: cwd,
               ...(args.finalize === true ? { save: true } : {}),
             })
           : null;
+        initialEditSettled = true;
         if (args.finalize === true) {
           const completed = await finalize(session, {
             ...args,
@@ -205,11 +222,23 @@ async function runOfficeTool(args = {}, {
           if (documentSessions.get(documentSessionKey(session.target)) === session.id) {
             documentSessions.delete(documentSessionKey(session.target));
           }
+          // A create whose own operations failed must not leave the empty file
+          // it just wrote: the obvious retry would hit "target already exists"
+          // and the caller would be stuck choosing between overwrite and delete.
+          // Only a file this call brought into being is removed.
+          if (action === 'create' && session.createdNewFile === true && !initialEditSettled) {
+            await rm(session.target, { force: true }).catch(() => {});
+          }
         }
         throw error;
       }
     }
-    const { session, implicit } = await resolveSession(signal ? { ...args, __signal: signal } : args, cwd, dataDir);
+    const { session, implicit } = await resolveSession(
+      signal ? { ...args, __signal: signal } : args,
+      cwd,
+      dataDir,
+      { readOnly: READ_ONLY_ACTIONS.has(action) && args.autoFix !== true },
+    );
     if (!session.design) {
       const designContext = await resolveOfficeDesignContext({
         args,
@@ -241,7 +270,14 @@ async function runOfficeTool(args = {}, {
         await persistOfficeDesignBinding(dataDir, session.target, session.designLibrary.binding);
       }
       session.designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
-      session.design = resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
+      // A native document stays native: the `design` a later call carries is the
+      // page review (reviewed, reviewToken, critique) or content, not a request
+      // for a preset. Resolving it as one used to hand a Word or Excel file the
+      // default profile's palette and art direction it never asked for, and put
+      // the preset review's gates in front of finalize.
+      session.design = session.design?.authoring === 'native' && usesNativeOfficeDesign(session.format, session.designRequest)
+        ? nativeOfficeDesign(session.format, session.designRequest)
+        : resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
     }
     activeSession = session;
     session.activeSignal = signal;
@@ -272,10 +308,29 @@ async function runOfficeTool(args = {}, {
       const target = String(args.target || '').trim();
       if (!target) throw new Error('get requires target');
       const selection = snapshotSelectionForTarget(session.format, target);
-      const current = await snapshot(session, { ...args, ...selection, target, limit: 1, maxChars: 100_000 });
+      // One leaf is read as one item; a container (a sheet, a slide, a table)
+      // is read with its own contents, because asking for the element and
+      // getting one of its twelve cells back under truncated:true answers a
+      // question the caller did not ask.
+      const leafTarget = /\/(?:cell|run|note|comment|comment-thread|revision|footnote|endnote|content-control)\[[^\]]+]$/i.test(target);
+      const current = await snapshot(session, {
+        ...args,
+        ...selection,
+        target,
+        ...(leafTarget ? { limit: 1 } : {}),
+        maxChars: 100_000,
+      });
       const element = findByDocumentPath(current.document, target);
       if (!element) throw new Error(`Document element not found: ${target}`);
-      value = { session: session.id, target, element };
+      const pagination = current.document?.pagination;
+      value = {
+        session: session.id,
+        target,
+        element,
+        // A container too large for one read says how to continue rather than
+        // leaving truncated:true as the whole answer.
+        ...(pagination?.hasMore ? { pagination } : {}),
+      };
     } else if (action === 'query') {
       const queryKind = String(args.queryKind || 'text').toLowerCase();
       if (queryKind !== 'text') {

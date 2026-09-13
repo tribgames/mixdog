@@ -192,12 +192,24 @@ export function renderEntryLines(rows, {
   compactTimestamps = false,
 } = {}) {
   if (!rows || rows.length === 0) return '(no results)'
-  // compactTimestamps (compact handoff only): a `collected` row's ts is the
-  // ingest instant, not the event time — inside one compaction every such row
-  // carries the same second, so the 90-char stamp is pure noise. Drop the
-  // stamp and the [time=collected] mark; the #id and row order remain.
+  // compactTimestamps (compact handoff only).
+  //   collected row -> no stamp at all. Its ts is the ingest instant, not the
+  //     event time, and inside one compaction every such row carries the same
+  //     second, so the stamp is pure noise.
+  //   recorded row  -> local minute instead of the full recall stamp. Only
+  //     rows whose ts came from the source reach this branch, and a handoff is
+  //     ONE chronological session timeline, so minute precision preserves the
+  //     ordering a reader needs. The recall stamp spends ~78 chars restating a
+  //     single instant three ways (local + zone/offset + UTC) because a recall
+  //     answer must survive being read out of order and across zones; a
+  //     handoff never is. Measured on a real 759-row handoff, the full stamps
+  //     alone were ~59k chars / ~12k tokens of the injected context.
+  // The #id and row order remain in both cases.
   const isCollected = (row) => row?.time_source === 'collected'
-  const stamp = (row) => (compactTimestamps && isCollected(row) ? '' : `[${formatTs(row?.ts)}] `)
+  const stamp = (row) => {
+    if (!compactTimestamps) return `[${formatTs(row?.ts)}] `
+    return isCollected(row) ? '' : `[${formatLocalMinute(row?.ts)}] `
+  }
   const bodyLimit = Number.isFinite(Number(maxBodyChars)) && Number(maxBodyChars) > 0
     ? Math.floor(Number(maxBodyChars))
     : null

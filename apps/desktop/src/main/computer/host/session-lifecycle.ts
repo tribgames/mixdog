@@ -44,6 +44,7 @@ export interface SessionLifecycleHost extends
   recaptureRequiredReply(command: ComputerCommand, error: unknown): Promise<ComputerCommandResult | null>;
   coordinator?: ComputerUseCoordinator;
   cleanupInput?: (recovery: InputRecoveryState | undefined, restoreDesktop: boolean) => Promise<boolean>;
+  hasUnconfirmedBackgroundInput?: WorkerPool['hasUnconfirmedBackgroundInput'];
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
   pauseWaitMs?: number;
 }
@@ -79,8 +80,13 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
   });
   const { runForegroundExclusive, executeSerialized } = queue;
 
-  function onSessionWorkerRetired(sessionId: string, child?: Parameters<typeof waitForComputerWorkerExit>[0]): void {
+  function onSessionWorkerRetired(
+    sessionId: string, child?: Parameters<typeof waitForComputerWorkerExit>[0], interruptedInput = true,
+  ): void {
     invalidateWorkerGeneration(sessionId);
+    // A failed read invalidates refs, not the caller's entire capture. A new
+    // worker may finish a pixel-only observation; it must never replay input.
+    if (!interruptedInput) return;
     if (computerUseCoordinator.hasPendingCleanup(sessionId)) return;
     void abortComputerSession({ action: 'session_abort', session_id: sessionId }, false, child)
       .catch(() => { /* failed cleanup remains latched in the coordinator */ });
@@ -214,6 +220,10 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
     if (!stopped.every(Boolean)) {
       computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed', [sessionId]);
       throw new Error('computer_abort_cleanup_unconfirmed: input workers have not confirmed termination');
+    }
+    if (host.hasUnconfirmedBackgroundInput?.(sessionId)) {
+      computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed', [sessionId]);
+      throw new Error('computer_abort_cleanup_unconfirmed: background message sender stopped without a release receipt; input may remain held');
     }
     const cleaned = await runForegroundExclusive(
       sessionId,

@@ -77,7 +77,7 @@ export function createAgentDispatchBroker({
       // Within that window a callId is still an idempotency key, not an
       // overwrite slot: answering a different payload from an unrelated
       // in-flight run is silent data loss.
-      if (signature && existing.signature && existing.signature !== signature) {
+      if (!signature || !existing.signature || existing.signature !== signature) {
         return Promise.reject(Object.assign(
           new Error(`agent dispatch callId '${id}' was reused with a different payload`),
           { code: 'ECALLIDCONFLICT' },
@@ -89,10 +89,10 @@ export function createAgentDispatchBroker({
     const controller = new AbortController();
     const abortFromCaller = () => {
       if (controller.signal.aborted) return;
-      try { controller.abort(signal?.reason); } catch { try { controller.abort(); } catch {} }
+      controller.abort(signal?.reason);
     };
     if (signal?.aborted) abortFromCaller();
-    else signal?.addEventListener?.('abort', abortFromCaller, { once: true });
+    else signal?.addEventListener('abort', abortFromCaller, { once: true });
 
     const run = async () => {
       if (controller.signal.aborted) throw abortError(controller.signal);
@@ -116,7 +116,7 @@ export function createAgentDispatchBroker({
     });
     let record = null;
     const tracked = promise.finally(() => {
-      signal?.removeEventListener?.('abort', abortFromCaller);
+      signal?.removeEventListener('abort', abortFromCaller);
       if (inFlight.get(id) === record) inFlight.delete(id);
       try { onActivityChanged?.(snapshot()); } catch {}
     });
@@ -130,7 +130,7 @@ export function createAgentDispatchBroker({
     const id = String(callId || '');
     const record = inFlight.get(id);
     if (!record) return false;
-    try { record.controller.abort(new Error(reason)); } catch { try { record.controller.abort(); } catch {} }
+    record.controller.abort(new Error(reason));
     return true;
   }
 
@@ -154,7 +154,7 @@ export function createAgentDispatchBroker({
     if (closed) return;
     closed = true;
     for (const record of inFlight.values()) {
-      try { record.controller.abort(new Error(reason)); } catch {}
+      record.controller.abort(new Error(reason));
     }
     scheduler.close(reason);
     log(`agent dispatch broker closed (${reason})`);

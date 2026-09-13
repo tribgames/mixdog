@@ -23,7 +23,15 @@
   text-overflow: clip;
   white-space: nowrap;
 }
-.route-trigger-copy > .model-route-label { flex: 1 1 auto; }
+/* A label wider than its lane (phone footer: the context gauge, mic and send
+   are fixed, so only the pill can give) ends in an ellipsis instead of a hard
+   cut at the lane edge (user: 모델명 긴 거 잘림). The open pill widens to the
+   full label, so the whole name is always one tap away. */
+.route-trigger-copy > .model-route-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .model-route-label-effort { color: var(--mx-text-muted); }
 .model-route-label-fast { color: var(--mx-text-accent); }
 .route-editor > .model-trigger > svg { flex: 0 0 auto; }
@@ -106,7 +114,14 @@
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
   transition: width var(--mx-motion-base) var(--mx-ease-emphasized);
+  /* The pill is part of the sheet, not of the footer row: on a lane too
+     narrow for it (phone footer next to the context gauge) it rides OVER the
+     fixed neighbours instead of being cut at the lane edge (user: 모바일에서는
+     컨텍스트 표기가 자리잡고 있어서 더 안 늘어남). */
+  position: relative;
+  z-index: 2;
 }
+.route-controls:has(> .route-editor > .model-trigger[data-morph]) { overflow: visible; }
 @keyframes route-sheet-morph-in {
   from { opacity: .35; transform: scale(var(--route-morph-sx, .9), var(--route-morph-sy, .7)); }
   to { opacity: 1; transform: none; }

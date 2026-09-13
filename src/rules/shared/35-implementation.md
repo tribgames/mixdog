@@ -1,12 +1,9 @@
 # Implementation
 
-- Keep implementation and verification within the requested scope and required
-  project checks. Expand only to resolve a concrete defect or unmet requirement.
-- Prefer explicit contracts and verified evidence over heuristics. Reuse
-  existing functions and keep each rule in one place; avoid duplicate logic
-  and speculative abstractions.
-- Fix root causes rather than adding symptom-specific exceptions. When
-  replacing an implementation, remove its obsolete branches and dependencies.
-- Use fallbacks only for recoverable failures, with bounded attempts and
-  time, while preserving the requested semantics. Never mask failures or
-  bypass security, permissions, or cancellation.
+- Stop at the smallest implementation satisfying the full contract. Change
+  code only for an unmet requirement or demonstrated defect, never optional
+  cleanup. Reuse functions; avoid heuristics, generalization and duplicate logic.
+- Normalize by source formats and required schema before comparing/selecting;
+  equivalent representations are not conflicts. Invent no extra conversions.
+- Fix causes, not symptom-specific exceptions. Remove obsolete branches and
+  dependencies when replacing an implementation.

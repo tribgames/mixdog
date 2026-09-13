@@ -5,6 +5,7 @@
  */
 import type { ComputerCommand } from '../shared/types';
 import { normalizeComputerKeySequence } from './keyboard';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
 
 export const MAX_COMPUTER_TYPE_TEXT_LENGTH = 30_000;
 export const MAX_COMPUTER_KEY_SEQUENCE_LENGTH = 512;
@@ -232,6 +233,10 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
     const text = command.text;
     if (text.length > MAX_COMPUTER_TYPE_TEXT_LENGTH) {
       throw new Error(`input_too_large: type text exceeds ${MAX_COMPUTER_TYPE_TEXT_LENGTH} characters`);
+    }
+    if (command.action === 'type' && command.delivery === 'foreground'
+      && text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS) {
+      throw new Error(`input_too_large: foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} characters; split the text into separate observed acts`);
     }
     if (BLOCKED_COMPUTER_TYPE_PATTERNS.some((pattern) => pattern.test(text))) {
       throw new Error('blocked_input: dangerous shell payload in type text');

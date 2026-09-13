@@ -1,6 +1,6 @@
 import { basename, extname, join, posix } from 'node:path';
 import { resolveImageLayout } from './image-layout.mjs';
-import { shrinkFontSizeToFit } from './text-metrics.mjs';
+import { contrastRatio, shrinkFontSizeToFit } from './text-metrics.mjs';
 import { pictureXml, resolveGeometry, shapeXml, supportedShapeTypes, tableXml, textBodyXml, toEmu } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
 import { addPackageRelationship, ensureDefaultContentType, imagePixelSize, partRelationshipPath, removePackageRelationship, zipText } from './portable-opc.mjs';
@@ -176,6 +176,15 @@ export async function handleSetText(context, op) {
 }
 
 
+// The ink a filled shape can carry: white on a dark card, near-black on a light
+// one, and nothing at all when the fill is a theme reference or absent, so the
+// inherited colour keeps deciding.
+function inkOnFill(fill) {
+  const field = String(fill || '').replace(/^#/, '').toUpperCase();
+  if (!/^[0-9A-F]{6}$/.test(field)) return undefined;
+  return (contrastRatio('FFFFFF', field) ?? 0) >= (contrastRatio('1F2429', field) ?? 0) ? 'FFFFFF' : '1F2429';
+}
+
 export async function handleAddTextboxOrAddShape(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -209,7 +218,10 @@ export async function handleAddTextboxOrAddShape(context, op) {
       defaults: {
         fontName: op.fontName ?? properties.fontName,
         fontSize: op.fontSize ?? properties.fontSize ?? 18,
-        color: op.color ?? properties.color,
+        // A caller who fills a shape and says nothing about its text gets ink
+        // the fill can carry. The default dark ink on a dark card was text the
+        // runtime's own contrast check then reported as unreadable.
+        color: op.color ?? properties.color ?? inkOnFill(op.fillColor ?? properties.fillColor),
         bold: properties.bold,
         italic: properties.italic,
         align: properties.align,
@@ -289,6 +301,7 @@ export async function handleAddImage(context, op) {
     width: placement.width,
     height: placement.height,
     crop: placement.crop,
+    altText: op.altText,
   });
   zip.file(path, appendSlideShape(current, picture));
   return {
@@ -351,6 +364,9 @@ export async function handleFitText(context, op) {
     slide: Number(op.slide),
     shape: Number(op.shape),
     scale: Number(fitted.scale.toFixed(2)),
+    // The size the copy now reads at: shrinking is the last repair, so the
+    // author sees what it cost and can rewrite the line instead.
+    fontSize: Math.max(...fitted.sizes.map((size) => Number(size) || 0), 0) || undefined,
   };
 }
 
@@ -383,6 +399,16 @@ export async function handleSetTableDataOrReplaceImage(context, op) {
     const media = await addSlideImage(zip, path, op.path);
     updated = shape.xml.replace(/(<a:blip\b[^>]*\br:embed=")[^"]*(")/, `$1${media.relationshipId}$2`);
     detail = { image: media.part, replaced: previous };
+    // The frame keeps the description of the picture that used to be in it, so
+    // a replaced photo is announced as the old one until the caller renames it.
+    const altText = String(op.altText ?? '').trim();
+    if (altText) {
+      const encoded = xmlEncode(altText);
+      updated = /<p:cNvPr\b[^>]*\bdescr="/.test(updated)
+        ? updated.replace(/(<p:cNvPr\b[^>]*\bdescr=")[^"]*(")/, `$1${encoded}$2`)
+        : updated.replace(/(<p:cNvPr\b[^>]*?)(\/?>)/, `$1 descr="${encoded}"$2`);
+      detail.altText = altText;
+    }
   }
   const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
   const nextSlide = `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`;
@@ -485,7 +511,7 @@ export async function handleAddMedia(context, op) {
   const poster = await addSlideImage(zip, path, op.poster);
   const id = nextShapeId(current);
   const shape = '<p:pic><p:nvPicPr>'
-    + `<p:cNvPr id="${id}" name="${xmlEncode(posix.basename(mediaPart))}">`
+    + `<p:cNvPr id="${id}" name="${xmlEncode(posix.basename(mediaPart))}"${op.altText ? ` descr="${xmlEncode(String(op.altText))}"` : ''}>`
     + '<a:hlinkClick xmlns:a="' + DRAWING_MAIN_NS + '" r:id="" action="ppaction://media"/></p:cNvPr>'
     + '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>'
     + `<p:nvPr><a:${kind}File xmlns:a="${DRAWING_MAIN_NS}" r:link="${linkId}"/>`
@@ -543,14 +569,18 @@ export async function handleAddAnimation(context, op) {
     fly: { presetID: 2, filter: 'slide(fromBottom)' },
     float: { presetID: 30, filter: 'slide(fromBottom)' },
   };
-  const requested = String(op.effect || 'fade').toLowerCase().replace(/\s+/g, '');
+  // Every other multiword value in this runtime is written with a separator
+  // (outside_end, section_next), so on_click and after_previous name the same
+  // triggers as onclick and afterprevious.
+  const named = (value) => String(value || '').toLowerCase().replace(/[\s_-]+/g, '');
+  const requested = named(op.effect) || 'fade';
   if (!Object.hasOwn(effects, requested)) {
     throw new Error(`add_animation effect must be one of: ${Object.keys(effects).join(', ')}`);
   }
   const triggers = { onclick: 'clickEffect', withprevious: 'withEffect', afterprevious: 'afterEffect' };
-  const trigger = String(op.trigger || 'onclick').toLowerCase().replace(/\s+/g, '');
+  const trigger = named(op.trigger) || 'onclick';
   if (!Object.hasOwn(triggers, trigger)) {
-    throw new Error(`add_animation trigger must be one of: ${Object.keys(triggers).join(', ')}`);
+    throw new Error('add_animation trigger must be one of: on_click, with_previous, after_previous');
   }
   const effect = effects[requested];
   const duration = Math.max(1, Math.round((Number(op.duration) > 0 ? Number(op.duration) : 0.5) * 1000));

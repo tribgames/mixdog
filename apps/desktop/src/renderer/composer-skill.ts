@@ -1,16 +1,23 @@
 import { useSyncExternalStore } from 'react';
 import type { DesktopPromptContent } from '../shared/contract';
-import { skillDisplayDescription } from './skill-presentation';
+import { isBuiltInSkill, skillDisplayDescription } from './skill-presentation';
+import { t } from './i18n';
+import { skillSelectionHeader } from '../../../../src/runtime/shared/skill-selection.mjs';
 
 export type ComposerSkill = { name: string; description: string };
-const TITLES: Record<string, string> = {
-  pdf: 'PDF', pptx: 'PPT', docx: 'Word', xlsx: 'Excel',
-  image: 'Image', video: 'Video', 'browser-use': 'Browser Use',
-  'computer-use': 'Computer Use', 'goal-management': 'Goal',
-  'history-recall': 'History recall', 'memory-management': 'Memory',
-  'local-provider': 'Local Provider', setup: 'Settings', 'skill-creator': 'Create skill',
+// Thunks, not literals: the key must be a static t() argument for extraction
+// (`npm run i18n:sync`) to find it, and the call has to run after the catalog
+// loads rather than at module evaluation. Format and product names such as PDF
+// or Word stay neutral through ui-untranslated-allowlist.json.
+const TITLES: Record<string, () => string> = {
+  pdf: () => t('PDF'), pptx: () => t('PPT'), docx: () => t('Word'), xlsx: () => t('Excel'),
+  image: () => t('Image'), video: () => t('Video'), 'browser-use': () => t('Browser Use'),
+  'computer-use': () => t('Computer Use'), 'goal-management': () => t('Goal'),
+  'history-recall': () => t('History recall'), 'memory-management': () => t('Memory'),
+  'local-provider': () => t('Local Provider'), setup: () => t('Settings'),
+  'skill-creator': () => t('Create skill'),
 };
-export const skillTitle = (name: string) => Object.hasOwn(TITLES, name) ? TITLES[name] : name;
+export const skillTitle = (name: string) => Object.hasOwn(TITLES, name) ? TITLES[name]() : name;
 
 export function shouldRemoveSelectedSkill(input: {
   selected: string; key: string; start: number; end: number;
@@ -21,22 +28,35 @@ export function shouldRemoveSelectedSkill(input: {
     && !input.composing && !input.repeat && !input.modified;
 }
 
+// The add menu already has a dedicated "Set a goal" entry that opens the goal
+// form directly; listing the shipped goal-management skill beside it would
+// show two same-named items with different behaviour. The skill itself stays
+// loadable by the model.
+const MENU_HIDDEN_BUILTIN_SKILLS = new Set(['goal-management']);
+
 export function selectableComposerSkills(value: unknown): ComposerSkill[] {
   const status = value as { skills?: Array<{ name?: unknown; description?: unknown; enabled?: boolean; source?: unknown; owner?: unknown }> } | null;
   const seen = new Set<string>();
-  return (Array.isArray(status?.skills) ? status.skills : []).flatMap(skill => {
+  // Shipped skills lead the menu; custom ones follow. Both groups keep the
+  // order the daemon reported, so the list stays stable between openings.
+  const builtin: ComposerSkill[] = [];
+  const custom: ComposerSkill[] = [];
+  for (const skill of Array.isArray(status?.skills) ? status.skills : []) {
     const name = typeof skill?.name === 'string' ? skill.name.trim() : '';
-    if (!name || skill.enabled !== true || seen.has(name)) return [];
+    if (!name || skill.enabled !== true || seen.has(name)) continue;
     seen.add(name);
-    return [{ name, description: skillDisplayDescription(skill) }];
-  });
+    const shipped = isBuiltInSkill(skill);
+    if (shipped && MENU_HIDDEN_BUILTIN_SKILLS.has(name)) continue;
+    (shipped ? builtin : custom).push({ name, description: skillDisplayDescription(skill) });
+  }
+  return [...builtin, ...custom];
 }
 
 export function withSelectedSkill(content: DesktopPromptContent, name: string): DesktopPromptContent {
   if (!name) return content;
-  // The selection is a user instruction, not a synthetic tool result. Loading
-  // remains with the normal Skill tool so dependency/disabled checks still run.
-  const instruction = `The user explicitly selected skill ${JSON.stringify(name)} for this request. Load it with the Skill tool before doing the task. If it is unavailable, report that rather than silently substituting another skill.\n\n`;
+  // The runtime prepares explicit selections before the first model request,
+  // using the normal Skill policy/dependency checks.
+  const instruction = skillSelectionHeader(name);
   return typeof content === 'string' ? instruction + content
     : [{ type: 'text', text: instruction }, ...content];
 }

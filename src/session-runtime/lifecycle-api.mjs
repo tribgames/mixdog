@@ -2,6 +2,14 @@ import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { stripEffortConfiguration } from '../runtime/agent/orchestrator/providers/effort-configuration.mjs';
 import { inheritedCompatReplayMessages } from '../runtime/agent/orchestrator/providers/compat-request-policy.mjs';
+import {
+  inheritableMessages,
+  inheritanceCompactionPlan,
+  inheritanceFit,
+  inheritanceFitMessage,
+  inheritanceRouteTarget,
+} from './inheritance-fit.mjs';
+import { runHandoffCompaction } from '../runtime/agent/orchestrator/session/manager/compaction-runner.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import {
   isAgentOnlySession,
@@ -42,32 +50,6 @@ export function resolveResumeCwd(session, currentCwd) {
   return session?.cwd || currentCwd;
 }
 
-function contextNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) && number >= 0 ? number : null;
-}
-
-export function inheritanceContextFit(status) {
-  const context = status && typeof status === 'object' ? status : {};
-  const compaction = context.compaction && typeof context.compaction === 'object'
-    ? context.compaction
-    : {};
-  const used = contextNumber(
-    compaction.pressureTokens
-    ?? compaction.currentEstimatedTokens
-    ?? context.usedTokens
-    ?? context.currentEstimatedTokens,
-  );
-  const limit = contextNumber(compaction.triggerTokens ?? context.contextWindow);
-  const known = used !== null && limit !== null && limit > 0;
-  return {
-    known,
-    fits: !known || used < limit,
-    used: used ?? 0,
-    limit: limit ?? 0,
-  };
-}
-
 // Session lifecycle surface: teardown (close/abort), resume/new, and the
 // resumable-session listing. Extracted verbatim from the runtime API object;
 // stateless helpers are imported directly and the runtime injects live
@@ -76,6 +58,7 @@ export function inheritanceContextFit(status) {
 export function createLifecycleApi(deps) {
   const cancelBackgroundTasksForLifecycle = deps.cancelBackgroundTasks || cancelBackgroundTasks;
   const saveSessionForLifecycle = deps.saveSession || saveSession;
+  const compactConversationForCarry = deps.compactConversation || runHandoffCompaction;
   const {
     getSession, setSession, getRoute, setRoute, getConfig, getMode, getCurrentCwd,
     getMcpScopeId,
@@ -88,7 +71,7 @@ export function createLifecycleApi(deps) {
     withTeardownDeadline, closePatchRuntimeIfLoaded, closeNativeToolTransports,
     stopSelfUpdateBootCheck,
     createCurrentSession, refreshRouteEffort,
-    computeContextStatus, invalidateContextStatusCache, invalidatePreSessionToolSurface,
+    invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
     beginRoutePreparation, clearRoutePreparation,
     notificationListeners, clearRuntimeNotifications, goalRuntime,
@@ -103,6 +86,29 @@ export function createLifecycleApi(deps) {
     if (session.remoteAttached === true) return true;
     return mgr.closeSession(session.id, reason, options);
   };
+  /**
+   * Compact a conversation FOR a heir: the source's transcript, the heir's
+   * budget, and no mutation of either session. Returns the conversation to
+   * carry, or null when the route has no boundary to compact toward.
+   */
+  async function compactConversationForHeir(source, target) {
+    const plan = inheritanceCompactionPlan(target);
+    if (!plan) return null;
+    // The compactor sees the whole transcript — system blocks included — so it
+    // preserves the protected head and the recent tail exactly as /compact
+    // does. Only the conversation half of the result travels.
+    const messages = structuredClone(Array.isArray(source.messages) ? source.messages : []);
+    const result = await compactConversationForCarry({
+      session: source,
+      messages,
+      ...plan,
+      // Memory ingest belongs to the session that HELD the conversation; the
+      // heir does not exist on disk with these messages yet.
+      sessionId: source.id,
+    });
+    const compacted = inheritableMessages(result?.messages);
+    return compacted.length && hasUserConversationMessage(compacted) ? compacted : null;
+  }
   const listLeadSessions = (options = {}) => {
     const heartbeatMtimes = listSessionHeartbeatMtimes();
     return mgr.listSessions({
@@ -246,15 +252,9 @@ export function createLifecycleApi(deps) {
         if (!isProcessExit) return;
         try { unregisterLiveSession(); } catch { /* advisory refcount only */ }
       };
-      // Background work (shell jobs, background tasks) belongs to the SESSION
-      // that started it, but its registries are process-global. A non-exit
-      // dispose — a daemon session projection release or an idle
-      // eviction — must therefore reap ONLY this session's jobs; the
-      // process-wide sweep is reserved for a real process exit. Without this
-      // scope, disposing one engine force-killed another session's running
-      // build, and because that sweep cancels with notify:false the owner
-      // never received a completion (user report: 백그라운드 잡이 조용히 멈춤,
-      // 알림도 안 옴). An unattributable non-exit dispose reaps nothing.
+      // Background registries are process-global, but jobs belong to sessions.
+      // Non-exit disposal reaps only this session's jobs; without an owner it
+      // reaps nothing. Only a process exit may sweep every session's work.
       const closingSessionId = String(getSession()?.id || '');
       const scopedTeardown = !isProcessExit;
       const teardownReapsWork = !keepBackgroundWork
@@ -293,6 +293,8 @@ export function createLifecycleApi(deps) {
         'providerWarmupTimer',
         'providerModelWarmupTimer',
         'modelCatalogWarmupTimer',
+        'statuslineUsageWarmupTimer',
+        'statuslineUsageRefreshTimer',
       ]) {
         if (warmupTimers[timerKey]) {
           clearTimeout(warmupTimers[timerKey]);
@@ -306,12 +308,6 @@ export function createLifecycleApi(deps) {
       if (prewarmTimers.searchRuntimeWarmupTimer) {
         clearTimeout(prewarmTimers.searchRuntimeWarmupTimer);
         prewarmTimers.searchRuntimeWarmupTimer = null;
-      }
-      for (const timerKey of ['statuslineUsageWarmupTimer', 'statuslineUsageRefreshTimer']) {
-        if (warmupTimers[timerKey]) {
-          clearTimeout(warmupTimers[timerKey]);
-          warmupTimers[timerKey] = null;
-        }
       }
       try {
         // A scoped cancel ALWAYS notifies: a task that dies for a reason its
@@ -377,7 +373,8 @@ export function createLifecycleApi(deps) {
       invalidateContextStatusCache();
       if (typeof clearRuntimeNotifications === 'function') clearRuntimeNotifications();
       else notificationListeners?.clear?.();
-      try { goalRuntime?.close?.(); } catch {}
+      let goalStop = null;
+      try { goalStop = goalRuntime?.close?.(); } catch {}
       const shellJobsStop = teardownReapsWork && globalThis.__mixdogShellJobsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs')
           .then((mod) => mod?.shutdownShellJobs?.(reason, {
@@ -401,6 +398,7 @@ export function createLifecycleApi(deps) {
         try { await withTeardownDeadline(channelStop, 300, false); } catch {}
         try { await withTeardownDeadline(shellJobsStop, 300, false); } catch {}
         try { await withTeardownDeadline(memoryStop, 1500, false); } catch {}
+        try { await withTeardownDeadline(goalStop, 1500, false); } catch {}
         for (const stop of [mcpStop, openaiWsStop, patchStop, nativeToolStop, computerStop]) {
           Promise.resolve(stop).catch(() => {});
         }
@@ -413,6 +411,7 @@ export function createLifecycleApi(deps) {
         withTeardownDeadline(openaiWsStop, 1500, false),
         withTeardownDeadline(patchStop, 1500, false),
         withTeardownDeadline(memoryStop, 5500, false),
+        withTeardownDeadline(goalStop, 5500, false),
         withTeardownDeadline(shellJobsStop, 1500, false),
         withTeardownDeadline(nativeToolStop, 1500, false),
         withTeardownDeadline(computerStop, 1500, false),
@@ -652,6 +651,41 @@ export function createLifecycleApi(deps) {
       };
     },
     /**
+     * Read-only twin of inheritFrom(): the exact verdict the carry will reach,
+     * for the route the heir will open on. Surfaces ask this BEFORE offering
+     * the action, so a conversation that cannot fit is named in their own
+     * words instead of arriving as an engine error once a heir already exists.
+     */
+    inheritancePreflight(sourceSessionId = null, selection = null) {
+      const route = getRoute() || {};
+      const requested = selection && typeof selection === 'object' ? selection : {};
+      const provider = clean(requested.provider) || clean(route.provider);
+      const model = clean(requested.model) || clean(route.model);
+      const session = getSession();
+      const id = clean(sourceSessionId) || clean(session?.id);
+      const source = id && id === clean(session?.id) ? session : mgr.getSession(id);
+      const target = inheritanceRouteTarget({
+        provider,
+        model,
+        // A picked window belongs to the route that picked it; another
+        // provider/model pair falls back to that model's own default.
+        selectedContextWindow: provider === clean(route.provider) && model === clean(route.model)
+          ? route.selectedContextWindow
+          : null,
+        tools: Array.isArray(session?.tools) ? session.tools : [],
+      });
+      const fit = inheritanceFit(source?.messages, target);
+      // An oversized conversation is compacted for the heir rather than
+      // refused, so the surface announces the extra step instead of blocking.
+      const willCompact = fit.known && !fit.fits && Boolean(inheritanceCompactionPlan(target));
+      return {
+        ...fit,
+        willCompact,
+        sourceSessionId: id || null,
+        reason: fit.known && !fit.fits && !willCompact ? inheritanceFitMessage(fit) : '',
+      };
+    },
+    /**
      * Session inheritance (/inherit): carry another session's conversation
      * into THIS freshly created session, so the transcript continues under a
      * new id on the currently selected model.
@@ -687,31 +721,44 @@ export function createLifecycleApi(deps) {
       // System blocks belong to the session that BUILT them: the target's own
       // prompt was composed for the current model, tool surface, and workflow.
       // Only the conversation itself travels.
-      const carried = (Array.isArray(source.messages) ? source.messages : [])
-        .filter((message) => message?.role !== 'system');
+      let carried = inheritableMessages(source.messages);
       if (!hasUserConversationMessage(carried)) {
         throw new Error('inheritFrom: the source session has no conversation to carry');
       }
-      const messageStart = target.messages.length;
+      // Decide BEFORE anything moves, on the heir's own scale. This is the
+      // same function inheritancePreflight() answers with, so the surface that
+      // offered the carry and the runtime that performs it cannot disagree —
+      // and a refusal no longer has to unwind a half-filled transcript.
+      let fit = inheritanceFit(carried, target);
+      if (fit.known && !fit.fits) {
+        // Too large for the heir is not a dead end: carry a compacted
+        // conversation instead of sending the user away to run /compact by
+        // hand. The compaction is sized for the HEIR and runs on a copy, so
+        // the source session keeps every message it has.
+        let compactionFault = null;
+        let compacted = null;
+        try {
+          compacted = await compactConversationForHeir(source, target);
+        } catch (reason) {
+          // A compaction that cannot run is a refusal, not a half-carry: the
+          // user reads the same measured sentence they would have read without
+          // the attempt, and the engine fault travels along as its cause.
+          compactionFault = reason;
+        }
+        if (compacted) {
+          carried = compacted;
+          fit = inheritanceFit(carried, target);
+        }
+        if (fit.known && !fit.fits) {
+          const refusal = new Error(inheritanceFitMessage(fit));
+          if (compactionFault) refusal.cause = compactionFault;
+          throw refusal;
+        }
+      }
       target.messages.push(...stripEffortConfiguration(
         inheritedCompatReplayMessages(structuredClone(carried), source.provider),
       ));
       invalidateContextStatusCache();
-      try {
-        const fit = inheritanceContextFit(
-          typeof computeContextStatus === 'function' ? computeContextStatus() : null,
-        );
-        if (fit.known && !fit.fits) {
-          throw new Error(
-            `inheritFrom: the full conversation needs ${Math.ceil(fit.used)} tokens `
-            + `but the selected model allows ${Math.floor(fit.limit)} before compaction`,
-          );
-        }
-      } catch (error) {
-        target.messages.splice(messageStart);
-        invalidateContextStatusCache();
-        throw error;
-      }
       target.inheritedFromSessionId = source.id;
       target.updatedAt = Date.now();
       // Display-only boundary: preserve the carried message and its historical

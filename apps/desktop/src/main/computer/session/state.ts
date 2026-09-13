@@ -32,6 +32,7 @@ import type {
   CaptureFrame,
   ComputerCommand,
   ComputerElementRecord,
+  ComputerInputObservation,
   ElementAliasTarget,
   ObservedWindowScope,
 } from '../shared/types';
@@ -84,6 +85,7 @@ export function createSessionState(host: SessionStateHost) {
     command: ComputerCommand,
     primaryWindowId: string,
     relatedWindowIds: string[] = [],
+    inputObservation?: ComputerInputObservation,
   ): void {
     if (!primaryWindowId) return;
     observedWindowBySession.set(sessionIdFor(command), {
@@ -93,6 +95,7 @@ export function createSessionState(host: SessionStateHost) {
         ...relatedWindowIds.map(String).filter(Boolean),
       ])],
       observedAt: performance.now(),
+      ...(inputObservation ? { inputObservation } : {}),
     });
   }
 
@@ -111,6 +114,24 @@ export function createSessionState(host: SessionStateHost) {
 
   function forgetObservedWindowScope(command: ComputerCommand): void {
     observedWindowBySession.delete(sessionIdFor(command));
+  }
+
+  function invalidateWindowTargets(windowIds: Array<string | undefined>, exceptSessionId: string): void {
+    const ids = new Set(windowIds.filter(Boolean).map(id => String(id).toLowerCase()));
+    const sessions = new Set([...observedWindowBySession.keys(), ...framesBySession.keys()]);
+    for (const sessionId of sessions) {
+      if (sessionId === exceptSessionId) continue;
+      const scope = observedWindowBySession.get(sessionId);
+      const frames = framesBySession.get(sessionId);
+      const related = [
+        ...(scope?.relatedWindowIds || []),
+        ...[...(frames?.values() || [])].flatMap(frame =>
+          [...(frame.relatedWindowIds || []), frame.windowId || '']),
+      ];
+      if (!related.some(id => ids.has(id.toLowerCase()))) continue;
+      invalidateComputerActionTargets(sessionId, { framesBySession, elementTargetsBySession });
+      observedWindowBySession.delete(sessionId);
+    }
   }
 
   function invalidateActionTargets(command: ComputerCommand): void {
@@ -344,6 +365,7 @@ export function createSessionState(host: SessionStateHost) {
     freshObservedWindowScope,
     forgetObservedWindowScope,
     invalidateActionTargets,
+    invalidateWindowTargets,
     invalidateWorkerGeneration,
     releaseSessionState,
     normalizeElementRecords,

@@ -82,7 +82,6 @@ import {
   TOOL_SEARCH_TOOL,
   CWD_TOOL,
   SKILL_TOOL,
-  applyStandaloneToolDefaults,
 } from './tool-defs.mjs';
 import {
   modelToolSchemaAllowlist,
@@ -111,6 +110,7 @@ import { closeNativeToolTransports, closePatchRuntimeIfLoaded, withTeardownDeadl
 import { createChannelConfigApi } from './channel-config-api.mjs';
 import { createMediaApi } from './media-api.mjs';
 import { createProviderAuthApi } from './provider-auth-api.mjs';
+import { createUsageStatsApi } from './usage-stats-api.mjs';
 import { createContextStatus } from './context-status.mjs';
 import { createLifecycleApi } from './lifecycle-api.mjs';
 import { createResourceApi } from './resource-api.mjs';
@@ -699,7 +699,7 @@ export async function createMixdogSessionRuntime({
     ...SETUP_TOOL_DEFS,
     ...goalRuntime.tools,
     ...agentTool.tools,
-  ].map(applyStandaloneToolDefaults);
+  ];
   bootProfile('tools:ready', { ms: (performance.now() - toolsStartedAt).toFixed(1), count: standaloneTools.length });
 
   // Workflow-aware model surface: a pack that declares an EMPTY agents list
@@ -810,10 +810,8 @@ export async function createMixdogSessionRuntime({
     seedOutputStyleStatusCache,
     adoptConfig,
     saveConfigAndAdopt,
-    flushConfigSave,
     scheduleSkillsSave,
     flushSkillsSave,
-    flushOutputStyleSave,
     scheduleOutputStyleSave,
     flushAllConfigSavesAsync,
     reloadFullConfig,
@@ -1161,6 +1159,7 @@ export async function createMixdogSessionRuntime({
     // though the boot-time autostart window has already passed.
     ensureAutomationRuntime: () => scheduleChannelStart(0),
   });
+  const usageStatsApi = createUsageStatsApi();
   const providerAuthApi = createProviderAuthApi({
     cfgMod,
     getConfig: () => rt.config,
@@ -1216,8 +1215,6 @@ export async function createMixdogSessionRuntime({
     mcpClient,
     warmupTimers,
     prewarmTimers,
-    flushConfigSave,
-    flushOutputStyleSave,
     flushAllConfigSavesAsync,
     withTeardownDeadline,
     closePatchRuntimeIfLoaded,
@@ -1396,6 +1393,7 @@ export async function createMixdogSessionRuntime({
       ...settingsApi,
       ...channelConfigApi,
       ...providerAuthApi,
+      ...usageStatsApi,
       ...mediaApi,
       ...runtimeReviewApi,
     },

@@ -20,7 +20,7 @@ function normalizeMaintenanceCandidate(candidate) {
  * session. Session-backed dispatch and tiny one-shot completions share this
  * model-selection boundary.
  */
-export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfgIn = null }) {
+export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfgIn = null, includeDefault = true }) {
     if (preset) return preset;
     if (optsPreset) return optsPreset;
     if (!agent) return null;
@@ -36,7 +36,7 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
             if (isAgentDisabled(config, role)) return null;
             const candidates = [
                 ...configuredAgentRouteCandidates(config, role),
-                role ? config?.default : null,
+                role && includeDefault ? config?.default : null,
             ];
             for (const candidate of candidates) {
                 const route = normalizeMaintenanceCandidate(candidate);

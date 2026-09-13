@@ -211,9 +211,10 @@ export function pictureXml({
   width = 100,
   height = 100,
   crop = null,
+  altText = '',
 }) {
   return '<p:pic><p:nvPicPr>'
-    + `<p:cNvPr id="${id}" name="${xmlEncode(name || `Picture ${id}`)}"/>`
+    + `<p:cNvPr id="${id}" name="${xmlEncode(name || `Picture ${id}`)}"${altText ? ` descr="${xmlEncode(altText)}"` : ''}/>`
     + '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>'
     + `<p:blipFill><a:blip r:embed="${embedId}"/>${cropRectXml(crop)}<a:stretch><a:fillRect/></a:stretch></p:blipFill>`
     + `<p:spPr>${frame(left, top, width, height)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>`

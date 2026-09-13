@@ -15,6 +15,7 @@ import { createSessionJobs } from './session-jobs';
 import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
 import type { PowerShellResponse } from '../shared/types';
+import { computerActionHas } from '../../../../../../src/runtime/computer-bridge/actions.mjs';
 import {
   createComputerLineDecoder,
   MAX_COMPUTER_INTERNAL_REQUEST_BYTES,
@@ -31,7 +32,7 @@ export interface WorkerPoolHost {
   /** A spare is only worth keeping while the bridge would use it. */
   isBridgeEnabled(): boolean;
   isDisposed(): boolean;
-  onSessionRetired?(sessionId: string, child?: ChildProcessWithoutNullStreams): void;
+  onSessionRetired?(sessionId: string, child: ChildProcessWithoutNullStreams, interruptedInput: boolean): void;
   maxWorkers?: number;
   onPointerProgress?(sessionId: string, x: number, y: number, held: boolean, mode: 'background' | 'foreground', phase: string): void;
   /** Injectable process transport for isolated lifecycle tests. */
@@ -59,16 +60,21 @@ export function createWorkerPool(host: WorkerPoolHost) {
     sessionId: string;
     pointerFeedback: boolean;
     mode: 'background' | 'foreground';
+    input: boolean;
   }>();
   const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   const workerLastUsedAt = new Map<string, number>();
   const hostWorkers = new Set<ChildProcessWithoutNullStreams>();
+  // A killed message sender has no receipt proving that its finally block ran.
+  // Keep this uncertainty latched even after the child and observation are gone.
+  const unconfirmedBackgroundSessions = new Set<string>();
   const elevatedJobs = createSessionJobs();
   const maxWorkers = host.maxWorkers ?? MAX_COMPUTER_WORKERS;
   const spawnProcess = host.spawnProcess || spawn;
   assertComputerWorkerCapacity(0, maxWorkers);
   let elevatedSlots = 0;
   const inputMarker = String((randomBytes(4).readUInt32LE() & 0x7fffffff) || 1);
+  const hostScriptName = `computer-host-${process.pid}-${randomBytes(12).toString('hex')}.ps1`;
 
   function ensureHostScript(): string {
     if (hostScriptPath) return hostScriptPath;
@@ -76,7 +82,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     mkdirSync(directory, { recursive: true });
     const program = powershellHostProgram();
     hostScriptBuild = createHash('sha256').update(program).digest('hex').slice(0, 16);
-    hostScriptPath = join(directory, 'computer-host.ps1');
+    hostScriptPath = join(directory, hostScriptName);
     writeFileSync(hostScriptPath, program);
     try {
       const cacheDirectory = join(directory, HOST_ASSEMBLY_CACHE_DIRECTORY);
@@ -145,20 +151,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     child.once('exit', () => {
       hostWorkers.delete(child);
       if (spareHostWorker === child) spareHostWorker = null;
-      // A worker can be adopted by a session after it spawned, so its identity
-      // is looked up rather than captured.
-      for (const [id, activeChild] of powerShellBySession) {
-        if (activeChild !== child) continue;
-        powerShellBySession.delete(id);
-        workerLastUsedAt.delete(id);
-        try { onSessionRetired?.(id, child); } catch { /* host cleanup is best effort */ }
-      }
-      for (const [id, entry] of pending) {
-        if (entry.child !== child) continue;
-        clearTimeout(entry.timer);
-        entry.reject(new Error('computer host exited'));
-        pending.delete(id);
-      }
+      retirePowerShell(child, new Error('computer host exited'));
     });
     return child;
   }
@@ -191,6 +184,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
 
   function retirePowerShell(child: ChildProcessWithoutNullStreams, error: Error): void {
     const retiredSessionIds: string[] = [];
+    let interruptedInput = false;
     for (const [sessionId, activeChild] of powerShellBySession) {
       if (activeChild !== child) continue;
       powerShellBySession.delete(sessionId);
@@ -199,13 +193,19 @@ export function createWorkerPool(host: WorkerPoolHost) {
     }
     for (const [id, entry] of pending) {
       if (entry.child !== child) continue;
+      if (entry.input) {
+        interruptedInput = true;
+        if (entry.mode === 'background') unconfirmedBackgroundSessions.add(entry.sessionId);
+      }
       clearTimeout(entry.timer);
       entry.reject(error);
       pending.delete(id);
     }
-    try { child.kill(); } catch { /* already gone */ }
+    if (!child.killed && child.exitCode === null && child.signalCode === null) {
+      try { child.kill(); } catch { /* exit confirmation belongs to the lifecycle */ }
+    }
     for (const sessionId of retiredSessionIds) {
-      try { onSessionRetired?.(sessionId, child); } catch { /* host cleanup is best effort */ }
+      try { onSessionRetired?.(sessionId, child, interruptedInput); } catch { /* failed cleanup stays latched */ }
     }
   }
 
@@ -218,6 +218,10 @@ export function createWorkerPool(host: WorkerPoolHost) {
     }
     const entry = pending.get(parsed.id);
     if (!entry || entry.child !== child) return;
+    if (entry.input && entry.mode === 'background'
+      && /input_cleanup_unconfirmed/.test(String(parsed.error || ''))) {
+      unconfirmedBackgroundSessions.add(entry.sessionId);
+    }
     const feedback = (parsed as PowerShellResponse & {
       pointer_feedback?: { generated: number; failed: number };
     }).pointer_feedback;
@@ -260,7 +264,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
         );
       }, commandTimeoutMs);
       pending.set(id, { resolve, reject, timer, child, sessionId, pointerFeedback,
-        mode: request.delivery === 'foreground' ? 'foreground' : 'background' });
+        mode: request.delivery === 'foreground' ? 'foreground' : 'background',
+        input: !computerActionHas(String(inputAction), 'nativeRead') && inputAction !== 'release_session' });
       try {
         child.stdin.write(line);
       } catch (error) {
@@ -482,6 +487,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     ensureSpareHostWorker,
     ensurePowerShell,
     retirePowerShell,
+    hasUnconfirmedBackgroundInput: (sessionId: string) => unconfirmedBackgroundSessions.has(sessionId),
     callPowerShell,
     callPowerShellElevated,
     cancelElevatedSession: elevatedJobs.cancel,

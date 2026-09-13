@@ -12,7 +12,11 @@ import {
 import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 
 const GATEWAY_USAGE_FILE = 'gateway-usage.local.json';
-const MAX_USAGE_EVENTS = 1000;
+// Background runners push several hundred turns a day through here, so a
+// thousand rows covered barely a day of history. The daily rollup carries the
+// long range, but the events are what a fresh range request re-reads in full
+// detail, and they are also the only record for the day rolling up began.
+const MAX_USAGE_EVENTS = 5000;
 const USAGE_EVENT_TTL_MS = 35 * 24 * 60 * 60_000;
 const USAGE_FLUSH_DELAY_MS = 500;
 let routeSectionKey = null;
@@ -656,7 +660,7 @@ export function recordGatewayUsageEvent(summary) {
   else scheduleGatewayUsageFlush();
 }
 
-function loadUsageEvents() {
+export function loadUsageEvents() {
   const raw = readJsonFile(usageStorePath());
   const events = Array.isArray(raw?.events) ? raw.events : [];
   const cutoff = Date.now() - USAGE_EVENT_TTL_MS;

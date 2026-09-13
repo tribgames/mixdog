@@ -1,6 +1,7 @@
 // HTTP wire helpers extracted from index.mjs. All pure request/response
 // utilities with no module state — no db, _traceDb, or timer dependencies.
 // index.mjs imports these; behavior and signatures are unchanged.
+import { readJsonRequestBody } from '../../shared/http-request-body.mjs'
 
 const MAX_HTTP_BODY_BYTES = 1024 * 1024
 
@@ -14,53 +15,8 @@ const MAX_HTTP_BODY_BYTES = 1024 * 1024
 export const TOOL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024
 
 export function readBody(req, { maxBytes = MAX_HTTP_BODY_BYTES } = {}) {
-  return new Promise((resolve, reject) => {
-    const limit = Math.max(1, Number(maxBytes) || MAX_HTTP_BODY_BYTES)
-    const contentLength = Number(req.headers?.['content-length'] || 0)
-    let chunks = []
-    let total = 0
-    let settled = false
-    const rejectTooLarge = () => {
-      if (settled) return
-      settled = true
-      chunks = []
-      const error = new Error(`request body exceeds the ${limit} byte limit`)
-      error.statusCode = 413
-      reject(error)
-    }
-    if (Number.isFinite(contentLength) && contentLength > limit) {
-      req.resume?.()
-      rejectTooLarge()
-      return
-    }
-    req.on('data', c => {
-      if (settled) return
-      const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c)
-      total += chunk.length
-      if (total > limit) {
-        rejectTooLarge()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => {
-      if (settled) return
-      settled = true
-      const raw = Buffer.concat(chunks).toString('utf8').trim()
-      if (!raw) { resolve({}); return }
-      try { resolve(JSON.parse(raw)) }
-      catch (error) {
-        const e = new Error(`invalid JSON body: ${error.message}`)
-        e.statusCode = 400
-        reject(e)
-      }
-    })
-    req.on('error', error => {
-      if (settled) return
-      settled = true
-      chunks = []
-      reject(error)
-    })
+  return readJsonRequestBody(req, {
+    maxBytes: Math.max(1, Number(maxBytes) || MAX_HTTP_BODY_BYTES),
   })
 }
 

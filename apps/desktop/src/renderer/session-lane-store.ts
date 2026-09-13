@@ -8,6 +8,7 @@ import { desktopAgentIdentity } from "../shared/agent-activity";
 import type { Snapshot, TranscriptItem } from "./desktop-types";
 import { estimateSessionSnapshotBytes } from "./app-session-snapshots";
 import { SessionLaneCache } from "./session-lane-cache";
+import { reportSessionReadFrame } from "./session-read-diagnostics";
 import {
   sharedTranscriptSnapshotDecorator,
   type TranscriptSnapshotDecorator,
@@ -487,6 +488,8 @@ export function createSessionLaneStore({
   ): void => {
     const sessionId = String(update?.sessionId || "");
     if (!sessionId) return;
+    const readFrameStartedAt = performance.now();
+    reportSessionReadFrame(update, 'received');
     const prior = snapshots.get(sessionId);
     const priorSnapshot = prior?.snapshot ?? null;
     // A lane that merely STOPPED PUBLISHING must never erase what a pane is
@@ -506,7 +509,10 @@ export function createSessionLaneStore({
     // An unnamed null is a baseline release, never a teardown — the decoder
     // baseline is dropped in preload and this cache is bounded by prune(), so
     // holding the frame costs nothing and keeps the pane painted.
-    if (!update.snapshot && update.laneEnd !== "gone" && prior) return;
+    if (!update.snapshot && update.laneEnd !== "gone" && prior) {
+      reportSessionReadFrame(update, 'rejected');
+      return;
+    }
     const provenance: SessionLaneFrameProvenance = {
       frameSource: update.frameSource,
       ...(typeof update.contentRevision === "number"
@@ -521,6 +527,7 @@ export function createSessionLaneStore({
       if (rejected) {
         reportLaneDecision(sessionId, provenance,
           { accept: false, reason: rejected, revision: prior?.revision ?? null });
+        reportSessionReadFrame(update, 'rejected');
         return;
       }
     }
@@ -551,6 +558,8 @@ export function createSessionLaneStore({
     }
     snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
+    reportSessionReadFrame({ ...update, snapshot: nextSnapshot }, 'applied',
+      performance.now() - readFrameStartedAt);
     if ((listeners.get(sessionId)?.size || 0) === 0) {
       const key = notificationKeys.get(sessionId);
       if (key) cancelLayoutFrame(key);

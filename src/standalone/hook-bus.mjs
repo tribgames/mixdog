@@ -1,5 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { throwIfAborted } from '../runtime/shared/abort-race.mjs';
+import {
+  applyHookRulePatches,
+  hookFileStamp,
+  readHookDocument,
+  updateHookRules,
+} from './hook-bus/rule-file.mjs';
 import {
   DEFAULT_EVENTS,
   NO_MATCHER_EVENTS,
@@ -82,7 +88,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
   const counts = new Map(DEFAULT_EVENTS.map((name) => [name, 0]));
   const rulesPath = hookRulesPath(dataDir);
   const pluginData = dataDir || null;
-  let rulesCache = { mtimeMs: -1, rules: [] };
+  let rulesCache = { stamp: null, rules: [] };
   let configCache = {
     key: '',
     standard: false,
@@ -111,16 +117,20 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
   }
 
   function loadRules() {
-    if (!rulesPath || !existsSync(rulesPath)) {
-      rulesCache = { mtimeMs: -1, rules: [] };
+    const stamp = rulesPath ? hookFileStamp(rulesPath) : null;
+    if (stamp === null) {
+      rulesCache = { stamp: null, rules: [] };
       return rulesCache.rules;
     }
-    const stat = statSync(rulesPath);
-    if (rulesCache.mtimeMs === stat.mtimeMs) return rulesCache.rules;
-    const parsed = JSON.parse(readFileSync(rulesPath, 'utf8'));
+    if (rulesCache.stamp === stamp) return rulesCache.rules;
+    const parsed = readHookDocument(rulesPath);
     rulesCache = {
-      mtimeMs: stat.mtimeMs,
-      rules: normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object'),
+      stamp,
+      rules: applyHookRulePatches(
+        normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object'),
+        pendingRulePatches,
+        { strict: false },
+      ),
     };
     return rulesCache.rules;
   }
@@ -128,16 +138,22 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
   function loadConfig(cwd = lastCwd) {
     const entries = hookConfigEntries(dataDir, cwd);
     const parts = [];
-    for (const { path: p } of entries) {
+    let cacheable = true;
+    for (const entry of entries) {
+      let stamp;
       try {
-        const st = existsSync(p) ? statSync(p) : null;
-        parts.push(`${p}:${st ? st.mtimeMs : 'absent'}`);
+        stamp = hookFileStamp(entry.path);
       } catch {
-        parts.push(`${p}:error`);
+        cacheable = false;
+        stamp = 'error';
       }
+      parts.push([
+        entry.path, stamp, entry.sourceType, entry.pluginRoot,
+        entry.pluginData, entry.untrusted === true,
+      ]);
     }
-    const key = parts.join('|');
-    if (configCache.key === key) return configCache;
+    const key = JSON.stringify(parts);
+    if (cacheable && configCache.key === key) return configCache;
 
     const events = {};
     const legacyRules = [];
@@ -151,11 +167,12 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     let disableSeen = false;
     for (const entry of entries) {
       const filePath = entry.path;
-      if (!existsSync(filePath)) continue;
       let parsed = null;
       try {
         parsed = JSON.parse(readFileSync(filePath, 'utf8'));
       } catch (error) {
+        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') continue;
+        if (!(error instanceof SyntaxError)) cacheable = false;
         errors.push({ file: filePath, error: error?.message || String(error) });
         continue;
       }
@@ -182,7 +199,10 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         }
         mergeEvents(events, parseStandardConfig(parsed, filePath, entry));
       } else {
-        const fileRules = normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object');
+        let fileRules = normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object');
+        if (filePath === rulesPath) {
+          fileRules = applyHookRulePatches(fileRules, pendingRulePatches, { strict: false });
+        }
         if (fileRules.length === 0 && report.invalidEvents.length > 0) {
           errors.push({
             file: filePath,
@@ -193,7 +213,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       }
     }
     configCache = {
-      key,
+      key: cacheable ? key : '',
       standard: Object.keys(events).length > 0,
       disabled: disableSeen ? disabled : false,
       events,
@@ -229,7 +249,8 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     return handlers;
   }
 
-  async function runOneHandler(handler, eventName, payload) {
+  async function runOneHandler(handler, eventName, payload, { signal } = {}) {
+    throwIfAborted(signal);
     if (!handler || typeof handler !== 'object') return null;
     if (!ifConditionPasses(handler.if, eventName, payload.tool_name, payload.tool_input)) return null;
     const type = String(handler.type || '').trim();
@@ -254,30 +275,31 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
           error: `hook spawn failed: ${error?.message || error}`,
         });
       };
-      return await runCommandHandler(handler, payload, eventName, pluginData, reportSpawnError);
+      return await runCommandHandler(handler, payload, eventName, pluginData, reportSpawnError, { signal });
     }
     if (type === 'http') {
       if (!handler.url) return null;
-      return await runHttpHandler(handler, payload, eventName);
+      return await runHttpHandler(handler, payload, eventName, { signal });
     }
     if (type === 'mcp_tool') {
       if (typeof mcpToolRunner !== 'function') {
         emit('hook:error', { name: payload.tool_name || eventName, error: 'handler type mcp_tool not configured' });
         return null;
       }
-      return await runMcpToolHandler(handler, payload, eventName, mcpToolRunner);
+      return await runMcpToolHandler(handler, payload, eventName, mcpToolRunner, { signal });
     }
     if (type === 'prompt') {
       if (typeof promptRunner !== 'function') {
         emit('hook:error', { name: payload.tool_name || eventName, error: 'handler type prompt not configured' });
         return null;
       }
-      return await runPromptHandler(handler, payload, eventName, promptRunner);
+      return await runPromptHandler(handler, payload, eventName, promptRunner, { signal });
     }
     return null;
   }
 
-  async function runEventHandlers(eventName, payload) {
+  async function runEventHandlers(eventName, payload, { signal } = {}) {
+    throwIfAborted(signal);
     const handlers = selectHandlers(eventName, payload);
     const agg = {
       blocked: false,
@@ -295,10 +317,13 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     // Denial-capable events must not run remaining handlers after a block.
     const shortCircuit = EXIT2_BLOCK_EVENTS.has(eventName) || TOP_LEVEL_DECISION_EVENTS.has(eventName);
     for (const handler of handlers) {
+      throwIfAborted(signal);
       let run;
       try {
-        run = await runOneHandler(handler, eventName, payload);
+        run = await runOneHandler(handler, eventName, payload, { signal });
+        throwIfAborted(signal);
       } catch (error) {
+        throwIfAborted(signal);
         emit('hook:error', { name: payload.tool_name || eventName, error: error?.message || String(error) });
         continue;
       }
@@ -333,13 +358,9 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     return agg;
   }
 
-  function saveRules(rules) {
+  function saveRules(update) {
     if (!rulesPath) throw new Error('hooks rules path is not configured');
-    mkdirSync(dirname(rulesPath), { recursive: true });
-    const cleanRules = Array.isArray(rules) ? rules.filter((rule) => rule && typeof rule === 'object') : [];
-    writeFileSync(rulesPath, `${JSON.stringify({ toolBefore: cleanRules }, null, 2)}\n`, 'utf8');
-    const stat = statSync(rulesPath);
-    rulesCache = { mtimeMs: stat.mtimeMs, rules: cleanRules };
+    rulesCache = updateHookRules(rulesPath, update);
     configCache.key = '';
     return listRules();
   }
@@ -365,22 +386,12 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     if (rule.reason != null && String(rule.reason).trim()) next.reason = String(rule.reason).trim();
     if (rule.patch && typeof rule.patch === 'object' && !Array.isArray(rule.patch)) next.patch = rule.patch;
     if (rule.args && typeof rule.args === 'object' && !Array.isArray(rule.args)) next.args = rule.args;
-    const rules = [...loadRules(), next];
-    return saveRules(rules);
+    return saveRules((rules) => [...rules, next]);
   }
 
-  // --- debounced hooks.json persist ------------------------------------------
-  // Rule state is flipped in the in-memory rulesCache synchronously so the
-  // picker reopen renders from memory (no disk re-read); the heavy file RMW
-  // (saveRules) is deferred so a burst of toggle key presses collapses into one
-  // write. Mirrors config-lifecycle's scheduleSkillsSave pattern.
+  // Reflect toggles immediately, then publish their field updates together.
   const RULES_SAVE_DEBOUNCE_MS = 400;
-  // Pending flips are tracked as index→enabled patches (not a full snapshot) so
-  // that if hooks.json is edited externally during the debounce window the flush
-  // can reload the current disk rules and reapply only our enabled-flag changes
-  // instead of clobbering the external edit.
   let pendingRulePatches = null;
-  let rulesBaseMtime = null;
   let rulesSaveTimer = null;
 
   function flushRules() {
@@ -390,36 +401,25 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     }
     if (!pendingRulePatches || pendingRulePatches.size === 0) {
       pendingRulePatches = null;
-      rulesBaseMtime = null;
       return;
     }
     const patches = pendingRulePatches;
-    const base = rulesBaseMtime;
-    pendingRulePatches = null;
-    rulesBaseMtime = null;
     try {
-      let rules;
-      const diskChanged = rulesPath && existsSync(rulesPath) && statSync(rulesPath).mtimeMs !== base;
-      if (diskChanged) {
-        // External edit during the debounce window: reload from disk and reapply
-        // only our flips so the external change survives.
-        const parsed = JSON.parse(readFileSync(rulesPath, 'utf8'));
-        rules = normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object');
-      } else {
-        rules = [...(rulesCache.rules || [])];
-      }
-      for (const [index, enabled] of patches) {
-        if (index >= 0 && index < rules.length) rules[index] = { ...rules[index], enabled };
-      }
-      saveRules(rules);
+      saveRules((rules) => applyHookRulePatches(rules, patches));
+      pendingRulePatches = null;
     } catch (error) {
       emit('hook:error', { error: `debounced hooks save failed: ${error?.message || error}` });
+      throw error;
     }
   }
 
   function scheduleRulesSave() {
     if (rulesSaveTimer) clearTimeout(rulesSaveTimer);
-    rulesSaveTimer = setTimeout(flushRules, RULES_SAVE_DEBOUNCE_MS);
+    rulesSaveTimer = setTimeout(() => {
+      // The error is recorded by flushRules; retain the patch for an explicit
+      // retry rather than crashing a timer callback or silently dropping it.
+      try { flushRules(); } catch {}
+    }, RULES_SAVE_DEBOUNCE_MS);
     rulesSaveTimer.unref?.();
   }
 
@@ -427,19 +427,12 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     const rules = [...loadRules()];
     if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
     const nextEnabled = enabled !== false;
+    const baseRule = rules[index];
     rules[index] = { ...rules[index], enabled: nextEnabled };
-    // Adopt in memory immediately: keep the last-known disk mtime so loadRules
-    // returns this flipped cache (disk is untouched until the debounce flushes),
-    // and drop the config cache so a re-read reflects the change.
     rulesCache = { ...rulesCache, rules };
     configCache.key = '';
-    if (!pendingRulePatches) {
-      pendingRulePatches = new Map();
-      // mtime the in-memory cache was loaded from; flush compares against it to
-      // detect an external edit made during the debounce window.
-      rulesBaseMtime = rulesCache.mtimeMs;
-    }
-    pendingRulePatches.set(index, nextEnabled);
+    if (!pendingRulePatches) pendingRulePatches = new Map();
+    pendingRulePatches.set(index, { baseRule, enabled: nextEnabled });
     scheduleRulesSave();
     return listRules();
   }
@@ -449,13 +442,14 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     // before the splice keeps a debounced toggle from landing on whatever rule
     // shifted into that slot after the delete.
     flushRules();
-    const rules = [...loadRules()];
-    if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
-    rules.splice(index, 1);
-    return saveRules(rules);
+    return saveRules((rules) => {
+      if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
+      return rules.filter((_, current) => current !== index);
+    });
   }
 
-  async function beforeTool(input = {}) {
+  async function beforeTool(input = {}, { signal } = {}) {
+    throwIfAborted(signal);
     if (input?.cwd) lastCwd = input.cwd;
     emit('tool:before', {
       sessionId: input.sessionId || input.session_id || null,
@@ -466,26 +460,23 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     try {
       const cfg = loadConfig(input.cwd || lastCwd);
       if (cfg.disabled) return null;
-      if (!cfg.disabled) {
-        const payload = buildEventPayload('PreToolUse', input);
-        const agg = await runEventHandlers('PreToolUse', payload);
-        if (agg.blocked) {
-          emit('tool:deny', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.reason });
-          return { action: 'deny', reason: agg.reason };
-        }
-        if (agg.updatedInput || agg.updatedToolName) {
-          emit('tool:modify', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.reason });
-          return {
-            action: 'modify',
-            ...(agg.updatedInput ? { args: agg.updatedInput } : {}),
-            ...(agg.updatedToolName ? { name: agg.updatedToolName } : {}),
-            reason: agg.reason,
-          };
-        }
-        if (agg.ask) {
-          emit('tool:ask', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.askReason });
-          return { action: 'ask', reason: agg.askReason };
-        }
+      const payload = buildEventPayload('PreToolUse', input);
+      const agg = await runEventHandlers('PreToolUse', payload, { signal });
+      throwIfAborted(signal);
+      if (agg.blocked) {
+        emit('tool:deny', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.reason });
+        return { action: 'deny', reason: agg.reason };
+      }
+      if (agg.ask || agg.updatedInput || agg.updatedToolName) {
+        const action = agg.ask ? 'ask' : 'modify';
+        const reason = agg.ask ? agg.askReason : agg.reason;
+        emit(`tool:${action}`, { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason });
+        return {
+          action,
+          ...(agg.updatedInput ? { args: agg.updatedInput } : {}),
+          ...(agg.updatedToolName ? { name: agg.updatedToolName } : {}),
+          reason,
+        };
       }
 
       const rules = Array.isArray(cfg.legacyRules) && cfg.legacyRules.length
@@ -511,6 +502,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       }
       return decision;
     } catch (error) {
+      throwIfAborted(signal);
       emit('hook:error', { name: input.name || input.tool_name || 'tool', error: error?.message || String(error) });
       return null;
     }

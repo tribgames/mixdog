@@ -17,6 +17,21 @@ const CHART_FAMILIES = Object.freeze({
   doughnut: { element: 'doughnutChart', axes: false },
 });
 
+// Excel fills an unstyled series from the workbook theme, so a chart part
+// written without a style or colour map is left to the reader — and a reader
+// that resolves nothing draws a plot of invisible bars under visible labels.
+// Every series therefore carries an explicit fill unless the caller names one;
+// one hue family in light and dark steps keeps a multi-series plot readable in
+// print and on a projector.
+export const DEFAULT_SERIES_COLORS = Object.freeze([
+  '2F6DB5',
+  '9FB6CE',
+  '1B4374',
+  '6FA0D8',
+  '4E6274',
+  'C3D0DD',
+]);
+
 const LABEL_POSITIONS = Object.freeze({
   inside_end: 'inEnd',
   inside_base: 'inBase',
@@ -115,9 +130,9 @@ function axisText() {
     + '<a:endParaRPr lang="en-US"/></a:p></c:txPr>';
 }
 
-function categoryAxis() {
+function categoryAxis({ hidden = false } = {}) {
   return `<c:catAx><c:axId val="${CATEGORY_AXIS_ID}"/>`
-    + '<c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/>'
+    + `<c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="${hidden ? 1 : 0}"/><c:axPos val="b"/>`
     + '<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>'
     + '<c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="C7CBD1"/></a:solidFill></a:ln></c:spPr>'
     + axisText()
@@ -125,11 +140,13 @@ function categoryAxis() {
     + '<c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>';
 }
 
-function valueAxis({ numberFormat, zeroBaseline }) {
+function valueAxis({ numberFormat, zeroBaseline, hidden = false, min = null, max = null, gridlines = true }) {
+  const low = min == null ? (zeroBaseline ? 0 : null) : min;
   return `<c:valAx><c:axId val="${VALUE_AXIS_ID}"/>`
-    + `<c:scaling><c:orientation val="minMax"/>${zeroBaseline ? '<c:min val="0"/>' : ''}</c:scaling>`
-    + '<c:delete val="0"/><c:axPos val="l"/>'
-    + '<c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="E7E9EC"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>'
+    + '<c:scaling><c:orientation val="minMax"/>'
+    + `${max == null ? '' : `<c:max val="${max}"/>`}${low == null ? '' : `<c:min val="${low}"/>`}</c:scaling>`
+    + `<c:delete val="${hidden ? 1 : 0}"/><c:axPos val="l"/>`
+    + (gridlines ? '<c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="E7E9EC"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>' : '')
     + (numberFormat ? `<c:numFmt formatCode="${xmlEncode(numberFormat)}" sourceLinked="0"/>` : '')
     + '<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>'
     + '<c:spPr><a:ln><a:noFill/></a:ln></c:spPr>'
@@ -157,13 +174,23 @@ export function chartXml({
   dataLabelColor = '',
   valueNumberFormat = '',
   showLegend = null,
-  zeroBaseline = false,
+  zeroBaseline = null,
+  // How the chart's axes were set up when it already exists: a data refresh
+  // keeps the hidden axis, the zoomed range, and the gridline decision the deck
+  // was approved with instead of redrawing a default chart around new numbers.
+  axis = null,
   externalDataId = '',
 } = {}) {
   const family = resolveChartFamily(chartType);
   if (!family) {
     throw new Error(`Unsupported chartType: ${chartType}. Use one of: ${supportedChartTypes().join(', ')}`);
   }
+  // A bar or column says "this much" by its length, so its axis starts at zero
+  // unless the caller deliberately zooms in; a line or scatter reads as a path
+  // and keeps the range that shows its movement.
+  const baseline = zeroBaseline == null
+    ? family.element === 'barChart' || family.element === 'areaChart'
+    : zeroBaseline === true;
   const rows = categories.map((entry) => String(entry ?? ''));
   const entries = series.filter((entry) => entry && Array.isArray(entry.values));
   if (!entries.length) throw new Error('add_chart requires at least one series with values');
@@ -176,9 +203,13 @@ export function chartXml({
     const valueFormula = references?.values?.[index] || `${sheet}!$${column}$2:$${column}$${rows.length + 1}`;
     return `<c:ser><c:idx val="${index}"/><c:order val="${index}"/>`
       + `<c:tx>${stringReference(nameFormula, [entry.name ?? `Series ${index + 1}`])}</c:tx>`
-      + seriesShape(family, entry.color)
+      + seriesShape(family, entry.color || DEFAULT_SERIES_COLORS[index % DEFAULT_SERIES_COLORS.length])
       + (family.element === 'barChart' ? '<c:invertIfNegative val="0"/>' : '')
-      + dataPointShapes(family, entry.pointColors)
+      + dataPointShapes(family, Array.isArray(entry.pointColors) && entry.pointColors.length
+        ? entry.pointColors
+        : (family.element === 'pieChart' || family.element === 'doughnutChart'
+          ? rows.map((_, point) => DEFAULT_SERIES_COLORS[point % DEFAULT_SERIES_COLORS.length])
+          : null))
       + dataLabels({
         showValues,
         position: dataLabelPosition,
@@ -218,7 +249,16 @@ export function chartXml({
     + chartTitle(title)
     + '<c:plotArea><c:layout/>'
     + plot
-    + (family.axes ? `${categoryAxis()}${valueAxis({ numberFormat: valueNumberFormat, zeroBaseline })}` : '')
+    + (family.axes
+      ? `${categoryAxis({ hidden: axis?.hideCategoryAxis === true })}${valueAxis({
+        numberFormat: valueNumberFormat,
+        zeroBaseline: baseline,
+        hidden: axis?.hideValueAxis === true,
+        min: axis?.min ?? null,
+        max: axis?.max ?? null,
+        gridlines: axis?.gridlines !== false,
+      })}`
+      : '')
     + '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>'
     + '</c:plotArea>'
     + legend

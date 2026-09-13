@@ -118,6 +118,16 @@ function estimateCompactionPromptTokens(input, perMessageChars) {
     ]);
 }
 
+// Rolling compaction batches complete source fragments instead of silently
+// clipping every message or discarding the oldest input to make a request fit.
+export function fitCompleteCompactionPrompt(input, targetTokens) {
+    const prompt = buildCompactionPrompt(input, Number.MAX_SAFE_INTEGER);
+    return estimateMessagesTokens([
+        { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+    ]) <= targetTokens ? prompt : null;
+}
+
 function previousSummaryBodyForCompactionPrompt(previousSummary) {
     const text = String(previousSummary || '');
     if (!text.trim()) return '';

@@ -38,6 +38,39 @@ export async function unicodeFontPath(explicit = '') {
   return (await unicodeFontCandidates(explicit))[0] || '';
 }
 
+/** The characters of `text` the font has no glyph for, in first-seen order. */
+export function uncoveredCharacters(font, text, limit = 6) {
+  const face = font?.embedder?.font;
+  const missing = [];
+  const seen = new Set();
+  for (const char of String(text || '')) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint <= 32 || seen.has(char)) continue;
+    const covered = typeof face?.hasGlyphForCodePoint === 'function'
+      ? face.hasGlyphForCodePoint(codePoint)
+      : (() => {
+        try {
+          font.encodeText(char);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+    if (covered) continue;
+    seen.add(char);
+    missing.push(char);
+    if (missing.length >= limit) break;
+  }
+  return missing;
+}
+
+/** `😀 (U+1F600)` for each character, for an error that names what blocks the file. */
+export function describeUncovered(characters = []) {
+  return characters
+    .map((char) => `${char} (U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')})`)
+    .join(', ');
+}
+
 /** True when every character of text has a glyph in the font (standard fonts throw on encode; embedded faces map misses to .notdef, so ask the face). */
 export function fontCovers(font, text) {
   if (!text) return true;
@@ -75,6 +108,9 @@ export async function embedDocumentFont(document, {
   const candidates = await unicodeFontCandidates(fontPath);
   if (fontPath && !candidates.length) throw new Error(`PDF font file was not found: ${fontPath}`);
   document.registerFontkit(fontkit);
+  // The last face that embedded is what the missing characters are reported
+  // against: it is the coverage the machine actually has.
+  let widest = null;
   for (const candidate of fontPath ? candidates.slice(0, 1) : candidates) {
     let font;
     try {
@@ -85,7 +121,17 @@ export async function embedDocumentFont(document, {
       continue;
     }
     if (fontCovers(font, text)) return { font, fontPath: candidate, embedded: true };
-    if (fontPath) throw new Error(`Font ${candidate} has no glyphs for part of the text; ${PDF_FONT_HINT}`);
+    if (fontPath) {
+      const missing = describeUncovered(uncoveredCharacters(font, text));
+      throw new Error(`Font ${candidate} has no glyph for ${missing || 'part of the text'}; ${PDF_FONT_HINT}`);
+    }
+    widest = widest ?? font;
   }
-  throw new Error(`Text contains characters the standard PDF fonts cannot encode and no installed Unicode font covers it; ${PDF_FONT_HINT}`);
+  // Naming the characters is the difference between a fixable answer and a
+  // font hunt: an emoji or a rare ideograph no installed face carries is removed
+  // or replaced in the text, while a missing script really does want another font.
+  const missing = widest ? describeUncovered(uncoveredCharacters(widest, text)) : '';
+  throw new Error(`PDF text carries ${missing ? `${missing} — ` : 'characters '}no installed font covers`
+    + `${missing ? '' : ' and the standard PDF fonts cannot encode'}.`
+    + ` Replace or remove ${missing ? 'those characters' : 'them'}, or ${PDF_FONT_HINT}.`);
 }

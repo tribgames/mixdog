@@ -1,4 +1,4 @@
-import { strings } from '../design-tokens.mjs';
+import { presetLabels, strings } from '../design-tokens.mjs';
 import { STATE_ROLES } from '../design-discipline.mjs';
 import {
   addDocxDecisionCallout,
@@ -7,27 +7,8 @@ import {
   addDocxSectionTable,
 } from './design-docx-components.mjs';
 import { plainObject } from '../../shared/values.mjs';
+import { composeTableRows } from '../design-table-input.mjs';
 import { documentTypography } from './document-typography.mjs';
-
-function normalizeSectionTable(table) {
-  if (table == null) return [];
-  const rowsOf = (value) => {
-    if (!Array.isArray(value)) return null;
-    return value.every((row) => Array.isArray(row)) ? value : null;
-  };
-  if (Array.isArray(table)) {
-    const rows = rowsOf(table);
-    if (!rows) throw new Error('compose_document section.table must be row arrays or { headers, rows }');
-    return rows;
-  }
-  if (plainObject(table)) {
-    const rows = rowsOf(table.rows ?? []);
-    if (!rows) throw new Error('compose_document section.table.rows must be an array of row arrays');
-    const headers = Array.isArray(table.headers) && table.headers.length ? [table.headers] : [];
-    return [...headers, ...rows];
-  }
-  throw new Error('compose_document section.table must be row arrays or { headers, rows }');
-}
 
 
 export function expandDocxDocument(operation, design, state, backend, composition) {
@@ -182,8 +163,20 @@ export function expandDocxDocument(operation, design, state, backend, compositio
       });
     }
     const sectionBullets = strings(section.bullets);
-    if (sectionKind === 'roadmap') {
-      addDocxRoadmap(output, state, section.steps || sectionBullets, design);
+    // A section that names steps draws them. They used to reach the page only
+    // when the section also declared kind:'roadmap', so a plan section landed as
+    // a heading with nothing under it - and the audit reported the orphan heading
+    // the composer had just written.
+    const sectionSteps = Array.isArray(section.steps) ? section.steps : [];
+    const stepSource = sectionSteps.length ? sectionSteps : sectionBullets;
+    const drewSteps = (sectionKind === 'roadmap' || sectionSteps.length)
+      && addDocxRoadmap(output, state, stepSource, design);
+    if (sectionSteps.length && !drewSteps) {
+      throw new Error(`compose_document section "${String(section.heading || '')}" has steps this writer cannot read;`
+        + " a step is { title, detail } or a 'Label: text' string.");
+    }
+    if (drewSteps) {
+      // The roadmap carries the section's list.
     } else {
       for (const bullet of sectionBullets) {
         append(bullet, 'Normal', {
@@ -209,13 +202,15 @@ export function expandDocxDocument(operation, design, state, backend, compositio
         lineSpacing: (bodySize + 1) * 1.35,
       });
     }
-    const sectionTable = normalizeSectionTable(section.table);
+    const sectionTable = composeTableRows(section.table, {
+      field: `compose_document sections[${sectionIndex + 1}].table`,
+    });
     if (sectionTable.length) {
       addDocxSectionTable(output, state, sectionTable, design, sectionKind);
     }
     if (section.callout) {
       addDocxDecisionCallout(output, state, String(section.callout), design, {
-        label: String(section.calloutLabel || 'NEXT CHECKPOINT'),
+        label: String(section.calloutLabel || presetLabels([section.callout, section.heading, operation.title]).checkpoint),
         emphasis: STATE_ROLES.includes(String(section.calloutTone || '')) ? String(section.calloutTone) : 'accent',
       });
     }

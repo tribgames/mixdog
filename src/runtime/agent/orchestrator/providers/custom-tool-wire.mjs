@@ -114,6 +114,10 @@ export function nativeToolSearchOutputInput(message, provider) {
     call_id: message.toolCallId || '',
     status: 'completed',
     execution: 'client',
-    tools: native.openaiTools,
+    // Responses otherwise normalizes optional fields to required. Apply this
+    // at the wire boundary so restored tool-search history is covered too.
+    tools: native.openaiTools.map(tool => tool?.type === 'function'
+      ? { ...tool, strict: false }
+      : tool),
   };
 }

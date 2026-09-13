@@ -224,8 +224,8 @@ const api: DesktopApi = {
   listRemoteClientClaims: () => ipcRenderer.invoke(DESKTOP_IPC.listRemoteClientClaims),
   resolveRemoteClientClaim: (claimId, approved) =>
     ipcRenderer.invoke(DESKTOP_IPC.resolveRemoteClientClaim, claimId, approved),
-  prefetchSession: (sessionId, transcriptItemLimit) =>
-    ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId, transcriptItemLimit),
+  prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
+    ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId, transcriptItemLimit, readTraceId),
   setVisibleSessions: (sessionIds) =>
     ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),
   searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
@@ -496,6 +496,7 @@ const api: DesktopApi = {
       listener({
         sessionId,
         snapshot: decoded.snapshot as SessionSnapshot,
+        ...(update.readTraceId ? { readTraceId: update.readTraceId } : {}),
         frameSource: update.frameSource,
         ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
         ...(typeof update.contentRevision === 'number'

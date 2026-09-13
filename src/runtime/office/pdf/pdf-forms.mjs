@@ -1,3 +1,4 @@
+import { PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 import { color } from './pdf-draw.mjs';
 
 export function fieldWidgets(field, document) {
@@ -26,8 +27,28 @@ export function rectanglesOverlap(left, right) {
     && left.y + left.height > right.y;
 }
 
+// A caller places a field the way a PDF reader reports one — a rectangle and a
+// kind. Both spellings reach the box the writer draws, so the field lands
+// instead of failing as an empty one.
+export function adoptFormFieldShape(field) {
+  if (!field || typeof field !== 'object') return field;
+  const rect = Array.isArray(field.rect) ? field.rect : Array.isArray(field.box) ? field.box : null;
+  if (rect && rect.length >= 4 && field.x === undefined && field.y === undefined) {
+    const [x, y, width, height] = rect.map(Number);
+    Object.assign(field, { x, y, width, height });
+    delete field.rect;
+    delete field.box;
+  }
+  if (field.kind !== undefined && field.type === undefined) {
+    field.type = field.kind;
+    delete field.kind;
+  }
+  return field;
+}
+
 export function lintPdfFormFields(fields = [], pages = []) {
   const issues = [];
+  for (const field of fields) adoptFormFieldShape(field);
   const normalized = fields.map((field, index) => ({
     index: index + 1,
     name: String(field.name || ''),
@@ -45,7 +66,14 @@ export function lintPdfFormFields(fields = [], pages = []) {
     if (names.has(field.name)) issues.push({ severity: 'error', code: 'duplicate_field_name', path: `/field[${field.index}]`, message: `Duplicate form field name: ${field.name}` });
     names.add(field.name);
     if (![field.x, field.y, field.width, field.height].every(Number.isFinite) || field.width <= 0 || field.height <= 0) {
-      issues.push({ severity: 'error', code: 'invalid_field_box', path: `/field[${field.index}]`, message: 'Form field box must have finite positive dimensions.' });
+      issues.push({
+        severity: 'error',
+        code: 'invalid_field_box',
+        path: `/field[${field.index}]`,
+        // Which field, and the numbers it is missing: the box is x, y, width
+        // and height in points from the page's bottom-left corner.
+        message: `Form field ${field.name || field.index} has no usable box: give x, y, width and height in points from the page's bottom-left corner (or rect: [x, y, width, height]).`,
+      });
     } else if (field.x < 0 || field.y < 0 || field.x + field.width > size[0] || field.y + field.height > size[1]) {
       issues.push({ severity: 'error', code: 'field_outside_page', path: `/field[${field.index}]`, message: `Form field is outside page ${field.page}.` });
     } else {
@@ -144,7 +172,13 @@ export async function addFormField(document, field, font = null) {
 /** Every string a field carries, so the writer can pick a font that covers it. */
 export function fieldText(field) {
   const options = Array.isArray(field?.options) ? field.options : [];
-  return [String(field?.value ?? ''), ...options.map((option) => String(option?.value ?? option?.label ?? option ?? ''))].join(' ');
+  return [
+    String(field?.value ?? ''),
+    // The caption drawn beside the box is part of the form's text: a Korean
+    // label needs the same embedded font as a Korean value.
+    String(field?.label ?? ''),
+    ...options.map((option) => String(option?.value ?? option?.label ?? option ?? '')),
+  ].join(' ');
 }
 
 /** pdf-lib class name → the type vocabulary add_form_field and fill_form use. */
@@ -227,6 +261,101 @@ function checkboxOn(value) {
 
 function choiceValues(value) {
   return (Array.isArray(value) ? value : [value]).map((entry) => String(entry ?? '').replace(/^\//, ''));
+}
+
+// The size a reader sees: the field's default appearance names it, and when
+// that says 0 (auto) the refreshed appearance stream carries the size pdf-lib
+// computed. The stream is compressed, so it is decoded before it is read.
+function appearanceFontSize(field, widget, document) {
+  const sizeOf = (content) => Number(/\/[^\s/]+\s+([\d.]+)\s+Tf/.exec(String(content || ''))?.[1]) || 0;
+  try {
+    const declared = sizeOf(field.acroField.getDefaultAppearance?.());
+    if (declared > 0) return declared;
+    const reference = widget.getNormalAppearance();
+    const stream = reference ? document.context.lookup(reference) : null;
+    if (!stream) return 0;
+    const bytes = stream instanceof PDFRawStream ? decodePDFRawStream(stream).decode() : stream.contents;
+    return bytes ? sizeOf(Buffer.from(bytes).toString('latin1')) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function greedyLineCount(text, font, size, width) {
+  let lines = 0;
+  for (const paragraph of String(text).split(/\r?\n/)) {
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines += 1;
+      continue;
+    }
+    let current = '';
+    lines += 1;
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (font.widthOfTextAtSize(candidate, size) <= width || !current) {
+        current = candidate;
+        continue;
+      }
+      lines += 1;
+      current = word;
+    }
+  }
+  return lines;
+}
+
+/**
+ * Values a widget cannot show. pdf-lib draws the string it was given and the
+ * widget clips what does not fit, so a form reads as filled while the reader
+ * sees half a value — the caller has to be told in the same turn.
+ */
+export function clippedFormValues(document, form, values, font) {
+  if (!font) return [];
+  const clipped = [];
+  for (const [name, value] of Object.entries(values || {})) {
+    let field;
+    try {
+      field = form.getField(name);
+    } catch {
+      continue;
+    }
+    if (formFieldKind(field) !== 'text') continue;
+    const text = String(value ?? '');
+    if (!text.trim()) continue;
+    const widget = field.acroField.getWidgets()[0];
+    const rectangle = widget?.getRectangle?.();
+    if (!rectangle) continue;
+    const size = appearanceFontSize(field, widget, document);
+    if (!size) continue;
+    // pdf-lib insets a text widget by 2 pt on each side, inside its border.
+    const inset = 2 + Number(widget.getBorderStyle?.()?.getWidth?.() ?? 1);
+    const usableWidth = Math.max(1, Number(rectangle.width) - (inset * 2));
+    const usableHeight = Math.max(1, Number(rectangle.height) - (inset * 2));
+    const multiline = field.isMultiline?.() === true;
+    if (!multiline) {
+      const needed = font.widthOfTextAtSize(text, size);
+      if (needed <= usableWidth + 0.5) continue;
+      clipped.push({
+        field: name,
+        reason: 'width',
+        needs: Math.round(needed),
+        box: Math.round(usableWidth),
+        message: `"${text.length > 24 ? `${text.slice(0, 24)}…` : text}" needs about ${Math.round(needed)}pt at ${size}pt but the ${name} box offers ${Math.round(usableWidth)}pt, so the end of the value is cut.`,
+      });
+      continue;
+    }
+    const lines = greedyLineCount(text, font, size, usableWidth);
+    const needed = lines * size * 1.2;
+    if (needed <= usableHeight + 0.5) continue;
+    clipped.push({
+      field: name,
+      reason: 'height',
+      needs: Math.round(needed),
+      box: Math.round(usableHeight),
+      message: `The ${name} value wraps to ${lines} line(s) needing about ${Math.round(needed)}pt at ${size}pt but the box offers ${Math.round(usableHeight)}pt, so the last lines are cut.`,
+    });
+  }
+  return clipped;
 }
 
 /** Set every value by field name; an unknown name or option fails with what exists. Returns the names filled. */

@@ -18,13 +18,13 @@ export {
 export const SUMMARY_PREFIX_ANCHOR = 'A previous model worked on this task and produced the compacted handoff summary below.';
 export const SUMMARY_PREFIX = `${SUMMARY_PREFIX_ANCHOR} Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.`;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
-// The overall compact target and handoff cap share one ratio — 50%.
+// Default total post-compact context target, including request/tool overhead.
 // Execution history has its own smaller cap inside this overall budget.
 // Consumers:
 //   - compact target budget (loop/compact-policy.mjs COMPACT_TARGET_RATIO)
 //   - fresh-context handoff injection cap
 // Keep them in lockstep; do not fork per-consumer ratios without a decision.
-export const CONTEXT_SHARE_RATIO = 0.50;
+export const CONTEXT_SHARE_RATIO = 0.25;
 export const DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 90;
 export const COMPACT_TARGET_MIN_TOKENS = 4_000;
 export const COMPACT_SAFETY_PERCENT = 1.00;

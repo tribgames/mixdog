@@ -1,4 +1,5 @@
 import { persistToolResultArtifactSync } from '../../session/tool-result-offload.mjs';
+import { normalizeOutputPath } from './path-utils.mjs';
 
 const MIN_RAW_BYTES = 512;
 const MIN_SAVED_BYTES = 384;
@@ -100,6 +101,10 @@ function testLikeCommand(command) {
 function nodeTapSuccessSummary(stdout) {
     const text = String(stdout ?? '');
     if (!/^TAP version \d+/m.test(text) || /(?:^|\n)\s*not ok\b/i.test(text)) return null;
+    // Zero-valued TAP counters are verdict metadata, not diagnostic messages.
+    // Everything else must pass the same evidence-preservation guard as logs.
+    const diagnostics = text.replace(/^# (?:cancelled|skipped|todo) 0[ \t]*\r?$/gm, '');
+    if (hasDiagnosticHazard(diagnostics)) return null;
     const count = (name) => {
         const match = text.match(new RegExp(`^# ${name} (\\d+)\\s*$`, 'm'));
         return match ? Number(match[1]) : null;
@@ -261,7 +266,7 @@ function worthwhile(rawStdout, rawStderr, stdout, stderr) {
         && saved / before >= MIN_SAVED_RATIO;
 }
 
-export function planLosslessShellCompaction({
+function evaluateShellCompaction({
     command,
     stdout,
     stderr,
@@ -270,41 +275,62 @@ export function planLosslessShellCompaction({
     timedOut,
     hasExistingRecovery = false,
 } = {}) {
-    if (!enabled() || exitCode !== 0 || signal || timedOut || hasExistingRecovery) return null;
-    if (/[\r\n]|<<|@\s*['"]/.test(String(command ?? ''))) return null;
+    const skip = (reason) => ({ plan: null, reason });
+    if (!enabled()) return skip('disabled');
+    if (timedOut) return skip('timed_out');
+    if (signal) return skip('interrupted');
+    if (exitCode !== 0) return skip('unsuccessful_exit');
+    if (hasExistingRecovery) return skip('existing_recovery');
+    if (/[\r\n]|<<|@\s*['"]/.test(String(command ?? ''))) return skip('unsupported_command');
     const rawStdout = String(stdout ?? '');
     const rawStderr = String(stderr ?? '');
+    let insufficientSavings = false;
 
     if (!rawStderr.trim()) {
         const compactJson = compactStructuredJson(rawStdout);
-        if (compactJson && worthwhile(rawStdout, rawStderr, compactJson, '')) {
-            return { kind: 'structured-json', stdout: compactJson, stderr: '' };
+        if (compactJson) {
+            if (worthwhile(rawStdout, rawStderr, compactJson, '')) {
+                return { plan: { kind: 'structured-json', stdout: compactJson, stderr: '' }, reason: null };
+            }
+            insufficientSavings = true;
         }
         const summary = testSuccessSummary(command, rawStdout)
             ?? buildSuccessSummary(command, rawStdout);
-        if (summary && worthwhile(rawStdout, rawStderr, summary, '')) {
-            return { kind: 'command-success', stdout: summary, stderr: '' };
+        if (summary) {
+            if (worthwhile(rawStdout, rawStderr, summary, '')) {
+                return { plan: { kind: 'command-success', stdout: summary, stderr: '' }, reason: null };
+            }
+            insufficientSavings = true;
         }
     }
 
-    if (hasDiagnosticHazard(`${rawStdout}\n${rawStderr}`)) return null;
+    if (hasDiagnosticHazard(`${rawStdout}\n${rawStderr}`)) {
+        return skip(insufficientSavings ? 'insufficient_savings' : 'diagnostic_content');
+    }
     const compactStdout = foldCarriageReturnFrames(rawStdout)
         ?? foldConsecutiveDuplicateLines(rawStdout)
         ?? rawStdout;
     const compactStderr = foldCarriageReturnFrames(rawStderr)
         ?? foldConsecutiveDuplicateLines(rawStderr)
         ?? rawStderr;
-    if (
-        (compactStdout !== rawStdout || compactStderr !== rawStderr)
-        && worthwhile(rawStdout, rawStderr, compactStdout, compactStderr)
-    ) {
-        return {
-            kind: 'consecutive-duplicates',
-            stdout: compactStdout,
-            stderr: compactStderr,
-        };
+    if (compactStdout !== rawStdout || compactStderr !== rawStderr) {
+        if (worthwhile(rawStdout, rawStderr, compactStdout, compactStderr)) {
+            return {
+                plan: {
+                    kind: 'consecutive-duplicates',
+                    stdout: compactStdout,
+                    stderr: compactStderr,
+                },
+                reason: null,
+            };
+        }
+        insufficientSavings = true;
     }
-    return null;
+    return skip(insufficientSavings ? 'insufficient_savings' : 'no_reduction_candidate');
+}
+
+export function planLosslessShellCompaction(input = {}) {
+    return evaluateShellCompaction(input).plan;
 }
 
 function persistStream(sessionId, toolCallId, stream, content) {
@@ -329,8 +355,9 @@ export function compactShellOutputLosslessly({
     hasExistingRecovery = false,
     sessionId,
     toolCallId,
+    resultTelemetry,
 } = {}) {
-    const plan = planLosslessShellCompaction({
+    const { plan, reason } = evaluateShellCompaction({
         command,
         stdout,
         stderr,
@@ -339,18 +366,46 @@ export function compactShellOutputLosslessly({
         timedOut,
         hasExistingRecovery,
     });
-    if (!plan) return null;
+    const finish = (result, skippedReason = null) => {
+        if (resultTelemetry && typeof resultTelemetry === 'object') {
+            resultTelemetry.losslessCompaction = {
+                applied: result !== null,
+                reason: skippedReason,
+                kind: plan?.kind ?? null,
+            };
+        }
+        return result;
+    };
+    if (!plan) return finish(null, reason);
 
     const recovery = [];
     const rawOut = String(rawStdout ?? '');
     const rawErr = String(rawStderr ?? '');
     const stdoutCapture = persistStream(sessionId, toolCallId, 'stdout', rawOut);
     const stderrCapture = persistStream(sessionId, toolCallId, 'stderr', rawErr);
-    if ((rawOut && !stdoutCapture) || (rawErr && !stderrCapture)) return null;
+    if ((rawOut && !stdoutCapture) || (rawErr && !stderrCapture)) return finish(null, 'archive_unavailable');
     if (stdoutCapture) recovery.push(stdoutCapture);
     if (stderrCapture) recovery.push(stderrCapture);
-    if (!recovery.length) return null;
-    return { ...plan, recovery };
+    if (!recovery.length) return finish(null, 'archive_unavailable');
+    const compaction = { ...plan, recovery };
+    // Decide against the exact body the caller will publish, including stream
+    // boundaries and recovery metadata, not just the short summary.
+    if (!worthwhile(
+        renderShellOutputBody(stdout, stderr),
+        '',
+        renderShellOutputBody(plan.stdout, plan.stderr, compaction),
+        '',
+    )) return finish(null, 'insufficient_savings');
+    return finish(compaction);
+}
+
+export function renderShellOutputBody(stdout, stderr, compaction = null) {
+    const out = String(stdout ?? '');
+    const err = String(stderr ?? '');
+    const gap = out && err && !out.endsWith('\n') ? '\n' : '';
+    const body = `${out}${gap}${err}` || '(no output)';
+    const hint = renderLosslessRecoveryHint(compaction, normalizeOutputPath);
+    return hint ? `${body}\n\n${hint}` : body;
 }
 
 export function renderLosslessRecoveryHint(compaction, normalizePath = (value) => value) {

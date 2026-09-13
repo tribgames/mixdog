@@ -171,10 +171,22 @@ export interface ElementAliasTarget {
   y?: number;
 }
 
+export interface ComputerInputObservation {
+  ready: boolean;
+  monitor: string;
+  sequence: number;
+}
+
+export interface ComputerObservationGuard {
+  includeWindow(windowId: string): void;
+  close(): void;
+}
+
 export interface ObservedWindowScope {
   primaryWindowId: string;
   relatedWindowIds: string[];
   observedAt: number;
+  inputObservation?: ComputerInputObservation;
 }
 
 export interface ScreenshotCapture {

@@ -670,6 +670,8 @@ public class MixWin32 {
   static extern IntPtr SendMessageTimeout(
     IntPtr h, uint message, UIntPtr wParam, IntPtr lParam,
     uint flags, uint timeout, out UIntPtr result);
+  [DllImport("kernel32.dll", EntryPoint = "SetLastError")]
+  static extern void ClearMessageError(uint error);
   [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint threadId, ref GUITHREADINFO info);
   [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code, uint mapType);
   [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO {
@@ -687,6 +689,9 @@ public class MixWin32 {
   const uint MK_LBUTTON = 0x1, MK_RBUTTON = 0x2, MK_SHIFT = 0x4, MK_CONTROL = 0x8, MK_MBUTTON = 0x10;
   static UIntPtr SendMessageValue(IntPtr h, uint message, UIntPtr wParam, IntPtr lParam) {
     UIntPtr result;
+    // This API can fail without setting an error. Never reuse a prior call's
+    // access-denied result as proof that this message was not delivered.
+    ClearMessageError(0);
     IntPtr sent = SendMessageTimeout(
       h, message, wParam, lParam, SMTO_BLOCK | SMTO_ABORTIFHUNG, 1000, out result);
     if (sent == IntPtr.Zero) {
@@ -1171,27 +1176,41 @@ public class MixWin32 {
     }
     MixInputObservation.AssertContinue();
     AssertDragTarget(target, x, y);
+    AssertCursorPosition(x, y);
+  }
+  public static void AssertCursorPosition(int x, int y) {
+    MixInputObservation.AssertContinue();
+    POINT actual = Cursor();
+    if (actual.x != x || actual.y != y) {
+      throw new InvalidOperationException("target_mismatch|cursor did not reach the observed point; no positive pointer input sent");
+    }
   }
   public static void Click(int x, int y) {
     SetCursorPos(x, y); System.Threading.Thread.Sleep(40);
+    AssertCursorPosition(x, y);
     mouse_event(LDOWN,0,0,0,IntPtr.Zero); mouse_event(LUP,0,0,0,IntPtr.Zero);
   }
   public static void DoubleClick(int x, int y) {
     Click(x, y); System.Threading.Thread.Sleep(80);
+    AssertCursorPosition(x, y);
     mouse_event(LDOWN,0,0,0,IntPtr.Zero); mouse_event(LUP,0,0,0,IntPtr.Zero);
   }
   public static void RightClick(int x, int y) {
     SetCursorPos(x, y); System.Threading.Thread.Sleep(40);
+    AssertCursorPosition(x, y);
     mouse_event(RDOWN,0,0,0,IntPtr.Zero); mouse_event(RUP,0,0,0,IntPtr.Zero);
   }
   public static void MiddleClick(int x, int y) {
     SetCursorPos(x, y); System.Threading.Thread.Sleep(40);
+    AssertCursorPosition(x, y);
     mouse_event(MDOWN,0,0,0,IntPtr.Zero); mouse_event(MUP,0,0,0,IntPtr.Zero);
   }
   public static void TripleClick(int x, int y) {
     Click(x, y); System.Threading.Thread.Sleep(60);
+    AssertCursorPosition(x, y);
     mouse_event(LDOWN,0,0,0,IntPtr.Zero); mouse_event(LUP,0,0,0,IntPtr.Zero);
     System.Threading.Thread.Sleep(60);
+    AssertCursorPosition(x, y);
     mouse_event(LDOWN,0,0,0,IntPtr.Zero); mouse_event(LUP,0,0,0,IntPtr.Zero);
   }
   static void AssertDragTarget(IntPtr target, int x, int y) {
@@ -1216,6 +1235,7 @@ public class MixWin32 {
         SetCursorPos(x, y);
         ReportPointer(x, y, true);
         System.Threading.Thread.Sleep(20);
+        AssertCursorPosition(x, y);
       }
       System.Threading.Thread.Sleep(80);
       AssertDragTarget(target, x2, y2);

@@ -24,6 +24,8 @@ export function createProviderUsage({
   scheduleProviderSetupWarmup,
 }) {
   const reg = () => getReg();
+  let quickSetupRequest = null;
+  let dashboardRequest = null;
 
   function refreshStatuslineUsageSnapshot(routeLike = {}) {
     const providerId = clean(routeLike.provider);
@@ -46,10 +48,15 @@ export function createProviderUsage({
       if (!force && caches.providerSetupQuickCache.setup) {
         return caches.providerSetupQuickCache.setup;
       }
+      const cache = caches.providerSetupQuickCache;
+      const request = {};
+      quickSetupRequest = request;
       const setup = await providerSetup(displayConfig(), { detectLocal: false, checkSecrets: false });
-      caches.providerSetupQuickCache = { setup, at: Date.now() };
-      if (!caches.providerSetupPromise && !getProviderSetupWarmupTimer() && !isCloseRequested()) {
-        scheduleProviderSetupWarmup(0);
+      if (quickSetupRequest === request && caches.providerSetupQuickCache === cache) {
+        caches.providerSetupQuickCache = { setup, at: Date.now() };
+        if (!caches.providerSetupPromise && !getProviderSetupWarmupTimer() && !isCloseRequested()) {
+          scheduleProviderSetupWarmup(0);
+        }
       }
       return setup;
     }
@@ -57,15 +64,18 @@ export function createProviderUsage({
       const pendingSetup = await caches.providerSetupPromise;
       if (!force) return pendingSetup;
     }
-    caches.providerSetupPromise = providerSetup(displayConfig(), { detectLocal: true })
+    const promise = providerSetup(displayConfig(), { detectLocal: true })
       .then((setup) => {
-        caches.providerSetupCache = { setup, at: Date.now() };
+        if (caches.providerSetupPromise === promise) {
+          caches.providerSetupCache = { setup, at: Date.now() };
+        }
         return setup;
       })
       .finally(() => {
-        caches.providerSetupPromise = null;
+        if (caches.providerSetupPromise === promise) caches.providerSetupPromise = null;
       });
-    return await caches.providerSetupPromise;
+    caches.providerSetupPromise = promise;
+    return await promise;
   }
 
   async function getUsageDashboard(options = {}) {
@@ -85,6 +95,9 @@ export function createProviderUsage({
       return cached;
     }
     if (!forceSetup && !refreshUsage && caches.usageDashboardPromise) return await caches.usageDashboardPromise;
+    const cache = caches.usageDashboardCache;
+    const request = {};
+    dashboardRequest = request;
     const quickSetup = options?.quickSetup !== false;
     const getProvider = (providerId) => reg().getProvider(providerId);
     const log = (message) => {
@@ -92,18 +105,19 @@ export function createProviderUsage({
         try { process.stderr.write(`[usage] ${message}\n`); } catch {}
       }
     };
-    if (quickSetup && typeof options?.onUpdate === 'function') {
-      const previewConfig = displayConfig();
-      const previewSetup = await cachedProviderSetup({ force: false, quick: true });
-      await createUsageDashboard(previewConfig, {
-        ...(options || {}),
-        preview: true,
-        setup: previewSetup,
-        getProvider,
-        log,
-      });
-    }
     const buildDashboard = async () => {
+      // Preview belongs to this build's single-flight lifetime as well.
+      if (quickSetup && typeof options?.onUpdate === 'function') {
+        const previewConfig = displayConfig();
+        const previewSetup = await cachedProviderSetup({ force: false, quick: true });
+        await createUsageDashboard(previewConfig, {
+          ...(options || {}),
+          preview: true,
+          setup: previewSetup,
+          getProvider,
+          log,
+        });
+      }
       let setup;
       try {
         setup = await cachedProviderSetup({ force: forceSetup, quick: false });
@@ -120,15 +134,20 @@ export function createProviderUsage({
         getProvider,
         log,
       });
-      caches.usageDashboardCache = { dashboard, at: Date.now() };
+      // A newer refresh supersedes this request; replacing the cache object
+      // invalidates all older requests, including pre-redeem quota snapshots.
+      if (dashboardRequest === request && caches.usageDashboardCache === cache) {
+        caches.usageDashboardCache = { dashboard, at: Date.now() };
+      }
       return dashboard;
     };
     if (forceSetup || refreshUsage) return await buildDashboard();
-    caches.usageDashboardPromise = buildDashboard()
+    const promise = buildDashboard()
       .finally(() => {
-        caches.usageDashboardPromise = null;
+        if (caches.usageDashboardPromise === promise) caches.usageDashboardPromise = null;
       });
-    return await caches.usageDashboardPromise;
+    caches.usageDashboardPromise = promise;
+    return await promise;
   }
 
   async function consumeCodexRateLimitResetCredit(options = {}) {

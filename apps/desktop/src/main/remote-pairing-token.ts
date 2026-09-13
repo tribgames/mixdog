@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
+import { withFileLock } from '../../../../src/runtime/shared/atomic-file.mjs';
 
 import { readSecretFile, writeSecretFile } from './secret-file';
 
@@ -8,9 +9,11 @@ const PAIRING_TOKEN_FILE = 'remote-bridge.token';
 
 export async function loadOrCreatePairingToken(userDataPath: string): Promise<string> {
   const tokenPath = join(userDataPath, PAIRING_TOKEN_FILE);
-  const existing = (await readSecretFile(tokenPath))?.trim();
-  if (existing && /^[0-9a-f]{32,128}$/.test(existing)) return existing;
-  return writePairingToken(tokenPath);
+  return withFileLock(`${tokenPath}.lock`, async () => {
+    const existing = (await readSecretFile(tokenPath))?.trim();
+    if (existing && /^[0-9a-f]{32,128}$/.test(existing)) return existing;
+    return writePairingToken(tokenPath);
+  }, { secret: true });
 }
 
 async function writePairingToken(tokenPath: string): Promise<string> {
@@ -21,5 +24,6 @@ async function writePairingToken(tokenPath: string): Promise<string> {
 
 /** Mint a new relay routing token so every previously paired browser is revoked. */
 export async function rotatePairingToken(userDataPath: string): Promise<string> {
-  return writePairingToken(join(userDataPath, PAIRING_TOKEN_FILE));
+  const path = join(userDataPath, PAIRING_TOKEN_FILE);
+  return withFileLock(`${path}.lock`, () => writePairingToken(path), { secret: true });
 }

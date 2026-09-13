@@ -1,8 +1,12 @@
 // Desktop-only session metadata: generated titles, user names and archive
 // tombstones persisted next to the daemon-owned session store. Reads share one
-// in-flight request so post-submit title work cannot race foreground listings. Writes are
-// snapshot-then-serialized so a later mutation never rides an older in-flight
-// write.
+// in-flight request so post-submit title work cannot race foreground listings.
+// Writes drain immutable snapshots; a failed write retains the newest maps
+// for an explicit retry instead of reporting an unsaved mutation as success.
+import {
+  createDebouncedWriter,
+  type DebouncedWriter,
+} from '../../../../src/runtime/shared/debounced-writer.mjs';
 import {
   generatedSessionTitle,
   isMediaSessionTitlePlaceholder,
@@ -23,10 +27,20 @@ export class DesktopSessionMetadata {
   private readMap: Record<string, SessionReadCursor> | null = null;
   private rewrittenGeneratedTitleIds = new Set<string>();
   private loadRequest: Promise<void> | null = null;
-  private pendingWrite: Promise<void> = Promise.resolve();
+  private readonly writer: DebouncedWriter<Parameters<typeof writeSessionMetadata>[1]>;
+  private writeError: unknown;
 
   constructor(userDataRoot: () => string) {
     this.userDataRoot = userDataRoot;
+    this.writer = createDebouncedWriter({
+      delayMs: 0,
+      write: (maps: Parameters<typeof writeSessionMetadata>[1]) =>
+        writeSessionMetadata(this.userDataRoot(), maps),
+      onError: (error: unknown) => {
+        this.writeError = error;
+        console.error('Failed to persist desktop session metadata:', error);
+      },
+    });
   }
 
   /** Generated titles keyed by session id (empty before the first load). */
@@ -87,15 +101,20 @@ export class DesktopSessionMetadata {
   }
 
   async setName(sessionId: string, normalized: string): Promise<void> {
+    await this.load();
     (this.nameMap ??= Object.create(null) as Record<string, string>)[sessionId] = normalized;
     await this.queueWrite();
   }
 
   /** True when the archive state actually changed (and was persisted). */
   async setArchived(sessionId: string, archived: boolean): Promise<boolean> {
+    await this.load();
     const map = this.archivedMap ??= Object.create(null) as Record<string, number>;
     const has = Object.prototype.hasOwnProperty.call(map, sessionId);
-    if (archived === has) return false;
+    if (archived === has) {
+      await this.flush();
+      return false;
+    }
     if (archived) map[sessionId] = Date.now();
     else delete map[sessionId];
     await this.queueWrite();
@@ -117,7 +136,10 @@ export class DesktopSessionMetadata {
     const map = this.readMap ??= Object.create(null) as Record<string, SessionReadCursor>;
     const current = map[sessionId];
     const nextCount = Math.max(current?.messageCount || 0, messageCount);
-    if (current && nextCount === current.messageCount && !consumedUnread) return false;
+    if (current && nextCount === current.messageCount && !consumedUnread) {
+      await this.flush();
+      return false;
+    }
     map[sessionId] = {
       messageCount: nextCount,
       revision: Math.min(Number.MAX_SAFE_INTEGER, (current?.revision || 0) + 1),
@@ -128,6 +150,7 @@ export class DesktopSessionMetadata {
 
   /** Drop every record for a deleted session. */
   async forget(sessionId: string): Promise<void> {
+    await this.load();
     const had = Object.prototype.hasOwnProperty.call(this.titles, sessionId)
       || Object.prototype.hasOwnProperty.call(this.names, sessionId)
       || Object.prototype.hasOwnProperty.call(this.archivedMap || {}, sessionId)
@@ -138,6 +161,7 @@ export class DesktopSessionMetadata {
     if (this.readMap) delete this.readMap[sessionId];
     this.rewrittenGeneratedTitleIds.delete(sessionId);
     if (had) await this.queueWrite();
+    else await this.flush();
   }
 
   /** Record a generated title once: a user name or an existing title wins. */
@@ -149,7 +173,7 @@ export class DesktopSessionMetadata {
     if (existing && (!isMediaSessionTitlePlaceholder(existing)
       || isMediaSessionTitlePlaceholder(normalized))) return false;
     this.titleMap[sessionId] = normalized;
-    void this.queueWrite();
+    void this.queueWrite().catch(() => { /* writer retains and reports the pending save */ });
     return true;
   }
 
@@ -163,7 +187,7 @@ export class DesktopSessionMetadata {
     if (this.titleMap[sessionId] === normalized) return false;
     this.titleMap[sessionId] = normalized;
     this.rewrittenGeneratedTitleIds.delete(sessionId);
-    void this.queueWrite();
+    void this.queueWrite().catch(() => { /* writer retains and reports the pending save */ });
     return true;
   }
 
@@ -178,7 +202,7 @@ export class DesktopSessionMetadata {
     this.rewrittenGeneratedTitleIds.delete(sessionId);
     if (this.titleMap[sessionId] === normalized) return false;
     this.titleMap[sessionId] = normalized;
-    void this.queueWrite();
+    void this.queueWrite().catch(() => { /* writer retains and reports the pending save */ });
     return true;
   }
 
@@ -206,8 +230,8 @@ export class DesktopSessionMetadata {
   }
 
   /** Settle every queued write (teardown). */
-  flush(): Promise<void> {
-    return this.pendingWrite;
+  async flush(): Promise<void> {
+    if (!(await this.writer.flush())) throw this.writeError;
   }
 
   private queueWrite(): Promise<void> {
@@ -215,11 +239,7 @@ export class DesktopSessionMetadata {
     const names = { ...this.names };
     const archived = { ...(this.archivedMap || {}) };
     const reads = { ...this.reads };
-    this.pendingWrite = this.pendingWrite.then(
-      () => writeSessionMetadata(this.userDataRoot(), { titles, names, archived, reads }),
-    ).catch((error: unknown) => {
-      console.error('Failed to persist desktop session metadata:', error);
-    });
-    return this.pendingWrite;
+    this.writer.schedule({ titles, names, archived, reads });
+    return this.flush();
   }
 }

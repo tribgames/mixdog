@@ -15,7 +15,12 @@ export async function workbookSheets(zip) {
     const target = rid ? rels.get(rid) : '';
     if (!name || !target) continue;
     const normalized = target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join('xl', target));
-    sheets.push({ name, path: normalized, rid });
+    // Excel hides a sheet in the workbook, not in the sheet part: a reader that
+    // ignores state reports withheld data as ordinary content, and the caller
+    // cannot tell what set_sheet_visibility already did.
+    const state = (/\bstate="([^"]+)"/.exec(attrs)?.[1] || '').toLowerCase();
+    const visibility = state === 'hidden' ? 'hidden' : state === 'veryhidden' ? 'very_hidden' : 'visible';
+    sheets.push({ name, path: normalized, rid, visibility });
   }
   return sheets;
 }
@@ -29,6 +34,16 @@ export async function sharedStrings(zip) {
   let match;
   while ((match = regex.exec(xml))) strings.push(paragraphTexts(match[1], 't').join(''));
   return strings;
+}
+
+
+// A stored numeric literal is the number it encodes; anything else (a date
+// serial written as text, an unexpected token) stays exactly as the file wrote
+// it rather than being coerced into a number the sheet does not hold.
+const NUMERIC_CELL_LITERAL = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+function numericCellValue(raw) {
+  return NUMERIC_CELL_LITERAL.test(raw) ? Number(raw) : raw;
 }
 
 
@@ -95,8 +110,14 @@ export function cellRecords(xml, strings, options = null) {
     else {
       raw = xmlDecode(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(body)?.[1] || '');
       // A boolean cell reads as Excel reports it, so a Checks tie-out shows
-      // true or false on both backends rather than '1' on one of them.
-      value = type === 's' ? strings[Number(raw)] ?? raw : type === 'b' && raw !== '' ? raw === '1' : raw;
+      // true or false on both backends rather than '1' on one of them. A
+      // number reads as a number for the same reason: Excel hands 1240 back as
+      // 1240, and a value compared against a model's own arithmetic must not
+      // depend on which backend opened the workbook.
+      value = type === 's' ? strings[Number(raw)] ?? raw
+        : type === 'b' && raw !== '' ? raw === '1'
+          : type === '' || type === 'n' ? numericCellValue(raw)
+            : raw;
     }
     // Style index 0 is the workbook default; only an explicit style is reported.
     const styleIndex = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? 0);
@@ -104,13 +125,17 @@ export function cellRecords(xml, strings, options = null) {
     const record = {
       ref,
       value,
-      // Numbers and text both read as strings here; the flag is what tells a
-      // reader that '1,234' is text Excel will not sum.
+      // The flag is what tells a reader that '1,234' is text Excel will not
+      // sum, rather than the number it looks like.
       ...(type === 's' || type === 'str' || type === 'inlineStr' ? { dataType: 'text' } : {}),
+      // A cache is present when the file carries a <v> element at all: a
+      // formula whose result is the empty string (IF(C7=0,"",…)) is written as
+      // <v></v> by Excel and LibreOffice alike, and that is a computed value,
+      // not a workbook waiting for its first recalculation.
       ...(formula ? {
         formula,
-        cachedValue: raw === '' ? null : value,
-        cacheState: raw === '' ? 'missing' : 'present',
+        cachedValue: raw === '' ? (type === 'str' && /<v(?:\s[^>]*)?>/.test(body) ? '' : null) : value,
+        cacheState: raw === '' && !(type === 'str' && /<v(?:\s[^>]*)?>/.test(body)) ? 'missing' : 'present',
       } : {}),
       ...(style ? { style } : {}),
     };
@@ -122,6 +147,22 @@ export function cellRecords(xml, strings, options = null) {
     total += 1;
   }
   return paged ? { records, total, formulaCount, formulaCacheMissing } : records;
+}
+
+
+// Formula totals for one sheet without materializing its cells. A snapshot that
+// returns a single page still has to state the workbook's calculation state
+// truthfully, and that answer depends on every sheet.
+export function sheetFormulaTotals(xml) {
+  let formulaCount = 0;
+  let formulaCacheMissing = 0;
+  for (const cell of iterateSheetCells(xml)) {
+    const formula = /<f(?:\s[^>]*)?>([\s\S]*?)<\/f>/.exec(cell.body)?.[1] || '';
+    if (!formula) continue;
+    formulaCount += 1;
+    if (!(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(cell.body)?.[1] || '')) formulaCacheMissing += 1;
+  }
+  return { formulaCount, formulaCacheMissing };
 }
 
 
@@ -215,6 +256,100 @@ function setRowCell(rowXml, ref, column, cell) {
 export function setCellInSheet(xml, ref, value, formula = '') {
   const parsed = parseCellRef(ref);
   return placeCellInSheet(xml, parsed.ref, cellXml(parsed.ref, value, formula, existingCellStyle(xml, parsed.ref)));
+}
+
+
+// The sheet as rows of cells, parsed once. Writing cell by cell means rebuilding
+// the whole worksheet string for each one, which turns a few thousand rows into
+// minutes; a bulk write reads the sheet once and serializes it once.
+function readSheetRows(xml) {
+  const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
+  if (!sheetData) throw new Error('Worksheet is missing sheetData');
+  const inner = containerBody(sheetData[0], 'sheetData');
+  const rows = new Map();
+  for (const span of elementSpans(inner, 'row')) {
+    const index = Number(/\br="(\d+)"/.exec(span.attrs)?.[1] || 0);
+    if (!index) continue;
+    const cells = new Map();
+    for (const cell of elementSpans(containerBody(span.xml, 'row'), 'c')) {
+      const ref = (/\br="([A-Za-z]+\d+)"/.exec(cell.attrs)?.[1] || '').toUpperCase();
+      if (ref) cells.set(columnNumber(parseCellRef(ref).col), { ref, xml: cell.xml, attrs: cell.attrs });
+    }
+    rows.set(index, { attrs: span.attrs, cells });
+  }
+  return { sheetData, rows };
+}
+
+function writeSheetRows(xml, sheetData, rows) {
+  const body = [...rows.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([index, row]) => {
+      const cells = [...row.cells.entries()]
+        .sort((left, right) => left[0] - right[0])
+        .map(([, cell]) => cell.xml)
+        .join('');
+      return `<row${row.attrs || ` r="${index}"`}>${cells}</row>`;
+    })
+    .join('');
+  return `${xml.slice(0, sheetData.index)}<sheetData>${body}</sheetData>${xml.slice(sheetData.index + sheetData[0].length)}`;
+}
+
+/** Writes many cells in one pass. Entries are { ref, value, formula }; each keeps
+ *  the style the cell already carries, exactly as a single write does. */
+export function setCellsInSheet(xml, entries) {
+  if (!entries.length) return xml;
+  const { sheetData, rows } = readSheetRows(xml);
+  for (const entry of entries) {
+    const parsed = parseCellRef(entry.ref);
+    const column = columnNumber(parsed.col);
+    const row = rows.get(parsed.row) || { attrs: ` r="${parsed.row}"`, cells: new Map() };
+    const style = Number(/\bs="(\d+)"/.exec(row.cells.get(column)?.attrs || '')?.[1] ?? 0) || 0;
+    row.cells.set(column, {
+      ref: parsed.ref,
+      attrs: '',
+      xml: cellXml(parsed.ref, entry.value, entry.formula || '', style),
+    });
+    rows.set(parsed.row, row);
+  }
+  return writeSheetRows(xml, sheetData, rows);
+}
+
+/** Applies a style index to many cells in one pass; a cell that does not exist
+ *  yet is created empty, the way a single styled write does. */
+export function setCellStylesInSheet(xml, entries) {
+  if (!entries.length) return xml;
+  const { sheetData, rows } = readSheetRows(xml);
+  for (const { ref, style } of entries) {
+    const parsed = parseCellRef(ref);
+    const column = columnNumber(parsed.col);
+    const row = rows.get(parsed.row) || { attrs: ` r="${parsed.row}"`, cells: new Map() };
+    const existing = row.cells.get(column);
+    if (existing) {
+      const attrs = setXmlAttribute(existing.attrs, 's', style);
+      const body = existing.xml.endsWith('/>') ? '' : containerBody(existing.xml, 'c');
+      row.cells.set(column, {
+        ref: parsed.ref,
+        attrs,
+        xml: body ? `<c${attrs}>${body}</c>` : `<c${attrs}/>`,
+      });
+    } else {
+      row.cells.set(column, { ref: parsed.ref, attrs: ` r="${parsed.ref}" s="${style}"`, xml: `<c r="${parsed.ref}" s="${style}"/>` });
+    }
+    rows.set(parsed.row, row);
+  }
+  return writeSheetRows(xml, sheetData, rows);
+}
+
+/** The style index each of these cells carries today, read in one pass. */
+export function cellStyleIndexes(xml, refs) {
+  const { rows } = readSheetRows(xml);
+  const indexes = new Map();
+  for (const ref of refs) {
+    const parsed = parseCellRef(ref);
+    const attrs = rows.get(parsed.row)?.cells.get(columnNumber(parsed.col))?.attrs || '';
+    indexes.set(parsed.ref, Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? 0) || 0);
+  }
+  return indexes;
 }
 
 

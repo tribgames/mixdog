@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { root } from './_env.mjs';
 import { SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/mixdog-session-runtime.mjs';
-import { applyStandaloneToolDefaults } from '../../src/session-runtime/tool-defs.mjs';
 import { TOOL_DEFS as WEB_SEARCH_TOOL_DEFS } from '../../src/runtime/web-search/tool-defs.mjs';
 import {
   buildSkillToolEnvelope,
@@ -35,7 +34,7 @@ setInternalToolsProvider({
 await initProviders({ 'openai-oauth': { enabled: true } });
 
 test('agent visibility: production web_search visible, tool_search hidden', () => {
-  const runtimeWebSearchTool = applyStandaloneToolDefaults(WEB_SEARCH_TOOL_DEFS.find((tool) => tool?.name === 'web_search'));
+  const runtimeWebSearchTool = WEB_SEARCH_TOOL_DEFS.find((tool) => tool?.name === 'web_search');
   if (runtimeWebSearchTool?.annotations?.agentHidden === true) {
     throw new Error('production web_search tool must stay visible to agent sessions');
   }

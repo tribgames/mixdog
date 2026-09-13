@@ -973,16 +973,31 @@ export class AnthropicOAuthProvider {
                     });
                 }
 
-                // Phase I: on unknown/404 model errors, force a catalog refresh and
-                // retry once. Protects against a silently-rotated model id.
+                // On an unknown/404 model error, refresh the catalog and retry
+                // ONCE with the SAME model. A 404 usually says this credential
+                // cannot reach the model (plan or account permission), not that
+                // the id disappeared — and answering from a different model
+                // hides that behind a quietly downgraded reply. Substitution is
+                // kept for the single case this branch was written for: the
+                // refreshed catalog no longer lists the id at all (a rotated
+                // model id), and then the swap is announced on the turn's status
+                // channel instead of living in stderr alone.
+                // A refresh that FAILED returns null — "cannot tell", never
+                // "retired" — so it retries the requested model untouched.
                 const isUnknownModel = response.status === 404
                     || /unknown[_\s-]?model|model[_\s-]?not[_\s-]?found/i.test(safeText);
                 if (isUnknownModel && !opts._modelRetry) {
                     process.stderr.write(`[anthropic-oauth] unknown model — refreshing catalog + 1 retry\n`);
-                    await this._refreshModelCache();
-                    const fallbackModel = resolveAnthropicModelAfter404(useModel);
+                    const refreshed = await this._refreshModelCache();
+                    const retired = Array.isArray(refreshed) && !_catalogHas(useModel);
+                    const fallbackModel = retired ? resolveAnthropicModelAfter404(useModel) : null;
                     if (fallbackModel) {
-                        process.stderr.write(`[anthropic-oauth] model fallback ${useModel} -> ${fallbackModel}\n`);
+                        process.stderr.write(`[anthropic-oauth] ${useModel} left the catalog — continuing on ${fallbackModel}\n`);
+                        try {
+                            onStageChange?.('reconnecting', {
+                                message: `${_displayModel(useModel)} is no longer offered — continuing on ${_displayModel(fallbackModel)}`,
+                            });
+                        } catch { /* display-only */ }
                     }
                     return this.send(messages, fallbackModel || model, tools, { ...opts, _modelRetry: true });
                 }

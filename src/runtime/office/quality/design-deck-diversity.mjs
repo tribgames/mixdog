@@ -1,3 +1,5 @@
+import { slideReceipt } from '../authoring/pptx-receipt.mjs';
+
 function issue(code, message) {
   return {
     severity: 'warning',
@@ -6,6 +8,53 @@ function issue(code, message) {
     message,
     source: 'design-review',
   };
+}
+
+// The deck's shape, read from the page grammar the receipt assigns (beat | evidence | text). Thirteen reference
+// decks (400 pages) run beats — dark or field pages — on 0-21% of their pages (median 13%) and never three in a
+// row past the front matter; the one deck above that (Krafton, 38%) is dark on three pages in four, which is a
+// theme, not beats. Beats on more than three pages in ten is a slideshow of covers; three in a row is a hole
+// in the argument where the reader waits for content.
+function deckShapeIssues(slides) {
+  const receipts = slides.map((slide) => slideReceipt(slide));
+  const grammar = receipts.map((receipt) => receipt.grammar);
+  // The cover and the closing are beats by their job; the share is read over the pages between them.
+  const inner = grammar.slice(1, -1);
+  const beats = inner.filter((value) => value === 'beat').length;
+  const dark = receipts.filter((receipt) => receipt.background === 'dark').length;
+  const issues = [];
+  if (slides.length >= 8 && beats / inner.length > 0.25 && dark / slides.length < 0.6) {
+    issues.push(issue(
+      'beat_share_high',
+      `${beats} of the ${inner.length} slides between the cover and the closing are beats (dark or field pages); the reference decks run one in eight. Give the body pages their evidence and keep the field for the section marks.`,
+    ));
+  }
+  let run = 0;
+  for (let index = 0; index < grammar.length; index += 1) {
+    run = grammar[index] === 'beat' ? run + 1 : 0;
+    // The first three slides may be front matter (cover, disclaimer, agenda); a run that ends inside them is not read.
+    if (run === 3 && index >= 3) {
+      const first = Number(slides[index - 2]?.index) || index - 1;
+      issues.push(issue(
+        'consecutive_beats',
+        `Slides ${first}-${first + 2} are three beats in a row (dark or field pages with no evidence); a beat opens or closes a run of content pages, it never replaces them.`,
+      ));
+      break;
+    }
+  }
+  // A body page that carries one sentence and nothing else — no chart, table, picture, or structure — is a page
+  // the reader turns without learning anything (the bento generators call it underfill at under 80 characters;
+  // the reference body pages carry 330-900). The cover, the closing, and the beats are statements by their job.
+  receipts.forEach((receipt, index) => {
+    if (index === 0 || index === receipts.length - 1 || receipt.grammar === 'beat') return;
+    const carriers = (receipt.charts || 0) + (receipt.tables || 0) + (receipt.pictures || 0) + (receipt.groups || 0);
+    if (carriers > 0 || typeof receipt.chars !== 'number' || receipt.chars >= 80) return;
+    issues.push({
+      ...issue('page_underfill', `Slide ${slides[index]?.index ?? index + 1} carries ${receipt.chars} characters and no chart, table, picture, or structure; a body page needs its payload or belongs to the page it introduces.`),
+      path: `/slide[${slides[index]?.index ?? index + 1}]`,
+    });
+  });
+  return issues;
 }
 
 function isPicture(shape) {
@@ -83,17 +132,49 @@ function isMetricText(shape) {
   return (Number(shape?.font?.size) || 0) >= 36 && /^[+\-−]?\d/.test(text) && text.length <= 12;
 }
 
+// The kit signs its carriers (`mixdog-spec:<carrier>[:<variant>]`, pptx-receipt.mjs); a signed structure
+// names the slide's visual type exactly (a timeline is not "a diagram"), and a signed stat, chevron
+// run, or table names its family before the geometry guess.
+const SPEC_PREFIX = 'mixdog-spec:';
+function signedVisualType(slide) {
+  const signatures = (slide?.shapes || [])
+    .map((shape) => String(shape?.name || ''))
+    .filter((name) => name.startsWith(SPEC_PREFIX))
+    .map((name) => name.slice(SPEC_PREFIX.length).split(':'));
+  const structure = signatures.find(([spec, variant]) => spec === 'structure' && variant);
+  if (structure) return `structure:${structure[1]}`;
+  if (signatures.some(([spec]) => spec === 'chevrons')) return 'process';
+  if (signatures.some(([spec]) => spec === 'table')) return 'table';
+  if (signatures.some(([spec]) => spec === 'stat')) return 'metric';
+  return '';
+}
+
 function inferredVisualType(slide) {
   const shapes = slide?.shapes || [];
   const roles = new Set(shapes.map(shapeRole));
   if (roles.has('chart')) return 'chart';
   if (roles.has('table')) return 'table';
+  const signed = signedVisualType(slide);
+  if (signed) return signed;
   const family = geometryFamily(slide);
   if (family) return family;
   if (roles.has('image')) return 'image';
   if (shapes.some(isMetricText)) return 'metric';
   if (roles.has('group') || roles.has('shape')) return 'diagram';
   return 'typography';
+}
+
+// The longest run of consecutive content slides that share one coarse grammar and one visual type:
+// the third same page in a row is what a reader notices first at contact-sheet scale.
+function longestRepeatRun(entries) {
+  let best = { length: 0, start: 0 };
+  let start = 0;
+  for (let index = 1; index <= entries.length; index += 1) {
+    if (index < entries.length && entries[index] === entries[index - 1]) continue;
+    if (index - start > best.length) best = { length: index - start, start };
+    start = index;
+  }
+  return best;
 }
 
 export function reviewPptxDeckDiversity({
@@ -109,8 +190,8 @@ export function reviewPptxDeckDiversity({
     height: Number(document?.slideHeight) || Number(design?.format?.canvasHeight) || 540,
   };
   const signatures = new Map();
-  for (const slide of content) {
-    const signature = layoutGrammarSignature(slide, canvas);
+  const grammar = content.map((slide) => layoutGrammarSignature(slide, canvas));
+  for (const signature of grammar) {
     if (signature) signatures.set(signature, (signatures.get(signature) || 0) + 1);
   }
   const repeated = Math.max(0, ...signatures.values());
@@ -127,6 +208,15 @@ export function reviewPptxDeckDiversity({
       `${repeated} of ${content.length} content slides reuse the same coarse layout grammar.`,
     ));
   }
+  const run = longestRepeatRun(grammar.map((signature, index) => (signature ? `${signature}\u0000${visualTypes[index]}` : `\u0000${index}`)));
+  if (run.length >= 3) {
+    const first = Number(content[run.start]?.index) || run.start + 2;
+    const last = Number(content[run.start + run.length - 1]?.index) || first + run.length - 1;
+    issues.push(issue(
+      'consecutive_composition_repeat',
+      `Slides ${first}-${last} repeat one composition (${visualTypes[run.start]}) ${run.length} pages in a row; change the structure where the meaning changes, or merge the pages.`,
+    ));
+  }
   const requiredVisualTypes = Math.min(3, Math.ceil(content.length / 2));
   if (content.length >= 5 && uniqueVisualTypes.size < requiredVisualTypes) {
     issues.push(issue(
@@ -134,6 +224,7 @@ export function reviewPptxDeckDiversity({
       `The deck uses ${uniqueVisualTypes.size} visual role(s) across ${content.length} content slides; use at least ${requiredVisualTypes}.`,
     ));
   }
+  issues.push(...deckShapeIssues(slides));
   const directionCandidates = design?.artDirection?.candidates || [];
   if (directionCandidates.length < 3 || !design?.artDirection?.selected?.id) {
     issues.push(issue(

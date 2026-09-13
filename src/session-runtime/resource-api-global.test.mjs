@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate } from 'node:timers/promises';
 
 import { createResourceApi } from './resource-api.mjs';
 
@@ -107,3 +108,32 @@ test('global skill and plugin refreshes update empty surfaces without replacing 
     peer.disposeGlobalExtensionSubscription();
   }
 });
+
+for (const method of ['setDisabledSkills', 'saveSkill']) {
+  test(`${method} waits for persistence before publishing skills to peer sessions`, async () => {
+    let finishSave;
+    const save = new Promise((resolve) => { finishSave = resolve; });
+    let peerReloads = 0;
+    const writer = resourceApi({
+      setDisabledSkills: (names) => ({ disabled: names }),
+      getDisabledSkills: () => ({ disabled: ['old'] }),
+      saveSkillDocument: () => ({ originalName: 'old', name: 'new' }),
+      flushSkillsSave: () => save,
+    });
+    const peer = resourceApi({
+      reloadFullConfig: () => { peerReloads += 1; },
+    });
+    try {
+      const pending = method === 'saveSkill' ? writer.saveSkill({}) : writer.setDisabledSkills(['demo']);
+      await setImmediate();
+      assert.equal(peerReloads, 0);
+      finishSave();
+      await pending;
+      assert.equal(peerReloads, 1);
+    } finally {
+      finishSave();
+      writer.disposeGlobalExtensionSubscription();
+      peer.disposeGlobalExtensionSubscription();
+    }
+  });
+}

@@ -68,18 +68,9 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     // codex reasoning_effort_for_request: `ultra` collapses to `max` on the
     // wire (the only remap; every other effort passes through). Default medium.
     // Kept inline (not a module const) so buildRequestBody stays self-contained.
-    // Extract system/instructions
-    // The volatile environment block (session header, cwd, shell startup
-    // capabilities) is per-session BY DEFINITION, so leaving it inside
-    // `instructions` makes the cached prefix unique to a single session and
-    // nothing can ever be shared. Measured 2026-08-21 on 8 parallel bench
-    // sessions: the first 10,408 bytes of `instructions` were byte-identical
-    // and only these lines differed, yet all 8 sessions paid a full cold
-    // prefix (0 cached tokens on every first call). The reference client keeps
-    // instructions static and delivers the same information as a leading
-    // <environment_context> input item; mirror that split here. Anthropic and
-    // Gemini paths are untouched — they consume the env block as its own
-    // unmarked system block.
+    // Keep volatile environment context outside the shared instruction prefix.
+    // It remains runtime instruction context, not another user request.
+    // Other providers retain their existing system-block representation.
     const systemMsgs = messages.filter(m => m.role === 'system');
     const environmentMsgs = systemMsgs.filter(m => m?.cacheTier === 'env');
     const prefixSystemMsgs = environmentMsgs.length
@@ -109,13 +100,11 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         codexWireParity: promptCacheProvider === 'openai-oauth',
     });
     if (environmentText) {
-        // Leading input item, after the cached prefix instead of inside it.
-        // convertMessagesToResponsesInput skips every system message, so this
-        // is the only copy on the wire — the information reaches the model
-        // unchanged, just one position later.
+        // Conversion skips system messages. Preserve this block's instruction
+        // role when placing its sole wire copy before the user's actual task.
         input.unshift({
             type: 'message',
-            role: 'user',
+            role: 'developer',
             content: [{
                 type: 'input_text',
                 text: `<environment_context>\n${environmentText}\n</environment_context>`,

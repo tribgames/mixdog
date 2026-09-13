@@ -7,7 +7,6 @@ import {
   DESKTOP_READ_CAPABILITIES,
 } from '../src/shared/contract.ts';
 import {
-  desktopSlashCommandDescription,
   SLASH_COMMANDS as desktopSlashCommands,
 } from '../src/renderer/slash-commands.ts';
 import {
@@ -257,33 +256,9 @@ const bootstrap = harnessInstalled
       dialogRect: { x: dialogRect.x, y: dialogRect.y, width: dialogRect.width, height: dialogRect.height },
     };
   };
-  const palette = async (name, usage, description) => {
-    let listbox = null;
-    for (let attempt = 0; attempt < 2 && !listbox; attempt += 1) {
-      await setDraft('/' + name);
-      try {
-        listbox = await waitFor(() => queryVisible('[role="listbox"][aria-label="Slash commands"]'),
-          'slash palette for /' + name, 3000);
-      } catch {
-        await clearDraft();
-      }
-    }
-    if (!listbox) {
-      const snapshot = await window.mixdogDesktop.getSnapshot();
-      throw new Error('Slash palette did not open for /' + name +
-        ' (draft=' + JSON.stringify(textarea().value) + ', busy=' + Boolean(snapshot?.busy) +
-        ', commandBusy=' + Boolean(snapshot?.commandBusy) + ').');
-    }
-    const options = Array.from(listbox.querySelectorAll('[role="option"]'));
-    const match = options.find((option) => text(option).toLowerCase().includes(String(usage).toLowerCase()));
-    if (!match) throw new Error('Slash palette did not expose ' + usage + '.');
-    if (!text(match).toLowerCase().includes(String(description).toLowerCase())) {
-      throw new Error('Slash palette description drifted for ' + usage + '.');
-    }
-    const result = { name, usage, optionCount: options.length, label: text(match) };
-    await clearDraft();
-    return result;
-  };
+  // No slash-palette audit: the desktop composer deliberately has no typeahead
+  // list. Each command is still submitted as text below, so the routes that
+  // matter (settings rows, command surfaces, local mutations) stay covered.
   const settingsRoute = async (name, expectedCategory) => {
     const dialog = await submitAndWait('/' + name, () => queryVisible(
       '[role="dialog"][aria-labelledby="mixdog-settings-title"]'
@@ -538,7 +513,7 @@ const bootstrap = harnessInstalled
     };
   };
   window.__mixdogE2e = {
-    sleep, waitFor, text, palette, settingsRoute, commandSurface, auditSettings, inputRetries,
+    sleep, waitFor, text, settingsRoute, commandSurface, auditSettings, inputRetries,
     projectRoute, resumeRoute, statusCommand, idempotentFast, destructiveLocalRoutes,
     auditSessionTimeline,
   };
@@ -599,13 +574,6 @@ try {
     rows.slice().sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)).map((row) => row.id))`);
   const sessionAuditId = await largestStoredSessionId(baselineSessionIds) || baselineSessionIds[0] || '';
   await client.evaluate(`window.mixdogDesktop.startProject(${JSON.stringify(projectPath)})`, 60_000);
-
-  const palette = [];
-  for (const command of desktopSlashCommands) {
-    palette.push(await client.evaluate(
-      `window.__mixdogE2e.palette(${JSON.stringify(command.name)}, ${JSON.stringify(command.usage)}, ${JSON.stringify(desktopSlashCommandDescription(command))})`,
-    ));
-  }
 
   const settingRoutes = [];
   for (const command of desktopSlashCommands.filter((entry) => entry.settingsRow)) {
@@ -704,7 +672,6 @@ try {
       readCapabilities: readCapabilities.length,
     },
     bootstrap,
-    palette,
     settingRoutes,
     commandSurfaces,
     settingsAudit,

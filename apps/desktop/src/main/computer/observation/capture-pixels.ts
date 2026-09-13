@@ -12,7 +12,7 @@ import type { CaptureEngineHost } from './capture';
 
 export type PixelCaptureHost = Pick<CaptureEngineHost,
   'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted' | 'rememberFrame'
-  | 'requireValidFrame' | 'framesBySession' | 'allocateFrameId' | 'authorizeCapture'>;
+  | 'requireValidFrame' | 'framesBySession' | 'allocateFrameId' | 'authorizeCapture' | 'beginObservation'>;
 
 export function createPixelCapture(host: PixelCaptureHost) {
   const { callPowerShell, sessionIdFor, assertExecutionNotAborted, rememberFrame,
@@ -22,6 +22,8 @@ export function createPixelCapture(host: PixelCaptureHost) {
     command: ComputerCommand,
     allowOwnerFallback = true,
   ): Promise<ScreenshotCapture> {
+    const observationGuard = host.beginObservation(command.window_id || '');
+    try {
     const quality = screenshotInteger(command.quality, DEFAULT_SCREENSHOT_QUALITY, 0, 100, 'quality');
     const maxWidth = screenshotInteger(
       command.maxWidth,
@@ -64,6 +66,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
       sourceType = 'window';
       sourceTitle = String(bounds.result?.title || command.window?.trim() || command.window_id);
       targetWindowId = String(bounds.result?.window_id || command.window_id || '');
+      observationGuard.includeWindow(targetWindowId);
       captureOwnerWindowId = String(bounds.result?.owner_id || '');
       sourceWidth = Number(bounds.result?.width);
       sourceHeight = Number(bounds.result?.height);
@@ -78,8 +81,8 @@ export function createPixelCapture(host: PixelCaptureHost) {
       targetWindowY = originY;
       targetWindowWidth = sourceWidth;
       targetWindowHeight = sourceHeight;
-      clientOriginX = Math.round(Number(bounds.result?.client_x) || originX);
-      clientOriginY = Math.round(Number(bounds.result?.client_y) || originY);
+      clientOriginX = Math.round(Number(bounds.result?.client_x ?? originX));
+      clientOriginY = Math.round(Number(bounds.result?.client_y ?? originY));
       clientWidth = Math.round(Number(bounds.result?.client_width) || 0);
       clientHeight = Math.round(Number(bounds.result?.client_height) || 0);
       const ids = Array.isArray(bounds.result?.related_window_ids)
@@ -235,6 +238,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
         pixelUnavailable: unavailable,
       };
     }
+    assertExecutionNotAborted();
     const frameId = `frame-${allocateFrameId()}`;
     const frame: CaptureFrame = {
       id: frameId, sessionId: sessionIdFor(command), capturedAt: performance.now(),
@@ -266,6 +270,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
       ...(targetWindowId ? { windowId: targetWindowId } : {}),
       frame,
     };
+    } finally { observationGuard.close(); }
   }
 
   async function captureZoom(command: ComputerCommand): Promise<{
@@ -282,6 +287,8 @@ export function createPixelCapture(host: PixelCaptureHost) {
       throw new Error('zoom requires region [x0,y0,x1,y1] in frame_id image coordinates');
     }
     const frame = await requireValidFrame(command);
+    const observationGuard = host.beginObservation(frame.windowId || '');
+    try {
     await host.authorizeCapture?.(command, frame.windowId || '');
     assertExecutionNotAborted();
     const [fx0, fy0, fx1, fy1] = region;
@@ -300,21 +307,26 @@ export function createPixelCapture(host: PixelCaptureHost) {
     if (baseOriginX === undefined || baseOriginY === undefined || baseWidth === undefined || baseHeight === undefined) {
       throw new Error(`stale_frame: capture source geometry is missing (${frame.id})`);
     }
-    const sources = await withTimeout(
-      desktopCapturer.getSources({
-        types: [frame.kind], thumbnailSize: { width: baseWidth, height: baseHeight },
-      }), DESKTOP_CAPTURE_TIMEOUT_MS, 'desktop zoom capture',
-    );
-    const windowHandleDecimal = frame.windowId
-      ? Number.parseInt(frame.windowId.replace(/^hwnd:/i, '').replace(/^0x/i, ''), 16) : Number.NaN;
-    const source = sources.find((candidate) => candidate.id === frame.sourceId)
-      || (frame.kind === 'window'
-        ? sources.find((candidate) => Number.isFinite(windowHandleDecimal)
-            && candidate.id.startsWith('window:')
-            && Number(candidate.id.split(':')[1]) === windowHandleDecimal)
-        : sources.find((candidate) => candidate.display_id === frame.displayId));
-    if (!source) throw new Error(`stale_frame: exact capture source is unavailable (${frame.id})`);
-    const shot = source.thumbnail;
+    let sourceId = frame.sourceId;
+    let shot: NativeImage;
+    if (frame.sourceId.startsWith('browser-window:') && frame.windowId) {
+      const ownedWindow = electronWindowForNativeId(frame.windowId);
+      if (!ownedWindow || ownedWindow.isDestroyed() || ownedWindow.webContents.isDestroyed()) {
+        throw new Error(`stale_frame: exact app-owned capture source is unavailable (${frame.id})`);
+      }
+      shot = await withTimeout(ownedWindow.capturePage(), OWNED_CAPTURE_TIMEOUT_MS, 'app-owned zoom capture');
+    } else {
+      const sources = await withTimeout(
+        desktopCapturer.getSources({
+          types: [frame.kind], thumbnailSize: { width: baseWidth, height: baseHeight },
+        }), DESKTOP_CAPTURE_TIMEOUT_MS, 'desktop zoom capture',
+      );
+      const source = sources.find((candidate) => candidate.id === frame.sourceId);
+      if (!source) throw new Error(`stale_frame: exact capture source is unavailable (${frame.id})`);
+      sourceId = source.id;
+      shot = source.thumbnail;
+    }
+    assertExecutionNotAborted();
     const shotSize = shot.getSize();
     if (!shotSize.width || !shotSize.height) return null;
     const kx = shotSize.width / baseWidth;
@@ -330,12 +342,14 @@ export function createPixelCapture(host: PixelCaptureHost) {
     if (qualityIssue) return { description: qualityIssue.message, pixelUnavailable: qualityIssue };
     const jpeg = image.toJPEG(quality);
     if (!jpeg || jpeg.length === 0) return null;
+    assertExecutionNotAborted();
     const zoomFrameId = `frame-${allocateFrameId()}`;
     framesBySession.get(sessionIdFor(command))?.clear();
     rememberFrame({
       id: zoomFrameId, sessionId: sessionIdFor(command), capturedAt: performance.now(),
-      kind: frame.kind, sourceId: source.id,
+      kind: frame.kind, sourceId,
       ...(frame.windowId ? { windowId: frame.windowId } : {}),
+      ...(frame.relatedWindowIds ? { relatedWindowIds: frame.relatedWindowIds } : {}),
       ...(frame.displayId ? { displayId: frame.displayId } : {}),
       originX: x0, originY: y0, physicalWidth: x1 - x0, physicalHeight: y1 - y0,
       captureWidth: finalSize.width, captureHeight: finalSize.height,
@@ -356,6 +370,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
         + ` (${finalSize.width}x${finalSize.height}, ${jpeg.length} bytes, JPEG quality ${quality});`
         + ` frame_id=${zoomFrameId}; coordinates are pixels in this frame`,
     };
+    } finally { observationGuard.close(); }
   }
   return { captureScreenshot, captureZoom };
 }

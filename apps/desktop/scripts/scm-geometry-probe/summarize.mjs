@@ -49,22 +49,21 @@ for (const scenario of report) {
   console.log(`   branch panel ${box(scenario.branchPanel)}  ${inside(scenario.branchPanel, viewport, "window")}`);
   console.log(`   commit row   ${box(scenario.commitRow)} button ${box(scenario.commitButton)}`
     + ` controls=${scenario.commitControls}`);
-  const syncCounts = scenario.syncCounts || [];
-  console.log(`   sync band    ${box(scenario.syncBand)} capsule ${box(scenario.syncCapsule)}`
-    + ` counts ${syncCounts.map((count) => `"${(count.text || "").trim()}"`
-      + `${count.direction?.visible ? "+arrow" : "+NO-ARROW"}`).join(" ")}`);
-  // Ahead/behind is a full-width BAND: every count shows its digits AND its
-  // own visible direction arrow, the capsule stays wider than it is tall (a
-  // lone count used to collapse into a dot), and the chip that straddled the
-  // Push button must stay gone.
-  check(scenario, syncCounts.length === 2 && syncCounts.every((count) =>
-    /^\d+$/.test((count.text || "").trim()) && count.rendered && count.direction?.visible === true),
-  `the sync band shows ${syncCounts.length} count(s); each needs its digits and a visible arrow`);
-  check(scenario, Boolean(scenario.syncCapsule)
-    && scenario.syncCapsule.width > scenario.syncCapsule.height,
-  `the sync capsule collapsed into a dot (${box(scenario.syncCapsule)})`);
-  check(scenario, scenario.floatingBadges === 0,
-    `the old floating Push badge is still rendered (${scenario.floatingBadges} element(s))`);
+  const syncBadges = scenario.syncBadges || [];
+  console.log(`   sync badges  ${syncBadges.map((badge) =>
+    `${badge.direction}="${(badge.text || "").trim()}"`
+    + `${badge.arrow?.visible ? "+arrow" : "+NO-ARROW"} ${box(badge)}`).join("  ") || "none"}`);
+  // ONE count per button — ahead on Push, behind on Fetch — so a diverged
+  // branch never crowds a single corner. Each badge shows its digits (capped
+  // at 99+) AND its own visible arrow, stays wider than it is tall instead of
+  // collapsing into a dot, and the old band under the toolbar must stay gone.
+  check(scenario, syncBadges.length === 2 && syncBadges.every((badge) =>
+    /^\d+\+?$/.test((badge.text || "").trim()) && badge.rendered && badge.arrow?.visible === true),
+  `the toolbar shows ${syncBadges.length} corner count(s); each needs its digits and a visible arrow`);
+  check(scenario, syncBadges.every((badge) => badge.width > badge.height),
+    `a corner count collapsed into a dot (${syncBadges.map((badge) => box(badge)).join(" ")})`);
+  check(scenario, scenario.syncBands === 0,
+    `the old sync band under the toolbar is still rendered (${scenario.syncBands} element(s))`);
 
   // Every overlay is fully inside the window. The commit split menu is gone
   // with its chevron: the commit row must carry exactly ONE full-width
@@ -114,18 +113,28 @@ for (const scenario of report) {
     "the fixed Git toolbar is not excluded from automatic localization");
   check(scenario, JSON.stringify(scenario.toolbarActionLabels) === JSON.stringify(["Push", "Fetch"]),
     `the fixed Git actions are not Push | Fetch (${scenario.toolbarActionLabels?.join(" | ")})`);
-  // …and the sync band sits UNDER the toolbar and inside the panel: that is
-  // exactly the room the floating chip never had.
-  check(scenario, Boolean(scenario.syncBand) && withinX(scenario.syncBand, scenario.panel),
-    `the sync band leaves the dock panel (${box(scenario.syncBand)})`);
+  // …and each count hangs on the TOP-RIGHT corner of the button it belongs to,
+  // on the toolbar row itself, without leaving the dock panel.
   const toolbarBottom = sections.length
     ? Math.max(...sections.map((section) => section.top + section.height))
     : NaN;
-  check(scenario, Boolean(scenario.syncBand) && scenario.syncBand.top >= toolbarBottom - 1,
-    `the sync band rides inside the toolbar row instead of under it`
-    + ` (band top ${scenario.syncBand?.top}, toolbar bottom ${toolbarBottom})`);
-  check(scenario, contains(scenario.syncCapsule, scenario.panel),
-    `the sync capsule leaves the dock panel (${box(scenario.syncCapsule)})`);
+  for (const badge of syncBadges) {
+    const ownerKind = badge.direction === "ahead"
+      ? "dock-scm-toolbar-push"
+      : "dock-scm-toolbar-fetch";
+    const owner = sections.find((section) => section.kind === ownerKind);
+    check(scenario, badge.section === ownerKind,
+      `the ${badge.direction} count hangs on ${badge.section || "nothing"}, not ${ownerKind}`);
+    check(scenario, withinX(badge, scenario.panel),
+      `the ${badge.direction} count leaves the dock panel (${box(badge)})`);
+    check(scenario, Boolean(owner) && Math.abs(badge.right - owner.right) <= 6
+      && Math.abs(badge.top - owner.top) <= 8,
+    `the ${badge.direction} count is off its button's top-right corner`
+    + ` (badge ${box(badge)}, section right ${owner?.right} top ${owner?.top})`);
+    check(scenario, badge.top < toolbarBottom,
+      `the ${badge.direction} count sits under the toolbar instead of on it`
+      + ` (badge top ${badge.top}, toolbar bottom ${toolbarBottom})`);
+  }
 
   // The branch panel opens INSTANTLY with a loading row and fills one turn
   // later. Its box must not change between those frames: the list owns a

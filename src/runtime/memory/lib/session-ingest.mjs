@@ -332,6 +332,22 @@ export function shouldExcludeIngestMessage(m) {
   )) {
     return true
   }
+  // Injected Skill-body user rows (context/collect.mjs buildSkillToolEnvelope).
+  // The full SKILL.md body is delivered as ONE role:'user' message flagged
+  // `meta:'skill'` inside a `<skill>` envelope. It is runtime instruction
+  // material that is re-injected on demand, not conversation, and the SAME
+  // document repeats verbatim on every Skill() call — so ingesting it stored
+  // one copy per invocation and the compact handoff replayed every copy
+  // (measured: 7 identical goal-management bodies plus pptx in a single
+  // handoff, 18.5k tokens). Mirrors compact/messages.mjs
+  // isInjectedSkillBodyMessage; the meta marker and the content prefix are
+  // both honoured so a tail rebuild that drops meta still excludes the body.
+  if (role === 'user' && (
+    m?.meta === 'skill'
+    || (typeof raw === 'string' && raw.trimStart().startsWith('<skill>'))
+  )) {
+    return true
+  }
   if (role === 'user' && (
     ['compact-active-turn-continuation', 'compact-execution-recovery'].includes(String(m?.meta?.source || ''))
     || (

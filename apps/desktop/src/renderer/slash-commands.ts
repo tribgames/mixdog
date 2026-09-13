@@ -5,7 +5,9 @@ export type SettingsSection =
   | 'theme' | 'workflow' | 'model' | 'websearch' | 'providers' | 'mcp'
   | 'plugins' | 'skills' | 'memory' | 'voice' | 'update';
 
-export type CommandSurface = 'context' | 'usage' | 'doctor' | 'inherit';
+// 'stats' has no slash command: it is reached from the usage flyout, which is
+// where the question "how much have I spent" already starts.
+export type CommandSurface = 'context' | 'usage' | 'doctor' | 'inherit' | 'stats';
 
 export interface DesktopSlashCommand {
   name: string;

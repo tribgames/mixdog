@@ -1206,7 +1206,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     },
   }), {
     window_id: 'hwnd:0x123',
-    steps: [{ action: 'invoke', ref: 'ref:1' }],
+    steps: [{ action: 'click', ref: 'ref:1' }],
     action: 'sequence',
     delivery: COMPUTER_DEFAULT_DELIVERY,
   });
@@ -1230,7 +1230,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   }), {
     window_id: 'hwnd:0x123',
     steps: [
-      { action: 'invoke', ref: 'ref:1' },
+      { action: 'click', ref: 'ref:1' },
       { action: 'type', text: 'value' },
     ],
     action: 'sequence',
@@ -1630,7 +1630,7 @@ test('bridge clients authenticate and preserve text plus image results', async (
         ...(client.name === 'computer'
           ? {
               window_id: 'hwnd:0x123',
-              steps: [{ action: 'invoke', ref: 'ref:1' }],
+              steps: [{ action: 'click', ref: 'ref:1' }],
               action: 'sequence',
               delivery: COMPUTER_DEFAULT_DELIVERY,
               session_id: 'computer-session-1',

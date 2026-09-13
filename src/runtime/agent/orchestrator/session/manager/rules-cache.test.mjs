@@ -100,3 +100,23 @@ test('unchanged source variants stay warm and failed builds remain retryable', a
     assert.equal(get('retry'), 'retry: stable policy');
     assert.equal(builds.get('retry'), 2);
 });
+
+test('shared-rule cache separates unrestricted, allowed and denied capabilities', async (t) => {
+    const { write, rules } = await fixture(t);
+    write('plugin/rules/shared/00-policy.md', [
+        '- General policy.',
+        '<!-- tools: Skill -->',
+        '- Skill guidance.',
+        '<!-- tools: goal -->',
+        '- Goal guidance.',
+    ].join('\n'));
+    const full = rules._buildSharedRules();
+    assert.match(full, /Skill guidance/);
+    assert.match(full, /Goal guidance/);
+    assert.equal(rules._buildSharedRules({ allowTools: [] }), '- General policy.');
+    assert.match(rules._buildSharedRules({ allowTools: ['Skill'] }), /Skill guidance/);
+    assert.doesNotMatch(rules._buildSharedRules({ allowTools: ['Skill'] }), /Goal guidance/);
+    assert.equal(rules._buildSharedRules({ allowTools: ['Skill'], omitTools: ['Skill'] }), '- General policy.');
+    assert.equal(rules._buildSharedRules(), full);
+    assert.equal(rules._buildSharedRules({ allowTools: [] }), '- General policy.');
+});

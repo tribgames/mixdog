@@ -239,6 +239,9 @@ export function hex(value, fallback) {
 }
 
 
+export { presetLabels } from '../shared/labels.mjs';
+
+
 export function strings(value) {
   if (Array.isArray(value)) return value.map((entry) => String(entry ?? '')).filter(Boolean);
   if (value == null || value === '') return [];

@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 import { build } from 'esbuild';
@@ -17,13 +17,20 @@ await build({
   treeShaking: true,
   sourcemap: false,
   external: ['@homebridge/node-pty-prebuilt-multiarch'],
+  plugins: [{
+    name: 'plain-node-desktop-service',
+    setup(builder) {
+      builder.onResolve({ filter: /^electron(?:\/|$)/ }, () => ({
+        errors: [{ text: 'daemon service bundle must not import Electron' }],
+      }));
+    },
+  }],
 });
 
-const source = await readFile(outfile, 'utf8');
-if (/(?:from\s+|import\s*\()\s*["']electron["']/.test(source)) {
-  throw new Error('daemon service bundle must not import Electron');
-}
-if (!source.includes('createDesktopService')) {
+// A CJS bundle has no ES export table. Load its real entry under plain Node
+// instead of inferring runtime compatibility from generated source text.
+const service = createRequire(import.meta.url)(outfile);
+if (typeof service.createDesktopService !== 'function') {
   throw new Error('daemon service bundle has no createDesktopService export');
 }
 console.log(`Built plain-Node desktop service: ${outfile}`);

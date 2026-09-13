@@ -448,7 +448,7 @@ function summarizeToolTiming(toolTiming) {
     return Object.keys(timing).length > 0 ? timing : null;
 }
 
-function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, localSearchTelemetry = null, resultTelemetry = null, toolTiming = null, cwd }) {
+function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, localSearchTelemetry = null, resultTelemetry = null, toolTiming = null, toolBatchId = null, toolCallId = null, executionIntervals = null, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
     const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
@@ -502,6 +502,8 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
             : null,
         payload: {
             ...(summarizedTiming ? { timing: summarizedTiming } : {}),
+            ...(toolBatchId ? { batch: { batch_id: toolBatchId, tool_call_id: toolCallId } } : {}),
+            ...(Array.isArray(executionIntervals) ? { execution_intervals: executionIntervals } : {}),
             ...(resultTelemetry?.integrity ? { integrity: { ...resultTelemetry.integrity } } : {}),
         },
         cwd: cwd || null,
@@ -596,6 +598,13 @@ export function buildShellOutputTelemetryPayload({
         timed_out: telemetry?.timedOut === true,
         spilled: telemetry?.spilled === true,
         offloaded: offloaded === true,
+        lossless_compaction: telemetry?.losslessCompaction
+            ? {
+                applied: telemetry.losslessCompaction.applied === true,
+                reason: telemetry.losslessCompaction.reason ?? null,
+                kind: telemetry.losslessCompaction.kind ?? null,
+            }
+            : null,
     };
 }
 
@@ -686,13 +695,21 @@ export function traceAgentToolOutput({
 // tool calls observed. Lets a consumer compute Lead-side multi-tool
 // adoption ratio (calls > 1 / total turns) directly from trace rows
 // instead of re-parsing every assistant message body.
-export function traceAgentBatch({ sessionId, toolCallCount }) {
+export function traceAgentBatch({ sessionId, toolCallCount, batchId = null, batchCalls = null, iteration }) {
     appendAgentTrace({
         sessionId,
         kind: 'batch',
         // trace_events has no tool_call_count column — top-level unknown
         // fields are dropped at insert time, so carry it in payload (jsonb).
-        payload: { tool_call_count: toolCallCount },
+        payload: {
+            tool_call_count: toolCallCount,
+            ...(batchId && Array.isArray(batchCalls) ? {
+                batch_schema_version: 1,
+                batch_id: batchId,
+                iteration,
+                calls: batchCalls,
+            } : {}),
+        },
     });
 }
 

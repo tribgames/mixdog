@@ -23,6 +23,7 @@ import {
   parseGeminiTextPartMetadata,
 } from './gemini-schema.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
+import { runAbortable } from '../../../shared/abort-race.mjs';
 
 export const GEMINI_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS',
@@ -356,10 +357,6 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
         ? (chunk) => { try { return unwrapChunk(chunk); } catch { return chunk; } }
         : (chunk) => chunk;
     if (!response?.body) throw new Error(`${label}: missing response body`);
-    if (signal?.aborted) {
-        const reason = signal.reason;
-        throw reason instanceof Error ? reason : new Error(`${label} aborted`);
-    }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -378,7 +375,7 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
     };
 
     let firstByteTimer = setTimeout(() => {
-        try { reader.cancel('first byte timeout'); } catch {}
+        try { reader.cancel('first byte timeout').catch(() => {}); } catch {}
         if (idleReject) {
             const e = geminiTimeoutError(`${label} first byte`, GEMINI_FIRST_BYTE_TIMEOUT_MS);
             const r = idleReject; idleReject = null; r(e);
@@ -398,7 +395,7 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
             idleTimedOut = true;
-            try { reader.cancel('SSE idle timeout'); } catch {}
+            try { reader.cancel('SSE idle timeout').catch(() => {}); } catch {}
             if (idleReject) {
                 const e = geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
                 const r = idleReject; idleReject = null; r(e);
@@ -415,7 +412,8 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
     };
 
     if (signal) {
-        signal.addEventListener('abort', onAbort, { once: true });
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
     }
 
     try {
@@ -423,10 +421,10 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
         while (true) {
             let chunk;
             try {
-                chunk = await new Promise((resolve, reject) => {
+                chunk = await runAbortable(signal, () => new Promise((resolve, reject) => {
                     idleReject = reject;
                     reader.read().then(resolve, reject);
-                });
+                }), `${label} aborted`);
             } catch (err) {
                 if (idleTimedOut) {
                     throw geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
@@ -515,6 +513,7 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
         clearFirstByteTimer();
         if (idleTimer) clearTimeout(idleTimer);
         if (signal) signal.removeEventListener('abort', onAbort);
+        try { await reader.cancel('Gemini SSE complete'); } catch {}
         try { reader.releaseLock(); } catch {}
         finalizeLeakGuard();
     }
@@ -562,6 +561,9 @@ export async function consumeGeminiSdkStream(streamResult, {
     let iterator = null;
     let cancellation = null;
     let forcedFailure = null;
+    const abortError = () => signal?.reason instanceof Error
+        ? signal.reason
+        : new Error(`${label} aborted`);
     const cancelInFlight = (err) => {
         if (cancellation) return cancellation;
         forcedFailure = err;
@@ -629,52 +631,37 @@ export async function consumeGeminiSdkStream(streamResult, {
         }, PROVIDER_SSE_IDLE_TIMEOUT_MS);
     };
 
-    if (signal?.aborted) {
-        const reason = signal.reason;
-        throw reason instanceof Error ? reason : new Error(`${label} aborted`);
-    }
-
-    iterator = streamResult.stream[Symbol.asyncIterator]();
-    // The SDK tees the parsed stream into `response`. Even though local
-    // aggregation normally avoids awaiting it, its rejection must remain
-    // observed across parser/abort retries.
-    let responsePromise;
-    try {
-        responsePromise = Promise.resolve(streamResult.response);
-    } catch (err) {
-        responsePromise = Promise.reject(err);
-    }
-    responsePromise.catch(() => {});
-
-    // Wire the abort signal to actually CANCEL iteration (mirror of the REST
-    // consumer's onAbort -> reader.cancel). Without this, a parent / client /
-    // gateway abort that fires AFTER the first byte — with the SSE idle
-    // watchdog off by default — would leave iterator.next() hanging: the loop
-    // below only reads `signal` for error translation, never to interrupt the
-    // pending read. Rejecting the in-flight promise and returning the iterator
-    // releases it promptly even if the SDK is slow to propagate the underlying
-    // request abort.
-    let onSignalAbort = null;
-    if (signal) {
-        onSignalAbort = () => {
-            const reason = signal.reason;
-            const err = reason instanceof Error ? reason : new Error(`${label} aborted`);
-            if (inFlightReject) {
-                const r = inFlightReject;
-                inFlightReject = null;
-                firstByteReject = null;
-                r(err);
-            }
-            cancelInFlight(err).catch(() => {});
-        };
-        signal.addEventListener('abort', onSignalAbort, { once: true });
-    }
+    // Interrupt pending reads as well as the request; an SDK iterator may
+    // propagate the transport abort only after its own asynchronous cleanup.
+    const onSignalAbort = () => {
+        const err = abortError();
+        if (inFlightReject) {
+            const r = inFlightReject;
+            inFlightReject = null;
+            firstByteReject = null;
+            r(err);
+        }
+        cancelInFlight(err).catch(() => {});
+    };
+    const collectedChunks = [];
 
     try {
+        // Observe the SDK's aggregate branch even when cancellation precedes
+        // consumption: aborting the acquired request can reject both branches.
+        let responsePromise;
+        try {
+            responsePromise = Promise.resolve(streamResult.response);
+        } catch (err) {
+            responsePromise = Promise.reject(err);
+        }
+        responsePromise.catch(() => {});
+        iterator = streamResult.stream[Symbol.asyncIterator]();
+        if (signal?.aborted) throw abortError();
+        signal?.addEventListener('abort', onSignalAbort, { once: true });
         armFirstByteTimer();
         resetIdleTimer();
-        var collectedChunks = [];
         while (true) {
+            if (signal?.aborted) throw abortError();
             if (idleTimedOut) {
                 throw geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
             }
@@ -714,12 +701,10 @@ export async function consumeGeminiSdkStream(streamResult, {
                 if (idleTimedOut) {
                     throw geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
                 }
-                if (signal?.aborted) {
-                    const reason = signal.reason;
-                    throw reason instanceof Error ? reason : new Error(`${label} aborted`);
-                }
+                if (signal?.aborted) throw abortError();
                 throw normalizeGeminiSdkStreamError(err, label);
             }
+            if (signal?.aborted) throw abortError();
             if (step.done) break;
             if (!sawStreamChunk) {
                 sawStreamChunk = true;
@@ -737,13 +722,31 @@ export async function consumeGeminiSdkStream(streamResult, {
         if (idleTimedOut) {
             throw geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
         }
+        clearFirstByteTimer();
+        if (idleTimer) clearTimeout(idleTimer);
+
+        // SDK 0.24.1 aggregation drops thoughtSignature. Preserve wire parts
+        // locally; retain the SDK response path only for an empty collection.
+        let raw;
+        if (collectedChunks.length > 0) {
+            raw = aggregateGeminiStreamChunks(collectedChunks);
+        } else {
+            let response;
+            try {
+                response = await runAbortable(signal, () => responsePromise);
+            } catch (err) {
+                throw normalizeGeminiSdkStreamError(err, label);
+            }
+            raw = response?.candidates ? response : (response?.response || response);
+        }
+        const finishReason = raw?.candidates?.[0]?.finishReason || null;
+        const promptBlockReason = raw?.promptFeedback?.blockReason || null;
+        assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label });
+        return raw;
     } catch (err) {
         clearFirstByteTimer();
-        let failure = err;
-        if (signal?.aborted) {
-            const reason = signal.reason;
-            failure = reason instanceof Error ? reason : new Error(`${label} aborted`);
-        }
+        const failure = signal?.aborted ? abortError() : err;
+        await cancelInFlight(failure);
         finalizeLeakGuard();
         throw stampGeminiStreamFailure(failure, { relayedText, textLeakGuard, sawFunctionCall, chunks: collectedChunks });
     } finally {
@@ -754,46 +757,4 @@ export async function consumeGeminiSdkStream(streamResult, {
         }
         finalizeLeakGuard();
     }
-
-    // Aggregate the raw wire chunks locally instead of awaiting the SDK's
-    // streamResult.response: @google/generative-ai 0.24.1 aggregateResponses()
-    // predates Gemini 3 thinking and silently drops part.thoughtSignature.
-    // Losing the signature breaks the mandatory echo-back on the next turn
-    // (400 "Function call is missing a thought_signature in functionCall
-    // parts"). aggregateGeminiStreamChunks() preserves it (see part copy
-    // above). Fall back to the SDK aggregate only if we somehow collected no
-    // usable chunks.
-    let raw;
-    if (collectedChunks.length > 0) {
-        raw = aggregateGeminiStreamChunks(collectedChunks);
-    } else {
-        let response;
-        try {
-            response = await responsePromise;
-        } catch (err) {
-            let failure = normalizeGeminiSdkStreamError(err, label);
-            if (signal?.aborted) {
-                const reason = signal.reason;
-                failure = reason instanceof Error ? reason : new Error(`${label} aborted`);
-            }
-            finalizeLeakGuard();
-            throw stampGeminiStreamFailure(failure, {
-                relayedText,
-                textLeakGuard,
-                sawFunctionCall,
-                chunks: collectedChunks,
-            });
-        }
-        raw = response?.candidates ? response : (response?.response || response);
-    }
-    const finishReason = raw?.candidates?.[0]?.finishReason || null;
-    const promptBlockReason = raw?.promptFeedback?.blockReason || null;
-    // Same stamping as the REST consumer: truncation after visible output
-    // must not classify transient (review High).
-    try {
-        assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label });
-    } catch (err) {
-        throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall, chunks: collectedChunks });
-    }
-    return raw;
 }

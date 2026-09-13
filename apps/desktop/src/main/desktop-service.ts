@@ -3,6 +3,7 @@ import type {
   DesktopSessionStateUpdate,
   SessionSnapshot,
 } from '../shared/contract';
+import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type {
   MixdogProjectsModule,
   MixdogSessionStoreModule,
@@ -337,11 +338,14 @@ export async function createDesktopService(
     latestSessionStates.set(sessionId, snapshot);
     latestSessionProvenance.set(sessionId, update);
     const wire = encoder.encode(snapshot);
+    reportTranscriptRead(sessionId, update.readTraceId,
+      isNoDelta(wire) ? 'service-unchanged' : 'service-send');
     if (isNoDelta(wire)) return;
     emit({
       kind: 'session-state',
       sessionId,
       wire,
+      ...(update.readTraceId ? { readTraceId: update.readTraceId } : {}),
       frameSource: update.frameSource,
       ...(typeof update.contentRevision === 'number'
         ? { contentRevision: update.contentRevision }
@@ -359,8 +363,14 @@ export async function createDesktopService(
     if (!viewsSyncing) emit({ kind: 'agent-pool', agents });
   });
   const unsubscribeSessionStates = host.subscribeSessionStates((update) => {
-    if (viewsSyncing) return;
-    if (!shouldPublishSessionState(update.sessionId, update.snapshot, visibleSessionIds)) return;
+    if (viewsSyncing) {
+      reportTranscriptRead(update.sessionId, update.readTraceId, 'service-syncing');
+      return;
+    }
+    if (!shouldPublishSessionState(update.sessionId, update.snapshot, visibleSessionIds)) {
+      reportTranscriptRead(update.sessionId, update.readTraceId, 'service-hidden');
+      return;
+    }
     postSessionState(update);
   });
   stateMailbox.publish(host.getSnapshot());

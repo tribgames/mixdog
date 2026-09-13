@@ -2,16 +2,22 @@ import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
     PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
-    streamStalledError,
     createTimeoutSignal,
-    providerTimeoutError,
 } from '../stall-policy.mjs';
 import { typedStatusFrom } from './retry-classifier.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs';
 import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
-import { randomBytes } from 'crypto';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
+import {
+    closeCompatStream,
+    emitCompatToolCallOnce,
+    firstByteCompatStreamError,
+    markErrorLiveTextEmitted,
+    markUnsafeRetryIfToolEmitted,
+    nextAsyncWithWatchdog,
+    synthLeakedOpenAICall,
+} from './openai-compat-stream-common.mjs';
 import {
     truncatedCompatStreamError,
     makeInvalidToolArgsMarker,
@@ -26,232 +32,7 @@ export {
     formatInvalidToolArgsResult,
     parseCompletedToolCallArgumentsJson,
 };
-
-// Synthesize a native-shaped OpenAI tool call from a recovered leaked call.
-// Matches the `call_...` id scheme the native Responses/Chat paths use so the
-// dispatch loop and any downstream tool_result reference line up.
-function synthLeakedOpenAICall(recovered) {
-    let args = recovered?.arguments;
-    if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
-    return {
-        id: `call_leaked_${randomBytes(8).toString('hex')}`,
-        name: recovered.name,
-        arguments: args,
-    };
-}
-
-function firstByteCompatStreamError(label) {
-    const err = providerTimeoutError(`${label} first byte`, PROVIDER_FIRST_BYTE_TIMEOUT_MS);
-    err.firstByteTimeout = true;
-    return err;
-}
-
-async function nextAsyncWithWatchdog(iterator, {
-    signal,
-    idleMs,
-    idleDeadlineAt,
-    idleEnabled,
-    idleLabel,
-    emittedToolCall,
-} = {}) {
-    let idleTimer = null;
-    let idleReject = null;
-    let idleTimedOut = false;
-    let iteratorCloseRequested = false;
-    const closeIterator = () => {
-        if (iteratorCloseRequested) return;
-        iteratorCloseRequested = true;
-        try {
-            const closing = iterator?.return?.();
-            if (closing && typeof closing.catch === 'function') closing.catch(() => {});
-        } catch { /* closing must never replace the watchdog/abort error */ }
-    };
-    // Double-dispatch guard (reviewer High): if a tool call was already emitted
-    // this stream, a stall must be unsafe-to-retry so withRetry() won't replay
-    // the turn and re-run the side-effecting tool. `emittedToolCall` may be a
-    // boolean or a getter evaluated at abort time (state mutates mid-stream).
-    const didEmitToolCall = () => {
-        try { return typeof emittedToolCall === 'function' ? !!emittedToolCall() : !!emittedToolCall; }
-        catch { return false; }
-    };
-    const armIdle = () => {
-        if (!idleEnabled || !(idleMs > 0)) return;
-        if (idleTimer) clearTimeout(idleTimer);
-        const deadline = Number(idleDeadlineAt);
-        const delayMs = Number.isFinite(deadline) && deadline > 0
-            ? Math.max(0, deadline - Date.now())
-            : idleMs;
-        idleTimer = setTimeout(() => {
-            idleTimedOut = true;
-            // SEMANTIC idle abort: this timer is (re)armed only around waiting
-            // for the NEXT stream event, so keepalive/comment frames the SDK
-            // filters out cannot keep it alive. Throw the named terminal
-            // StreamStalledError so the retry-classifier treats it as a stream
-            // failure (owner gets notified) rather than a user cancel.
-            const e = streamStalledError(idleLabel || 'compat SSE', idleMs, { emittedToolCall: didEmitToolCall() });
-            closeIterator();
-            if (idleReject) {
-                const r = idleReject;
-                idleReject = null;
-                r(e);
-            }
-        }, delayMs);
-        if (typeof idleTimer.unref === 'function') idleTimer.unref();
-    };
-    armIdle();
-    try {
-        const result = await new Promise((resolve, reject) => {
-            idleReject = reject;
-            if (signal?.aborted) {
-                const reason = signal.reason;
-                closeIterator();
-                reject(reason instanceof Error ? reason : new Error('compat stream aborted'));
-                return;
-            }
-            let onAbort = null;
-            if (signal) {
-                onAbort = () => {
-                    const reason = signal.reason;
-                    closeIterator();
-                    reject(reason instanceof Error ? reason : new Error('compat stream aborted'));
-                };
-                signal.addEventListener('abort', onAbort, { once: true });
-            }
-            iterator.next().then(
-                (value) => {
-                    if (idleTimer) clearTimeout(idleTimer);
-                    if (signal && onAbort) {
-                        try { signal.removeEventListener('abort', onAbort); } catch {}
-                    }
-                    resolve(value);
-                },
-                (err) => {
-                    if (idleTimer) clearTimeout(idleTimer);
-                    if (signal && onAbort) {
-                        try { signal.removeEventListener('abort', onAbort); } catch {}
-                    }
-                    reject(err);
-                },
-            );
-        });
-        return result;
-    } catch (err) {
-        if (idleTimer) clearTimeout(idleTimer);
-        if (idleTimedOut) throw streamStalledError(idleLabel || 'compat SSE', idleMs, { emittedToolCall: didEmitToolCall() });
-        throw err;
-    }
-}
-
-function mergeToolCallDelta(accByIndex, deltaCalls, bucketState) {
-    for (const tc of deltaCalls || []) {
-        let key;
-        if (Number.isFinite(Number(tc?.index))) {
-            key = `n:${Number(tc.index)}`;
-        } else if (tc.id) {
-            key = `id:${tc.id}`;
-        } else if (tc.function?.name) {
-            const anonId = ++bucketState._nextAnonId;
-            key = `anon:${anonId}`;
-        } else {
-            key = bucketState._lastAnonKey;
-            if (!key) continue;
-        }
-        // Whatever bucket this chunk resolved to becomes the continuation
-        // target for later argument-only chunks (no index, no id, no name).
-        // Only the anonymous branch used to record it, so a provider that
-        // identifies a tool call by id alone and then streams bare argument
-        // deltas had every one of those deltas silently discarded.
-        bucketState._lastAnonKey = key;
-        let prev = accByIndex.get(key);
-        if (!prev) {
-            prev = {
-                id: '',
-                type: 'function',
-                function: { name: '', arguments: '' },
-                _order: ++bucketState._orderSeq,
-            };
-            accByIndex.set(key, prev);
-        }
-        if (tc.id) prev.id = tc.id;
-        if (tc.type) prev.type = tc.type;
-        if (tc.function?.name && !prev.function.name) prev.function.name = tc.function.name;
-        if (tc.function?.arguments) {
-            const delta = tc.function.arguments;
-            // Some providers send the full (cumulative) arguments value in
-            // each delta rather than incremental chunks. Detect this: if
-            // the incoming delta starts with what we already have, it's a
-            // replacement — replace instead of append so the JSON stays
-            // well-formed and we avoid "invalid tool_call arguments JSON".
-            if (prev.function.arguments && delta.startsWith(prev.function.arguments)) {
-                prev.function.arguments = delta;
-            } else {
-                prev.function.arguments += delta;
-            }
-        }
-    }
-}
-
-function toolCallsFromStreamAcc(accByIndex, parseToolCalls, label, finishReason) {
-    if (!accByIndex.size) return undefined;
-    const choice = {
-        // Carry the observed finish_reason onto the synthetic choice so the
-        // provider's parseToolCalls can mark a JSON.parse failure permanent
-        // (deterministic bad JSON) rather than retryable (mid-stream truncation).
-        finish_reason: finishReason || null,
-        message: {
-            tool_calls: [...accByIndex.values()]
-                .sort((a, b) => a._order - b._order)
-                .map(v => { const { _order, ...rest } = v; return rest; }),
-        },
-    };
-    return parseToolCalls(choice, label);
-}
-
-function emitCompatToolCallOnce(state, call, onToolCall) {
-    if (typeof onToolCall !== 'function' || !call?.id || !call?.name) return false;
-    const key = `id:${call.id}`;
-    if (!state.emittedToolCallKeys) state.emittedToolCallKeys = new Set();
-    if (state.emittedToolCallKeys.has(key)) return false;
-    // Fix 2: cross-path name+args dedupe. A synthesized text-leaked call and an
-    // identical native tool_call must fire onToolCall exactly once. state._toolDedupe
-    // is created per stream; when absent (older callers) behavior is unchanged.
-    if (state._toolDedupe && !state._toolDedupe.shouldDispatch(call.name, call.arguments, call.id)) {
-        // Still mark the id as emitted so later id-frames for the same native
-        // call don't retry, but do NOT invoke onToolCall (already dispatched).
-        state.emittedToolCallKeys.add(key);
-        return false;
-    }
-    state.emittedToolCallKeys.add(key);
-    state.emittedToolCall = true;
-    const { _pendingItemId, ...cleanCall } = call;
-    try { onToolCall(cleanCall); } catch {}
-    return true;
-}
-
-function markUnsafeRetryIfToolEmitted(err, state) {
-    if (!err) return err;
-    if (state?.emittedToolCall) {
-        try {
-            err.emittedToolCall = true;
-            err.unsafeToRetry = true;
-        } catch {}
-    }
-    if (state?.emittedText) markErrorLiveTextEmitted(err);
-    return err;
-}
-
-// Invariant guard: once a non-empty live text chunk has been forwarded to the
-// client (gateway live relay) it is irreversibly rendered and cannot be
-// withdrawn. Flag the error permanent so the shared classifier / retry
-// wrappers never reissue the attempt and concatenate a second one.
-function markErrorLiveTextEmitted(err) {
-    if (!err) return err;
-    try {
-        err.liveTextEmitted = true;
-        err.unsafeToRetry = true;
-    } catch {}
-    return err;
-}
+export { consumeCompatChatCompletionStream } from './openai-compat-chat-stream.mjs';
 
 function incompleteReasonFromResponsesEvent(event) {
     const reasonObj = event?.response?.incomplete_details
@@ -263,311 +44,6 @@ function incompleteReasonFromResponsesEvent(event) {
 
 function isMaxOutputIncompleteReason(reason) {
     return /^(?:max_output_tokens|max_tokens|length|output_token_limit)$/i.test(String(reason || '').trim());
-}
-
-export async function consumeCompatChatCompletionStream(stream, {
-    signal,
-    label,
-    onStreamDelta,
-    onToolCall,
-    onTextDelta,
-    parseToolCalls,
-    knownToolNames,
-    semanticIdleTimeoutMs,
-} = {}) {
-    // Reaching the consumer means the HTTP response/stream object exists.
-    // Record transport health without satisfying semantic model activity.
-    try { onStreamDelta?.('transport'); } catch {}
-    const iterator = stream[Symbol.asyncIterator]();
-    const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
-    const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
-    const idleEnabled = idleOverrideEnabled || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
-    // Per-event (last-event-relative) SEMANTIC idle: nextAsyncWithWatchdog arms
-    // the timer only while awaiting the NEXT stream event, so a stream that
-    // emits some deltas then goes silent trips it within the window.
-    const idleMs = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0
-        ? Number(semanticIdleTimeoutMs)
-        : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
-    let semanticIdleDeadlineAt = 0;
-    const reportProgress = (kind) => {
-        if (kind !== 'transport') semanticIdleDeadlineAt = Date.now() + idleMs;
-        try { onStreamDelta?.(kind); } catch {}
-    };
-    let sawFirstEvent = false;
-    let content = '';
-    let reasoningContent = '';
-    let sawReasoningContent = false;
-    const reasoningDetails = [];
-    // Invariant flag for the gateway live-text relay: set once a non-empty
-    // text chunk has been forwarded to the client. A failure after this point
-    // must be treated as permanent — the rendered text cannot be withdrawn and
-    // a retry would concatenate a second attempt.
-    let emittedText = false;
-    // Reasoning exposure invariant: reasoning_content / reasoning / thinking
-    // deltas are relayed to the client (onStreamDelta('reasoning')) and kept in
-    // the assembled message, so they are OBSERVED, VISIBLE output. A failure
-    // afterwards must never be replayed — a retry (or a non-streaming reset
-    // recovery) would duplicate the exposed reasoning.
-    let emittedReasoning = false;
-    let model = '';
-    let responseId = '';
-    let stopReason = null;
-    let rawUsage = null;
-    const toolAcc = new Map();
-    const toolBucketState = { _orderSeq: 0, _nextAnonId: 0, _lastAnonKey: null };
-    // Fix 2: one dedupe per stream, shared by the synthetic leaked-call
-    // dispatch and every native emit so an identical (name,args) fires once.
-    const _toolDedupe = createToolCallDedupe();
-    // Persistent stream state: leaked calls dispatch eagerly, before the final
-    // native parse. If the iterator later fails this latch makes the failure
-    // unsafe-to-retry so the eager side effect cannot run twice.
-    const streamEmitState = {
-        emittedToolCallKeys: new Set(),
-        emittedToolCall: false,
-        _toolDedupe,
-    };
-    // Leaked tool-call guard: the model sometimes emits a tool call as plain
-    // text (XML `<invoke>`/`<function_calls>` or gpt-oss harmony
-    // `<|channel|>...to=functions.NAME...<|call|>`) inside `delta.content`
-    // instead of a native `tool_calls` delta. Route content through the guard
-    // so leaked calls are suppressed from visible text, synthesized, and
-    // dispatched like native calls. Additive: the native tool_calls path is
-    // untouched. Harmony detection is opt-in here (gpt-oss compat backends).
-    const leakGuard = createLeakGuard({ knownToolNames, harmony: true });
-    const dispatchLeakedCall = (recovered) => {
-        const call = synthLeakedOpenAICall(recovered);
-        emitCompatToolCallOnce(streamEmitState, call, onToolCall);
-        reportProgress('tool');
-        return call;
-    };
-    const leakedCalls = [];
-    // Canonical stream-outcome stamp for EVERY reject path of this consumer.
-    // Without it the failure is "unknown" to the replay gates, and an upstream
-    // recovery (withRetry, transport fallback, non-streaming reset) could
-    // re-issue a turn whose text/reasoning was already relayed or whose tool
-    // call was already dispatched.
-    const _stampCompatOutcome = (err, extra = {}) => {
-        try {
-            stampStreamOutcome(err, {
-                transport: STREAM_TRANSPORTS.SSE,
-                provider: 'openai-compat',
-                terminalObserved: !!stopReason,
-                continuation: !stopReason,
-                textEmitted: emittedText === true,
-                textObservedChars: content.length,
-                reasoningEmitted: emittedReasoning === true || reasoningContent.length > 0,
-                toolCallsStarted: toolAcc.size > 0 || leakedCalls.length > 0,
-                toolCallsComplete: leakedCalls.length,
-                toolCallsDispatched: streamEmitState.emittedToolCall === true
-                    ? Math.max(1, leakedCalls.length)
-                    : 0,
-                pendingToolInput: toolAcc.size > 0,
-                ...extra,
-            });
-        } catch { /* stamping is best-effort */ }
-        return err;
-    };
-    const relayText = (delta) => {
-        const { text, calls } = leakGuard.push(delta);
-        if (text) {
-            content += text;
-            reportProgress('text');
-            if (onTextDelta) {
-                emittedText = true;
-                try { onTextDelta(text); } catch {}
-            }
-        }
-        for (const c of calls) leakedCalls.push(dispatchLeakedCall(c));
-    };
-    const flushLeak = () => {
-        const { text, calls } = leakGuard.flush();
-        if (text) {
-            content += text;
-            reportProgress('text');
-            if (onTextDelta) {
-                emittedText = true;
-                try { onTextDelta(text); } catch {}
-            }
-        }
-        for (const c of calls) leakedCalls.push(dispatchLeakedCall(c));
-    };
-    try {
-        while (true) {
-            const { value: chunk, done } = await nextAsyncWithWatchdog(iterator, {
-                // Until the first SSE chunk, bound the pending read to the
-                // first-byte timer (createTimeoutSignal already chains parent).
-                signal: sawFirstEvent ? signal : firstByteTimeout.signal,
-                idleMs,
-                idleDeadlineAt: semanticIdleDeadlineAt,
-                idleEnabled: sawFirstEvent && idleEnabled && semanticIdleDeadlineAt > 0,
-                idleLabel: `${label} SSE idle`,
-                // A stall after a tool call has already been dispatched (native
-                // or recovered-leaked) must be unsafe-to-retry (no double-run).
-                emittedToolCall: () => streamEmitState.emittedToolCall || toolAcc.size > 0,
-            });
-            if (done) break;
-            if (!sawFirstEvent) {
-                sawFirstEvent = true;
-                firstByteTimeout.cleanup();
-            }
-            try { onStreamDelta?.('transport'); } catch {}
-            if (chunk?.id) responseId = chunk.id;
-            if (chunk?.model) model = chunk.model;
-            const choice = chunk?.choices?.[0];
-            if (typeof choice?.delta?.role === 'string' && choice.delta.role) {
-                reportProgress('semantic');
-            }
-            if (choice?.delta?.content) {
-                // Live text relay (gateway): explicit assistant text delta,
-                // routed through the leaked-tool-call guard (which appends to
-                // `content`, forwards visible text, and recovers leaked calls).
-                // reasoning_content + tool_calls deltas stay off this path.
-                if (leakGuard.enabled) {
-                    relayText(choice.delta.content);
-                } else {
-                    content += choice.delta.content;
-                    reportProgress('text');
-                    if (onTextDelta) {
-                        emittedText = true;
-                        try { onTextDelta(choice.delta.content); } catch {}
-                    }
-                }
-            }
-            // DeepSeek/OpenCode use reasoning_content; newer LM Studio builds
-            // use reasoning, and some local compatibility shims expose
-            // thinking. They are aliases, never concatenate multiple aliases
-            // from the same chunk.
-            if (Array.isArray(choice?.delta?.reasoning_details) && choice.delta.reasoning_details.length) {
-                reasoningDetails.push(...choice.delta.reasoning_details);
-                reportProgress('reasoning');
-            }
-            const reasoningDelta = typeof choice?.delta?.reasoning_content === 'string'
-                ? choice.delta.reasoning_content
-                : typeof choice?.delta?.reasoning === 'string'
-                    ? choice.delta.reasoning
-                    : typeof choice?.delta?.thinking === 'string'
-                        ? choice.delta.thinking
-                        : null;
-            if (reasoningDelta !== null) {
-                sawReasoningContent = true;
-                reasoningContent += reasoningDelta;
-                if (reasoningDelta) {
-                    emittedReasoning = true;
-                    reportProgress('reasoning');
-                }
-            }
-            if (Array.isArray(choice?.delta?.tool_calls) && choice.delta.tool_calls.length) {
-                reportProgress('tool');
-            }
-            mergeToolCallDelta(toolAcc, choice?.delta?.tool_calls, toolBucketState);
-            if (choice?.finish_reason) stopReason = choice.finish_reason;
-            if (chunk?.usage) rawUsage = chunk.usage;
-        }
-        // Flush any partial-sentinel tail held back mid-stream so legitimate
-        // trailing text is never lost.
-        if (leakGuard.enabled) flushLeak();
-    } catch (err) {
-        // Any mid-stream failure after live text was relayed is non-retryable —
-        // but the streamed partial must still ride on the error (rule: once
-        // output is visible, keep it and finalize with a notice instead of
-        // discarding the turn). The loop's partial-final path consumes these.
-        if (emittedText) {
-            markErrorLiveTextEmitted(err);
-            try {
-                err.partialContent = content;
-                err.pendingToolUse = toolAcc.size > 0 || leakedCalls.length > 0;
-                err.partialModel = model || undefined;
-            } catch { /* best-effort */ }
-            throw _stampCompatOutcome(markUnsafeRetryIfToolEmitted(err, streamEmitState));
-        }
-        // Partial-final recovery: on a mid-stream stall, attach the
-        // streamed partial state so the loop can accept a wedged FINAL no-tool
-        // summary as partial-final success. pendingToolUse gates out any
-        // in-flight/emitted tool call.
-        if (err?.streamStalled === true) {
-            try {
-                err.partialContent = content;
-                err.pendingToolUse = toolAcc.size > 0 || leakedCalls.length > 0;
-                err.partialModel = model || undefined;
-            } catch { /* best-effort */ }
-        }
-        throw _stampCompatOutcome(markUnsafeRetryIfToolEmitted(err, streamEmitState));
-    } finally {
-        firstByteTimeout.cleanup();
-    }
-    if (!sawFirstEvent) {
-        // Pre-output: nothing was sampled, so this stays replay-safe.
-        if (firstByteTimeout.signal?.aborted) throw _stampCompatOutcome(firstByteCompatStreamError(label));
-        throw _stampCompatOutcome(firstByteCompatStreamError(label));
-    }
-    if (!stopReason) {
-        const err = truncatedCompatStreamError(label, 'no finish_reason');
-        if (emittedText) {
-            // Truncation after visible output: preserve the partial (CC-style)
-            // instead of surfacing a bare terminal error. streamStalled lets
-            // the loop's partial-final acceptance path pick it up; liveText
-            // marking still blocks any retry/replay.
-            markErrorLiveTextEmitted(err);
-            try {
-                err.streamStalled = true;
-                err.partialContent = content;
-                err.pendingToolUse = toolAcc.size > 0 || leakedCalls.length > 0;
-                err.partialModel = model || undefined;
-            } catch { /* best-effort */ }
-        }
-        throw _stampCompatOutcome(markUnsafeRetryIfToolEmitted(err, streamEmitState));
-    }
-    const message = {
-        content: content || null,
-        ...(sawReasoningContent ? { reasoning_content: reasoningContent } : {}),
-        ...(reasoningDetails.length ? { reasoning_details: reasoningDetails } : {}),
-    };
-    const rawToolCalls = [...toolAcc.values()]
-        .sort((a, b) => a._order - b._order)
-        .map(v => { const { _order, ...rest } = v; return rest; })
-        .filter(tc => tc.id || tc.function?.name);
-    if (rawToolCalls.length) message.tool_calls = rawToolCalls;
-    const response = {
-        id: responseId || null,
-        model: model || null,
-        choices: [{ message, finish_reason: stopReason }],
-        usage: rawUsage || undefined,
-    };
-    let toolCalls;
-    try {
-        // stopReason is guaranteed non-null here (the `if (!stopReason)` guard
-        // above already threw on a finish-less stream), so any parse failure is
-        // deterministic bad JSON, not truncation.
-        toolCalls = toolCallsFromStreamAcc(toolAcc, parseToolCalls, label, stopReason);
-    } catch (err) {
-        if (stopReason && err.truncatedStream) {
-            try { err.message += ` finish_reason=${stopReason}`; } catch {}
-        }
-        if (emittedText) markErrorLiveTextEmitted(err);
-        throw _stampCompatOutcome(markUnsafeRetryIfToolEmitted(err, streamEmitState));
-    }
-    if (Array.isArray(toolCalls) && toolCalls.length) {
-        for (const call of toolCalls) emitCompatToolCallOnce(streamEmitState, call, onToolCall);
-    }
-    // Fold recovered leaked calls into the returned toolCalls so the dispatch
-    // loop treats them exactly like native ones. They were already emitted via
-    // onToolCall in relayText/flushLeak, so no re-dispatch here. Dedupe the
-    // final array by name+args (Fix 2, array side): a synthetic leaked call and
-    // an identical native tool_call must not both remain, else the loop runs
-    // the side-effecting tool twice.
-    if (leakedCalls.length) {
-        toolCalls = dedupeToolCallList([...(Array.isArray(toolCalls) ? toolCalls : []), ...leakedCalls]);
-    }
-    return {
-        response,
-        model,
-        content,
-        toolCalls,
-        stopReason,
-        reasoningContent: sawReasoningContent ? reasoningContent : null,
-        reasoningDetails: reasoningDetails.length ? reasoningDetails : null,
-        rawUsage,
-    };
 }
 
 // Reconcile a COMPLETED function_call item into state.toolCalls: fill in the
@@ -874,6 +350,7 @@ export async function consumeCompatResponsesStream(stream, {
 } = {}) {
     try { onStreamDelta?.('transport'); } catch {}
     const iterator = stream[Symbol.asyncIterator]();
+    let iteratorDone = false;
     const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
     const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
     const idleEnabled = idleOverrideEnabled || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
@@ -999,7 +476,10 @@ export async function consumeCompatResponsesStream(stream, {
                 // has been emitted this stream — avoid a double side-effect.
                 emittedToolCall: () => state.emittedToolCall || leakedCalls.length > 0,
             });
-            if (done) break;
+            if (done) {
+                iteratorDone = true;
+                break;
+            }
             if (!sawFirstEvent) {
                 sawFirstEvent = true;
                 firstByteTimeout.cleanup();
@@ -1026,6 +506,7 @@ export async function consumeCompatResponsesStream(stream, {
         throw _stampResponsesOutcome(markUnsafeRetryIfToolEmitted(err, state));
     } finally {
         firstByteTimeout.cleanup();
+        if (!iteratorDone) closeCompatStream(stream, iterator);
     }
     if (!sawFirstEvent) {
         // Pre-output: nothing was sampled, so this stays replay-safe.

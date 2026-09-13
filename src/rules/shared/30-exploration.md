@@ -1,43 +1,24 @@
 # Exploration
 
-- Use read-only means for inspection; never mutate to clear an obstacle or
-  unexpected state. Preserve evidence before a required mutation can destroy it.
-- Stop exploring once sufficient evidence determines the next action required
-  by the request. Consult prior-session history only when the request concerns
-  it or current evidence leaves a decision unresolved.
-- Ownership is exclusive: each evidence type has one owner;
-  a successful owner result closes that facet. On a miss, choose the next
-  lookup from the missing evidence and the reported cause, not a universal
-  fallback. A missing `code_graph` symbol falls through once to `grep` on its
-  literal name; path misses and execution errors keep their own routing.
-- Route the missing evidence to its primary owner:
-  repository state, history, or diff→`git`;
-  source-file structure or outline, and exact symbol declaration, body,
-  usage, or relation→`code_graph`;
-  literal, regex, or text location→`grep`;
-  known-file content, range, or image→`read`;
-  wildcard or recursive file paths→`glob`;
-  known directory's immediate entries→`list`;
-  unknown file or directory location→`find`.
-- For `code_graph`, location-only lookup uses `body:false`; use `body:true`
-  when understanding the implementation is required. For a specific UI label
-  or edit location, use `grep` and read only the missing anchored range rather
-  than an enclosing component's entire body. Never use `overview` and `symbols`
-  for the same evidence.
-- Use a path locator only when the owner's required target is unknown. Paths
-  reachable by expanding an environment variable or the home directory are
-  resolved locations, not unknowns.
-- Do not walk sibling directories individually when one parent listing answers
-  the question.
-- Treat supplied target locations as resolved; access them directly without
-  locator searches. Within the current project, pass project-relative paths and
-  omit optional scopes equal to its root; explicit paths may be outside cwd
-  only for targets outside the project.
-- Before deciding how to parse, count, transform, or summarize files whose
-  format has not been inspected, inspect a small sample of the original content
-  itself. Expand only for missing format evidence; aggregate full data
-  programmatically and return needed results.
-- Returned declarations, bodies, usages, relations, and contextual spans from
-  any tool — not only `read` — are source context; `read` covers only omitted
-  lines or missing anchored ranges.
-
+- Use documented non-mutating readers directly, without prerequisite copies.
+  For stateful inputs, retain an unchanged backup of every source artifact
+  before opening or repairing them; use a separate working copy. A modified working copy
+  is not a backup. Keep the backup after replacing originals unless the user
+  explicitly requires that data to be purged.
+  Allocate needed temporary workspaces with a unique-directory allocator,
+  never by clearing an existing path. Never mutate to bypass unexpected state.
+- One evidence owner; known targets go directly there. When a diff establishes
+  the cause, edit site and required change, implement next without another
+  source view or history query. Otherwise obtain only the missing evidence.
+  Follow miss causes; a missing `code_graph` symbol alone gets one literal `grep` fallback.
+- State/history/diff→`git`; structure/symbols/relations→`code_graph`;
+  text/regex→`grep`; content/ranges/images→`read`; wildcard paths→`glob`;
+  immediate entries→`list`; unknown paths→`find`.
+- UI/edit sites use `grep` and only missing anchored ranges. Do not combine
+  `overview` and `symbols` for one need. Prior sessions need a request or open decision.
+- Supplied/home/environment paths need no locator. Use project-relative paths
+  inside, explicit paths outside; one parent listing instead of sibling walks.
+- Sample each unknown source format directly, not every file with established
+  structure. Enumerate paths only when the path list itself is needed.
+  Once formats and required selection rules are known, process full data programmatically.
+  A sample is not the input domain; follow the contract for other values.

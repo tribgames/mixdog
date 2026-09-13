@@ -267,12 +267,7 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   ]);
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.required, ['text', 'status', 'kind']);
   assert.equal(goalTool.inputSchema.properties.blocker.minLength, 1);
-  assert.match(goalTool.description, /If a mutation needs approval, create the Goal only after it/i);
-  assert.match(goalTool.description, /Goal creation requires an explicit request from the user or system\/developer instructions/i);
-  assert.match(goalTool.description, /Ordinary tasks, complexity, or planning needs do not imply a Goal request/i);
   assert.match(goalTool.description, /idle reminder for unfinished work/i);
-  assert.doesNotMatch(goalTool.description, /3\+ steps or careful planning|skip trivial or conversational work/i);
-  assert.match(goalTool.inputSchema.properties.action.description, /pause waits for user; resume accompanies resumed work/i);
   assert.match(goalTool.inputSchema.properties.action.description, /abandon retires superseded work/i);
   assert.match(goalTool.inputSchema.properties.blocker.description, /external impasse.*3 consecutive turns/i);
   // Retiring scoped-out work must not require falsely marking it completed.
@@ -585,7 +580,7 @@ test('Goal status shows the model exactly what the user still sees', async () =>
   }
 });
 
-test('unified Goal tool accepts model-shaped fields, consumes only the action payload, and keeps legacy compatibility', async () => {
+test('unified Goal tool accepts model-shaped fields and rejects retired tool names', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-unified-'));
   const runtime = createGoalRuntime({ dataDir });
   try {
@@ -660,10 +655,12 @@ test('unified Goal tool accepts model-shaped fields, consumes only the action pa
     }, { callerSessionId: 'sess_goal_unified' })).goal;
     assert.equal(status.status, 'complete');
 
-    const legacyStatus = JSON.parse(await runtime.executeTool('get_goal', {}, {
-      callerSessionId: 'sess_goal_unified',
-    })).goal;
-    assert.equal(legacyStatus.id, created.id);
+    for (const name of ['get_goal', 'create_goal', 'update_goal', 'set_goal_tasks']) {
+      await assert.rejects(runtime.executeTool(name, {}, {
+        callerSessionId: 'sess_goal_unified',
+      }), /unknown Goal tool/);
+    }
+    assert.equal(runtime.snapshot('sess_goal_unified').revision, status.revision);
 
     await runtime.executeTool('goal', {
       action: 'create',
@@ -696,7 +693,7 @@ test('unified Goal tool accepts model-shaped fields, consumes only the action pa
   }
 });
 
-test('Goal turn lifecycle requires three identical failures, preserves blockers, and supports resume', async () => {
+test('Goal turn lifecycle stops terminal failures, preserves blockers, and supports resume', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-lifecycle-'));
   let clock = 2_000_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
@@ -717,18 +714,18 @@ test('Goal turn lifecycle requires three identical failures, preserves blockers,
       status: 'failed',
       error: 'provider request failed',
     });
-    assert.equal(goal.status, 'active');
-    assert.equal(goal.blocker, '');
+    assert.equal(goal.status, 'blocked');
+    assert.equal(goal.blocker, 'provider request failed');
+    assert.equal(runtime.continuation('sess_goal_lifecycle').run, false);
 
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      await runtime.startTurn('sess_goal_lifecycle');
-      clock += 10_000;
-      goal = await runtime.settleTurn('sess_goal_lifecycle', {
-        status: 'failed',
-        error: 'network unavailable',
-      });
-      assert.equal(goal.status, attempt < 3 ? 'active' : 'blocked');
-    }
+    await runtime.control('sess_goal_lifecycle', { action: 'resume' });
+    await runtime.startTurn('sess_goal_lifecycle');
+    clock += 10_000;
+    goal = await runtime.settleTurn('sess_goal_lifecycle', {
+      status: 'failed',
+      error: 'network unavailable',
+    });
+    assert.equal(goal.status, 'blocked');
     assert.equal(goal.blocker, 'network unavailable');
 
     await runtime.executeTool('goal', { action: 'status' }, { callerSessionId: 'sess_goal_lifecycle' });

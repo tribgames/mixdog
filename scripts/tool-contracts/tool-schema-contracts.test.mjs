@@ -48,7 +48,12 @@ test('shell, edit, and task keep their execution contracts', () => {
     || editProps.replace_all?.default !== false
     || editTool.inputSchema?.additionalProperties !== false
     || !/^Replace exact text in one file\./i.test(editTool.description || '')
+    || !/old_string must match once unless replace_all is true/i.test(editTool.description || '')
+    || !/Batch non-overlapping edits in call order/i.test(editTool.description || '')
+    || !/not text another edit creates/i.test(editTool.description || '')
+    || !/intervening lines verbatim/i.test(editTool.description || '')
     || !/Empty only to create/i.test(editProps.old_string?.description || '')
+    || !/never overwrites non-empty files and is not an absence check/i.test(editProps.old_string?.description || '')
     || !/may be empty to delete/i.test(editProps.new_string?.description || '')) {
     throw new Error(`edit tool must preserve the exact-string contract: ${JSON.stringify(editTool)}`);
   }
@@ -186,8 +191,8 @@ test('apply_patch model contract stays a single-string custom grammar tool', () 
       || /Begin Patch|Add File|Delete File|Update File|exact current lines/i.test(patchTool?.description || '')) {
     throw new Error(`apply_patch JSON fallback must stay minimal and grammar-free: ${JSON.stringify(patchTool)}`);
   }
-  if (!/^Edit files with one raw V4A patch; do not wrap it in JSON\./.test(patchTool?.freeformDescription || '')
-      || !/one Add\/Delete\/Update File block per target path/i.test(patchTool?.freeformDescription || '')
+  if (!/^Send raw V4A here, not JSON or a shell command\./.test(patchTool?.freeformDescription || '')
+      || !/one Add\/Delete\/Update File block per path/i.test(patchTool?.freeformDescription || '')
       || patchTool?.freeform?.type !== 'grammar'
       || patchTool?.freeform?.syntax !== 'lark') {
     throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
@@ -206,25 +211,24 @@ test('apply_patch model contract stays a single-string custom grammar tool', () 
   }
 });
 
-test('read schema exposes only the canonical scalar window contract', () => {
+test('read schema exposes canonical scalar and batch windows', () => {
   const readTool = BUILTIN_TOOLS.find((tool) => tool.name === 'read');
   const readDescription = readTool?.description || '';
   const readSchema = readTool?.inputSchema || {};
   const readProps = readSchema.properties || {};
-  if (!/not director/i.test(readDescription)) {
+  if (!/(?:no|not) director/i.test(readDescription)) {
     throw new Error('read description must keep directory-vs-file guidance');
   }
-  if (/line\+context/i.test(readDescription) || !/Known-file contents or line ranges/i.test(readDescription)) {
+  if (/line\+context/i.test(readDescription) || !/Read known file ranges or images/i.test(readDescription)) {
     throw new Error('read description must stay compact and file-oriented');
   }
-  if (readProps.file_path?.type !== 'string'
+  if (readProps.file_path?.anyOf?.[0]?.type !== 'string'
     || readProps.file_path?.minLength !== undefined
-    || readProps.file_path?.anyOf
-    || !/Known file path as plain text/i.test(readProps.file_path?.description || '')
+    || readProps.file_path?.anyOf?.[1]?.type !== 'array'
     || !/fans out to per-file results/i.test(readProps.file_path?.description || '')
     || readProps.path
     || JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])) {
-    throw new Error('read schema must expose only the canonical scalar file_path');
+    throw new Error('read schema must expose canonical file_path with explicit batch support');
   }
   if (readProps.offset?.type !== 'integer'
     || readProps.offset?.minimum !== 1
@@ -236,7 +240,7 @@ test('read schema exposes only the canonical scalar window contract', () => {
   }
   if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key))
     || readSchema.additionalProperties !== false) {
-    throw new Error('read schema must not expose legacy or batch arguments');
+    throw new Error('read schema must not expose legacy arguments');
   }
 });
 
@@ -251,9 +255,6 @@ test('code_graph descriptions route structure lookups away from grep', () => {
     || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))
     || !/Text, literals, and regex belong to grep/i.test(codeGraphDescription)) {
     throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
-  }
-  if (!/File modes use files\[\]/i.test(codeGraphDescription) || !/symbol modes use symbols\[\]/i.test(codeGraphDescription)) {
-    throw new Error('code_graph description must keep its per-mode files[]/symbols[] target contract');
   }
   if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative or absolute/i.test(codeGraphProps.files?.description || '')) {
     throw new Error('code_graph schema must keep compact relative/absolute path descriptions');
@@ -294,6 +295,7 @@ test('code_graph descriptions route structure lookups away from grep', () => {
   assertCodeGraphDescriptionContract({
     description: codeGraphDescription,
     modeDescription: codeGraphProps.mode?.description || '',
+    filesDescription: codeGraphProps.files?.description || '',
     symbolsDescription: codeGraphProps.symbols?.description || '',
   });
 });
@@ -455,7 +457,7 @@ test('load_tool and Skill schemas stay pure loaders', () => {
     throw new Error('load_tool schema must require non-empty names[] as the only loader field (legacy select stays retired)');
   }
   const skillNameSchema = SKILL_TOOL.inputSchema?.properties?.name;
-  if (!/Load the SKILL\.md of an available skill whose trigger matches/i.test(SKILL_TOOL.description || '')
+  if (!/Load or refresh an available skill’s SKILL\.md before task actions/i.test(SKILL_TOOL.description || '')
     || skillNameSchema?.type !== 'string'
     || skillNameSchema?.minLength !== undefined
     || !/Exact name from available-skills/i.test(skillNameSchema?.description || '')
@@ -491,22 +493,22 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
       || grepArrayPatternShape?.minItems !== undefined
       || grepArrayPatternShape?.maxItems !== 10
       || grepTool?.inputSchema?.properties?.pattern?.type
-      || grepTool?.inputSchema?.properties?.path?.type !== 'string'
+      || grepTool?.inputSchema?.properties?.path?.anyOf?.[0]?.type !== 'string'
       || grepTool?.inputSchema?.properties?.path?.minLength !== undefined
-      || grepTool?.inputSchema?.properties?.path?.anyOf
+      || grepTool?.inputSchema?.properties?.path?.anyOf?.[1]?.type !== 'array'
       || grepTool?.inputSchema?.properties?.glob?.type !== 'string'
       || grepTool?.inputSchema?.properties?.glob?.minLength !== undefined
       || grepTool?.inputSchema?.properties?.glob?.anyOf
       || grepTool?.inputSchema?.properties?.limit?.type !== 'integer'
       || grepTool?.inputSchema?.properties?.offset?.type !== 'integer'
       || grepTool?.inputSchema?.properties?.context?.type !== 'integer'
-      || !/literal text or regex/i.test(grepPatternDescription)
-      || !/plain (?:existing )?file or directory scope/i.test(grepPathDescription)) {
-    throw new Error('grep schema must expose pattern fan-out and scalar path/glob guidance');
+      || !/ripgrep regex/i.test(grepPatternDescription)
+      || !/plain (?:existing )?file(?: or |\/)directory scopes?/i.test(grepPathDescription)) {
+    throw new Error('grep schema must expose pattern and path fan-out with scalar glob guidance');
   }
-  if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.description || '')
+  if (!/\bSearch literal\/regex file contents\b/i.test(grepTool?.description || '')
       || !/contextual path:line blocks/i.test(grepTool?.description || '')
-      || !/reconnaissance pattern goes to mode:files/i.test(grepTool?.description || '')) {
+      || !/Broad reconnaissance: mode:files/i.test(grepTool?.description || '')) {
     throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
   }
   if (!/glob filter evaluated inside path/i.test(grepGlobDescription)
@@ -548,9 +550,9 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
   ]) {
     if (schema?.type !== 'integer') throw new Error(`${label} must expose integer schema: ${JSON.stringify(schema)}`);
   }
-  if (!/wildcard-matching (?:file )?paths under a known base/i.test(globTool?.description || '')
+  if (!/Wildcard file-path lookup under a known directory/i.test(globTool?.description || '')
       || !/Directories never match/i.test(globTool?.description || '')
-      || !/unknown base directory goes to find first/i.test(globTool?.description || '')
+      || !/Unknown base: find first/i.test(globTool?.description || '')
       || !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')) {
     throw new Error('glob description must state its known-base wildcard path contract');
   }

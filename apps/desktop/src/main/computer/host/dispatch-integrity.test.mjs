@@ -20,6 +20,12 @@ const { createComputerExecutionPolicy } = await import('./execution-policy.ts');
 const { createCaptureEngine } = await import('../observation/capture.ts');
 const { createComputerCommandBudget } = await import('./command-budget.ts');
 const { computerUseCoordinator } = await import('../session/coordinator.ts');
+const { createExecutionState } = await import('./execution-state.ts');
+const { createSessionState } = await import('../session/state.ts');
+
+function stateAdapters() {
+  return { ...createExecutionState(), ...createSessionState({ callPowerShell: async () => ({ ok: true }) }) };
+}
 
 // The command router refuses every command off Windows before any routing runs.
 const WINDOWS_ONLY = { skip: process.platform !== 'win32' };
@@ -28,6 +34,7 @@ test('semantic input does not move a duplicate display pointer before native dis
   let dispatched = 0;
   computerUseCoordinator.beginCommand({ sessionId: 'test', action: 'invoke', mode: 'background' });
   const router = createCommandRouter({
+    ...stateAdapters(),
     isObserveOnly: () => false, sessionIdFor: () => 'test',
     framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
     lastCaptureBySession: new Map(), sessionRecoveryBySession: new Map(),
@@ -65,6 +72,7 @@ test('switching observation-only on during preparation blocks the pending input'
   let observeOnly = false;
   let dispatched = 0;
   const router = createCommandRouter({
+    ...stateAdapters(),
     isObserveOnly: () => observeOnly, sessionIdFor: () => 'test',
     framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
     lastCaptureBySession: new Map(),
@@ -84,6 +92,7 @@ test('authority which expires during preparation never reaches the input backend
     version: 1, actions: ['clipboard_write'], windows: [], expiresAt: new Date(1000).toISOString(),
   }, () => now);
   const router = createCommandRouter({
+    ...stateAdapters(),
     policy, isObserveOnly: () => false, sessionIdFor: () => 'test',
     framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
     lastCaptureBySession: new Map(), sessionRecoveryBySession: new Map(),
@@ -99,6 +108,7 @@ test('authority which expires during preparation never reaches the input backend
 test('unavailable window compositor never falls back to pixels belonging to another window', async () => {
   const calls = [];
   const capture = createCaptureEngine({
+    ...stateAdapters(),
     sessionIdFor: () => 'test', assertExecutionNotAborted() {},
     callPowerShell: async (request) => {
       calls.push(request.action);

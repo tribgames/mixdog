@@ -59,6 +59,8 @@ export async function runGrepPatternFanout({
             }
             const prefilterArgs = buildGrepRgArgs({
                 patterns,
+                includeNoise: args.include_noise === true,
+                text: args.text === true,
                 searchPath: preSearchPath,
                 globPatterns: normalizedGlobPatterns,
                 outputMode: 'files_with_matches',
@@ -120,6 +122,8 @@ export async function runGrepPatternFanout({
         }
         const combinedArgs = buildGrepRgArgs({
             patterns,
+            includeNoise: args.include_noise === true,
+            text: args.text === true,
             searchPath: rgSearchPath,
             globPatterns: normalizedGlobPatterns,
             outputMode,

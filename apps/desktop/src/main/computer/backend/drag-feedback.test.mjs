@@ -24,6 +24,9 @@ public static class GestureFixture {
   public static bool Interrupt;
   static POINT point;
   static void AssertDragTarget(IntPtr target, int x, int y) {}
+  static void AssertCursorPosition(int x, int y) {
+    if (point.x != x || point.y != y) throw new Exception("fixture cursor mismatch");
+  }
   static void GlideCursor(IntPtr target, int x, int y) { point.x=x; point.y=y; }
   static bool SetCursorPos(int x, int y) {
     if (Interrupt) throw new Exception("fixture interrupted");

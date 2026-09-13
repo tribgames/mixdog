@@ -1,4 +1,4 @@
-import { ArrowUp, Command, Mic, X } from "lucide-react";
+import { ArrowUp, Mic, X } from "lucide-react";
 import { ErrorNotice, errorSummary } from "./ErrorNotice";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -11,9 +11,7 @@ import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { shouldStopComposerGeneration } from "./renderer-logic.mjs";
 import {
-  desktopSlashCommandDescription,
   resolveDesktopSlashCommand,
-  SLASH_COMMANDS,
   type CommandSurface as CommandSurfaceName,
   type SettingsSection,
 } from "./slash-commands";
@@ -227,8 +225,6 @@ export const Composer = memo(function Composer({
       window.clearTimeout(composerNoticeTimer.current);
     };
   }, []);
-  const [slashIndex, setSlashIndex] = useState(0);
-  const [slashDismissedDraft, setSlashDismissedDraft] = useState('');
   const [composerFocused, setComposerFocused] = useState(false);
   const [caretOffset, setCaretOffset] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -253,7 +249,6 @@ export const Composer = memo(function Composer({
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
-  const slashPalette = useRef<HTMLDivElement>(null);
   const messagePalette = useRef<HTMLDivElement>(null);
   const mentionPalette = useRef<HTMLDivElement>(null);
   const mentionSearchGeneration = useRef(0);
@@ -415,8 +410,6 @@ export const Composer = memo(function Composer({
       return next;
     });
     setComposerNotice('');
-    setSlashIndex(0);
-    setSlashDismissedDraft('');
     setComposerFocused(false);
     setCaretOffset(0);
     setMentionIndex(0);
@@ -477,18 +470,11 @@ export const Composer = memo(function Composer({
     : turnBusy ? t('Steer the active turn or queue a follow-up…')
       : commandBusy ? t('Queue a message after the current command…')
         : t(COMPOSER_PLACEHOLDERS[0]);
-  // Match the TUI palette: it only owns a single, argument-free /token.
-  // Once whitespace is entered the composer returns to normal editing and the
-  // argument hint/submit path owns the draft.
-  const slashMatch = /^\/([^\s]*)$/.exec(draft);
-  const slashQuery = slashMatch?.[1]?.toLowerCase() || '';
-  const slashCommands = slashMatch
-    ? SLASH_COMMANDS.filter((command) => command.name.startsWith(slashQuery) ||
-      command.aliases?.some((alias) => alias.startsWith(slashQuery)))
-      .sort((left, right) => left.name.localeCompare(right.name, 'en', { sensitivity: 'base' }))
-      .slice(0, 10)
-    : [];
-  const slashOpen = Boolean(!commandBusy && slashMatch && slashDismissedDraft !== draft);
+  // The desktop composer has NO slash palette (user: 컴포저에서 슬래시 커맨드가
+  // 보이지만 않게). Every /command still executes through executeSlash, and the
+  // command registry still routes the setup tool's UI-open requests — only the
+  // typeahead list is gone, because this app already exposes each destination
+  // as a real control.
   const mentionMatch = useMemo(() => {
     const beforeCaret = draft.slice(0, Math.max(0, Math.min(caretOffset, draft.length)));
     const match = /(^|[\s([{"'])@([^\s@]*)$/.exec(beforeCaret);
@@ -503,16 +489,8 @@ export const Composer = memo(function Composer({
     mentionDismissed !== mentionSignature);
   // ABB: each open composer palette answers hardware back with the same
   // dismissal its own Escape performs.
-  useMobileBack(slashOpen, () => setSlashDismissedDraft(draft));
   useMobileBack(mentionOpen, () => setMentionDismissed(mentionSignature));
   useMobileBack(selectorOpen, () => setSelectorOpen(false));
-  const paletteCommandToken = (command: (typeof SLASH_COMMANDS)[number] | undefined) => {
-    if (!command) return '';
-    const typedToken = draft.slice(1).trim().toLowerCase();
-    return typedToken && (typedToken === command.name || command.aliases?.includes(typedToken))
-      ? typedToken
-      : command.name;
-  };
   // Autosize is CSS-native now (field-sizing: content). The old layout-effect
   // path forced TWO whole-document synchronous reflows per keystroke
   // (height:auto → scrollHeight read) — the measured source of typing lag on
@@ -523,7 +501,6 @@ export const Composer = memo(function Composer({
   }, [transitioning]);
   useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
 
-  useEffect(() => setSlashIndex(0), [slashQuery]);
   useEffect(() => setMentionIndex(0), [mentionMatch?.query]);
   useEffect(() => {
     if (!mentionOpen || !mentionMatch) {
@@ -553,11 +530,6 @@ export const Composer = memo(function Composer({
       if (mentionSearchGeneration.current === generation) mentionSearchGeneration.current += 1;
     };
   }, [mentionMatch?.end, mentionMatch?.query, mentionMatch?.start, mentionOpen, projectScope]);
-  useEffect(() => {
-    if (!slashOpen) return;
-    slashPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
-      ?.scrollIntoView?.({ block: 'nearest' });
-  }, [slashIndex, slashOpen, slashQuery]);
   useEffect(() => {
     if (!selectorOpen) return;
     messagePalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
@@ -913,14 +885,6 @@ export const Composer = memo(function Composer({
       setDismissed: setMentionDismissed,
       setResults: setMentionResults,
     },
-    slash: {
-      open: slashOpen,
-      commands: slashCommands,
-      index: slashIndex,
-      setIndex: setSlashIndex,
-      setDismissedDraft: setSlashDismissedDraft,
-      commandToken: paletteCommandToken,
-    },
     selector: {
       open: selectorOpen,
       setOpen: setSelectorOpen,
@@ -994,7 +958,7 @@ export const Composer = memo(function Composer({
         dropTargetRef.current,
       )}
       <form ref={paletteAnchor} className="composer" onSubmit={onSubmit}
-        data-composer-palette-open={selectorOpen || slashOpen || mentionOpen ? "true" : undefined}
+        data-composer-palette-open={selectorOpen || mentionOpen ? "true" : undefined}
         aria-busy={transitioning} onMouseDown={(event) => {
           if (touchPrimaryPointer()) return;
           const target = event.target as HTMLElement;
@@ -1013,21 +977,6 @@ export const Composer = memo(function Composer({
               <span>{oneLine(queuedFollowupPreview(message.text), 90)}</span>
             </button>
           ))}
-        </ComposerPalette>
-      )}
-      {slashOpen && (
-        <ComposerPalette anchor={paletteAnchor} panel={slashPalette} id="composer-slash-palette" label={t("Slash commands")}>
-          <header><Command size={14} /><span>{t("Commands")}</span></header>
-          {slashCommands.length ? slashCommands.map((command, index) => (
-            <button type="button" role="option" aria-selected={index === slashIndex} key={command.name}
-              id={`composer-slash-option-${index}`}
-              onMouseDown={(event) => event.preventDefault()}
-              onMouseEnter={() => setSlashIndex(index)}
-              onClick={() => { void send(`/${paletteCommandToken(command)}`, 'slash-click'); }}>
-              <code>{command.usage || `/${command.name}`}{command.params ? ` ${command.params}` : ''}</code>
-              <span>{desktopSlashCommandDescription(command)}</span>
-            </button>
-          )) : <p>{t("No matching command.")}</p>}
         </ComposerPalette>
       )}
       {mentionOpen && (
@@ -1104,7 +1053,7 @@ export const Composer = memo(function Composer({
       <div className="composer-input-row">
       {skillSelection.name && <span className="composer-selected-skill">
         <button type="button" onClick={() => textarea.current?.focus()} title={skillSelection.name}>
-          <CapabilityIcon name={skillSelection.name} /><span>{t(skillTitle(skillSelection.name))}</span>
+          <CapabilityIcon name={skillSelection.name} /><span>{skillTitle(skillSelection.name)}</span>
         </button>
       </span>}
       <textarea ref={textarea} value={draft} onChange={(event) => {
@@ -1126,7 +1075,6 @@ export const Composer = memo(function Composer({
         if (attachmentError) setAttachmentError('');
         if (composerNotice) setComposerNotice('');
         setCaretOffset(event.currentTarget.selectionStart);
-        if (slashDismissedDraft) setSlashDismissedDraft('');
         if (mentionDismissed) setMentionDismissed('');
         historyNavigation.current = { index: -1, seed: '' };
       }} onFocus={() => setComposerFocused(true)} onBlur={() => {
@@ -1174,11 +1122,11 @@ export const Composer = memo(function Composer({
         }}
         rows={1} placeholder={placeholder}
         disabled={transitioning}
-        aria-controls={mentionOpen ? 'composer-mention-palette' : slashOpen ? 'composer-slash-palette' : undefined}
-        aria-expanded={mentionOpen || slashOpen}
+        aria-controls={mentionOpen ? 'composer-mention-palette' : undefined}
+        aria-expanded={mentionOpen}
         aria-activedescendant={mentionOpen && mentionResults.length
           ? `composer-mention-option-${mentionIndex}`
-          : slashOpen && slashCommands.length ? `composer-slash-option-${slashIndex}` : undefined}
+          : undefined}
         aria-label={t("Message Mixdog")} />
       </div>
       <div className="composer-footer">
@@ -1192,7 +1140,7 @@ export const Composer = memo(function Composer({
           disabled={transitioning || !paneActive} goalDisabled={turnBusy || commandBusy || submitting}
           onAttach={() => fileInput.current?.click()}
           onSkill={name => {
-            skillSelection.select(name); setSlashDismissedDraft(draft); setMentionDismissed(mentionSignature);
+            skillSelection.select(name); setMentionDismissed(mentionSignature);
             queueMicrotask(() => textarea.current?.focus());
           }}
           onGoal={executeSlash} onMore={() => onOpenSettings('skills')} />
@@ -1200,7 +1148,9 @@ export const Composer = memo(function Composer({
           modelParameters={modelParameters}
           contextPercent={contextPercent}
           sessionId={sessionId}
-          modelDisabled={commandBusy || transitioning}
+          // Model writes are queued by the session API. A preceding write must
+          // not disable the next selection while its acknowledgement travels.
+          modelDisabled={transitioning}
           // Effort/Fast stay live during a turn: the running turn already
           // captured its own effort/fast at turn start, so a change here lands
           // on the NEXT turn instead of being locked out. Only session-command

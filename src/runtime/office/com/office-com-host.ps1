@@ -209,6 +209,21 @@ function Snapshot-Word($doc, $payload) {
       # changes touching the paragraph, and list membership as kind + 0-based level.
       if ($accepted.tracked) { $entry.tracked = $true }
       if ($deletedText.Length -gt 0) { $entry.deletedText = $deletedText }
+      # Word can hide a run: the words stay in the document and the page does not
+      # show them. Reported like ordinary body text they get quoted and edited as
+      # what the document says, so the hidden part is named beside the paragraph.
+      $hiddenText = ''
+      try {
+        $hiddenState = [int]$p.Range.Font.Hidden
+        if ($hiddenState -eq -1) { $hiddenText = $text }
+        elseif ($hiddenState -ne 0 -and [int]$p.Range.Words.Count -le 200) {
+          foreach ($word in @($p.Range.Words)) {
+            if ([int]$word.Font.Hidden -eq -1) { $hiddenText += [string]$word.Text }
+          }
+        }
+      } catch {}
+      $hiddenText = ([string]$hiddenText).TrimEnd("`r", "`a")
+      if ($hiddenText.Length -gt 0) { $entry.hiddenText = $hiddenText }
       try {
         $listFormat = $p.Range.ListFormat
         $listType = [int]$listFormat.ListType
@@ -313,8 +328,9 @@ function Snapshot-Word($doc, $payload) {
     )) {
       foreach ($location in @('header', 'footer')) {
         try {
-          $collection = if ($location -eq 'header') { $section.Headers } else { $section.Footers }
-          $item = $collection.Item([int]$kind.value)
+          # Read straight off the section: a collection passed through an
+          # if-expression unrolls into an array whose Item(n) is 0-based.
+          $item = if ($location -eq 'header') { $section.Headers.Item([int]$kind.value) } else { $section.Footers.Item([int]$kind.value) }
           if (-not [bool]$item.Exists) { continue }
           $stories += [ordered]@{
             path = "/section[$sectionIndex]/${location}[$($kind.name)]"
@@ -464,6 +480,7 @@ function Snapshot-Word($doc, $payload) {
   return [ordered]@{
     format = 'docx'
     path = [string]$doc.FullName
+    trackChanges = [bool]$doc.TrackRevisions
     paragraphCount = $doc.Paragraphs.Count
     tableCount = $doc.Tables.Count
     commentCount = $comments.Count
@@ -530,12 +547,36 @@ function Snapshot-Excel($book, $payload) {
   $sheets = @()
   foreach ($sheet in @($book.Worksheets)) {
     $used = $sheet.UsedRange
+    # Rows and columns the sheet withholds (a filter, an outline, a working
+    # column). The portable reader answers with the same two lists, so an edit
+    # never lands in a hidden column on one backend and a visible one on the other.
+    $hiddenRows = @()
+    $hiddenColumns = @()
+    try {
+      if ([int]$used.Rows.Count -le 500) {
+        $firstRow = [int]$used.Row
+        for ($hiddenIndex = 1; $hiddenIndex -le [int]$used.Rows.Count; $hiddenIndex++) {
+          if ([bool]$used.Rows.Item($hiddenIndex).Hidden) { $hiddenRows += ($firstRow + $hiddenIndex - 1) }
+        }
+      }
+      if ([int]$used.Columns.Count -le 200) {
+        $firstColumn = [int]$used.Column
+        for ($hiddenIndex = 1; $hiddenIndex -le [int]$used.Columns.Count; $hiddenIndex++) {
+          if ([bool]$used.Columns.Item($hiddenIndex).Hidden) { $hiddenColumns += (Excel-ColumnLetters ($firstColumn + $hiddenIndex - 1)) }
+        }
+      }
+    } catch {}
     $entry = [ordered]@{
       path = "/sheet[$([string]$sheet.Name)]"
       name = [string]$sheet.Name
       rows = [int]$used.Rows.Count
       columns = [int]$used.Columns.Count
-      visible = [int]$sheet.Visible
+      # Excel answers with a code (-1 visible, 0 hidden, 2 very hidden). The
+      # portable reader answers with the word set_sheet_visibility takes, so one
+      # workbook must read the same on both backends.
+      visibility = $(switch ([int]$sheet.Visible) { 0 { 'hidden' } 2 { 'very_hidden' } default { 'visible' } })
+      hiddenRows = @($hiddenRows)
+      hiddenColumns = @($hiddenColumns)
       pageSetup = [ordered]@{
         printArea = $(try { [string]$sheet.PageSetup.PrintArea } catch { '' })
         zoom = $(try { $sheet.PageSetup.Zoom } catch { $null })
@@ -543,6 +584,20 @@ function Snapshot-Excel($book, $payload) {
         fitToPagesTall = $(try { $sheet.PageSetup.FitToPagesTall } catch { $null })
         orientation = $(try { [int]$sheet.PageSetup.Orientation } catch { 0 })
         paperSize = $(try { [int]$sheet.PageSetup.PaperSize } catch { 0 })
+        # What every printed page says, in the same &L/&C/&R form the file stores
+        # and the portable reader reports.
+        header = $(try {
+          (@('L', 'C', 'R') | ForEach-Object {
+            $slot = switch ($_) { 'L' { [string]$sheet.PageSetup.LeftHeader } 'C' { [string]$sheet.PageSetup.CenterHeader } default { [string]$sheet.PageSetup.RightHeader } }
+            if ($slot) { "&$_$slot" }
+          }) -join ''
+        } catch { '' })
+        footer = $(try {
+          (@('L', 'C', 'R') | ForEach-Object {
+            $slot = switch ($_) { 'L' { [string]$sheet.PageSetup.LeftFooter } 'C' { [string]$sheet.PageSetup.CenterFooter } default { [string]$sheet.PageSetup.RightFooter } }
+            if ($slot) { "&$_$slot" }
+          }) -join ''
+        } catch { '' })
       }
     }
     $tables = @()
@@ -1285,6 +1340,9 @@ function Snapshot-PowerPoint($presentation, $payload) {
     $slides += [ordered]@{
       path = "/slide[$([int]$slide.SlideIndex)]"
       index = [int]$slide.SlideIndex
+      # A hidden slide ships with the deck and is skipped when it is shown; both
+      # readers must say so, or a withdrawn page is summarized as presented.
+      hidden = $(try { [bool]$slide.SlideShowTransition.Hidden } catch { $false })
       layout = [ordered]@{ index = $layoutIndex; name = $layoutName }
       background = [ordered]@{
         followMaster = $followMasterBackground
@@ -1461,6 +1519,114 @@ function Snapshot-Document($document, [string]$format, $payload) {
   }
   if ([bool]$payload.includeSelection) { $value['selection'] = Snapshot-Selection $document $format }
   return $value
+}
+
+# A Word table's per-column text alignment: every paragraph of every cell in the
+# column, the way the portable backend writes each cell's justification.
+function Set-WordTableColumnAlignments($table, $alignments) {
+  $values = @($alignments)
+  $columnCount = [int]$table.Columns.Count
+  for ($column = 1; $column -le [Math]::Min($columnCount, $values.Count); $column++) {
+    $alignment = switch (([string]$values[$column - 1]).ToLowerInvariant()) { 'center' { 1 } 'right' { 2 } 'justify' { 3 } default { 0 } }
+    for ($row = 1; $row -le [int]$table.Rows.Count; $row++) {
+      try { $table.Cell($row, $column).Range.ParagraphFormat.Alignment = $alignment } catch {}
+    }
+  }
+}
+
+# An unstyled table reads the same on both backends: a rule under the header and
+# hairlines between rows (the portable writer's default borders); an explicit
+# style, borders, or shading replaces it.
+function Set-WordTableDefaultRules($table) {
+  try {
+    $table.Borders.Enable = 0
+    $bottom = $table.Borders.Item(-3)   # wdBorderBottom
+    $bottom.LineStyle = 1; $bottom.LineWidth = 4; $bottom.Color = Color-Value 'BFC5CB'
+    $inside = $table.Borders.Item(-5)   # wdBorderHorizontal
+    $inside.LineStyle = 1; $inside.LineWidth = 2; $inside.Color = Color-Value 'D8DCE0'
+  } catch {}
+}
+
+# Explicit table borders in the portable writer's vocabulary: one spec for every
+# side, or { top, left, bottom, right, insideH, insideV } each { enabled?, style?,
+# size? (eighths of a point), color? }. A stat strip keeps only its bottom rule
+# on both backends instead of Word's full grid.
+function Set-WordTableBorders($table, $borders) {
+  $sides = [ordered]@{ top = -1; left = -2; bottom = -3; right = -4; insideH = -5; insideV = -6 }
+  # A bare true or a style name is one spec for every side; only an object can
+  # name sides (a boolean has no properties, and a null name is no key).
+  $named = @()
+  if ($borders -isnot [bool] -and $borders -isnot [string]) {
+    $named = @($borders.PSObject.Properties | ForEach-Object { $_.Name } | Where-Object { $_ -and $sides.Contains($_) })
+  }
+  $uniform = $named.Count -eq 0
+  foreach ($side in $sides.Keys) {
+    $spec = if ($uniform) { $borders } else { $borders.$side }
+    $edge = $table.Borders.Item($sides[$side])
+    $style = if ($null -eq $spec) { 'none' } elseif ($spec -is [string]) { $spec } elseif ($spec.style) { [string]$spec.style } else { 'single' }
+    if ($spec -eq $false -or $spec.enabled -eq $false -or $style -eq 'none' -or $style -eq 'nil') {
+      try { $edge.LineStyle = 0 } catch {}
+      continue
+    }
+    try {
+      $edge.LineStyle = switch ($style) { 'dashed' { 3 } 'dotted' { 2 } 'double' { 7 } default { 1 } }
+      $size = if ($spec -isnot [string] -and $spec.size) { [int]$spec.size } else { 4 }
+      $edge.LineWidth = $(if ($size -le 2) { 2 } elseif ($size -le 4) { 4 } elseif ($size -le 6) { 6 } elseif ($size -le 8) { 8 } elseif ($size -le 12) { 12 } elseif ($size -le 18) { 18 } elseif ($size -le 24) { 24 } elseif ($size -le 36) { 36 } else { 48 })
+      if ($spec -isnot [string] -and $spec.color) { $edge.Color = Color-Value ([string]$spec.color) }
+    } catch {}
+  }
+}
+
+# The document's own bullet list: the same marks, face, and hanging indent the
+# portable numbering part writes, so a list reads alike on both backends. Word's
+# gallery default is a heavy Symbol bullet, and the gallery belongs to the user's
+# template, not to this document.
+function Get-WordBulletTemplate($doc) {
+  foreach ($existing in @($doc.ListTemplates)) {
+    try { if ([string]$existing.Name -eq 'MixdogBullet') { return $existing } } catch {}
+  }
+  $template = $doc.ListTemplates.Add($true, 'MixdogBullet')
+  $marks = @([string][char]0x2022, [string][char]0x25E6, [string][char]0x25AA)
+  for ($level = 1; $level -le 3; $level++) {
+    $entry = $template.ListLevels.Item($level)
+    # A literal mark with no %n placeholder is the bullet; setting NumberStyle
+    # to the bullet style on an outline template throws (0x800A1200).
+    $entry.NumberFormat = $marks[$level - 1]
+    $entry.Font.Name = 'Arial'
+    $entry.NumberPosition = [single](36 * $level - 18)
+    $entry.TextPosition = [single](36 * $level)
+    $entry.TabPosition = [single](36 * $level)
+    $entry.TrailingCharacter = 0
+  }
+  return $template
+}
+
+function Apply-WordBullet($doc, $paragraph) {
+  try {
+    # Applied to this paragraph only (wdListApplyToSelection), continuing the
+    # list before it, at the first level: applying to the whole list renumbered
+    # the earlier items into the template's deeper levels.
+    $paragraph.Range.ListFormat.ApplyListTemplate((Get-WordBulletTemplate $doc), $true, 2)
+    $paragraph.Range.ListFormat.ListLevelNumber = 1
+  } catch { $paragraph.Range.ListFormat.ApplyBulletDefault() }
+}
+
+# A chart or picture beside a table is wider than a portrait page. A sheet that
+# declares no fit, print scale, or print area takes one page wide and keeps
+# paging down (a fit only scales down, so a small sheet prints as before); a
+# declared setup is the author's and stays. Returns the fit applied, or $null.
+# PageSetup needs a printer driver; without one the sheet is left as it is.
+function Set-ExcelSheetOnePageWide($sheet) {
+  try {
+    $setup = $sheet.PageSetup
+    if ($setup.Zoom -eq $false) { return $null }
+    if ([int]$setup.Zoom -ne 100) { return $null }
+    if (-not [string]::IsNullOrWhiteSpace([string]$setup.PrintArea)) { return $null }
+    $setup.Zoom = $false
+    $setup.FitToPagesWide = 1
+    $setup.FitToPagesTall = $false
+    return 'one-page-wide'
+  } catch { return $null }
 }
 
 function Color-Value([string]$hex) {
@@ -1745,7 +1911,7 @@ function Invoke-WordOperation($doc, $op) {
         if ($kind -eq 'number') {
           $paragraph.Range.ListFormat.ApplyNumberDefault()
         } elseif ($kind -ne 'none') {
-          $paragraph.Range.ListFormat.ApplyBulletDefault()
+          Apply-WordBullet $doc $paragraph
         } else {
           $paragraph.Range.ListFormat.RemoveNumbers()
         }
@@ -1816,12 +1982,22 @@ function Invoke-WordOperation($doc, $op) {
       if ($props.style) { $table.Style = Word-StyleValue ([string]$props.style) }
       if ($props.textStyle) { $table.Range.Style = Word-StyleValue ([string]$props.textStyle) }
       if ($props.fontName) { $table.Range.Font.Name = [string]$props.fontName }
+      if ($props.fontNameEastAsia) { $table.Range.Font.NameFarEast = [string]$props.fontNameEastAsia }
       if ($props.fontSize) { $table.Range.Font.Size = [single]$props.fontSize }
       if ($props.color) { $table.Range.Font.Color = Color-Value ([string]$props.color) }
       if ($null -ne $props.spacingAfter) { $table.Range.ParagraphFormat.SpaceAfter = [single]$props.spacingAfter }
+      # Cells sit on their bottom edge, the portable writer's default: a Latin-only
+      # figure beside a Hangul one then shares its row's baseline.
+      try { $table.Range.Cells.VerticalAlignment = 3 } catch {}
+      # The header row is set apart by weight unless the caller says otherwise.
+      if ($rows -gt 1 -and $props.headerBold -ne $false -and $props.repeatHeader -ne $false) {
+        try { $table.Rows.Item(1).Range.Font.Bold = -1 } catch {}
+      }
+      if (-not ($props.style -or $props.borders -or $props.shading)) { Set-WordTableDefaultRules $table }
       if ($props.alignment) {
         $table.Rows.Alignment = switch ([string]$props.alignment) { 'center' { 1 } 'right' { 2 } default { 0 } }
       }
+      if ($props.columnAlignments) { Set-WordTableColumnAlignments $table $props.columnAlignments }
       if ($props.columnWidths) {
         for ($column = 1; $column -le [Math]::Min($columns, @($props.columnWidths).Count); $column++) {
           $table.Columns.Item($column).Width = [single]@($props.columnWidths)[$column - 1]
@@ -1832,8 +2008,13 @@ function Invoke-WordOperation($doc, $op) {
           $table.Rows.Item($row).SetHeight([single]@($props.rowHeights)[$row - 1], 1)
         }
       }
-      if ($props.borders) { $table.Borders.Enable = 1 }
+      if ($props.borders) { Set-WordTableBorders $table $props.borders }
       if ($props.shading) { $table.Shading.BackgroundPatternColor = Color-Value ([string]$props.shading) }
+      # The first row is the header: it repeats on every continuation page unless
+      # the caller says the row is data.
+      if ($rows -gt 1 -and $props.repeatHeader -ne $false) {
+        try { $table.Rows.Item(1).HeadingFormat = $true } catch {}
+      }
       return [ordered]@{ op = 'add_table'; changed = $true; table = [int]$table.Index; rows = $rows; columns = $columns }
     }
     'set_table_style' {
@@ -1843,6 +2024,7 @@ function Invoke-WordOperation($doc, $op) {
       if ($props.alignment) {
         $table.Rows.Alignment = switch ([string]$props.alignment) { 'center' { 1 } 'right' { 2 } default { 0 } }
       }
+      if ($props.columnAlignments) { Set-WordTableColumnAlignments $table $props.columnAlignments }
       if ($props.columnWidths) {
         for ($column = 1; $column -le [Math]::Min($table.Columns.Count, @($props.columnWidths).Count); $column++) {
           $table.Columns.Item($column).Width = [single]@($props.columnWidths)[$column - 1]
@@ -1872,8 +2054,20 @@ function Invoke-WordOperation($doc, $op) {
       if ($null -ne $props.bold) { $cell.Range.Font.Bold = if ($props.bold) { -1 } else { 0 } }
       if ($null -ne $props.italic) { $cell.Range.Font.Italic = if ($props.italic) { -1 } else { 0 } }
       if ($props.fontName) { $cell.Range.Font.Name = [string]$props.fontName }
+      if ($props.fontNameEastAsia) { $cell.Range.Font.NameFarEast = [string]$props.fontNameEastAsia }
       if ($props.fontSize) { $cell.Range.Font.Size = [single]$props.fontSize }
       if ($props.color) { $cell.Range.Font.Color = Color-Value ([string]$props.color) }
+      if ($props.horizontalAlignment) {
+        # The cell's horizontal alignment is its paragraphs' alignment.
+        $cell.Range.ParagraphFormat.Alignment = switch (([string]$props.horizontalAlignment).ToLowerInvariant()) {
+          'center' { 1 }
+          'centre' { 1 }
+          'right' { 2 }
+          'justify' { 3 }
+          'left' { 0 }
+          default { throw "set_table_cell_style horizontalAlignment must be left, center, right, or justify, not $($props.horizontalAlignment)" }
+        }
+      }
       return [ordered]@{ op = 'set_table_cell_style'; changed = $true; table = [int]$op.table; row = [int]$op.row; col = [int]$op.col }
     }
     'set_paragraph_text' {
@@ -1901,9 +2095,18 @@ function Invoke-WordOperation($doc, $op) {
     'add_image' {
       $width = if ($op.width) { [single]$op.width } else { [single]0 }
       $height = if ($op.height) { [single]$op.height } else { [single]0 }
-      $shape = $doc.InlineShapes.AddPicture([string]$op.path, $false, $true)
+      # The picture takes a paragraph of its own where the batch has reached — after
+      # the named paragraph, or at the end of the document — the way the portable
+      # writer places it; Word's default is the insertion point, i.e. the document start.
+      $anchorRange = if ($op.paragraph) { $doc.Paragraphs.Item([int]$op.paragraph).Range.Duplicate } else { $doc.Content.Duplicate }
+      $anchorRange.Collapse(0)
+      $pictureParagraph = $doc.Paragraphs.Add($anchorRange)
+      $pictureRange = $pictureParagraph.Range.Duplicate
+      $pictureRange.Collapse(1)
+      $shape = $doc.InlineShapes.AddPicture([string]$op.path, $false, $true, $pictureRange)
       if ($width -gt 0) { $shape.Width = $width }
       if ($height -gt 0) { $shape.Height = $height }
+      if ($op.altText) { $shape.AlternativeText = [string]$op.altText }
       return [ordered]@{ op = 'add_image'; changed = $true }
     }
     'add_comment' {
@@ -2016,16 +2219,31 @@ function Invoke-WordOperation($doc, $op) {
     }
     'set_header_footer' {
       $section = $doc.Sections.Item($(if ($op.section) { [int]$op.section } else { 1 }))
-      $kind = switch ([string]$op.kind) {
+      # kind names either the thing (header, footer) or the page variant; an
+      # unknown name is refused rather than written into a default header.
+      $named = ([string]$op.kind).ToLowerInvariant()
+      if ($named -and @('header', 'footer', 'default', 'first', 'even') -notcontains $named) {
+        throw 'set_header_footer kind must be header, footer, default, first, or even'
+      }
+      $variant = ([string]$op.variant).ToLowerInvariant()
+      if ($variant -and @('default', 'first', 'even') -notcontains $variant) {
+        throw 'set_header_footer variant must be default, first, or even'
+      }
+      if (-not $variant -and @('default', 'first', 'even') -contains $named) { $variant = $named }
+      $kind = switch ($variant) {
         'first' { 2 }
         'even' { 3 }
         default { 1 }
       }
-      $collection = if ($null -ne $op.header -and -not [bool]$op.header) { $section.Footers } else { $section.Headers }
-      $item = $collection.Item($kind)
+      $useFooter = if ($named -eq 'footer') { $true } elseif ($named -eq 'header') { $false } else { ($null -ne $op.header -and -not [bool]$op.header) }
+      # The story is taken straight off the section. A COM collection handed
+      # through an if-expression is unrolled by the pipeline into an array, and
+      # an array's Item(1) is its second element — the first-page header — so
+      # the default header used to land on the first page only, with titlePg on.
+      $item = if ($useFooter) { $section.Footers.Item($kind) } else { $section.Headers.Item($kind) }
       $item.Exists = $true
       $item.Range.Text = [string]$op.text
-      return [ordered]@{ op = 'set_header_footer'; changed = $true; section = $section.Index }
+      return [ordered]@{ op = 'set_header_footer'; changed = $true; section = $section.Index; header = (-not $useFooter); variant = $(if ($variant) { $variant } else { 'default' }) }
     }
     'track_changes' {
       $doc.TrackRevisions = [bool]$op.enabled
@@ -2080,11 +2298,13 @@ function Invoke-WordOperation($doc, $op) {
       return [ordered]@{ op = 'resolve_revision'; changed = $true; revision = $index; resolution = $(if ($resolution -eq 'reject') { 'reject' } else { 'accept' }) }
     }
     'insert_toc' {
-      $range = if ($op.paragraph) {
-        $doc.Paragraphs.Item([int]$op.paragraph).Range.Duplicate
-      } else {
-        $doc.Range(0, 0)
-      }
+      # The table lands where the batch has reached — after the named paragraph, or at
+      # the end of the document — in a paragraph of its own, as the portable writer
+      # places it; it is rebuilt again when the document is saved, once the headings exist.
+      $tocAnchor = if ($op.paragraph) { $doc.Paragraphs.Item([int]$op.paragraph).Range.Duplicate } else { $doc.Content.Duplicate }
+      $tocAnchor.Collapse(0)
+      $tocParagraph = $doc.Paragraphs.Add($tocAnchor)
+      $range = $tocParagraph.Range.Duplicate
       $range.Collapse(1)
       $toc = $doc.TablesOfContents.Add(
         $range,
@@ -2115,14 +2335,16 @@ function Invoke-WordOperation($doc, $op) {
         $footer = $section.Footers.Item($footerKind)
         $footer.Exists = $true
         $range = $footer.Range
-        $range.Text = $(if ($null -ne $op.prefix) { [string]$op.prefix } else { 'Page ' })
+        # The same treatment as the portable writer: the number alone, a prefix
+        # only when asked for, the total only with includeTotal:true.
+        $range.Text = $(if ($op.prefix) { ([string]$op.prefix) + ' ' } else { '' })
         $range = $footer.Range
         $range.Collapse(0)
         $null = $footer.Range.Fields.Add($range, -1, 'PAGE', $true)
-        if ($null -eq $op.includeTotal -or [bool]$op.includeTotal) {
+        if ([bool]$op.includeTotal) {
           $range = $footer.Range
           $range.Collapse(0)
-          $range.InsertAfter($(if ($null -ne $op.separator) { [string]$op.separator } else { ' of ' }))
+          $range.InsertAfter(' ' + $(if ($null -ne $op.separator) { [string]$op.separator } else { '/' }) + ' ')
           $range = $footer.Range
           $range.Collapse(0)
           $null = $footer.Range.Fields.Add($range, -1, 'NUMPAGES', $true)
@@ -2164,7 +2386,7 @@ function Invoke-WordOperation($doc, $op) {
       } elseif ($kind -eq 'number') {
         $paragraph.Range.ListFormat.ApplyNumberDefault()
       } else {
-        $paragraph.Range.ListFormat.ApplyBulletDefault()
+        Apply-WordBullet $doc $paragraph
       }
       if ($op.level) { $paragraph.Range.ListFormat.ListIndent(); for ($level = 2; $level -lt [int]$op.level; $level++) { $paragraph.Range.ListFormat.ListIndent() } }
       return [ordered]@{ op = 'set_list'; changed = $true; paragraph = [int]$op.paragraph; kind = $(if ($kind) { $kind } else { 'bullet' }) }
@@ -2192,8 +2414,46 @@ function Invoke-WordOperation($doc, $op) {
       $bookmark = $doc.Bookmarks.Add([string]$op.name, $range)
       return [ordered]@{ op = 'add_bookmark'; changed = $true; name = [string]$bookmark.Name }
     }
+    'set_content_control' {
+      $tag = [string]$op.tag
+      $control = $null
+      for ($index = 1; $index -le $doc.ContentControls.Count; $index++) {
+        $candidate = $doc.ContentControls.Item($index)
+        if ($tag) {
+          if ([string]$candidate.Tag -eq $tag) { $control = $candidate; break }
+        } elseif ($index -eq [int]$op.control) { $control = $candidate; break }
+      }
+      if ($null -eq $control) {
+        throw $(if ($tag) { "DOCX content control not found for tag: $tag" } else { "DOCX content control $($op.control) not found" })
+      }
+      # A locked control refuses the write; saying so beats a COM error nobody can read.
+      if ($control.LockContents) { throw "DOCX content control $($(if ($tag) { $tag } else { $op.control })) is locked for editing" }
+      $control.Range.Text = [string]$op.text
+      return [ordered]@{ op = 'set_content_control'; changed = $true; control = $(if ($tag) { $tag } else { [int]$op.control }); tag = [string]$control.Tag; text = [string]$op.text }
+    }
+    'add_note' {
+      $kind = $(if ($op.kind) { ([string]$op.kind).ToLowerInvariant() } else { 'footnote' })
+      if ($kind -ne 'footnote' -and $kind -ne 'endnote') { throw "add_note kind must be footnote or endnote" }
+      $range = if ($op.paragraph) { $doc.Paragraphs.Item([int]$op.paragraph).Range.Duplicate } else { $doc.Content.Duplicate }
+      $anchor = 'paragraph'
+      if ($op.find) {
+        $found = $range.Find.Execute([string]$op.find, $false, $false, $false, $false, $false, $true)
+        if (-not $found) { throw "Note anchor text not found: $($op.find)" }
+        $anchor = 'phrase'
+      }
+      # The mark follows the cited phrase, so the range collapses to its end.
+      $range.Collapse(0)
+      $note = $(if ($kind -eq 'endnote') {
+        $doc.Endnotes.Add($range, '', [string]$op.text)
+      } else {
+        $doc.Footnotes.Add($range, '', [string]$op.text)
+      })
+      return [ordered]@{ op = 'add_note'; changed = $true; kind = $kind; note = [int]$note.Index; anchor = $anchor }
+    }
     'set_page' {
-      $section = $doc.Sections.Item($(if ($op.section) { [int]$op.section } else { 1 }))
+      # Without an explicit section the edit lands on the one being written into
+      # — the last — which is what the portable backend does too.
+      $section = $doc.Sections.Item($(if ($op.section) { [int]$op.section } else { [int]$doc.Sections.Count }))
       $props = $op.properties
       if ($props.orientation) { $section.PageSetup.Orientation = $(if ([string]$props.orientation -eq 'landscape') { 1 } else { 0 }) }
       if ($props.topMargin) { $section.PageSetup.TopMargin = [single]$props.topMargin }
@@ -2229,6 +2489,18 @@ function Invoke-ExcelComRetry(
     }
   }
   throw "$label remained busy after transient COM retries. Last error: $lastError"
+}
+
+function Assert-WorksheetName([string]$operation, [string]$name) {
+  # Excel refuses these itself, with a COM error nobody can act on.
+  $label = ([string]$name).Trim()
+  if (-not $label) { throw "$operation requires name" }
+  if ($label.Length -gt 31) { throw "Worksheet names are limited to 31 characters" }
+  $forbidden = [regex]::Match($label, '[:\\/?*\[\]]')
+  if ($forbidden.Success) { throw "Worksheet names cannot contain : \ / ? * [ ] — `"$label`" has $($forbidden.Value)" }
+  if ($label.StartsWith("'") -or $label.EndsWith("'")) { throw "Worksheet names cannot start or end with an apostrophe: $label" }
+  if ($label -match '^(?i)history$') { throw "History is reserved by Excel and cannot name a worksheet" }
+  return $label
 }
 
 function Excel-Sheet($book, $op) {
@@ -2463,11 +2735,15 @@ function Apply-ExcelOperation($book, $op) {
       return [ordered]@{ op = 'append_row'; changed = $true; row = $row }
     }
     'add_sheet' {
-      $sheet = $book.Worksheets.Add()
-      $sheet.Name = [string]$op.name
+      $name = Assert-WorksheetName 'add_sheet' ([string]$op.name)
+      # Excel's Add() inserts before the active sheet; the portable writer appends,
+      # so a Report · Data · Calc · Checks workbook keeps that order on both backends.
+      $sheet = $book.Worksheets.Add([System.Type]::Missing, $book.Worksheets.Item($book.Worksheets.Count))
+      $sheet.Name = $name
       return [ordered]@{ op = 'add_sheet'; changed = $true; sheet = [string]$sheet.Name }
     }
     'copy_sheet' {
+      if ($op.name) { $null = Assert-WorksheetName 'copy_sheet' ([string]$op.name) }
       $source = $book.Worksheets.Item([string]$op.sheet)
       $source.Copy($null, $book.Worksheets.Item($book.Worksheets.Count))
       $copy = $book.Worksheets.Item($book.Worksheets.Count)
@@ -2536,20 +2812,44 @@ function Apply-ExcelOperation($book, $op) {
         }
       }
       if ($null -ne $props.wrapText) { $target.WrapText = [bool]$props.wrapText }
+      if ($null -ne $props.locked) { $target.Locked = [bool]$props.locked }
+      if ($props.borders) {
+        # The four edges as the portable writer's border element: one spec for every side, or a spec per side;
+        # a side named none is cleared, a side not named keeps what the cell had.
+        $sideIndex = @{ left = 7; top = 8; bottom = 9; right = 10 }
+        $uniform = -not ($props.borders.PSObject.Properties.Name | Where-Object { $sideIndex.ContainsKey($_) })
+        foreach ($side in @('left', 'top', 'bottom', 'right')) {
+          $spec = if ($uniform) { $props.borders } else { $props.borders.$side }
+          if ($null -eq $spec) { continue }
+          $edge = $target.Borders.Item($sideIndex[$side])
+          $style = if ($spec -is [string]) { $spec } elseif ($spec.style) { [string]$spec.style } else { 'thin' }
+          if ($spec -eq $false -or $style -eq 'none' -or $spec.enabled -eq $false) { $edge.LineStyle = -4142; continue }
+          $edge.LineStyle = switch ($style) { 'dashed' { -4115 } 'dotted' { -4118 } 'double' { -4119 } default { 1 } }
+          $edge.Weight = switch ($style) { 'hair' { 1 } 'medium' { -4138 } 'thick' { 4 } default { 2 } }
+          if ($spec -isnot [string] -and $spec.color) { $edge.Color = Color-Value ([string]$spec.color) }
+        }
+      }
       return [ordered]@{ op = 'set_style'; changed = $true }
     }
     'add_image' {
       $sheet = Excel-Sheet $book $op
-      $left = if ($op.left) { [single]$op.left } else { [single]0 }
-      $top = if ($op.top) { [single]$op.top } else { [single]0 }
+      # A snapshot reports where a picture sits as cells, so a caller may place
+      # it by cell; explicit points still win.
+      $anchor = if ($op.cell) { $sheet.Range([string]$op.cell) } else { $null }
+      $left = if ($op.left) { [single]$op.left } elseif ($anchor) { [single]$anchor.Left } else { [single]0 }
+      $top = if ($op.top) { [single]$op.top } elseif ($anchor) { [single]$anchor.Top } else { [single]0 }
       $width = if ($op.width) { [single]$op.width } else { [single]320 }
       $height = if ($op.height) { [single]$op.height } else { [single]240 }
-      $null = $sheet.Shapes.AddPicture([string]$op.path, $false, $true, $left, $top, $width, $height)
-      return [ordered]@{ op = 'add_image'; changed = $true }
+      $picture = $sheet.Shapes.AddPicture([string]$op.path, $false, $true, $left, $top, $width, $height)
+      if ($op.altText) { $picture.AlternativeText = [string]$op.altText }
+      $pageFit = Set-ExcelSheetOnePageWide $sheet
+      $imageResult = [ordered]@{ op = 'add_image'; changed = $true }
+      if ($pageFit) { $imageResult.pageFit = $pageFit }
+      return $imageResult
     }
     'rename_sheet' {
       $sheet = Excel-Sheet $book $op
-      $sheet.Name = [string]$op.name
+      $sheet.Name = Assert-WorksheetName 'rename_sheet' ([string]$op.name)
       return [ordered]@{ op = 'rename_sheet'; changed = $true; sheet = [string]$sheet.Name }
     }
     'add_table' {
@@ -2565,13 +2865,15 @@ function Apply-ExcelOperation($book, $op) {
       $chartTypes = @{ column = 51; bar = 57; line = 4; pie = 5; area = 1; scatter = -4169 }
       $kind = ([string]$op.chartType).ToLowerInvariant()
       $chartType = if ($kind -and $chartTypes.ContainsKey($kind)) { [int]$chartTypes[$kind] } elseif ($op.chartType -as [int]) { [int]$op.chartType } else { 51 }
-      $left = if ($null -ne $op.left) { [single]$op.left } else { [single]300 }
-      $top = if ($null -ne $op.top) { [single]$op.top } else { [single]20 }
+      $frameAnchor = if ($op.cell) { $sheet.Range([string]$op.cell) } else { $null }
+      $left = if ($null -ne $op.left) { [single]$op.left } elseif ($frameAnchor) { [single]$frameAnchor.Left } else { [single]300 }
+      $top = if ($null -ne $op.top) { [single]$op.top } elseif ($frameAnchor) { [single]$frameAnchor.Top } else { [single]20 }
       $width = if ($op.width) { [single]$op.width } else { [single]480 }
       $height = if ($op.height) { [single]$op.height } else { [single]280 }
       $shape = Invoke-ExcelComRetry {
         return $sheet.Shapes.AddChart2(-1, $chartType, $left, $top, $width, $height)
       } 'Excel add chart'
+      $pageFit = Set-ExcelSheetOnePageWide $sheet
       $chart = Invoke-ExcelComRetry { return $shape.Chart } 'Excel chart proxy'
       if ($op.range) {
         $null = Invoke-ExcelComRetry {
@@ -2653,19 +2955,83 @@ function Apply-ExcelOperation($book, $op) {
       } else {
         0
       }
-      return [ordered]@{ op = 'add_chart'; changed = $true; name = [string]$shape.Name; series = $seriesCount; categories = $pointCount }
+      $chartResultValue = [ordered]@{ op = 'add_chart'; changed = $true; name = [string]$shape.Name; series = $seriesCount; categories = $pointCount }
+      if ($pageFit) { $chartResultValue.pageFit = $pageFit }
+      return $chartResultValue
+    }
+    'sort_range' {
+      $sheet = Excel-Sheet $book $op
+      $target = $sheet.Range([string]$op.range)
+      $hasHeader = $true
+      if ($null -ne $op.hasHeader) { $hasHeader = [bool]$op.hasHeader }
+      # Same key contract as the portable writer: a column letter, a header, or
+      # the range's first column.
+      $keyColumn = 1
+      $declared = ([string]$op.by).Trim()
+      if (-not $declared) { $declared = ([string]$op.column).Trim() }
+      if ($declared) {
+        if ($declared -match '^[A-Za-z]{1,3}$') {
+          $keyColumn = [int]$sheet.Columns($declared.ToUpperInvariant()).Column - [int]$target.Column + 1
+        } else {
+          for ($index = 1; $index -le [int]$target.Columns.Count; $index += 1) {
+            $headerText = [string]$target.Cells(1, $index).Text
+            if ($headerText.Trim() -eq $declared) { $keyColumn = $index; break }
+          }
+        }
+      }
+      if ($keyColumn -lt 1 -or $keyColumn -gt [int]$target.Columns.Count) {
+        throw "XLSX sort_range by `"$declared`" is outside $([string]$op.range); name a column the range covers."
+      }
+      # Same two refusals as the portable writer, so a sheet sorts the same way
+      # on either backend: a filtered row would keep its flag while the values
+      # move under it, and a merged cell cannot travel with one row.
+      $firstDataRow = 1
+      if ($hasHeader) { $firstDataRow = 2 }
+      $withheldRows = @()
+      for ($index = $firstDataRow; $index -le [int]$target.Rows.Count; $index += 1) {
+        if ([bool]$target.Rows($index).Hidden) { $withheldRows += [int]$target.Rows($index).Row }
+      }
+      if ($withheldRows.Count -gt 0) {
+        $namedRows = ($withheldRows | Select-Object -First 5) -join ', '
+        throw "XLSX sort_range would move values under hidden row $namedRows, leaving a different record withheld. Show them first with set_row_visibility visible: true, or sort a range without them."
+      }
+      if ($target.MergeCells -ne $false) {
+        throw "XLSX sort_range cannot move rows through a merged cell in $([string]$op.range); Excel refuses the same sort. Unmerge them first with unmerge_cells."
+      }
+      $sortOrder = 1
+      if (([string]$op.order).ToLowerInvariant().StartsWith('desc')) { $sortOrder = 2 }
+      $headerFlag = 2
+      if ($hasHeader) { $headerFlag = 1 }
+      $keyRange = $target.Columns($keyColumn)
+      $null = $target.Sort($keyRange, $sortOrder, $null, $null, 1, $null, 1, $headerFlag)
+      return [ordered]@{ op = 'sort_range'; changed = $true; range = [string]$op.range; order = $(if ($sortOrder -eq 2) { 'desc' } else { 'asc' }) }
     }
     'add_conditional_format' {
       $sheet = Excel-Sheet $book $op
       $target = $sheet.Range([string]$op.range)
-      if ($op.formula) {
+      # Same three kinds as the portable writer, resolved there: a rule that
+      # picks cells, a scale that colors every cell by its value, or a bar.
+      $conditionKind = ([string]$op.type).ToLowerInvariant()
+      if ($conditionKind -eq 'colorscale') {
+        $scalePoints = 2
+        if ($op.midColor) { $scalePoints = 3 }
+        $scale = $target.FormatConditions.AddColorScale($scalePoints)
+        if ($op.minColor) { $scale.ColorScaleCriteria(1).FormatColor.Color = Color-Value ([string]$op.minColor) }
+        if ($op.midColor) { $scale.ColorScaleCriteria(2).FormatColor.Color = Color-Value ([string]$op.midColor) }
+        $topCriterion = $scalePoints
+        if ($op.maxColor) { $scale.ColorScaleCriteria($topCriterion).FormatColor.Color = Color-Value ([string]$op.maxColor) }
+      } elseif ($conditionKind -eq 'databar') {
+        $bar = $target.FormatConditions.AddDatabar()
+        $barColor = if ($op.color) { [string]$op.color } elseif ($op.fillColor) { [string]$op.fillColor } else { '' }
+        if ($barColor) { $bar.BarColor.Color = Color-Value $barColor }
+      } else {
         $rule = $target.FormatConditions.Add(2, $null, [string]$op.formula)
         if ($op.color) { $rule.Font.Color = Color-Value ([string]$op.color) }
         if ($op.fillColor) { $rule.Interior.Color = Color-Value ([string]$op.fillColor) }
-      } else {
-        $null = $target.FormatConditions.AddColorScale(3)
       }
-      return [ordered]@{ op = 'add_conditional_format'; changed = $true }
+      # The kind is reported as the contract names it, so both backends answer
+      # with the same word.
+      return [ordered]@{ op = 'add_conditional_format'; changed = $true; type = $(if ($op.type) { [string]$op.type } else { 'expression' }) }
     }
     'delete_conditional_formats' {
       $sheet = Excel-Sheet $book $op
@@ -2678,7 +3044,32 @@ function Apply-ExcelOperation($book, $op) {
       $sheet = Excel-Sheet $book $op
       $target = $sheet.Range([string]$op.range)
       $target.Validation.Delete()
-      $target.Validation.Add(3, 1, 1, [string]$op.formula1)
+      # Same contract as the portable writer: a list unless the caller names
+      # another kind, and a second bound for the ranged kinds.
+      $validationType = switch (([string]$op.type).ToLowerInvariant()) {
+        'whole' { 1 }
+        'decimal' { 2 }
+        'date' { 4 }
+        'time' { 5 }
+        'textlength' { 6 }
+        'custom' { 7 }
+        default { 3 }
+      }
+      $validationOperator = switch (([string]$op.operator).ToLowerInvariant()) {
+        'notbetween' { 2 }
+        'equal' { 3 }
+        'notequal' { 4 }
+        'greaterthan' { 5 }
+        'lessthan' { 6 }
+        'greaterthanorequal' { 7 }
+        'lessthanorequal' { 8 }
+        default { 1 }
+      }
+      if ($null -ne $op.formula2 -and [string]$op.formula2 -ne '') {
+        $target.Validation.Add($validationType, 1, $validationOperator, [string]$op.formula1, [string]$op.formula2)
+      } else {
+        $target.Validation.Add($validationType, 1, $validationOperator, [string]$op.formula1)
+      }
       if ($op.inputMessage) { $target.Validation.InputMessage = [string]$op.inputMessage }
       if ($op.errorMessage) { $target.Validation.ErrorMessage = [string]$op.errorMessage }
       return [ordered]@{ op = 'add_validation'; changed = $true }
@@ -2787,6 +3178,16 @@ function Apply-ExcelOperation($book, $op) {
       return [ordered]@{ op = 'set_hyperlink'; changed = $true; cell = [string]$op.cell; address = [string]$link.Address }
     }
     'define_name' {
+      # Excel answers a name it refuses with a COM error nobody can act on, and
+      # the portable writer would put it in a workbook Excel then declines to
+      # open: the rule is the same on both backends.
+      $name = ([string]$op.name).Trim()
+      # The suggestion is built from the caller's own name: a non-ASCII literal
+      # in this script file is read back as mojibake by Windows PowerShell.
+      if ($name -match '\s') { throw "Excel refuses the defined name `"$name`": it contains a space; use an underscore ($($name -replace '\s+', '_'))." }
+      if ($name -notmatch '^[\p{L}_\\]') { throw "Excel refuses the defined name `"$name`": it must start with a letter, underscore, or backslash." }
+      if ($name -match '[^\p{L}\p{N}_.\\]') { throw "Excel refuses the defined name `"$name`": use letters, digits, underscores, or periods." }
+      if ($name -match '^(?i)([RC]|\$?[A-Z]{1,3}\$?\d{1,7})$') { throw "Excel refuses the defined name `"$name`": Excel reads it as a cell reference, not a name." }
       $refersTo = [string]$op.refersTo
       if (-not $refersTo.StartsWith('=')) { $refersTo = "=$refersTo" }
       $name = $book.Names.Add([string]$op.name, $refersTo)
@@ -2809,7 +3210,19 @@ function Apply-ExcelOperation($book, $op) {
     'autofit_range' {
       $sheet = Excel-Sheet $book $op
       $target = $sheet.Range([string]$op.range)
-      $null = $target.EntireColumn.AutoFit()
+      # A row fit names rows (1:12): fitting columns there would rewrite widths
+      # the caller never asked about, so only a range naming columns fits them.
+      $rowsOnly = ([bool]$op.rows) -and ([string]$op.range -match '^\s*\d+\s*:\s*\d+\s*$')
+      if (-not $rowsOnly) { $null = $target.EntireColumn.AutoFit() }
+      # Fit-to-page never enlarges, so a composed layout asks for a floor width:
+      # the columns keep their fitted size when it is wider, and reach the floor
+      # when the text alone would leave the block small on the printed page.
+      if ($null -ne $op.minWidth -and [double]$op.minWidth -gt 0) {
+        $floor = [math]::Min(80, [double]$op.minWidth)
+        foreach ($column in $target.EntireColumn.Columns) {
+          if ([double]$column.ColumnWidth -lt $floor) { $column.ColumnWidth = $floor }
+        }
+      }
       if ([bool]$op.rows) { $null = $target.EntireRow.AutoFit() }
       return [ordered]@{ op = 'autofit_range'; changed = $true; range = [string]$op.range }
     }
@@ -2842,17 +3255,64 @@ function Apply-ExcelOperation($book, $op) {
       if ($null -ne $op.zoom) { $window.Zoom = [Math]::Max(10, [Math]::Min(400, [int]$op.zoom)) }
       return [ordered]@{ op = 'set_sheet_view'; changed = $true; sheet = [string]$sheet.Name }
     }
+    'set_header_footer' {
+      $sheet = Excel-Sheet $book $op
+      $named = ([string]$op.kind).ToLowerInvariant()
+      if (@('header', 'footer') -notcontains $named) { throw 'set_header_footer kind must be header or footer' }
+      $alignment = if ($op.alignment) { ([string]$op.alignment).ToLowerInvariant() } else { 'center' }
+      if (@('left', 'center', 'right') -notcontains $alignment) { throw 'set_header_footer alignment must be left, center, or right' }
+      # LeftHeader / CenterFooter and the rest: the slot and the story name it.
+      $slot = "$($alignment.Substring(0, 1).ToUpperInvariant())$($alignment.Substring(1))"
+      $property = "$slot$(if ($named -eq 'header') { 'Header' } else { 'Footer' })"
+      # Same token vocabulary as the portable writer: {page} / {pages} and the
+      # rest become Excel field codes, and the caller's own ampersand survives.
+      $marked = ([string]$op.text) -replace '&', '&&'
+      $marked = [System.Text.RegularExpressions.Regex]::Replace($marked, '\{page\}', '&P', 'IgnoreCase')
+      $marked = [System.Text.RegularExpressions.Regex]::Replace($marked, '\{pages\}', '&N', 'IgnoreCase')
+      $marked = [System.Text.RegularExpressions.Regex]::Replace($marked, '\{date\}', '&D', 'IgnoreCase')
+      $marked = [System.Text.RegularExpressions.Regex]::Replace($marked, '\{time\}', '&T', 'IgnoreCase')
+      $marked = [System.Text.RegularExpressions.Regex]::Replace($marked, '\{sheet\}', '&A', 'IgnoreCase')
+      $marked = [System.Text.RegularExpressions.Regex]::Replace($marked, '\{file\}', '&F', 'IgnoreCase')
+      $sheet.PageSetup.$property = $marked
+      return [ordered]@{ op = 'set_header_footer'; changed = $true; sheet = [string]$sheet.Name; kind = $named; alignment = $alignment }
+    }
     'set_sheet_visibility' {
       $sheet = Excel-Sheet $book $op
-      $visibility = ([string]$op.visibility).ToLowerInvariant()
+      # Rows and columns take visible: true/false; a sheet accepts the same word.
+      $visibility = if ($null -ne $op.visibility) { ([string]$op.visibility).ToLowerInvariant() }
+        elseif ($null -ne $op.visible) { if ([bool]$op.visible) { 'visible' } else { 'hidden' } }
+        else { '' }
       $sheet.Visible = switch ($visibility) {
         'hidden' { 0 }
         'very_hidden' { 2 }
         'veryhidden' { 2 }
         'visible' { -1 }
-        default { throw "Unknown worksheet visibility: $visibility" }
+        default { throw "set_sheet_visibility needs visibility: visible, hidden, or very_hidden (or visible: true/false)" }
       }
       return [ordered]@{ op = 'set_sheet_visibility'; changed = $true; sheet = [string]$sheet.Name; visibility = $visibility }
+    }
+    'set_row_visibility' {
+      $sheet = Excel-Sheet $book $op
+      if ($null -eq $op.visible) { throw 'set_row_visibility requires visible: true or false' }
+      $first = [int]$op.row
+      if ($first -lt 1) { throw 'set_row_visibility requires row (1-based)' }
+      $count = if ($op.count) { [Math]::Max(1, [int]$op.count) } else { 1 }
+      $last = $first + $count - 1
+      $sheet.Rows("$($first):$($last)").Hidden = -not [bool]$op.visible
+      return [ordered]@{ op = 'set_row_visibility'; changed = $true; sheet = [string]$sheet.Name; visible = [bool]$op.visible; rows = @($first..$last) }
+    }
+    'set_column_visibility' {
+      $sheet = Excel-Sheet $book $op
+      if ($null -eq $op.visible) { throw 'set_column_visibility requires visible: true or false' }
+      # A letter and a 1-based number name the same column; the caller may use either.
+      $column = [string]$op.column
+      $first = if ($column -match '^[A-Za-z]+$') { [int]$sheet.Columns($column.ToUpperInvariant()).Column } else { [int]$column }
+      if ($first -lt 1) { throw 'set_column_visibility requires column (a letter such as D, or a 1-based number)' }
+      $count = if ($op.count) { [Math]::Max(1, [int]$op.count) } else { 1 }
+      $last = $first + $count - 1
+      $range = $sheet.Range($sheet.Cells.Item(1, $first), $sheet.Cells.Item(1, $last)).EntireColumn
+      $range.Hidden = -not [bool]$op.visible
+      return [ordered]@{ op = 'set_column_visibility'; changed = $true; sheet = [string]$sheet.Name; visible = [bool]$op.visible; columns = @($first..$last) }
     }
     default { throw "Unsupported XLSX operation: $($op.op)" }
   }
@@ -3594,6 +4054,7 @@ function Apply-PowerPointOperation(
     'add_image' {
       $slide = Ppt-Slide $presentation $op
       $shape = Add-PptImage $slide $op
+      if ($op.altText) { $shape.AlternativeText = [string]$op.altText }
       $fit = ([string]$(if ($op.fit) { $op.fit } else { 'stretch' })).ToLowerInvariant()
       return [ordered]@{ op = 'add_image'; changed = $true; shape = [string]$shape.Name; fit = $fit }
     }
@@ -3603,6 +4064,8 @@ function Apply-PowerPointOperation(
       $left = [single]$old.Left; $top = [single]$old.Top; $width = [single]$old.Width; $height = [single]$old.Height
       $old.Delete()
       $shape = $slide.Shapes.AddPicture([string]$op.path, $false, $true, $left, $top, $width, $height)
+      # The old frame's description belongs to the picture that just left it.
+      if ($op.altText) { $shape.AlternativeText = [string]$op.altText }
       return [ordered]@{ op = 'replace_image'; changed = $true; shape = [string]$shape.Name }
     }
     'crop_image' {
@@ -3623,12 +4086,20 @@ function Apply-PowerPointOperation(
       $link = [bool]$op.link
       $embed = if ($null -ne $op.embed) { [bool]$op.embed } else { -not $link }
       $shape = $slide.Shapes.AddMediaObject2([string]$op.path, $(if ($link) { -1 } else { 0 }), $(if ($embed) { -1 } else { 0 }), $left, $top, $width, $height)
+      if ($op.altText) { $shape.AlternativeText = [string]$op.altText }
       return [ordered]@{ op = 'add_media'; changed = $true; shape = [int]$shape.ZOrderPosition; media = [string]$op.path; embedded = $embed }
     }
     'apply_theme' {
       if (-not $op.path) { throw 'apply_theme requires path' }
       $presentation.ApplyTheme([string]$op.path)
       return [ordered]@{ op = 'apply_theme'; changed = $true; path = [string]$op.path }
+    }
+    'set_slide_visibility' {
+      $slide = Ppt-Slide $presentation $op
+      if ($null -eq $op.visible) { throw 'set_slide_visibility requires visible: true or false' }
+      $visible = [bool]$op.visible
+      $slide.SlideShowTransition.Hidden = $(if ($visible) { 0 } else { -1 })
+      return [ordered]@{ op = 'set_slide_visibility'; changed = $true; slide = [int]$slide.SlideIndex; visible = $visible }
     }
     'set_transition' {
       $slide = Ppt-Slide $presentation $op
@@ -3647,8 +4118,10 @@ function Apply-PowerPointOperation(
       $shape = $slide.Shapes.Item([int]$op.shape)
       $effects = @{ appear = 1; fly = 2; fade = 10; wipe = 22; zoom = 23; float = 30 }
       $triggers = @{ onclick = 1; withprevious = 2; afterprevious = 3 }
-      $effectKey = ([string]$op.effect).Replace(' ', '').ToLowerInvariant()
-      $triggerKey = ([string]$op.trigger).Replace(' ', '').ToLowerInvariant()
+      # Same vocabulary as the portable writer: on_click and after_previous are
+      # the separator spelling of the same triggers.
+      $effectKey = ([string]$op.effect) -replace '[\s_-]', '' | ForEach-Object { $_.ToLowerInvariant() }
+      $triggerKey = ([string]$op.trigger) -replace '[\s_-]', '' | ForEach-Object { $_.ToLowerInvariant() }
       $effectType = if ($effects.ContainsKey($effectKey)) { [int]$effects[$effectKey] } elseif ($op.effect -as [int]) { [int]$op.effect } else { 10 }
       $triggerType = if ($triggers.ContainsKey($triggerKey)) { [int]$triggers[$triggerKey] } elseif ($op.trigger -as [int]) { [int]$op.trigger } else { 1 }
       $effect = $slide.TimeLine.MainSequence.AddEffect($shape, $effectType, 0, $triggerType)
@@ -3665,6 +4138,7 @@ function Apply-PowerPointOperation(
       if ($props.width) { $shape.Width = [single]$props.width }
       if ($props.height) { $shape.Height = [single]$props.height }
       if ($null -ne $props.rotation) { $shape.Rotation = [single]$props.rotation }
+      if ($null -ne $props.altText) { $shape.AlternativeText = [string]$props.altText }
       if ($props.fillColor) { $shape.Fill.Visible = $true; $shape.Fill.ForeColor.RGB = Color-Value ([string]$props.fillColor) }
       if ($null -ne $props.fillTransparency) { $shape.Fill.Transparency = [single]$props.fillTransparency }
       if ($props.lineColor) { $shape.Line.Visible = $true; $shape.Line.ForeColor.RGB = Color-Value ([string]$props.lineColor) }
@@ -4551,6 +5025,11 @@ function Validate-NativeDocument([string]$path, [string]$format) {
 function Save-Document($document, [string]$format) {
   if ($format -eq 'xlsx') {
     try { $document.Application.CalculateFullRebuild() } catch {}
+  }
+  if ($format -eq 'docx') {
+    # A table of contents is usually written before the sections it lists; the
+    # save rebuilds it from the headings as they stand, as the portable writer does.
+    try { foreach ($toc in @($document.TablesOfContents)) { try { $toc.Update() } catch {} } } catch {}
   }
   $document.Save()
 }

@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { selectableComposerSkills, withSelectedSkill, useComposerSkill, shouldRemoveSelectedSkill } from './composer-skill.ts';
 import { useComposerSubmission } from './use-composer-submission.ts';
+import { selectedSkillName } from '../../../../src/runtime/shared/skill-selection.mjs';
 
 const dom = new JSDOM('<html><body></body></html>', { url: 'https://mixdog.test/' });
 globalThis.window = dom.window;
@@ -37,13 +38,32 @@ test('menu offers enabled built-in and custom skills, not disabled or unavailabl
   ] }), [{ name: 'pdf', description: 'PDF files' }, { name: 'private-skill', description: '' }]);
 });
 
+test('shipped goal-management stays off the menu because the dedicated goal entry already covers it', () => {
+  const names = selectableComposerSkills({ skills: [
+    { name: 'goal-management', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+    { name: 'goal-management', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
+    { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+  ] }).map(skill => skill.name);
+  assert.deepEqual(names, ['pdf']);
+});
+
+test('built-in skills lead the menu and custom skills keep their reported order below', () => {
+  const names = selectableComposerSkills({ skills: [
+    { name: 'team-review', enabled: true, description: 'Team review' },
+    { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+    { name: 'release-notes', enabled: true, description: 'Release notes' },
+    { name: 'setup', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
+  ] }).map(skill => skill.name);
+  assert.deepEqual(names, ['pdf', 'setup', 'team-review', 'release-notes']);
+});
+
 test('explicit selection preserves multimodal attachments and does not claim the skill already ran', () => {
   const image = { type: 'image', data: 'AAAA', mimeType: 'image/png' };
   const pdf = { type: 'file', data: 'BBBB', mimeType: 'application/pdf', filename: 'report.pdf' };
   const content = [{ type: 'text', text: 'Review this' }, image, pdf];
   const result = withSelectedSkill(content, 'pdf');
   assert.deepEqual(result.slice(1), content);
-  assert.match(result[0].text, /Load it with the Skill tool/);
+  assert.equal(selectedSkillName(result), 'pdf');
   assert.equal(withSelectedSkill(content, ''), content);
 });
 
@@ -84,7 +104,7 @@ test('selection survives rejected submission and scope switches, clears only aft
     assert.equal(submissions.length, 0);
     await act(async () => current.send());
     assert.equal(current.skill.name, 'pdf');
-    assert.match(submissions[0].content, /skill "pdf"/);
+    assert.equal(selectedSkillName(submissions[0].content), 'pdf');
     assert.equal(submissions[0].options.displayText, '[PDF] Make a report');
     await act(async () => root.render(React.createElement(Harness, { scope: 'skill-test-b' })));
     assert.equal(current.skill.name, '');

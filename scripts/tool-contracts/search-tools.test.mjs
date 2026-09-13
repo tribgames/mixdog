@@ -54,7 +54,7 @@ test('list output, meta columns, hidden filtering, and argument guards', async (
   }
 });
 
-test('grep content matches, ENOENT redirect, and redundant globs', async () => {
+test('grep content matches, explicit missing paths, and redundant globs', async () => {
   const grepOut = await executeBuiltinTool('grep', {
     pattern: 'standalone mixdog CLI/TUI coding agent|smoke passed',
     path: 'scripts',
@@ -69,8 +69,8 @@ test('grep content matches, ENOENT redirect, and redundant globs', async () => {
     path: 'bogus/wrong/prefix/scripts/tool-contracts/search-tools.test.mjs',
     head_limit: 3,
   }, root);
-  if (!/^\[redirected from/.test(grepRedirectOut) || !/assertOk/.test(grepRedirectOut)) {
-    throw new Error(`grep ENOENT should auto-redirect on unique suffix hit:\n${grepRedirectOut.slice(0, 800)}`);
+  if (!/^Error: path does not exist:/.test(grepRedirectOut)) {
+    throw new Error(`grep ENOENT must preserve the requested path:\n${grepRedirectOut.slice(0, 800)}`);
   }
 
   const redundantAllFilesGlobGrepOut = await executeBuiltinTool('grep', {
@@ -228,12 +228,12 @@ test('find fuzzy lookup, argument guards, and bounded timeout partial', async ()
       __tryServeFuzzySearch: async () => { throw timeout; },
     },
   );
-  // A deadline before any fuzzy response returns the bounded native partial.
-  // It never starts a second filesystem walk with different semantics.
-  if (/^Error[\s:[]/.test(String(out).trimStart())
-      || !/no fuzzy match yet/.test(String(out))
-      || !/inventory (?:is still building|was incomplete)/.test(String(out))) {
-    throw new Error(`find fuzzy timeout must return one bounded native partial:\n${out}`);
+  // A deadline without matches is an incomplete execution, not an absence
+  // verdict. It never starts a second walk with different semantics.
+  if (!/^Error:/.test(String(out).trimStart())
+      || !/timed out/.test(String(out))
+      || !/absence of matches is not established/.test(String(out))) {
+    throw new Error(`find fuzzy timeout must preserve the incomplete execution:\n${out}`);
   }
 });
 
@@ -326,14 +326,14 @@ test('exploration fixture parity across the six retrieval tools', async () => {
     if (!/^\(no matches\)/.test(String(noMatchGrep)) || /^Error/.test(String(noMatchGrep))) {
       throw new Error(`grep no-match must remain a successful empty result:\n${noMatchGrep}`);
     }
-    const invalidRegexFallback = await executeBuiltinTool('grep', {
-      pattern: '(',
+    const invalidRegexOut = await executeBuiltinTool('grep', {
+      pattern: 'needleAlpha|(',
       path: exactFile,
       output_mode: 'content',
       head_limit: 10,
     }, fixtureRoot);
-    if (!/^\[regex parse fallback: fixed-string terms\]\n\(no matches\)/.test(String(invalidRegexFallback))) {
-      throw new Error(`grep invalid-regex fallback must retain its no-match body:\n${invalidRegexFallback}`);
+    if (!/^Error:/.test(String(invalidRegexOut))) {
+      throw new Error(`grep invalid regex must report failure, not run a different search:\n${invalidRegexOut}`);
     }
 
     const unicodeFind = await executeBuiltinTool('find', {
@@ -392,17 +392,6 @@ test('exploration fixture parity across the six retrieval tools', async () => {
 });
 
 test('grep pattern shapes, packed paths, and context lead policy', async () => {
-  const legacyEscapedAlternationErr = validateBuiltinArgs('grep', { pattern: 'state\\.items\\.map\\|items\\.map', path: root });
-  if (legacyEscapedAlternationErr) {
-    throw new Error(`grep legacy \\| alternation should be accepted: ${legacyEscapedAlternationErr}`);
-  }
-  const legacyEscapedAlternationOut = await executeBuiltinTool('grep', {
-    pattern: 'standalone mixdog CLI/TUI coding agent\\|smoke passed',
-    path: 'scripts',
-    glob: '*.mjs',
-    head_limit: 10,
-  }, root);
-  assertOk('grep legacy \\| alternation', legacyEscapedAlternationOut, /smoke\.mjs/);
   // pattern string[] is the supported independent fan-out shape (schema anyOf);
   // entries must still each be strings.
   const literalBackslashPipeArray = validateBuiltinArgs('grep', {
@@ -418,7 +407,7 @@ test('grep pattern shapes, packed paths, and context lead policy', async () => {
   if (!/must be string/.test(String(nonStringPatternEntry))) {
     throw new Error(`grep pattern array with object entry must be rejected: ${nonStringPatternEntry}`);
   }
-  for (const [key, value] of [['path', [root]], ['glob', ['*.mjs']]]) {
+  for (const [key, value] of [['glob', ['*.mjs']]]) {
     const args = { pattern: 'smoke', [key]: value };
     const err = validateBuiltinArgs('grep', args);
     if (!/must be string/.test(String(err))) {

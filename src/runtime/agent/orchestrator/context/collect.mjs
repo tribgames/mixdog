@@ -9,6 +9,7 @@ import { readSkillToolDependencies, skillToolDependenciesRoot } from '../../../s
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
 import { builtinFeatureActive, withGrandfatheredBuiltins } from '../../../../session-runtime/builtin-features.mjs';
 import { extensionScopesFromConfig, skillAllowedForCwd } from '../../../shared/extension-scopes.mjs';
+import { currentSkillContext, latestSkillBodies, skillMessageText } from './skill-state.mjs';
 
 function skillsDisabled() {
     return /^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_SKILLS || ''));
@@ -339,6 +340,23 @@ function buildSkillStub(name, source) {
 }
 
 /**
+ * Is this skill's body still present in the conversation the model will see?
+ *
+ * The check is deliberately about the LIVE transcript, not about whether the
+ * skill was ever loaded. The live turn supersedes the saved transcript after
+ * compaction. Match the full current body, not just its name, so edited skills
+ * and skills absent from the rebuilt context are delivered again.
+ */
+export function skillBodyPresentInSession(session, body) {
+    if (!session || !body) return false;
+    const requested = latestSkillBodies([{ role: 'user', content: body }])[0];
+    if (!requested) return false;
+    const current = latestSkillBodies(currentSkillContext(session))
+        .find(entry => entry.name === requested.name);
+    return !!current && skillMessageText(current.message.content).trimStart() === body;
+}
+
+/**
  * Build the Skill tool-result envelope used by BOTH the agent-loop viewSkill
  * path and the runtime skillToolContent path so behavior matches across main
  * + agent sessions:
@@ -348,17 +366,25 @@ function buildSkillStub(name, source) {
  * The injected user message is flagged `meta:'skill'` so compaction's
  * "latest human prompt" selection does not mistake the skill body for the
  * human's request.
+ *
+ * Passing `session` makes an unchanged repeat load body-free. Tool
+ * dependencies are still reported, so a
+ * repeat call re-arms the skill's deferred tools exactly as before.
  */
 export function buildSkillToolEnvelope(name, content, skillDir, {
     source = 'global', toolDependencies = [], dependencyIssues = [],
-} = {}) {
+} = {}, session = null) {
+    const body = buildSkillResultEnvelope(name, content, skillDir);
+    const alreadyLoaded = skillBodyPresentInSession(session, body);
     return {
         __toolEnvelope: true,
-        result: buildSkillStub(name, source),
+        result: alreadyLoaded
+            ? `${buildSkillStub(name, source)} (already active; instructions unchanged — follow them without calling Skill again)`
+            : buildSkillStub(name, source),
         ...(toolDependencies.length ? { skillToolDependencies: toolDependencies } : {}),
         ...(dependencyIssues.length ? { skillDependencyIssues: dependencyIssues } : {}),
-        newMessages: [
-            { role: 'user', content: buildSkillResultEnvelope(name, content, skillDir), meta: 'skill' },
+        newMessages: alreadyLoaded ? [] : [
+            { role: 'user', content: body, meta: 'skill' },
         ],
     };
 }

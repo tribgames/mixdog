@@ -62,17 +62,20 @@ const HELVETICA_WIDTHS = [
   334, 260, 334, 584,
 ];
 
-function glyphWeight(code) {
-  if (code >= 32 && code <= 126) return HELVETICA_WIDTHS[code - 32];
-  if (code < 32 || (code >= 0xdc00 && code <= 0xdfff)) return 0;
-  // Hangul, CJK, and fullwidth forms take a full em; other scripts about a Latin letter.
-  const wide = (code >= 0x1100 && code <= 0x11ff)
+// Hangul, CJK, and fullwidth forms take a full em; other scripts about a Latin letter.
+function isWideCode(code) {
+  return (code >= 0x1100 && code <= 0x11ff)
     || (code >= 0x2e80 && code <= 0x9fff)
     || (code >= 0xac00 && code <= 0xd7af)
     || (code >= 0xf900 && code <= 0xfaff)
     || (code >= 0xff00 && code <= 0xff60)
     || code >= 0x20000;
-  return wide ? 1000 : 556;
+}
+
+function glyphWeight(code) {
+  if (code >= 32 && code <= 126) return HELVETICA_WIDTHS[code - 32];
+  if (code < 32 || (code >= 0xdc00 && code <= 0xdfff)) return 0;
+  return isWideCode(code) ? 1000 : 556;
 }
 
 function runWeight(text, from, to) {
@@ -136,6 +139,83 @@ function* occurrences(text, haystack, target, pattern) {
   }
 }
 
+// One line as a string that remembers which run owns every character.
+function lineText(line) {
+  let text = '';
+  const spans = [];
+  for (const item of line.items) {
+    const previous = spans.at(-1);
+    // A gap wider than a third of the glyph height is a word break the runs did not carry.
+    const gap = previous ? runGap(previous.item, item, line) : 0;
+    if (previous && gap > glyphHeight(item, line) / 3 && !/\s$/.test(text) && !/^\s/.test(item.text)) text += ' ';
+    spans.push({ item, start: text.length, end: text.length + item.text.length });
+    text += item.text;
+  }
+  return { text, spans };
+}
+
+const REGEXP_SPECIAL = /[.*+?^${}()|[\]\\]/g;
+
+// A phrase the caller names as one string may sit on two lines in the page: the
+// wrap ate the space in Latin text, and needed none between wide glyphs. This
+// turns the phrase into a pattern that reads across one line break either way —
+// whitespace spans the break, and a break may fall between two wide characters.
+function wrapTolerantPattern(needle) {
+  const chars = [...needle];
+  let source = '';
+  let previous = '';
+  for (let index = 0; index < chars.length; index += 1) {
+    const char = chars[index];
+    if (/\s/.test(char)) {
+      while (index + 1 < chars.length && /\s/.test(chars[index + 1])) index += 1;
+      source += '\\s+';
+      previous = ' ';
+      continue;
+    }
+    if (previous && previous !== ' ' && isWideCode(previous.codePointAt(0)) && isWideCode(char.codePointAt(0))) source += '\\n?';
+    source += char.replace(REGEXP_SPECIAL, '\\$&');
+    previous = char;
+  }
+  return new RegExp(source, 'giu');
+}
+
+// Matches that cross a line break, measured one box per line — the shape a
+// highlighter draws. Lines join with a newline so a match maps back to the row
+// that owns each character; single-line hits belong to the plain pass.
+function crossLineMatches(page, rows, needle, bounded) {
+  if (rows.length < 2) return [];
+  let stream = '';
+  const placed = [];
+  for (const row of rows) {
+    if (stream) stream += '\n';
+    placed.push({ row, start: stream.length });
+    stream += row.text;
+  }
+  const pattern = wrapTolerantPattern(needle);
+  const found = [];
+  for (const match of stream.matchAll(pattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (!match[0].includes('\n') || !bounded(stream, start, end)) continue;
+    const rects = [];
+    for (const [at, { row, start: origin }] of placed.entries()) {
+      const from = Math.max(start - origin, 0);
+      const to = Math.min(end - origin, row.text.length);
+      if (from >= to) continue;
+      rects.push(matchBox(row.spans, from, to, rows[at].line));
+    }
+    if (rects.length < 2) continue;
+    found.push({
+      page: page.page,
+      text: match[0].replace(/\s+/g, ' '),
+      line: match[0].replace(/\s+/g, ' ').slice(0, 200),
+      ...rects[0],
+      rects,
+    });
+  }
+  return found;
+}
+
 export function findPdfText(layout, query, { limit = 200, wholeWord = false, regex = false } = {}) {
   const raw = String(query ?? '').trim();
   const needle = regex ? raw : raw.replace(/\s+/g, ' ');
@@ -154,17 +234,8 @@ export function findPdfText(layout, query, { limit = 200, wholeWord = false, reg
   const matches = [];
   let truncated = false;
   for (const page of layout.pages || []) {
-    for (const line of layoutLines(page)) {
-      let text = '';
-      const spans = [];
-      for (const item of line.items) {
-        const previous = spans.at(-1);
-        // A gap wider than a third of the glyph height is a word break the runs did not carry.
-        const gap = previous ? runGap(previous.item, item, line) : 0;
-        if (previous && gap > glyphHeight(item, line) / 3 && !/\s$/.test(text) && !/^\s/.test(item.text)) text += ' ';
-        spans.push({ item, start: text.length, end: text.length + item.text.length });
-        text += item.text;
-      }
+    const rows = layoutLines(page).map((line) => ({ line, ...lineText(line) }));
+    for (const { line, text, spans } of rows) {
       // Lower-casing can change a string's length (İ → i̇); match exactly when it does.
       const folded = text.toLowerCase();
       const exact = folded.length !== text.length;
@@ -180,6 +251,17 @@ export function findPdfText(layout, query, { limit = 200, wholeWord = false, reg
         }
       }
       if (truncated) break;
+    }
+    if (truncated) break;
+    // A wrapped phrase is a literal one: a pattern keeps its own line semantics.
+    if (!pattern) {
+      for (const match of crossLineMatches(page, rows, needle, bounded)) {
+        if (matches.length >= limit) {
+          truncated = true;
+          break;
+        }
+        matches.push(match);
+      }
     }
     if (truncated) break;
   }

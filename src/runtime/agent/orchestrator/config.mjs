@@ -1,155 +1,44 @@
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { readSection, updateSection, updateSectionAsync, getAgentApiKey, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
-import { hasExtensionScopes, normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
+import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
 import {
     DEFAULT_DISABLED_AGENT_IDS,
-    agentRouteStorageNeedsMigration,
     canonicalizeAgentRouteStorage,
 } from '../../shared/agent-route-config.mjs';
+import profileConfig from '../../shared/profile-config.cjs';
+import { DEFAULT_MAINTENANCE, DEFAULT_PRESETS, normalizePreset } from './config-presets.mjs';
+import {
+    agentConfigStorageNeedsMigration,
+    canonicalizeAgentStorage,
+    canonicalizeBuiltinsStorage,
+    canonicalizeModulesStorage,
+    normalizeMaintenanceRoutes,
+    normalizeSkillsConfig,
+    normalizedModelSettings,
+    normalizeWebSearchRoute,
+    removeRetiredAgentFields,
+} from './config-storage.mjs';
 import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
 import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
+
+export const {
+    PROFILE_LANGUAGES,
+    PROFILE_EXPERIENCE_LEVELS,
+    normalizeProfileConfig,
+    profileLanguageEntry,
+    profileExperienceLevelEntry,
+} = profileConfig;
+export { DEFAULT_MAINTENANCE, DEFAULT_PRESETS, normalizeSkillsConfig };
+export { getPreset, getDefaultPreset, listPresets, resolveRuntimeSpec } from './config-presets.mjs';
 
 // Thin wrapper around resolvePluginData so callers in this orchestrator tree
 // can import a single helper without reaching into shared/.
 export function getPluginData() {
     return resolvePluginData();
 }
-// First-class agent API-key providers: imported from the shared SSOT
-// (src/shared/config.mjs) so default-config and overlay paths cannot drift
-// from the env names the runtime key loader (getAgentApiKey) actually uses.
-// Canonical maintenance defaults. Single source of truth — imported by
-// llm/index.mjs and setup-server.mjs so UI/runtime cannot drift from config.
-//
-// Maintainer starts without a route so it dynamically inherits the Main route.
-// Its explicit route lives canonically in `agents.maintainer`; load-time
-// migration still accepts the older workflow / maintenance aliases.
-// Webhook endpoints may omit a model and use the fallback route below.
-// Legacy route slots accepted only at config ingress for migration.
+// Stored memory routes are normalized into agent routes at ingress.
 const MAINTENANCE_SLOTS = Object.freeze(['memory']);
-const RETIRED_LOCAL_PROVIDER_IDS = new Set(['ollama', 'lmstudio']);
 
-// --- User profile (statusline /profile) -------------------------------------
-// Supported response languages for the /profile picker. `system` is the default
-// sentinel: it leaves the language unset so the model follows the user's locale
-// / written language (no forced "Always respond in X" injection). Each entry is
-// { id, label, prompt } — `prompt` is the human language name the prompt-side
-// wiring uses for "Always respond in <prompt>." Keep `system` first.
-export const PROFILE_LANGUAGES = Object.freeze([
-    { id: 'system', label: 'System (locale)', prompt: null },
-    { id: 'en', label: 'English', prompt: 'English' },
-    { id: 'ko', label: 'Korean', prompt: 'Korean' },
-    { id: 'ja', label: '日本語', prompt: 'Japanese (日本語)' },
-    { id: 'zh-Hans', label: '中文（简体）', prompt: 'Simplified Chinese (简体中文)' },
-    { id: 'zh-Hant', label: '中文（繁體）', prompt: 'Traditional Chinese (繁體中文)' },
-    { id: 'es', label: 'Español', prompt: 'Spanish (Español)' },
-    { id: 'fr', label: 'Français', prompt: 'French (Français)' },
-    { id: 'de', label: 'Deutsch', prompt: 'German (Deutsch)' },
-    { id: 'pt', label: 'Português', prompt: 'Portuguese (Português)' },
-    { id: 'ru', label: 'Русский', prompt: 'Russian (Русский)' },
-    { id: 'it', label: 'Italiano', prompt: 'Italian (Italiano)' },
-    { id: 'vi', label: 'Tiếng Việt', prompt: 'Vietnamese (Tiếng Việt)' },
-    { id: 'th', label: 'ภาษาไทย', prompt: 'Thai (ภาษาไทย)' },
-    { id: 'id', label: 'Bahasa Indonesia', prompt: 'Indonesian (Bahasa Indonesia)' },
-    { id: 'hi', label: 'हिन्दी', prompt: 'Hindi (हिन्दी)' },
-    { id: 'ar', label: 'العربية', prompt: 'Arabic (العربية)' },
-    { id: 'tr', label: 'Türkçe', prompt: 'Turkish (Türkçe)' },
-    { id: 'pl', label: 'Polski', prompt: 'Polish (Polski)' },
-    { id: 'nl', label: 'Nederlands', prompt: 'Dutch (Nederlands)' },
-    { id: 'uk', label: 'Українська', prompt: 'Ukrainian (Українська)' },
-]);
-
-export const PROFILE_EXPERIENCE_LEVELS = Object.freeze([
-    { id: 'beginner', label: 'Beginner' },
-    { id: 'vibe-coder', label: 'Vibe coder' },
-    { id: 'junior', label: 'Junior' },
-    { id: 'expert', label: 'Expert' },
-]);
-
-const PROFILE_LANGUAGE_IDS = new Set(PROFILE_LANGUAGES.map((lang) => lang.id));
-const PROFILE_EXPERIENCE_LEVEL_IDS = new Set(PROFILE_EXPERIENCE_LEVELS.map((level) => level.id));
-const PROFILE_TITLE_MAX = 64;
-
-// Resolve a stored profile (or raw config fragment) into a stable shape:
-//   { title: string, language: <valid id>, experienceLevel: <valid id|''> }
-// Unknown language ids fall back to 'system'; unknown experience levels clear.
-export function normalizeProfileConfig(value = {}) {
-    const raw = value && typeof value === 'object' ? value : {};
-    const title = String(raw.title ?? raw.name ?? '').trim().slice(0, PROFILE_TITLE_MAX);
-    const requested = String(raw.language ?? raw.lang ?? 'system').trim();
-    const language = PROFILE_LANGUAGE_IDS.has(requested) ? requested : 'system';
-    const requestedExperienceLevel = String(raw.experienceLevel ?? '')
-        .trim().toLowerCase().replace(/[\s_]+/g, '-');
-    const experienceLevel = PROFILE_EXPERIENCE_LEVEL_IDS.has(requestedExperienceLevel)
-        ? requestedExperienceLevel
-        : '';
-    return { title, language, experienceLevel };
-}
-
-/** Persisted `skills.disabled` name list (deduped, trimmed, sorted). */
-export function normalizeSkillsConfig(value = {}) {
-    const raw = value && typeof value === 'object' ? value : {};
-    const disabled = Array.isArray(raw.disabled)
-        ? [...new Set(raw.disabled.map((n) => String(n).trim()).filter(Boolean))]
-        : [];
-    disabled.sort((a, b) => a.localeCompare(b));
-    return { disabled };
-}
-
-// Look up the catalog entry for a stored language id (defaults to 'system').
-export function profileLanguageEntry(languageId) {
-    const id = String(languageId || 'system');
-    return PROFILE_LANGUAGES.find((lang) => lang.id === id) || PROFILE_LANGUAGES[0];
-}
-
-export function profileExperienceLevelEntry(experienceLevelId) {
-    const id = String(experienceLevelId || '');
-    return PROFILE_EXPERIENCE_LEVELS.find((level) => level.id === id) || null;
-}
-
-// Map short Anthropic family labels to the full model ids used by the API.
-// Honors ANTHROPIC_DEFAULT_{OPUS|SONNET|HAIKU}_MODEL env overrides.
-const ANTHROPIC_FAMILY_MODEL = Object.freeze({
-    opus: 'claude-opus-4-8',
-    sonnet: 'claude-sonnet-4-6',
-    haiku: 'claude-haiku-4-5-20251001',
-});
-function resolveAnthropicFamilyModel(family) {
-    const key = String(family || '').toLowerCase();
-    if (!key) return null;
-    const envVar = `ANTHROPIC_DEFAULT_${key.toUpperCase()}_MODEL`;
-    if (process.env[envVar]) return process.env[envVar];
-    return ANTHROPIC_FAMILY_MODEL[key] || null;
-}
-
-// Canonical maintenance defaults. Single source of truth — imported by
-// llm/index.mjs and setup-server.mjs so UI/runtime cannot drift from config.
-//
-// Each maintenance slot stores its model route DIRECTLY ({provider, model}) —
-// parity with `agents.<role>`. The old shape stored a preset NAME string (e.g.
-// "haiku") that had to be looked up in the config.presets array; that
-// indirection resolves at dispatch. agent-dispatch.resolveMaintenanceRoute
-// accepts a preset NAME (Main inheritance via config.default), and
-// these defaults use the direct route. loadConfig() normalizes stored
-// slots on read (see normalizeMaintenanceRoutes). The cycle1/2/3 memory
-// agents share ONE `memory` route via the `maintKey: 'memory'` override on
-// their hidden-role entries.
-const _HAIKU_ROUTE = Object.freeze({
-    provider: 'anthropic-oauth',
-    model: resolveAnthropicFamilyModel('haiku'),
-});
-export const DEFAULT_MAINTENANCE = Object.freeze({
-    webhook: { ..._HAIKU_ROUTE },
-});
-
-// Seed presets keyed by preset.name so workflow/maintenance references stay
-// consistent with the resolve-by-name lookup in presetKey().
-export const DEFAULT_PRESETS = Object.freeze([
-    Object.freeze({ id: 'haiku', name: 'HAIKU', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('haiku'), tools: 'full' }),
-    Object.freeze({ id: 'sonnet-mid', name: 'SONNET MID', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('sonnet'), effort: 'medium', tools: 'full' }),
-    Object.freeze({ id: 'sonnet-high', name: 'SONNET HIGH', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('sonnet'), effort: 'high', tools: 'full' }),
-    Object.freeze({ id: 'opus-mid', name: 'OPUS MID', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'medium', tools: 'full' }),
-    Object.freeze({ id: 'opus-high', name: 'OPUS HIGH', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'high', tools: 'full' }),
-]);
 export function buildDefaultConfig(options = {}) {
     const detectCredentials = options.detectCredentials !== false;
     const providers = {};
@@ -172,11 +61,19 @@ export function buildDefaultConfig(options = {}) {
     // real logout/disable and would latch a momentary FS failure as a user
     // opt-out. The marker is ephemeral: loadConfig drops it as soon as the
     // stored config states `enabled` itself, and saveConfig never persists it.
+    // A secrets-less load (loadConfig({ secrets: false })) runs no probe at
+    // all, which is "not asked" — never "logged out". It therefore carries the
+    // same marker as an unreadable credential: without it, saving such a
+    // snapshot froze an OAuth provider that had no stored entry yet into a
+    // permanent `enabled:false` (the stored value then outranks every later
+    // probe), and the provider silently vanished from the model picker until
+    // the user signed in again.
     const oauthEntry = (name, extra = {}) => {
-        const state = detectCredentials ? oauthCredentialProbeState(name) : 'absent';
+        const state = detectCredentials ? oauthCredentialProbeState(name) : 'unprobed';
+        const undetermined = state === 'unreadable' || state === 'unprobed';
         return {
             enabled: state === 'present',
-            ...(state === 'unreadable' ? { credentialProbeUnavailable: true } : {}),
+            ...(undetermined ? { credentialProbeUnavailable: true } : {}),
             ...extra,
         };
     };
@@ -211,54 +108,6 @@ function hasKeys(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
 }
 
-function normalizeWebSearchRoute(route) {
-    if (!route || typeof route !== 'object' || Array.isArray(route))
-        return null;
-    const provider = normalizeAgentProviderId(route.provider);
-    const model = String(route.model || '').trim();
-    if (!provider && model) {
-        return {
-            provider: 'default',
-            model: 'default',
-            ...(String(route.toolType || '').trim() ? { toolType: String(route.toolType).trim() } : {}),
-        };
-    }
-    if (!provider || !model)
-        return null;
-    const out = { provider, model };
-    const effort = String(route.effort || '').trim();
-    if (effort)
-        out.effort = effort;
-    if (route.fast === true)
-        out.fast = true;
-    const toolType = String(route.toolType || '').trim();
-    if (toolType)
-        out.toolType = toolType;
-    return out;
-}
-
-// Normalize stored maintenance slots to the direct {provider, model} route
-// shape (provider/model/effort/fast only). Non-route values are dropped so the
-// DEFAULT_MAINTENANCE route fills the slot.
-function normalizeMaintenanceRoutes(rawMaint) {
-    const out = {};
-    for (const [slot, value] of Object.entries(rawMaint || {})) {
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-            const provider = normalizeAgentProviderId(value.provider);
-            const model = String(value.model || '').trim();
-            if (provider && model) {
-                const route = { provider, model };
-                const effort = String(value.effort || '').trim();
-                if (effort) route.effort = effort;
-                if (value.fast === true) route.fast = true;
-                out[slot] = route;
-            }
-            continue;
-        }
-    }
-    return out;
-}
-
 // Persist the agent section. `build` receives the section value read INSIDE
 // the file lock (current on-disk state) and returns the full replacement.
 // Building from `current` rather than a snapshot taken before the lock keeps
@@ -285,206 +134,6 @@ function normalizeRecapConfig(rawRecap) {
     return recap;
 }
 
-function configObject(value) {
-    return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
-}
-
-function nonEmptyConfigObject(value) {
-    return Object.keys(value).length > 0 ? value : undefined;
-}
-
-function canonicalizeAutoClearStorage(value) {
-    const raw = configObject(value);
-    const next = { ...raw };
-    const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
-    const providerSource = configObject(raw.providerIdleMs ?? raw.providerDefaults ?? raw.providers);
-    const providerIdleMs = {};
-    for (const [key, candidate] of Object.entries(providerSource)) {
-        const provider = String(key || '').trim().toLowerCase();
-        const duration = Number(candidate);
-        if (!provider || !Number.isFinite(duration) || duration <= 0) continue;
-        providerIdleMs[provider] = Math.max(60_000, Math.round(duration));
-    }
-    delete next.thresholdMs;
-    delete next.idleMillis;
-    delete next.providerDefaults;
-    delete next.providers;
-    delete next.custom;
-    if (Number.isFinite(idleMs) && idleMs > 0) next.idleMs = Math.max(60_000, Math.round(idleMs));
-    else delete next.idleMs;
-    if (Object.keys(providerIdleMs).length) next.providerIdleMs = providerIdleMs;
-    else delete next.providerIdleMs;
-    if (Object.prototype.hasOwnProperty.call(raw, 'enabled')) next.enabled = raw.enabled !== false;
-    if (Object.prototype.hasOwnProperty.call(raw, 'minContextPercent')) {
-        const percent = Number(raw.minContextPercent);
-        if (Number.isFinite(percent)) next.minContextPercent = Math.min(100, Math.max(0, Math.round(percent)));
-        else delete next.minContextPercent;
-    }
-    return nonEmptyConfigObject(next);
-}
-
-function canonicalizeCompactionStorage(value) {
-    const raw = configObject(value);
-    const next = { ...raw };
-    if (!next.summaryModel && raw.semanticModel) next.summaryModel = raw.semanticModel;
-    if (!next.memoryTimeoutMs && raw.recallMemoryTimeoutMs) next.memoryTimeoutMs = raw.recallMemoryTimeoutMs;
-    if (Object.prototype.hasOwnProperty.call(raw, 'auto')
-        || Object.prototype.hasOwnProperty.call(raw, 'enabled')) {
-        next.auto = raw.auto !== false && raw.enabled !== false;
-    }
-    for (const key of [
-        'type', 'compactType', 'compact_type', 'semantic', 'semanticModel', 'prune', 'tailTurns',
-        'recallMemoryTimeoutMs', 'recallIngestLimit', 'recallChunkLimit', 'recallLimit',
-        'recallCycle1BatchSize', 'recallRowsPerSession', 'recallWindowSize',
-        'recallConcurrency', 'recallCycle1DeadlineMs',
-    ]) delete next[key];
-    delete next.enabled;
-    return nonEmptyConfigObject(next);
-}
-
-function canonicalizeShellStorage(value) {
-    const raw = configObject(value);
-    const next = { ...raw };
-    const command = String(raw.command ?? raw.path ?? raw.executable ?? raw.shell ?? '').trim();
-    delete next.path;
-    delete next.executable;
-    delete next.shell;
-    if (command) next.command = command;
-    else delete next.command;
-    return nonEmptyConfigObject(next);
-}
-
-function canonicalizeModulesStorage(value) {
-    const modules = configObject(value);
-    delete modules.memory;
-    for (const name of ['webSearch']) {
-        if (!Object.prototype.hasOwnProperty.call(modules, name)) continue;
-        const raw = modules[name];
-        modules[name] = {
-            ...(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}),
-            enabled: raw && typeof raw === 'object' && !Array.isArray(raw)
-                ? raw.enabled !== false
-                : raw !== false,
-        };
-    }
-    return nonEmptyConfigObject(modules);
-}
-
-function normalizedModelSettings(raw = {}) {
-    return raw.modelSettings && typeof raw.modelSettings === 'object'
-        ? { ...raw.modelSettings }
-        : {};
-}
-
-function canonicalizeBuiltinsStorage(raw) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-    return Object.fromEntries(
-        Object.entries(raw)
-            .filter(([id, entry]) => String(id || '').trim() && entry && typeof entry === 'object' && !Array.isArray(entry))
-            .map(([id, entry]) => [id, { ...entry, installed: entry.installed === true }]),
-    );
-}
-
-function retiredLocalProviderStoragePresent(value = {}) {
-    const retiredRoute = (route) => RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim());
-    return [...RETIRED_LOCAL_PROVIDER_IDS].some((id) => Object.prototype.hasOwnProperty.call(value?.providers || {}, id))
-        || (Array.isArray(value?.presets) && value.presets.some(retiredRoute))
-        || Object.values(configObject(value?.agents)).some(retiredRoute)
-        || Object.values(configObject(value?.maintenance)).some(retiredRoute)
-        || Object.keys(configObject(value?.modelSettings)).some((key) =>
-            [...RETIRED_LOCAL_PROVIDER_IDS].some((id) => key.startsWith(`${id}/`)));
-}
-
-function canonicalizeLegacyAgentStorage(value = {}) {
-    const next = canonicalizeAgentRouteStorage(value);
-    const removedPresetIds = new Set(
-        (Array.isArray(next.presets) ? next.presets : [])
-            .filter((preset) => RETIRED_LOCAL_PROVIDER_IDS.has(String(preset?.provider || '').trim()))
-            .map((preset) => String(preset?.id || preset?.name || '').trim())
-            .filter(Boolean),
-    );
-    next.providers = configObject(next.providers);
-    for (const id of RETIRED_LOCAL_PROVIDER_IDS) delete next.providers[id];
-    next.presets = Array.isArray(next.presets)
-        ? next.presets
-            .map((preset) => normalizePreset(preset))
-            .filter((preset) => preset && !RETIRED_LOCAL_PROVIDER_IDS.has(preset.provider))
-        : [];
-    if (removedPresetIds.has(String(next.default || '').trim())) next.default = null;
-    next.agents = Object.fromEntries(
-        Object.entries(configObject(next.agents))
-            .filter(([, route]) => !RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim())),
-    );
-    next.maintenance = Object.fromEntries(
-        Object.entries(configObject(next.maintenance))
-            .filter(([, route]) => !RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim())),
-    );
-    next.modelSettings = Object.fromEntries(
-        Object.entries(normalizedModelSettings(value))
-            .filter(([key]) => ![...RETIRED_LOCAL_PROVIDER_IDS].some((id) => key.startsWith(`${id}/`))),
-    );
-    const autoClear = canonicalizeAutoClearStorage(next.autoClear);
-    if (autoClear) next.autoClear = autoClear;
-    else delete next.autoClear;
-    const compaction = canonicalizeCompactionStorage(next.compaction);
-    if (compaction) next.compaction = compaction;
-    else delete next.compaction;
-    const shell = canonicalizeShellStorage(next.shell);
-    if (shell) next.shell = shell;
-    else delete next.shell;
-    if (Object.prototype.hasOwnProperty.call(next, 'profile')) {
-        next.profile = normalizeProfileConfig(next.profile);
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'skills')) {
-        const skills = normalizeSkillsConfig(next.skills);
-        if (skills.disabled.length) next.skills = skills;
-        else delete next.skills;
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'extensionScopes')) {
-        const scopes = normalizeExtensionScopes(next.extensionScopes);
-        if (hasExtensionScopes(scopes)) next.extensionScopes = scopes;
-        else delete next.extensionScopes;
-    }
-    next.webSearchRoute = normalizeWebSearchRoute(next.webSearchRoute);
-    delete next.searchRoute;
-    const modules = next.modules && typeof next.modules === 'object' && !Array.isArray(next.modules)
-        ? { ...next.modules }
-        : {};
-    delete modules.memory;
-    const canonicalModules = canonicalizeModulesStorage(modules);
-    if (canonicalModules) next.modules = canonicalModules;
-    else delete next.modules;
-    delete next.fastModels;
-    delete next.agentMaintenance;
-    delete next.runtime;
-    delete next.search;
-    delete next.capabilities;
-    delete next.defaultProvider;
-    delete next.guide;
-    delete next.mcpProjectOverrides;
-    return next;
-}
-
-function agentConfigStorageNeedsMigration(value = {}) {
-    const modules = value?.modules;
-    const presets = Array.isArray(value?.presets) ? value.presets : [];
-    const canonical = canonicalizeLegacyAgentStorage(value);
-    const normalizedFields = ['autoClear', 'compaction', 'shell', 'profile', 'skills', 'extensionScopes', 'modules', 'guide'];
-    return agentRouteStorageNeedsMigration(value)
-        || retiredLocalProviderStoragePresent(value)
-        || Object.prototype.hasOwnProperty.call(value || {}, 'fastModels')
-        || Object.prototype.hasOwnProperty.call(value || {}, 'agentMaintenance')
-        || Object.prototype.hasOwnProperty.call(value || {}, 'runtime')
-        || Object.prototype.hasOwnProperty.call(value || {}, 'search')
-        || Object.prototype.hasOwnProperty.call(value || {}, 'searchRoute')
-        || Object.prototype.hasOwnProperty.call(value || {}, 'capabilities')
-        || Object.prototype.hasOwnProperty.call(value || {}, 'defaultProvider')
-        || Object.prototype.hasOwnProperty.call(value || {}, 'mcpProjectOverrides')
-        || presets.some((preset) => !normalizePreset(preset))
-        || (modules && typeof modules === 'object' && Object.prototype.hasOwnProperty.call(modules, 'memory'))
-        || normalizedFields.some((key) => JSON.stringify(value?.[key]) !== JSON.stringify(canonical?.[key]));
-}
-
 export function loadConfig(options = {}) {
     const includeSecrets = options.secrets !== false;
     const sectionRaw = readSection('agent');
@@ -492,7 +141,7 @@ export function loadConfig(options = {}) {
         try {
             let raw = sectionRaw;
             const storageNeedsMigration = agentConfigStorageNeedsMigration(raw);
-            raw = canonicalizeLegacyAgentStorage(raw);
+            raw = canonicalizeAgentStorage(raw);
             const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
             // Deep-merge provider subkeys: unknown per-provider values are
             // preserved through save/load so future fields round-trip
@@ -555,18 +204,11 @@ export function loadConfig(options = {}) {
                     // this read-time sanitize.
                     persistAgentConfig((current) => {
                         const cur = { ...current };
-                        // Strip self-refs at the same level loadConfig reads
-                        // mcpServers from: the legacy nested shape keeps them
-                        // under cur.agent, the flat shape at top level. Cleaning
-                        // only the top level would leave a nested config dirty
-                        // on disk even though runtime is sanitized.
-                        const target = (cur.agent && cur.agent.providers)
-                            ? (cur.agent = { ...cur.agent })
-                            : cur;
-                        const curMcp = (target.mcpServers && typeof target.mcpServers === 'object') ? { ...target.mcpServers } : {};
+                        // updateSection already supplies the agent section.
+                        const curMcp = (cur.mcpServers && typeof cur.mcpServers === 'object') ? { ...cur.mcpServers } : {};
                         delete curMcp['mixdog'];
                         delete curMcp['trib-plugin'];
-                        target.mcpServers = curMcp;
+                        cur.mcpServers = curMcp;
                         return cur;
                     });
                 } catch (err) {
@@ -620,32 +262,10 @@ export function loadConfig(options = {}) {
             });
             if (storageNeedsMigration) {
                 try {
-                    // `readSection('agent')` sees cross-section migrations from
-                    // canonicalizeUnifiedConfig (root autoClear/compaction/
-                    // shell and memory.user.title), while the in-lock raw
-                    // section does not. Seed only those missing/partial values
-                    // from the canonical read snapshot; the current in-lock
-                    // section still wins for concurrent edits.
-                    persistAgentConfig((current) => {
-                        const merged = { ...current };
-                        for (const key of ['autoClear', 'compaction', 'shell', 'recap']) {
-                            if (!Object.prototype.hasOwnProperty.call(current, key)
-                                && Object.prototype.hasOwnProperty.call(raw, key)) {
-                                merged[key] = raw[key];
-                            }
-                        }
-                        if (Object.prototype.hasOwnProperty.call(raw, 'profile')) {
-                            const currentProfile = normalizeProfileConfig(current.profile);
-                            const migratedProfile = normalizeProfileConfig(raw.profile);
-                            merged.profile = {
-                                ...currentProfile,
-                                ...(!currentProfile.title && migratedProfile.title
-                                    ? { title: migratedProfile.title }
-                                    : {}),
-                            };
-                        }
-                        return canonicalizeLegacyAgentStorage(merged);
-                    });
+                    // Retired cross-section fields are no longer migrated by
+                    // the shared config layer. Normalize only the locked
+                    // current section; stale reads must not undo deletions.
+                    persistAgentConfig(canonicalizeAgentStorage);
                 } catch (err) {
                     process.stderr.write(`[config] persist canonical agent config failed: ${err?.message}\n`);
                 }
@@ -677,22 +297,6 @@ export function loadConfig(options = {}) {
         modules: {},
     };
 }
-/**
- * Atomically save the agent section in mixdog-config.json. Caller passes the
- * full config object. Only persists mcpServers, presets, default, workflow
- * routing/onboarding, and user-set provider entries (enabled, baseURL) —
- * defaults are recomputed on next load.
- * apiKey is NEVER persisted: provider keys live only in the OS keychain, and
- * loadConfig overlays them into memory, so they must be stripped on save or
- * they would leak back into mixdog-config.json as plaintext.
- *
- * WARNING: whole-section overwrite. Managed fields (presets/default/mcpServers/
- * maintenance/...) are replaced from the passed snapshot (last-writer-wins);
- * only unmanaged keys are rebased on the in-lock current. Safe only for a
- * caller holding a fresh full config. For a single-field change, patch in-lock
- * via persistAgentConfig((current) => ({ ...current, <field> })) so a
- * concurrent instance's edits are not reverted.
- */
 /** In-lock patch of `skills.disabled` only (avoids whole-config lost-update). */
 function buildSkillsDisabledPatch(disabledNames) {
     const names = disabledNames instanceof Set
@@ -701,10 +305,7 @@ function buildSkillsDisabledPatch(disabledNames) {
     const nextSkills = normalizeSkillsConfig({ disabled: names });
     const build = (current) => {
         const cur = { ...current };
-        const target = (cur.agent && cur.agent.providers)
-            ? (cur.agent = { ...cur.agent })
-            : cur;
-        target.skills = nextSkills;
+        cur.skills = nextSkills;
         return cur;
     };
     return { build, nextSkills };
@@ -722,7 +323,7 @@ export async function patchSkillsDisabledAsync(disabledNames) {
 }
 
 function buildAgentSaveBuilder(config) {
-    const canonicalRoutes = canonicalizeLegacyAgentStorage(config);
+    const canonicalRoutes = canonicalizeAgentStorage(config);
     // Strip ephemeral defaults from providers but preserve any unknown
     // per-provider subkey so future schema additions round-trip through the
     // setup UI without changes here. apiKey is intentionally omitted —
@@ -735,8 +336,8 @@ function buildAgentSaveBuilder(config) {
     // generic passthrough loop below skips it.
     const KNOWN_PROVIDER_KEYS = new Set(['apiKey', 'enabled', 'baseURL', 'credentialProbeUnavailable']);
     const persistedProviders = {};
-    if (config.providers) {
-        for (const [name, val] of Object.entries(config.providers)) {
+    if (canonicalRoutes.providers) {
+        for (const [name, val] of Object.entries(canonicalRoutes.providers)) {
             if (!val || typeof val !== 'object') continue;
             const slim = {};
             // NEVER persist an `enabled:false` that came from a credential probe
@@ -764,13 +365,8 @@ function buildAgentSaveBuilder(config) {
     const presets = Array.isArray(canonicalRoutes.presets)
         ? canonicalRoutes.presets.filter(p => p?.id !== 'workflow-search')
         : [];
-    const profile = normalizeProfileConfig(config.profile);
-    const skills = normalizeSkillsConfig(config.skills);
-    const extensionScopes = normalizeExtensionScopes(config.extensionScopes);
-    const autoClear = canonicalizeAutoClearStorage(config.autoClear);
-    const compaction = canonicalizeCompactionStorage(config.compaction);
-    const shell = canonicalizeShellStorage(config.shell);
-    const modules = canonicalizeModulesStorage(config.modules);
+    const profile = canonicalRoutes.profile ?? normalizeProfileConfig(null);
+    const { skills, extensionScopes, autoClear, compaction, shell, modules } = canonicalRoutes;
     const builtins = canonicalizeBuiltinsStorage(config.builtins);
     // Build the replacement from `existingRaw` — the section read INSIDE the
     // file lock — not a snapshot taken before it, so unmanaged keys written by
@@ -782,16 +378,16 @@ function buildAgentSaveBuilder(config) {
             providers: persistedProviders,
             mcpServers,
             presets,
-            default: config.default || null,
+            default: canonicalRoutes.default || null,
             maintenance: canonicalRoutes.maintenance,
-            webSearchRoute: normalizeWebSearchRoute(config.webSearchRoute),
-            modelSettings: config.modelSettings || {},
+            webSearchRoute: canonicalRoutes.webSearchRoute,
+            modelSettings: canonicalRoutes.modelSettings,
             onboarding: config.onboarding || {},
             agents: canonicalRoutes.agents,
             workflow: config.workflow || { active: 'default' },
             profile,
-            skills: skills.disabled.length ? skills : undefined,
-            extensionScopes: hasExtensionScopes(extensionScopes) ? extensionScopes : undefined,
+            skills,
+            extensionScopes,
             autoClear,
             compaction,
             shell,
@@ -800,107 +396,17 @@ function buildAgentSaveBuilder(config) {
             modules,
             builtins,
         };
-        // These keys were previously round-tripped despite having no runtime
-        // consumer. Explicitly remove them from the in-lock baseline so a
-        // normal settings save also finishes migration of older installs.
-        delete next.fastModels;
-        delete next.agentMaintenance;
-        delete next.runtime;
         delete next.workflowRoutes;
-        delete next.search;
-        delete next.searchRoute;
-        delete next.capabilities;
-        delete next.defaultProvider;
-        delete next.guide;
-        delete next.mcpProjectOverrides;
-        return next;
+        return removeRetiredAgentFields(next);
     };
 }
+// Managed fields are replaced from the caller's fresh snapshot; unmanaged
+// fields rebase on the in-lock current. Provider keys remain keychain-only.
+// Use an in-lock field patch rather than a whole-section save for isolated edits.
 export function saveConfig(config) {
     persistAgentConfig(buildAgentSaveBuilder(config));
 }
 // Async twin used by the debounced config-save flush timer.
 export async function saveConfigAsync(config) {
     await persistAgentConfigAsync(buildAgentSaveBuilder(config));
-}
-// --- Preset helpers ---
-// preset shape: { id, name, type: 'agent', provider, model, effort?, fast?, tools? }
-const AGENT_PROVIDER_ALIASES = Object.freeze({
-    'openai-api': 'openai',
-    'gemini-api': 'gemini',
-    'xai-api': 'xai',
-});
-const FAST_CAPABLE_PRESET_PROVIDERS = new Set([
-    'anthropic',
-    'anthropic-oauth',
-    'openai',
-    'openai-oauth',
-    'cursor-oauth',
-    'cursor-api',
-]);
-function normalizeAgentProviderId(provider) {
-    const id = String(provider || '').trim();
-    return AGENT_PROVIDER_ALIASES[id] || id;
-}
-function presetKey(p) { return p?.id || p?.name || ''; }
-function normalizePreset(preset) {
-    if (!preset || typeof preset !== 'object')
-        return null;
-    const id = String(preset.id || preset.name || '').trim();
-    const name = String(preset.name || preset.id || '').trim();
-    const model = String(preset.model || '').trim();
-    const provider = normalizeAgentProviderId(preset.provider);
-    if (!name || !model || !provider) return null;
-    const out = { id, name, type: 'agent', provider, model };
-    if (preset.effort)
-        out.effort = String(preset.effort).trim();
-    if (preset.fast === true && FAST_CAPABLE_PRESET_PROVIDERS.has(provider))
-        out.fast = true;
-    out.tools = ['full', 'readonly', 'mcp'].includes(preset.tools) ? preset.tools : 'full';
-    return out;
-}
-export function getPreset(config, key) {
-    const presets = Array.isArray(config?.presets) ? config.presets : [];
-    if (key == null || key === '')
-        return null;
-    // Numeric → index
-    if (typeof key === 'number' || /^\d+$/.test(String(key))) {
-        const idx = Number(key);
-        return presets[idx] || null;
-    }
-    // String → name or id match
-    return presets.find(p => p && presetKey(p) === key) || null;
-}
-export function getDefaultPreset(config) {
-    if (!config?.default)
-        return null;
-    return getPreset(config, config.default);
-}
-export function listPresets(config) {
-    return Array.isArray(config?.presets) ? config.presets : [];
-}
-// --- Lane-scoped runtime spec ---
-// Phase D-2: scopeKey is (role, provider, model), not (role, preset). Spec
-// §4.5 calls for "at most one live session per Sub role × provider"; we
-// widen provider to (provider, model) because two presets on the same
-// provider that differ only in effort/fast should keep sharing a session
-// (both cache shards are identical there), while swapping the model itself
-// legitimately needs a fresh session (cache shard is model-specific). Two
-// presets mapping to the same (provider, model) therefore collapse into
-// one Agent session, so opus-mid / opus-max no longer fragment the pool.
-//
-//   agent lane: "agent:<agentId>:<provider>:<model>"  — per Sub role
-//   other lane: "agent:<provider>:<model>"            — shared utility
-export function resolveRuntimeSpec(preset, ctx) {
-    const lane = ctx.lane || 'agent';
-    const provider = String(preset?.provider || '').trim() || 'unknown';
-    const model = String(preset?.model || '').trim() || '_';
-    let scopeKey;
-    if (lane === 'agent') {
-        if (!ctx.agentId) throw new Error('agent lane requires agentId');
-        scopeKey = `agent:${ctx.agentId}:${provider}:${model}`;
-    } else {
-        scopeKey = `agent:${provider}:${model}`;
-    }
-    return { lane, scopeKey, reuse: true, preset };
 }

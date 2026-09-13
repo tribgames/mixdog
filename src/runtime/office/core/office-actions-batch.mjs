@@ -12,8 +12,21 @@ import { expandOfficeDesignOperations } from '../design/design-system.mjs';
 import { createPptxSlideSelection } from '../design/library/design-library.mjs';
 import { assertOfficeMutationAllowed } from '../quality/assurance.mjs';
 import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
+import { DEFAULT_SERIES_COLORS } from '../portable/portable-chart.mjs';
+
+// Excel fills an unstyled series from the workbook theme (a teal and an orange on the default one) while the
+// portable writer paints its own hue family, so the same add_chart drew two different charts. A chart that
+// names no colours takes the portable palette on both backends; a named palette is kept as written.
+function withSharedChartDefaults(session, operations) {
+  if (session.format !== 'xlsx') return operations;
+  return operations.map((operation) => (
+    operation?.op === 'add_chart' && !(Array.isArray(operation.seriesColors) && operation.seriesColors.length)
+      ? { ...operation, seriesColors: [...DEFAULT_SERIES_COLORS] }
+      : operation
+  ));
+}
 import { TABULAR_FORMATS, isMicrosoftOfficeSession, mergeOfficeDesignRequest } from './office-core.mjs';
-import { fullPath, trustForMutation } from './office-sessions.mjs';
+import { fullPath, materializeWorkingCopy, trustForMutation } from './office-sessions.mjs';
 import {
   assertTransactionUnchanged,
   captureSessionState,
@@ -100,6 +113,9 @@ export async function applyBatch(session, args) {
       }
     }
   }
+  // A session that was opened to read holds the user's file; the first edit
+  // moves it onto a working copy first.
+  await materializeWorkingCopy(session);
   const transaction = session.transaction;
   if (transaction) {
     await assertTransactionUnchanged(session);
@@ -191,7 +207,7 @@ export async function applyBatch(session, args) {
             format: session.format,
             mode: session.mode,
             path: target,
-            operations: remaining,
+            operations: withSharedChartDefaults(session, remaining),
             save: args.save === true,
             requireChanges: args.requireChanges !== false,
           }, {
@@ -213,7 +229,7 @@ export async function applyBatch(session, args) {
           format: session.format,
           mode: session.mode,
           path: target,
-          operations,
+          operations: withSharedChartDefaults(session, operations),
           save: args.save === true,
           requireChanges: args.requireChanges !== false,
         }, {
@@ -250,7 +266,11 @@ export async function applyBatch(session, args) {
       entry.changed === false && !(aligned && operations[index]?.allowNoChange === true)
     ));
     if (args.requireChanges !== false && noChange.length && session.backend !== 'microsoft-office-com') {
-      throw new Error(`Office batch produced no change for: ${noChange.map((entry) => entry.op || 'operation').join(', ')}`);
+      // An operation that knows why it changed nothing says so: "no change" on
+      // its own sends the caller back to look for a fault that is not there.
+      throw new Error(`Office batch produced no change for: ${noChange
+        .map((entry) => `${entry.op || 'operation'}${entry.unchangedReason ? ` (${entry.unchangedReason})` : ''}`)
+        .join(', ')}`);
     }
     let transactionResult;
     if (transaction) {
@@ -289,6 +309,21 @@ export async function applyBatch(session, args) {
         }
       }
       session.designState.slidePlans = [...existingPlans.values()].sort((left, right) => left.slide - right.slide);
+    }
+    // A column fitted while its formulas were uncached was measured against
+    // empty cells: the widths are only final once the workbook has been
+    // recalculated, so the session remembers what to fit again then.
+    if (session.format === 'xlsx') {
+      const fitted = operations
+        .filter((operation) => operation.op === 'autofit_range' && operation.range)
+        .map((operation) => ({ sheet: operation.sheet || '', range: String(operation.range) }));
+      if (fitted.length) {
+        const seen = new Set((session.autofitRanges || []).map((entry) => `${entry.sheet}|${entry.range}`));
+        session.autofitRanges = [
+          ...(session.autofitRanges || []),
+          ...fitted.filter((entry) => !seen.has(`${entry.sheet}|${entry.range}`) && seen.add(`${entry.sheet}|${entry.range}`)),
+        ];
+      }
     }
     session.snapshotVersion = Number(session.snapshotVersion || 0) + 1;
     session.designState.renderedVersion = null;

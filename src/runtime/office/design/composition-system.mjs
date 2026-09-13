@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { plainObject, stableValue } from '../shared/values.mjs';
+import { composeTableRows } from './design-table-input.mjs';
 
 const PURPOSES = new Set(['monitor', 'decide', 'compare', 'explain', 'inspect']);
 const EXPRESSION_MODES = new Set(['conservative', 'strong-fit', 'divergent']);
@@ -149,8 +150,10 @@ function bucket(value, boundaries = [0, 1, 3, 8]) {
 }
 
 function rowsOf(value) {
-  if (Array.isArray(value)) return value;
-  return Array.isArray(value?.values) ? value.values : [];
+  // The layout is picked from the rows the composer will actually write, so
+  // both read the table the same way; an unusable shape is the composer's to
+  // report, not the topology's.
+  return composeTableRows(value, { strict: false });
 }
 
 function textCount(value) {

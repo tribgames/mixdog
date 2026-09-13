@@ -3,6 +3,7 @@ import { oauthCredentialProbeState } from './oauth-credential-probes.mjs';
 import { refreshCatalog as refreshMetadataCatalog } from './model-catalog.mjs';
 import { wrapProviderAdmission } from './admission-scheduler.mjs';
 import { createAccountPoolProvider } from './account-pool.mjs';
+import { isInclusiveProvider } from '../../../shared/llm/cost.mjs';
 // OpenAI-compat provider names are self-declared by openai-compat-presets.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
 const providers = new Map();
@@ -13,7 +14,6 @@ const providerModulePromises = new Map();
 // byte identical to the live one, so lazy-init misses that re-run initProviders
 // don't churn (tear down + rebuild) every live provider instance on every call.
 const signatures = new Map();
-const KNOWN_INPUT_EXCLUDES_CACHE = new Set(['anthropic', 'anthropic-oauth']);
 // OAuth providers are injected at runtime by buildDefaultConfig from an on-disk
 // credential probe rather than persisted in mixdog-config.json. The probe is
 // tri-state ('present' | 'absent' | 'unreadable'), and both the initProviders
@@ -367,7 +367,7 @@ export function providerInputExcludesCache(name) {
     }
     // Built-in usage semantics must also be correct before lazy construction
     // (including disabled providers in a fresh process).
-    return KNOWN_INPUT_EXCLUDES_CACHE.has(normalized);
+    return normalized ? !isInclusiveProvider(normalized) : false;
 }
 export function getAllProviders() {
     // Defensive copy — callers must not mutate the live registry or retain

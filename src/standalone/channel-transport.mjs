@@ -14,12 +14,17 @@
 // (stub runtime, no Discord token).
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, rmSync } from 'node:fs';
-import { basename } from 'node:path';
+import { rmSync } from 'node:fs';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { isPidAlive, parsePid } from '../runtime/shared/pid-liveness.mjs';
 import { readBody, sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
 import { createFairCallScheduler } from './fair-call-scheduler.mjs';
+import { createLoopbackListener } from '../runtime/shared/loopback-listener.mjs';
+import { callSignature, callIdConflict, clientCallOwner } from './rpc-call-identity.mjs';
+import {
+  ACTIVATE_TOOL, REBIND_TOOL, BINDING_TOOLS,
+  remoteSessionIdFromBinding, normalizeRemoteIntent, readRemoteIntent,
+} from './channel-binding.mjs';
 
 export const CHANNEL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024;
 
@@ -27,10 +32,6 @@ function readChannelBody(req) {
   return readBody(req, { maxBytes: CHANNEL_HTTP_BODY_MAX_BYTES });
 }
 
-
-const ACTIVATE_TOOL = 'activate_channel_bridge';
-const REBIND_TOOL = 'rebind_current_transcript';
-const BINDING_TOOLS = new Set([ACTIVATE_TOOL, REBIND_TOOL]);
 
 export function createChannelTransport({
   handleCall,
@@ -68,7 +69,7 @@ export function createChannelTransport({
   let stickyRemoteFrame = null;
   let remoteAcquired = false;
   let remoteStateSignature = '';
-  let remoteIntent = readRemoteIntent();
+  let remoteIntent = readRemoteIntent(resolvedRemoteIntentPath);
   let pinnedSessionId = remoteIntent?.sessionId ?? null;
   let remoteRestorePromise = null;
   // Idempotency cache: callId -> { promise }. A retried /call with the SAME
@@ -108,7 +109,8 @@ export function createChannelTransport({
   // already-created fresh token instead of creating an orphan replacement.
   const registrationReplays = new Map(); // registrationId -> { token, leadPid, cwd, replaceToken, responseFinished }
   const registrationReplayTtl = Math.max(1, Number(registrationReplayTtlMs) || 60_000);
-  let server = null;
+  let listener = null;
+  let stopPromise = null;
   let graceTimer = null;
   let sweepTimer = null;
   let everHadClient = false;
@@ -117,48 +119,6 @@ export function createChannelTransport({
   let drainCommitted = false;
 
   function nowMs() { return Date.now(); }
-
-  function remoteSessionIdFromBinding(name, args) {
-    if (!BINDING_TOOLS.has(name) || !args || typeof args !== 'object') return null;
-    const explicit = String(args.sessionId || '').trim();
-    if (/^[A-Za-z0-9_-]+$/.test(explicit)) return explicit;
-    const transcriptPath = String(args.transcriptPath || '').trim();
-    if (!transcriptPath) return null;
-    const inferred = basename(transcriptPath).replace(/\.[^.]+$/, '');
-    return /^[A-Za-z0-9_-]+$/.test(inferred) ? inferred : null;
-  }
-
-  function normalizeRemoteIntent(value) {
-    if (!value || typeof value !== 'object') return null;
-    const sessionId = String(value.sessionId || '').trim();
-    const transcriptPath = String(value.transcriptPath || '').trim();
-    const cwd = value.cwd == null ? null : String(value.cwd);
-    if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || !transcriptPath) return null;
-    const inferredSessionId = basename(transcriptPath).replace(/\.[^.]+$/, '');
-    if (inferredSessionId !== sessionId) return null;
-    return {
-      version: 1,
-      sessionId,
-      transcriptPath,
-      cwd,
-      updatedAt: Number(value.updatedAt) || nowMs(),
-    };
-  }
-
-  function readRemoteIntent() {
-    if (!resolvedRemoteIntentPath) return null;
-    try {
-      const intent = normalizeRemoteIntent(JSON.parse(readFileSync(resolvedRemoteIntentPath, 'utf8')));
-      if (!intent) {
-        try { rmSync(resolvedRemoteIntentPath, { force: true }); } catch {}
-        return null;
-      }
-      return intent;
-    } catch {
-      try { rmSync(resolvedRemoteIntentPath, { force: true }); } catch {}
-      return null;
-    }
-  }
 
   function writeRemoteIntent(args, sessionId, cwd = null) {
     pinnedSessionId = sessionId;
@@ -199,7 +159,7 @@ export function createChannelTransport({
     if (closed || !intent) return Promise.resolve(false);
     if (remoteAcquired) return Promise.resolve(true);
     if (remoteRestorePromise) return remoteRestorePromise;
-    const restore = Promise.resolve().then(async () => {
+    const restore = runExclusiveBinding(async () => {
       if (closed || remoteIntent !== intent || pinnedSessionId !== intent.sessionId) return false;
       try {
         const result = await handleCall(ACTIVATE_TOOL, {
@@ -721,7 +681,7 @@ export function createChannelTransport({
       }
       // Internal memory -> session LLM bridge. It is authenticated with the
       // daemon discovery token but deliberately does NOT register as a channel
-              // registered client: background memory work must not change the pinned session or
+      // registered client: background memory work must not change the pinned session or
       // keep the channels client registry alive. The broker itself owns a
       // parallel fair scheduler and per-call cancellation.
       if (req.method === 'POST' && pathName === '/agent/dispatch') {
@@ -784,12 +744,16 @@ export function createChannelTransport({
           : c.leadPid
             ? `pid:${c.leadPid}`
             : `client:${clientToken}`;
-        const cacheKey = callId ? `${ownerKey}\u0000${callId}` : null;
+        const cacheKey = callId ? `${clientCallOwner(c, clientToken)}\u0000${callId}` : null;
+        const signature = callId ? callSignature(name, body.args) : null;
+        const cached = cacheKey ? callCache.get(cacheKey) : null;
         let dispatch;
-        if (cacheKey && callCache.has(cacheKey)) {
+        if (cached) {
           // Replay of a retried call — dedup to the original run (exactly one
           // side-effect) instead of dispatching handleCall a second time.
-          dispatch = callCache.get(cacheKey).promise;
+          dispatch = signature && cached.signature === signature
+            ? cached.promise
+            : Promise.reject(callIdConflict(callId));
         } else {
           const run = async () => {
             const args = body.args || {};
@@ -891,17 +855,18 @@ export function createChannelTransport({
           const scheduler = bindingCall ? channelControlCalls : channelCalls;
           dispatch = scheduler.enqueue(ownerKey, bindingCall ? () => runExclusiveBinding(run) : run);
           if (cacheKey) {
-            const record = { promise: dispatch, at: nowMs() };
+            const record = { promise: dispatch, signature, at: nowMs(), timer: null };
             callCache.set(cacheKey, record);
             // Start the TTL only once the call SETTLES: an in-flight call can
             // outlive a fixed-from-dispatch TTL (e.g. a slow reply upload past
             // 60s), and expiring its entry mid-flight would let a transport
             // retry replay-miss and dispatch a second real side-effect.
             dispatch.then(() => {}, () => {}).then(() => {
-              const t = setTimeout(() => {
+              if (closed || callCache.get(cacheKey) !== record) return;
+              record.timer = setTimeout(() => {
                 if (callCache.get(cacheKey) === record) callCache.delete(cacheKey);
               }, CALL_CACHE_TTL_MS);
-              t.unref?.();
+              record.timer.unref?.();
             });
           }
         }
@@ -930,36 +895,46 @@ export function createChannelTransport({
   }
 
   function start() {
-    return new Promise((resolve, reject) => {
-      server = http.createServer(handleRequest);
-      server.on('error', reject);
-      // 127.0.0.1 ONLY — never expose the daemon off-box.
-      server.listen(0, '127.0.0.1', () => {
-        server.removeListener('error', reject);
-        boundPort = server.address().port;
-        server.on('error', (err) => log(`server error: ${err?.message || err}`));
+    if (closed) return Promise.reject(new Error('channel transport is closed'));
+    listener ??= createLoopbackListener({
+      server: http.createServer(handleRequest),
+      onListening(port) {
+        boundPort = port;
         publishRemoteState();
         log(`daemon transport listening on 127.0.0.1:${boundPort} pid=${process.pid}`);
-        resolve({ port: boundPort, token: serverToken });
-      });
+      },
+      onError(error, fatal) {
+        if (!fatal) log(`server error: ${error?.message || error}`);
+      },
     });
+    return listener.start().then((port) => ({ port, token: serverToken }));
   }
 
   async function stop() {
+    if (stopPromise) return stopPromise;
+    const completion = Promise.withResolvers();
+    stopPromise = completion.promise;
     closed = true;
-    channelCalls.close('channel transport is closed');
-    channelControlCalls.close('channel transport is closed');
-    cancelGrace();
-    if (sweepTimer) { try { clearInterval(sweepTimer); } catch {} sweepTimer = null; }
-    for (const [token] of clients) dropClient(token, 'transport stop');
-    remoteAcquired = false;
-    pointerToken = null;
-    publishRemoteState();
-    clearRegistrationReplays();
-    if (server) {
-      await new Promise((resolve) => { try { server.close(() => resolve()); } catch { resolve(); } });
-      server = null;
+    try {
+      channelCalls.close('channel transport is closed');
+      channelControlCalls.close('channel transport is closed');
+      for (const record of callCache.values()) {
+        if (record.timer) clearTimeout(record.timer);
+      }
+      callCache.clear();
+      cancelGrace();
+      if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
+      for (const [token] of clients) dropClient(token, 'transport stop');
+      remoteAcquired = false;
+      pointerToken = null;
+      publishRemoteState();
+      clearRegistrationReplays();
+      await listener?.stop();
+      completion.resolve();
+    } catch (error) {
+      completion.reject(error);
     }
+    return stopPromise;
   }
 
   return {

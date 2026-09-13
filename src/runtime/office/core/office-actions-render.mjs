@@ -1,6 +1,8 @@
 import { renderPdfPages } from '../pdf/pdf-render.mjs';
+import { recalculateForReview } from './office-recalculation.mjs';
 import { compareRenderedPages } from '../quality/visual-diff.mjs';
 import { evaluateOfficeChecklist, reviewRenderedOfficePages } from '../quality/assurance.mjs';
+import { isSmallWorksheetDocument } from '../quality/assurance-rendered.mjs';
 import {
   buildOfficePolishPlan,
   normalizeOfficeReviewIssues,
@@ -12,7 +14,7 @@ import { pptxReviewArtifacts } from '../authoring/pptx-review-artifacts.mjs';
 import { persistOfficeTransaction } from './office-transactions.mjs';
 import { inferPptxSlideRoles, reviewOfficeDesign } from '../quality/design-review.mjs';
 import { applyBatch } from './office-actions-batch.mjs';
-import { issues } from './office-actions-inspect.mjs';
+import { issues, reviewSnapshot } from './office-actions-inspect.mjs';
 
 // The fit repairs (fit_table, autofit_range, fit_text) exist on both the
 // Microsoft Office and the portable OOXML backends; tabular and PDF sessions
@@ -25,12 +27,21 @@ function qaFixOperations(session, issueList) {
   const seen = new Set();
   for (const issue of issueList || []) {
     let operation = null;
-    if (session.format === 'docx' && issue.code === 'table_width') {
-      const table = Number(/^\/body\/tbl\[(\d+)]$/.exec(String(issue.path || ''))?.[1]);
+    if (session.format === 'docx' && ['table_width', 'table_wider_than_page'].includes(issue.code)) {
+      // The audit names the table as /body/table[N] and asks for fit_table; the
+      // repair looked for a code and a path shape the audit never emits, so a
+      // table running off the page was reported and then left alone.
+      const table = Number(/^\/body\/(?:tbl|table)\[(\d+)]$/.exec(String(issue.path || ''))?.[1]);
       if (table) operation = { op: 'fit_table', table };
-    } else if (session.format === 'xlsx' && issue.code === 'cell_overflow') {
-      const match = /^\/sheet\[([^\]]+)]\/cell\[([A-Z]+\d+)]$/i.exec(String(issue.path || ''));
-      if (match) operation = { op: 'autofit_range', sheet: match[1], range: match[2] };
+    } else if (session.format === 'xlsx' && ['cell_overflow', 'column_too_narrow', 'label_truncated'].includes(issue.code)) {
+      // What the audit itself prescribes for a value shown as ### or a label cut
+      // at its column edge: widen that column. Keyed to the column, so one sheet
+      // with fifty cut cells is repaired once.
+      const match = /^\/sheet\[([^\]]+)]\/cell\[([A-Z]+)(\d+)]$/i.exec(String(issue.path || ''));
+      if (match) {
+        const column = match[2].toUpperCase();
+        operation = { op: 'autofit_range', sheet: match[1], range: `${column}:${column}` };
+      }
     } else if (session.format === 'pptx' && ['text_overflow', 'text_outside_slide'].includes(issue.code)) {
       const match = /^\/slide\[(\d+)]\/shape\[(\d+)]$/.exec(String(issue.path || ''));
       if (match) operation = { op: 'fit_text', slide: Number(match[1]), shape: Number(match[2]), minFontSize: 8 };
@@ -73,6 +84,12 @@ async function renderTransactionBaseline(session, args, cwd, currentOutput) {
 }
 
 export async function qa(session, args, cwd, { reuseRender = false } = {}) {
+  // A portable workbook is calculated before it is read or drawn: the pixels
+  // then show the values the file holds, and finalize's own recalculation
+  // finds nothing to change, so the review token the caller brings back is
+  // still the current one. Recalculating only at finalize made every first
+  // render of a formula workbook stale by construction.
+  await recalculateForReview(session, session.activeSignal || null);
   const before = await issues(session, args);
   const fixes = args.autoFix === true ? qaFixOperations(session, before.issues) : [];
   let fixed = null;
@@ -136,12 +153,7 @@ export async function qa(session, args, cwd, { reuseRender = false } = {}) {
     // The review reads the whole document: a bounded (model-facing) snapshot
     // shrinks its page limit to fit maxChars, which left every slide past the
     // first dozen of a long deck without a role or a design review.
-    currentSnapshot = await snapshot(session, {
-      ...args,
-      includeStyles: true,
-      limit: Math.min(100, Number(args.limit) || 100),
-      maxChars: 100_000,
-    }, { full: true });
+    currentSnapshot = await reviewSnapshot(session, args);
     const stateSlidePlans = Array.isArray(session.designState?.slidePlans)
       ? session.designState.slidePlans
       : [];
@@ -200,6 +212,7 @@ export async function qa(session, args, cwd, { reuseRender = false } = {}) {
     : await reviewRenderedOfficePages(preview._images, {
       format: session.format,
       pageRoles,
+      smallWorksheet: session.format === 'xlsx' && isSmallWorksheetDocument(currentSnapshot?.document),
     });
   const trust = currentSnapshot?.trust || session.trustReview || null;
   const securityIssues = !session.created && trust?.findingCount
@@ -302,6 +315,7 @@ export async function qa(session, args, cwd, { reuseRender = false } = {}) {
 }
 
 export async function render(session, args, cwd) {
+  await recalculateForReview(session, session.activeSignal || null);
   const preview = await renderOfficePreview(session, args, cwd);
   return session.format === 'pptx' ? pptxReviewArtifacts(session, preview) : preview;
 }

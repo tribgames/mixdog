@@ -7,6 +7,7 @@ import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
 import { recalculateLibreOfficeWorkbook } from './portable/portable-ooxml.mjs';
 import { parseXlsxAutofitRange } from './portable/xlsx-contract.mjs';
 import { auditDocxRedlining } from './portable/docx-revisions.mjs';
+import { officeOpenFailure } from './core/office-sessions.mjs';
 import { value, workspace, writeZip } from './office-test-support.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
@@ -16,6 +17,108 @@ test('XLSX autofit accepts bounded cell, whole-column, and whole-row selectors',
   assert.deepEqual(parseXlsxAutofitRange('A:D'), { type: 'columns', start: 1, end: 4 });
   assert.deepEqual(parseXlsxAutofitRange('2:8'), { type: 'rows', start: 2, end: 8 });
   assert.throws(() => parseXlsxAutofitRange('D:A'), /Invalid XLSX column range/);
+});
+
+// A path-addressed edit is stored in the working copy and answered with
+// saved:true. Reading the same document afterwards copied the source over that
+// working copy, so the edit the caller had just been told was stored was gone.
+test('reading a document leaves an earlier edit and its working copy alone', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'doc.docx');
+  value(await executeOfficeTool({
+    action: 'create',
+    path: source,
+    mode: 'portable',
+    operations: [{ op: 'append_text', text: '원본 문단' }],
+  }, { cwd }));
+  resetOfficeSessionsForTest();
+
+  const edited = value(await executeOfficeTool({
+    action: 'batch',
+    path: source,
+    mode: 'portable',
+    operations: [{ op: 'append_text', text: '배치로 추가한 문단' }],
+  }, { cwd }));
+  assert.equal(edited.saved, true);
+  const workingCopy = edited.output;
+  assert.match(workingCopy, /doc\.mixdog-edit\.docx$/);
+  resetOfficeSessionsForTest();
+
+  // The read opens the user's own file: it neither writes a copy of it nor
+  // disturbs the edit stored beside it.
+  const read = value(await executeOfficeTool({ action: 'snapshot', path: source, mode: 'portable' }, { cwd }));
+  assert.deepEqual(read.document.paragraphs.map((paragraph) => paragraph.text), ['원본 문단']);
+  resetOfficeSessionsForTest();
+
+  const kept = value(await executeOfficeTool({ action: 'snapshot', path: workingCopy, mode: 'portable' }, { cwd }));
+  assert.deepEqual(kept.document.paragraphs.map((paragraph) => paragraph.text), ['원본 문단', '배치로 추가한 문단']);
+  // Reading the working copy did not spawn a copy of the copy either.
+  await assert.rejects(
+    executeOfficeTool({ action: 'snapshot', path: join(cwd, 'doc.mixdog-edit.mixdog-edit.docx'), mode: 'portable' }, { cwd })
+      .then((result) => (result.isError ? Promise.reject(new Error(result.content[0].text)) : result)),
+    /not found/i,
+  );
+  resetOfficeSessionsForTest();
+
+  // Looking at a document is a read too: rendering the edited copy used to
+  // copy it again, so the preview belonged to doc.mixdog-edit.mixdog-edit.docx.
+  const previewed = value(await executeOfficeTool({ action: 'render', path: workingCopy, mode: 'portable' }, { cwd }));
+  for (const image of previewed.images || []) {
+    assert.doesNotMatch(image.path, /mixdog-edit\.mixdog-edit/);
+  }
+  resetOfficeSessionsForTest();
+
+  // An edit that starts from a read-opened session still lands beside the
+  // document, never inside it.
+  const opened = value(await executeOfficeTool({ action: 'snapshot', path: source, mode: 'portable' }, { cwd }));
+  const second = value(await executeOfficeTool({
+    action: 'batch',
+    session: opened.session,
+    operations: [{ op: 'append_text', text: '두 번째 편집' }],
+  }, { cwd }));
+  assert.match(second.output, /doc\.mixdog-edit\.docx$/);
+  resetOfficeSessionsForTest();
+  const untouched = value(await executeOfficeTool({ action: 'snapshot', path: source, mode: 'portable' }, { cwd }));
+  assert.deepEqual(untouched.document.paragraphs.map((paragraph) => paragraph.text), ['원본 문단']);
+});
+
+// The audit reports a table running off the page as table_wider_than_page and
+// asks for fit_table; the repair pass looked for a code and a path shape the
+// audit never emits, so autoFix answered it with an empty fix list.
+test('qa autoFix rebalances a table the audit reports as wider than the page', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'wide-table.docx'),
+    format: 'docx',
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '10월 허브 운영 보고', style: 'Heading1' },
+      {
+        op: 'add_table',
+        values: [
+          ['지점', '9월 출고', '10월 출고', '증감', '야간 인력', '비고'],
+          ['대전 물류 허브', '48,210', '52,140', '8.2%', '12명', '야간 증원 승인 대기'],
+        ],
+        properties: { columnWidths: [2600, 2200, 2200, 1800, 1800, 3200] },
+      },
+    ],
+  }, { cwd }));
+  const before = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.ok(
+    before.issues.some((issue) => issue.code === 'table_wider_than_page' && issue.path === '/body/table[1]'),
+    JSON.stringify(before.issues),
+  );
+  const repaired = value(await executeOfficeTool({
+    action: 'qa', session: created.session, autoFix: true, render: false,
+  }, { cwd }));
+  assert.deepEqual(repaired.fixes, [{ op: 'fit_table', table: 1 }], JSON.stringify(repaired.fixes));
+  assert.equal(
+    (repaired.issuesAfter || []).some((issue) => issue.code === 'table_wider_than_page'),
+    false,
+    JSON.stringify(repaired.issuesAfter),
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
 
 test('create initial operations and finalize collapse a portable workflow into one call', async (t) => {
@@ -116,6 +219,33 @@ test('portable XLSM edits preserve VBA payload and strict package relationships'
   assert.deepEqual(validation.baseline.lostProtectedParts, []);
   const zip = await JSZip.loadAsync(await readFile(output));
   assert.deepEqual(await zip.file('xl/vbaProject.bin').async('nodebuffer'), vba);
+});
+
+// A deck finalized through the background backend is saved by PowerPoint itself, which normalises the theme, layouts
+// and master and renumbers a chart's data workbook. The baseline read those as damaged protected parts and refused
+// the finalize; only a rewrite by another backend treats them as protected. Macros stay protected under every backend.
+test('baseline validation treats the Office application\'s own resave of theme, layouts and chart workbooks as normalisation, not damage', async (t) => {
+  const { validatePortableOoxml } = await import('./portable/portable-validation.mjs');
+  const cwd = await workspace(t);
+  const original = join(cwd, 'deck.pptx');
+  const saved = join(cwd, 'deck.mixdog-edit.pptx');
+  const vba = Buffer.from('vba-original');
+  const common = {
+    '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+    'ppt/presentation.xml': '<?xml version="1.0"?><p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>',
+  };
+  const rels = (workbook) => `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/${workbook}"/></Relationships>`;
+  await writeZip(original, { ...common, 'ppt/theme/theme1.xml': '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="one"/>', 'ppt/charts/_rels/chart1.xml.rels': rels('Microsoft_Excel_Worksheet2.xlsx'), 'ppt/embeddings/Microsoft_Excel_Worksheet2.xlsx': 'workbook', 'ppt/vbaProject.bin': vba });
+  await writeZip(saved, { ...common, 'ppt/theme/theme1.xml': '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="one" normalised="1"/>', 'ppt/charts/_rels/chart1.xml.rels': rels('Microsoft_Excel_Worksheet.xlsx'), 'ppt/embeddings/Microsoft_Excel_Worksheet.xlsx': 'workbook', 'ppt/vbaProject.bin': Buffer.from('vba-changed') });
+  const rewritten = await validatePortableOoxml(saved, 'pptx', { original });
+  assert.deepEqual(rewritten.baseline.changedProtectedParts.map((part) => part.part).sort(), ['ppt/theme/theme1.xml', 'ppt/vbaProject.bin']);
+  assert.deepEqual(rewritten.baseline.lostProtectedParts, ['ppt/embeddings/Microsoft_Excel_Worksheet2.xlsx']);
+  const resaved = await validatePortableOoxml(saved, 'pptx', { original, savedBy: 'microsoft-office-com' });
+  assert.equal(resaved.baseline.applicationSaved, true);
+  assert.deepEqual(resaved.baseline.changedProtectedParts.map((part) => part.part), ['ppt/vbaProject.bin'], 'a changed macro is damage under every backend');
+  assert.deepEqual(resaved.baseline.lostProtectedParts, []);
+  assert.deepEqual([...resaved.baseline.applicationNormalizedParts].sort(), ['ppt/embeddings/Microsoft_Excel_Worksheet2.xlsx', 'ppt/theme/theme1.xml']);
 });
 
 test('portable DOCX preserves the package while replacing split runs and appending text', async (t) => {
@@ -284,6 +414,121 @@ test('portable DOCX set creates editable runs in empty paragraphs', async (t) =>
   assert.equal(snapshot.document.paragraphs[1].style, 'Normal');
 });
 
+// A table's own type reaches its cells on the portable backend as it does
+// through Word: a Korean table whose cells fall back to the document default is
+// laid out face by face, and the label lands off the baseline of the figure
+// beside it.
+// The audit that rides on author reads the same geometry the design review
+// reads, so an element a few points off a shared axis is answered in the turn
+// that wrote it instead of surviving to the next call.
+test('the authoring audit reports a slide element that almost lands on a shared axis', async (t) => {
+  const cwd = await workspace(t);
+  const brief = [
+    '// BRIEF',
+    '// subject/audience/action: 운영팀 · 축 정렬 검사',
+    '// reading mode: balanced · argument mode: briefing',
+    '// directions: A plain · hue 205 · concord · 규칙선 — 검사용 · B dark · hue 215 · weight · 필드 — 검사용 · selected: A · why: 축 하나만 본다',
+    '// style: plain · palette: hue 205 · accent: counter · type: MODE balanced → body 18 · script: ko · pairing: concord · fonts: noto',
+    '// facts: sample — 검사용 덱이라 수치가 없다',
+    '// slide plan: 1 job: structure · move: 축을 본다 · composition: 세 열과 아래 띠 · carriers: diagram · rhythm: dense',
+  ].join('\n');
+  const deck = (offset) => `${brief}
+deck({ hue: 205, mode: 'balanced', script: 'ko', pairing: 'concord', fonts: 'noto' });
+{ const s = light(); const cols = spans(M, W - 2 * M, [1, 1, 1]);
+  cols.forEach((c) => field(s, c.x, 2, c.w, 1.2));
+  hairline(s, M, 3.6, W - 2 * M);
+  field(s, M + ${offset}, 4.0, W - 2 * M, 0.7, T.tint); }
+await pres.writeFile({ fileName: OUTPUT });`;
+  const aligned = value(await executeOfficeTool({
+    action: 'author', path: join(cwd, 'aligned.pptx'), script: deck(0), mode: 'portable', overwrite: true, render: false,
+  }, { cwd }));
+  assert.equal(aligned.ok, true, `${aligned.error?.message}\n${aligned.error?.excerpt || ''}`);
+  assert.equal(aligned.audit.status, 'pass', JSON.stringify(aligned.audit.top));
+  const drifted = value(await executeOfficeTool({
+    action: 'author', path: join(cwd, 'drifted.pptx'), script: deck(0.05), mode: 'portable', overwrite: true, render: false,
+  }, { cwd }));
+  assert.equal(drifted.ok, true, `${drifted.error?.message}\n${drifted.error?.excerpt || ''}`);
+  assert.equal(drifted.audit.status, 'fail');
+  const drift = drifted.audit.top.find((entry) => entry.code === 'axis_drift');
+  assert.ok(drift, JSON.stringify(drifted.audit.top));
+  assert.match(drift.message, /3\.6 pt off the axis/);
+});
+
+test('portable DOCX applies the table type to every cell, Latin and East Asian', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'typed-table.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'docx',
+    mode: 'portable',
+    operations: [{
+      op: 'add_table',
+      values: [['구간', '처리량'], ['1분기', '12']],
+      properties: {
+        fontName: 'Noto Sans KR',
+        fontNameEastAsia: 'Noto Sans KR',
+        fontSize: 10,
+        color: '1F2933',
+        spacingAfter: 4,
+        columnWidths: [150, 130],
+      },
+    }],
+  }, { cwd }));
+  assert.equal(created.batch.results[0].changed, true);
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const document = await zip.file('word/document.xml').async('string');
+  const cells = [...document.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map((match) => match[0]);
+  assert.equal(cells.length, 4);
+  for (const cell of cells) {
+    assert.match(cell, /<w:rFonts w:ascii="Noto Sans KR" w:hAnsi="Noto Sans KR" w:cs="Noto Sans KR" w:eastAsia="Noto Sans KR"\/>/);
+    assert.match(cell, /<w:sz w:val="20"\/>/);
+    assert.match(cell, /<w:color w:val="1F2933"\/>/);
+    // The spacing the caller asked for, plus one minimum line height per row so
+    // a Latin figure and a Hangul label share a baseline.
+    assert.match(cell, /<w:spacing w:after="80" w:line="260" w:lineRule="atLeast"\/>/);
+  }
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.equal(snapshot.document.tables[0].rows[1].cells[0].text, '1분기');
+  // Restyling a header cell must replace the ink the table set, not queue a
+  // second colour behind it: Word honours the last value and the white header
+  // text would land back on the dark fill it was meant to sit on.
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_table_cell_style', table: 1, row: 1, col: 1, properties: { fillColor: '132C24', color: 'FFFFFF', bold: true } }],
+  }, { cwd }));
+  const headerCell = [...(await (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string'))
+    .matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)][0][0];
+  assert.deepEqual([...headerCell.matchAll(/<w:color w:val="([0-9A-Fa-f]{6})"\/>/g)].map((match) => match[1]), ['FFFFFF']);
+  assert.match(headerCell, /<w:rFonts[^>]*\/><w:b\/>(?:<w:bCs\/>)?<w:color w:val="FFFFFF"\/>/);
+  // Declared column widths hold only when the table states its own width too,
+  // and restyling the table keeps that width.
+  assert.match(document, /<w:tblW w:w="5600" w:type="dxa"\/>/);
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_table_style', table: 1, properties: { style: 'TableGrid' } }],
+  }, { cwd }));
+  const restyled = await (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string');
+  assert.match(restyled, /<w:tblStyle w:val="TableGrid"\/><w:tblW w:w="5600" w:type="dxa"\/>/);
+  // The header row repeats where the table breaks; a caller whose first row is
+  // data says so.
+  const rows = [...document.matchAll(/<w:tr>[\s\S]*?<\/w:tr>/g)].map((match) => match[0]);
+  assert.match(rows[0], /<w:trPr><w:tblHeader\/><\/w:trPr>/);
+  assert.doesNotMatch(rows[1], /<w:tblHeader\/>/);
+  const plain = join(cwd, 'data-table.docx');
+  value(await executeOfficeTool({
+    action: 'create',
+    path: plain,
+    format: 'docx',
+    mode: 'portable',
+    operations: [{ op: 'add_table', values: [['12', '31'], ['18', '24']], properties: { repeatHeader: false } }],
+  }, { cwd }));
+  const plainZip = await JSZip.loadAsync(await readFile(plain));
+  assert.doesNotMatch(await plainZip.file('word/document.xml').async('string'), /<w:tblHeader\/>/);
+});
+
 test('portable DOCX authors professional tables and paragraph layout', async (t) => {
   const cwd = await workspace(t);
   const source = join(cwd, 'professional.docx');
@@ -362,6 +607,37 @@ test('DOCX redlining audit rejects untracked text edits', async (t) => {
   assert.deepEqual(validation.redlining.untrackedEdits.after, ['Untracked replacement']);
   assert.equal(validation.redlining.untrackedEdits.paragraph, 1);
   assert.ok(validation.redlining.guidance.length >= 1);
+});
+
+// A reviewer's file usually arrives with tracking already on, and the same
+// edit is a revision or a silent rewrite depending on that state: the reader
+// reports it instead of leaving the caller to discover it afterwards.
+test('a Word snapshot reports whether this document records edits as revisions', async (t) => {
+  const cwd = await workspace(t);
+  const document = '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+    + '<w:body><w:p><w:r><w:t>제1조 (대금)</w:t></w:r></w:p></w:body></w:document>';
+  const contentTypes = '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    + '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+    + '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>';
+  const settings = (element) => '<?xml version="1.0"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+    + `${element}</w:settings>`;
+  const read = async (name, element) => {
+    const source = join(cwd, `${name}.docx`);
+    await writeZip(source, { '[Content_Types].xml': contentTypes, 'word/document.xml': document, 'word/settings.xml': settings(element) });
+    const opened = value(await executeOfficeTool({
+      action: 'open', path: source, output: join(cwd, `${name}-out.docx`), mode: 'portable',
+    }, { cwd }));
+    const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
+    value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
+    return snapshot.document.trackChanges;
+  };
+  assert.equal(await read('tracking-on', '<w:trackRevisions/>'), true);
+  assert.equal(await read('tracking-absent', ''), false);
+  // A converted or template-based file writes the element with w:val="false"
+  // rather than dropping it; reading the element alone calls that file tracked.
+  assert.equal(await read('tracking-off-explicit', '<w:trackRevisions w:val="false"/>'), false);
+  assert.equal(await read('tracking-on-explicit', '<w:trackRevisions w:val="1"/>'), true);
 });
 
 test('DOCX redlining audit accepts tracked edits by the named author and reports foreign authors', async (t) => {
@@ -782,6 +1058,202 @@ test('DOCX redlining audit covers a header edited untracked and passes one edite
   assert.equal(passed.redlining.untrackedEdits, null);
 });
 
+test('a hyperlink asked for by phrase lands on that phrase, or says it is absent', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'linked.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'docx',
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '자세한 내용은 운영 대시보드에서 확인하십시오.' },
+      // No display: linking a phrase must keep that phrase. Defaulting to the
+      // address rewrote the sentence as "https://example.com/ops에서 …".
+      // url is the name this runtime's PDF links use, so it reaches address.
+      { op: 'add_hyperlink', find: '운영 대시보드', url: 'https://example.com/ops' },
+    ],
+  }, { cwd }));
+  assert.equal(created.batch.results[1].anchor, 'phrase');
+  const document = await (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string');
+  // The phrase moves inside the link; the words around it keep their own runs.
+  assert.match(document, /자세한 내용은 <\/w:t><\/w:r><w:hyperlink r:id="[^"]+"><w:r><w:rPr><w:color w:val="0563C1"\/><w:u w:val="single"\/><\/w:rPr><w:t>운영 대시보드<\/w:t><\/w:r><\/w:hyperlink><w:r><w:t xml:space="preserve">에서/);
+  assert.equal((document.match(/운영 대시보드/g) || []).length, 1, 'the phrase is not duplicated');
+  // Appending the link to the end of the document and reporting success put it
+  // somewhere the caller never named.
+  const missing = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'add_hyperlink', find: '없는문구', address: 'https://example.com', display: 'x' }],
+  }, { cwd });
+  assert.equal(missing.isError, true);
+  assert.match(missing.content[0].text, /text not found for hyperlink: 없는문구/);
+  // A caller who does want other words still gets them.
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'append_text', text: '월간 지표는 여기에서 봅니다.' },
+      { op: 'add_hyperlink', find: '여기', address: 'https://example.com/metrics', display: '월간 지표 보드' },
+    ],
+  }, { cwd }));
+  const relabelled = await (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string');
+  assert.match(relabelled, /<w:hyperlink[^>]*><w:r><w:rPr>[^<]*(?:<[^>]+>)*<w:t>월간 지표 보드<\/w:t>/);
+});
+
+test('a worksheet name Excel would refuse is refused here', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'named.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'xlsx',
+    mode: 'portable',
+    operations: [{ op: 'set_cell', cell: 'A1', value: '허브' }],
+  }, { cwd }));
+  for (const [name, reason] of [
+    ['a/b:c', /cannot contain : \\ \/ \? \* \[ \]/],
+    ['x'.repeat(32), /limited to 31 characters/],
+    ["'quoted'", /apostrophe/],
+    ['History', /reserved by Excel/],
+  ]) {
+    const refused = await executeOfficeTool({
+      action: 'batch',
+      session: created.session,
+      operations: [{ op: 'rename_sheet', name }],
+    }, { cwd });
+    assert.equal(refused.isError, true, `${name} is refused`);
+    assert.match(refused.content[0].text, reason);
+  }
+  const renamed = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'rename_sheet', name: '10월 실적' }],
+  }, { cwd }));
+  assert.deepEqual(renamed.results[0].to, '10월 실적');
+
+  // Excel will not open a workbook whose defined name carries a space, and the
+  // caller writes that name into formulas, so it is refused rather than
+  // quietly repaired. A Korean name without one is valid and stays as given.
+  for (const [name, reason] of [
+    ['월 매출', /contains a space; use an underscore/],
+    ['2026매출', /must start with a letter/],
+    ['매출!', /use letters, digits, underscores, or periods/],
+    ['B4', /reads it as a cell reference/],
+  ]) {
+    const refused = await executeOfficeTool({
+      action: 'batch',
+      session: created.session,
+      operations: [{ op: 'define_name', name, refersTo: "'10월 실적'!$A$1" }],
+    }, { cwd });
+    assert.equal(refused.isError, true, `${name} is refused`);
+    assert.match(refused.content[0].text, reason);
+  }
+  const defined = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'define_name', name: '월_매출', refersTo: "'10월 실적'!$A$1" }],
+  }, { cwd }));
+  assert.equal(defined.results[0].name, '월_매출');
+});
+
+test('portable DOCX fills the content controls the snapshot reports', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'template.docx');
+  const output = join(cwd, 'filled.docx');
+  const control = (tag, text, extra = '') => '<w:sdt><w:sdtPr>'
+    + `<w:alias w:val="${tag}"/><w:tag w:val="${tag}"/>${extra}</w:sdtPr>`
+    + `<w:sdtContent><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>${text}</w:t></w:r>`
+    + '<w:r><w:t> leftover</w:t></w:r></w:p></w:sdtContent></w:sdt>';
+  await writeZip(source, {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    'word/document.xml': '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+      + control('계약명', '[계약명]', '<w:showingPlcHdr/>')
+      + control('계약금액', '[금액]')
+      + control('작성일', '2026-01-01', '<w:lock w:val="sdtContentLocked"/>')
+      + '</w:body></w:document>',
+  });
+  const opened = value(await executeOfficeTool({ action: 'open', path: source, output, mode: 'portable' }, { cwd }));
+  const filled = value(await executeOfficeTool({
+    action: 'batch',
+    session: opened.session,
+    operations: [
+      { op: 'set_content_control', tag: '계약명', text: '야간 운영 위탁 계약' },
+      { op: 'set_content_control', control: 2, text: '38,400,000원' },
+    ],
+  }, { cwd }));
+  assert.deepEqual(
+    filled.results.map((entry) => [entry.control, entry.tag, entry.text]),
+    [[1, '계약명', '야간 운영 위탁 계약'], [2, '계약금액', '38,400,000원']],
+  );
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
+  assert.deepEqual(
+    snapshot.document.contentControls.map((entry) => [entry.tag, entry.text]),
+    [['계약명', '야간 운영 위탁 계약'], ['계약금액', '38,400,000원'], ['작성일', '2026-01-01 leftover']],
+  );
+  const document = await (await JSZip.loadAsync(await readFile(output))).file('word/document.xml').async('string');
+  // The value replaces the placeholder outright, keeps the run's formatting,
+  // and the control stops advertising prompt text.
+  assert.match(document, /<w:rPr><w:b\/><\/w:rPr><w:t>야간 운영 위탁 계약<\/w:t>/);
+  assert.doesNotMatch(document, /leftover<\/w:t><\/w:r><\/w:p><\/w:sdtContent><\/w:sdt><w:sdt><w:sdtPr><w:alias w:val="계약금액"/);
+  assert.doesNotMatch(document, /<w:showingPlcHdr\/>/);
+  await assert.rejects(
+    async () => value(await executeOfficeTool({
+      action: 'batch',
+      session: opened.session,
+      operations: [{ op: 'set_content_control', tag: '작성일', text: '2026-10-01' }],
+    }, { cwd })),
+    /작성일 is locked for editing/,
+  );
+  await assert.rejects(
+    async () => value(await executeOfficeTool({
+      action: 'batch',
+      session: opened.session,
+      operations: [{ op: 'set_content_control', tag: 'missing', text: 'x' }],
+    }, { cwd })),
+    /content control not found for tag: missing/,
+  );
+});
+
+test('portable DOCX notes cite the phrase they follow and are the only notes counted', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'notes.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'docx',
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '정시 출고율은 92.8%로 내려갔습니다.' },
+      { op: 'add_note', find: '92.8%', text: '물류운영팀 집계.' },
+      { op: 'add_note', kind: 'endnote', paragraph: 1, text: '집계 기준은 부록 참조.' },
+    ],
+  }, { cwd }));
+  assert.deepEqual(
+    created.batch.results.slice(1).map((entry) => [entry.op, entry.kind, entry.note, entry.anchor]),
+    [['add_note', 'footnote', 1, 'phrase'], ['add_note', 'endnote', 1, 'paragraph']],
+  );
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const document = await zip.file('word/document.xml').async('string');
+  // The mark follows the cited number, so the run is cut around it.
+  assert.match(document, /<w:t xml:space="preserve">92\.8%<\/w:t><\/w:r><w:r><w:rPr><w:rStyle w:val="FootnoteReference"\/><w:vertAlign w:val="superscript"\/><\/w:rPr><w:footnoteReference w:id="1"\/><\/w:r>/);
+  assert.match(document, /<w:endnoteReference w:id="1"\/><\/w:r><\/w:p>/);
+  const footnotes = await zip.file('word/footnotes.xml').async('string');
+  // Word repairs a notes part that lacks its separators.
+  assert.match(footnotes, /<w:footnote w:type="separator" w:id="-1">/);
+  assert.match(footnotes, /<w:footnote w:type="continuationSeparator" w:id="0">/);
+  assert.match(footnotes, /<w:footnote w:id="1">[\s\S]*물류운영팀 집계\./);
+  assert.match(
+    await zip.file('word/_rels/document.xml.rels').async('string'),
+    /Type="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/footnotes" Target="footnotes\.xml"/,
+  );
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.equal(snapshot.document.footnoteCount, 1);
+  assert.equal(snapshot.document.endnoteCount, 1);
+  assert.match(snapshot.document.footnotes[0].text, /물류운영팀 집계\./);
+  assert.match(snapshot.document.endnotes[0].text, /부록 참조\./);
+});
+
 test('portable DOCX snapshot names the table cell a revision sits in and flags the cell', async (t) => {
   const cwd = await workspace(t);
   const source = join(cwd, 'cell-revisions.docx');
@@ -918,6 +1390,277 @@ test('portable DOCX comments carry the cross-linked identity parts and delete cl
   assert.equal(snapshot.document.commentThreadCount, 1);
 });
 
+// A review thread is a thread: a reply belongs to the comment it answers, and
+// resolving it settles the whole thread. The reader reports both, so the audit
+// asks about the comment that is still open and no other.
+test('a resolved comment thread reads back settled and only open threads are reported', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'review.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    mode: 'portable',
+    format: 'docx',
+    operations: [
+      { op: 'append_text', text: '야간 운영 합의서', properties: { style: 'Heading1' } },
+      { op: 'append_text', text: '대전 허브는 야간 인력 12명을 증원한다. 정시 출고율 목표는 96.0%로 한다.' },
+    ],
+  }, { cwd }));
+  // The snapshot calls the anchor anchoredText, so the operation takes that name too.
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'add_comment', anchoredText: '야간 인력 12명', text: '산정표를 첨부해 주세요.', author: '재영', initials: 'JY' },
+      { op: 'add_comment', find: '96.0%', text: '목표가 맞는지 확인 필요합니다.', author: '재영', initials: 'JY' },
+      { op: 'add_comment_reply', comment: 1, text: '별첨 2에 있습니다.', author: '운영기획팀', initials: 'OP' },
+      { op: 'set_comment_resolved', comment: 1, resolved: true },
+    ],
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  const comments = snapshot.document.comments;
+  assert.equal(comments[0].anchoredText, '야간 인력 12명');
+  assert.equal(comments[0].resolved, true);
+  assert.equal(comments[1].resolved, undefined);
+  assert.equal(comments[2].replyTo, comments[0].id);
+  assert.equal(comments[2].resolved, true, 'a reply inherits its thread');
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues;
+  const open = issues.filter((issue) => issue.code === 'unresolved_comments');
+  assert.equal(open.length, 1);
+  assert.match(open[0].message, /^1 comment thread\(s\)/);
+  assert.equal(open[0].path, comments[1].path);
+});
+
+// "issues" answered ok with nothing found for a workbook whose chart the page
+// break cuts in half, because the format review only ran inside qa. A review
+// action that reports a clean file has to have looked at the document.
+test('issues reads the document review, not only the package', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'sliced.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: book,
+    format: 'xlsx',
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B3', values: [['월', '처리량'], ['9월', 4390], ['10월', 4720]] },
+      {
+        op: 'add_chart',
+        sheet: 'Sheet1',
+        chartType: 'column',
+        range: 'A1:B3',
+        left: 260,
+        top: 20,
+        width: 480,
+        height: 280,
+      },
+      // A print area that stops at the table leaves the chart to the page break.
+      { op: 'set_page_setup', sheet: 'Sheet1', printArea: 'A1:B3' },
+    ],
+  }, { cwd }));
+  const reviewed = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  const drawing = (reviewed.issues || []).find((entry) => entry.code === 'drawing_outside_print_area');
+  assert.ok(drawing, JSON.stringify(reviewed.issues));
+  assert.equal(drawing.path, '/sheet[Sheet1]/chart[1]');
+  assert.equal(drawing.severity, 'warning');
+  assert.match(drawing.message, /past the print area A1:B3/);
+  assert.equal(reviewed.issueCount, (reviewed.issues || []).length);
+  const checked = value(await executeOfficeTool({ action: 'qa', session: created.session, render: false }, { cwd }));
+  assert.ok((checked.issuesAfter || []).some((entry) => entry.code === 'drawing_outside_print_area'));
+  // The same finding is reported once, not once per review pass.
+  assert.equal((checked.issuesAfter || []).filter((entry) => entry.code === 'drawing_outside_print_area').length, 1);
+});
+
+// A chart beside a table is wider than a portrait page, and a sheet with no page
+// setup used to export by column blocks — the page break ran through the chart
+// and the review then held finalize for it. The chart's own sheet now takes one
+// page wide; a later print area keeps that fit, and a declared fit is left alone.
+test('a chart on an unfitted sheet takes one page wide, and the review has nothing to hold', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'fitted.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: book,
+    format: 'xlsx',
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B3', values: [['월', '처리량'], ['9월', 4390], ['10월', 4720]] },
+      { op: 'add_chart', sheet: 'Sheet1', chartType: 'column', range: 'A1:B3', cell: 'G2', width: 480, height: 280 },
+      { op: 'set_page_setup', sheet: 'Sheet1', printArea: 'A1:P20' },
+    ],
+  }, { cwd }));
+  const chartResult = created.batch.results.find((entry) => entry.op === 'add_chart');
+  assert.equal(chartResult.pageFit, 'one-page-wide');
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  const setup = snapshot.document.sheets[0].pageSetup;
+  assert.equal(setup.fitToPagesWide, 1, JSON.stringify(setup));
+  assert.equal(setup.fitToPagesTall, 0);
+  const reviewed = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.deepEqual((reviewed.issues || []).filter((entry) => entry.code === 'drawing_outside_print_area'), []);
+  // A sheet whose fit the author declared keeps it.
+  const declared = join(cwd, 'declared.xlsx');
+  value(await executeOfficeTool({
+    action: 'create',
+    path: declared,
+    format: 'xlsx',
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B3', values: [['월', '처리량'], ['9월', 4390], ['10월', 4720]] },
+      { op: 'set_page_setup', sheet: 'Sheet1', fitToPagesWide: 2, fitToPagesTall: 3 },
+      { op: 'add_chart', sheet: 'Sheet1', chartType: 'column', range: 'A1:B3', cell: 'G2' },
+    ],
+  }, { cwd }));
+  const declaredSnapshot = value(await executeOfficeTool({ action: 'snapshot', path: declared, mode: 'portable' }, { cwd }));
+  assert.equal(declaredSnapshot.document.sheets[0].pageSetup.fitToPagesWide, 2);
+  assert.equal(declaredSnapshot.document.sheets[0].pageSetup.fitToPagesTall, 3);
+});
+
+// A stat strip is a 22 pt value row over a 9 pt label row. Restyling the label
+// cells has to set their size and repitch their lines, and must not drop the
+// width or the bottom alignment the table was written with.
+test('a restyled table cell keeps its width and bottom alignment and takes its new size', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'stats.docx');
+  value(await executeOfficeTool({
+    action: 'create',
+    path,
+    mode: 'portable',
+    operations: [
+      { op: 'add_table', values: [['1.6배', '0.3%'], ['처리량', '오류율']], properties: { fontSize: 22, columnWidths: [200, 200] } },
+      { op: 'set_table_cell_style', table: 1, row: 2, col: 1, properties: { fontSize: 9, color: '6B7280', fontNameEastAsia: 'Malgun Gothic' } },
+      { op: 'set_table_cell_style', table: 1, row: 2, col: 2, properties: { fillColor: 'EEF2F7', verticalAlignment: 'top' } },
+    ],
+  }, { cwd }));
+  const written = await (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string');
+  const cells = written.match(/<w:tc>[^]*?<\/w:tc>/g);
+  assert.equal(cells.length, 4);
+  // Every cell of a new table sits on its bottom edge, so a Latin-only figure and a Hangul one share a baseline.
+  assert.match(cells[0], /<w:tcPr><w:tcW w:w="4000" w:type="dxa"\/><w:vAlign w:val="bottom"\/><\/w:tcPr>/);
+  assert.match(cells[2], /<w:tcPr><w:tcW w:w="4000" w:type="dxa"\/><w:vAlign w:val="bottom"\/><\/w:tcPr>/);
+  assert.match(cells[2], /<w:rFonts w:eastAsia="Malgun Gothic"\/>[^]*?<w:color w:val="6B7280"\/><w:sz w:val="18"\/><w:szCs w:val="18"\/>/);
+  assert.match(cells[2], /<w:spacing[^>]*w:line="234" w:lineRule="atLeast"\/>/);
+  assert.match(cells[0], /<w:spacing[^>]*w:line="572" w:lineRule="atLeast"\/>/);
+  assert.match(cells[3], /<w:tcPr><w:tcW w:w="4000" w:type="dxa"\/><w:shd w:val="clear" w:color="auto" w:fill="EEF2F7"\/><w:vAlign w:val="top"\/><\/w:tcPr>/);
+});
+
+// A Word table has two alignments — the table's place on the page and the text
+// of each column — and a finalize that carries the page review keeps a native
+// document native instead of resolving the review into a preset profile.
+test('a Word table takes per-column text alignment, and the page review keeps the document native', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'aligned.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '라인별 처리 건수', style: 'Heading 1' },
+      { op: 'add_table', values: [['라인', '10월'], ['1호', '1,200건']], properties: { alignment: 'center', columnAlignments: ['left', 'right'] } },
+    ],
+  }, { cwd }));
+  const documentXml = async () => (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string');
+  const written = await documentXml();
+  assert.match(written, /<w:tblPr>[^]*?<w:jc w:val="center"\/>[^]*?<\/w:tblPr>/);
+  assert.equal((written.match(/<w:tc>[^]*?<w:jc w:val="right"\/>/g) || []).length, 2);
+  // The header row is bold by default and every cell shares one minimum line
+  // height, so a Latin figure and a Hangul label sit on the same baseline.
+  const rowsXml = written.match(/<w:tr>[^]*?<\/w:tr>/g);
+  assert.equal((rowsXml[0].match(/<w:b\/>/g) || []).length, 2);
+  assert.equal((rowsXml[1].match(/<w:b\/>/g) || []).length, 0);
+  assert.equal((written.match(/<w:tc>[^]*?<w:spacing[^>]*w:lineRule="atLeast"/g) || []).length, 4);
+  // A created document keeps Hangul words whole at the line end (Word reads
+  // wordWrap="0" as "break Korean words anywhere").
+  const styles = await (await JSZip.loadAsync(await readFile(path))).file('word/styles.xml').async('string');
+  assert.match(styles, /<w:pPrDefault><w:pPr><w:wordWrap w:val="1"\/>/);
+  const plain = join(cwd, 'plain.docx');
+  value(await executeOfficeTool({
+    action: 'create', path: plain, mode: 'portable',
+    operations: [{ op: 'add_table', values: [['라인', '10월'], ['1호', '1,200건']], properties: { headerBold: false } }],
+  }, { cwd }));
+  assert.doesNotMatch(await (await JSZip.loadAsync(await readFile(plain))).file('word/document.xml').async('string'), /<w:b\/>/);
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_table_style', table: 1, properties: { columnAlignments: ['center', 'center'] } }],
+  }, { cwd }));
+  assert.equal(((await documentXml()).match(/<w:jc w:val="center"\/>/g) || []).length, 4);
+  const finalized = value(await executeOfficeTool({
+    action: 'finalize',
+    session: created.session,
+    review: false,
+    design: { reviewed: true, reviewToken: 'none', critique: [{ page: 1, verdict: 'pass', note: 'table columns read as one grid' }] },
+  }, { cwd }));
+  assert.equal(finalized.ok, true, JSON.stringify(finalized.validation?.schema?.errors || finalized));
+  assert.equal(finalized.design?.authoring, 'native');
+  assert.equal(finalized.design?.profile, undefined);
+});
+
+// A file that arrives half-copied fails on the ZIP itself; the answer names the
+// file and what to do, instead of a library's internal wording.
+test('a damaged package is refused with the file name and a way forward', async (t) => {
+  const cwd = await workspace(t);
+  const intact = join(cwd, 'intact.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: intact,
+    mode: 'portable',
+    format: 'docx',
+    operations: [{ op: 'append_text', text: '야간 운영 보고' }],
+  }, { cwd }));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const damaged = join(cwd, 'damaged.docx');
+  const bytes = await readFile(intact);
+  await writeFile(damaged, bytes.subarray(0, Math.floor(bytes.length * 0.6)));
+  const opened = await executeOfficeTool({ action: 'open', path: damaged, mode: 'portable' }, { cwd });
+  assert.equal(opened.isError, true);
+  assert.match(opened.content[0].text, /is not a readable Office package/);
+  assert.match(opened.content[0].text, /damaged or incomplete/);
+  assert.match(opened.content[0].text, /ask for an intact copy/);
+
+  // Bytes that are not a package at all reach the library's own aside — a
+  // question about zip files and a link to its documentation — which answers
+  // nothing the caller asked and does not travel with the error.
+  const notAPackage = join(cwd, 'not-a-package.docx');
+  await writeFile(notAPackage, '이것은 워드 파일이 아닙니다', 'utf8');
+  const refused = await executeOfficeTool({ action: 'open', path: notAPackage, mode: 'portable' }, { cwd });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /not a readable Office package/);
+  assert.doesNotMatch(refused.content[0].text, /is this a zip file|https?:\/\//);
+
+  // A legacy .doc renamed to .docx is intact — it is simply not a package.
+  // Sending the caller to ask for an undamaged copy chases a file that exists.
+  const legacy = join(cwd, 'legacy.docx');
+  await writeFile(legacy, Buffer.concat([Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), Buffer.alloc(1024)]));
+  const old = await executeOfficeTool({ action: 'open', path: legacy, mode: 'portable' }, { cwd });
+  assert.equal(old.isError, true);
+  assert.match(old.content[0].text, /legacy Office file \(\.doc\/\.xls\/\.ppt\)/);
+  assert.match(old.content[0].text, /save a copy as \.docx/);
+  assert.doesNotMatch(old.content[0].text, /damaged or incomplete/);
+
+  // recover finishes an interrupted transaction. Reached with a damaged file
+  // in hand, "recover requires transaction" read as a missing argument; the
+  // answer now says what it recovers and where the two paths diverge.
+  const misread = await executeOfficeTool({ action: 'recover', path: damaged }, { cwd });
+  assert.equal(misread.isError, true);
+  assert.match(misread.content[0].text, /interrupted Office transaction/);
+  assert.match(misread.content[0].text, /"action":"transactions"/);
+  assert.match(misread.content[0].text, /damaged document is a different matter/);
+});
+
+// A running PowerPoint that refuses automation is not a damaged deck: sending the
+// caller to repair an intact file wastes the turn and hides the route that works.
+test('an Office application that refuses automation is not reported as a damaged file', () => {
+  const refusal = officeOpenFailure(
+    'Background Office refused a shared or unidentified application before opening the document (pid 48632).',
+    'C:/decks/night-ops.pptx',
+  );
+  assert.match(refusal, /night-ops\.pptx/);
+  assert.match(refusal, /mode:'portable'/);
+  assert.doesNotMatch(refusal, /damaged or incomplete/);
+  const unreadable = officeOpenFailure('PowerPoint을(를) 사용하여 파일을 열 수 없습니다', 'C:/decks/night-ops.pptx');
+  assert.match(unreadable, /damaged or incomplete/);
+});
+
 test('DOCX validation reports revision and comment structure faults Word rejects', async (t) => {
   const cwd = await workspace(t);
   const source = join(cwd, 'faulty.docx');
@@ -1028,6 +1771,55 @@ test('portable DOCX snapshots structured comments and revisions', async (t) => {
   assert.ok(issues.issues.some((issue) => issue.code === 'unresolved_revisions'));
 });
 
+test('template tokens named in the document language fill, and an unfilled one is reported', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'korean-template.docx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '{{계약명}} 위탁 계약 확인서', style: 'Heading 1' },
+      { op: 'append_text', text: '수신: {{수신처}} 귀중' },
+      { op: 'add_table', values: [['항목', '내용'], ['담당자', '{{담당자}}']] },
+      { op: 'set_header_footer', text: '{{계약명}} · 운영기획팀' },
+    ],
+  }, { cwd }));
+  // Left as written, the placeholder is a shipping defect the audit must name.
+  const pending = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.ok((pending.issues || []).some((issue) => issue.code === 'unfilled_token'), JSON.stringify(pending.issues));
+
+  const strict = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'fill_template', strict: true, tokens: { 계약명: '대전 허브 야간 운영', 수신처: '한빛물류' } }],
+  }, { cwd });
+  assert.equal(strict.isError, true);
+  assert.match(strict.content[0].text, /Unfilled template tokens: 담당자/);
+
+  const mismatched = await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'fill_template', tokens: { contractName: '대전 허브' } }],
+  }, { cwd });
+  assert.equal(mismatched.isError, true);
+  assert.match(mismatched.content[0].text, /changed nothing: the document carries \{\{계약명\}\}, \{\{담당자\}\}, \{\{수신처\}\} and tokens named contractName/);
+
+  const filled = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'fill_template', strict: true, tokens: { 계약명: '대전 허브 야간 운영', 수신처: '한빛물류', 담당자: '김서연 책임' } }],
+  }, { cwd }));
+  // Twice for the heading and the running header, once each elsewhere.
+  assert.deepEqual(filled.results[0].filled, { 계약명: 2, 수신처: 1, 담당자: 1 });
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.equal(snapshot.document.tables[0].rows[1].cells[1].text, '김서연 책임');
+  assert.doesNotMatch(JSON.stringify(snapshot.document), /\{\{/);
+  const settled = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.equal((settled.issues || []).filter((issue) => issue.code === 'unfilled_token').length, 0);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
 test('portable DOCX fills split template tokens across stories and rolls back strict failures', async (t) => {
   const cwd = await workspace(t);
   const source = join(cwd, 'template.docx');
@@ -1128,7 +1920,9 @@ test('portable XLSX edits cells, ranges, formulas, and appended rows', async (t)
   }, { cwd }));
   const cells = snapshot.document.sheets[0].cells;
   assert.equal(cells.find((cell) => cell.ref === 'A1').value, 'New');
-  assert.equal(cells.find((cell) => cell.ref === 'C2').value, '4');
+  // Excel hands a stored number back as a number; the portable reader answers
+  // with the same value, so a tie-out against 4 does not depend on the backend.
+  assert.equal(cells.find((cell) => cell.ref === 'C2').value, 4);
   assert.equal(cells.find((cell) => cell.ref === 'D1').formula, 'SUM(B1:C2)');
   assert.equal(cells.find((cell) => cell.ref === 'D1').cachedValue, null);
   assert.equal(cells.find((cell) => cell.ref === 'D1').cacheState, 'missing');
@@ -1200,6 +1994,105 @@ test('portable XLSX edits cells, ranges, formulas, and appended rows', async (t)
   ));
   assert.equal(committed.committed, true);
   assert.ok(committed.transaction.diff.summary.added > 0);
+});
+
+// A header's rule and a total's rule are borders on the cells; the style keeps the edges it is not asked
+// about, so a fill set later never erases the rule set first.
+test('portable XLSX set_style draws cell borders and a later style keeps them', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'ruled.xlsx');
+  const workbook = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'xlsx',
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B3', values: [['라인', '처리량'], ['1호', 1200], ['합계', 1200]] },
+      { op: 'set_style', range: 'A1:B1', properties: { bold: true, borders: { bottom: { style: 'thin', color: 'C9CED6' } } } },
+      { op: 'set_style', range: 'A3:B3', properties: { bold: true, borders: { top: { style: 'medium', color: '1F6F8B' } } } },
+      { op: 'set_style', range: 'A1:B1', properties: { fillColor: 'EEF2F7' } },
+      { op: 'set_style', cell: 'B2', properties: { borders: { style: 'hair', color: 'D8DCE0' } } },
+    ],
+  }, { cwd }));
+  const styles = await (await JSZip.loadAsync(await readFile(path))).file('xl/styles.xml').async('string');
+  assert.match(styles, /<border><left\/><right\/><top\/><bottom style="thin"><color rgb="FFC9CED6"\/><\/bottom><diagonal\/><\/border>/);
+  assert.match(styles, /<border><left\/><right\/><top style="medium"><color rgb="FF1F6F8B"\/><\/top><bottom\/><diagonal\/><\/border>/);
+  assert.match(styles, /<border><left style="hair"><color rgb="FFD8DCE0"\/><\/left><right style="hair">/);
+  const sheet = await (await JSZip.loadAsync(await readFile(path))).file('xl/worksheets/sheet1.xml').async('string');
+  const styleOf = (ref) => Number(new RegExp(`<c r="${ref}"[^>]*\\bs="(\\d+)"`).exec(sheet)?.[1]);
+  const xfs = [...styles.matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)].map((match) => match[0]);
+  const cellXfs = xfs.slice(xfs.length - (styles.match(/<cellXfs count="(\d+)"/)?.[1] || 0));
+  const headerXf = cellXfs[styleOf('A1')];
+  assert.match(headerXf, /applyFill="1"/);
+  assert.match(headerXf, /applyBorder="1"/);
+  assert.notEqual(Number(/borderId="(\d+)"/.exec(headerXf)[1]), 0, 'the fill set later keeps the header rule');
+  const refused = await executeOfficeTool({ action: 'batch', session: workbook.session, operations: [{ op: 'set_style', cell: 'A2', properties: { borders: { bottom: { style: 'wavy' } } } }] }, { cwd });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /borders\.bottom\.style "wavy"/);
+});
+
+test('unreadable ink is reported in a workbook cell and a shaded document row', async (t) => {
+  const cwd = await workspace(t);
+  const workbook = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'ink.xlsx'),
+    format: 'xlsx',
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B2', values: [['라인', '판정'], ['서울 1호', '정상']] },
+      // A header on a dark field that kept the body's dark ink.
+      { op: 'set_style', range: 'A1:A1', properties: { bold: true, fillColor: '16283C', color: '1B2A3B' } },
+      // The readable version of the same idea sits beside it.
+      { op: 'set_style', range: 'B1:B1', properties: { bold: true, fillColor: '16283C', color: 'FFFFFF' } },
+    ],
+  }, { cwd }));
+  const cells = (value(await executeOfficeTool({ action: 'issues', session: workbook.session }, { cwd })).issues || [])
+    .filter((entry) => entry.code === 'low_contrast');
+  assert.deepEqual(cells.map((entry) => entry.path), ['/sheet[Sheet1]/cell[A1]']);
+
+  const document = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'ink.docx'),
+    format: 'docx',
+    mode: 'portable',
+    operations: [
+      { op: 'append_text', text: '라인별 판정', style: 'Heading 1' },
+      {
+        op: 'add_table',
+        values: [['라인', '판정'], ['서울 1호', '정상']],
+        properties: { fontName: 'Noto Sans KR', fontSize: 10, color: '1B2A3B', shading: '16283C' },
+      },
+    ],
+  }, { cwd }));
+  const rows = (value(await executeOfficeTool({ action: 'issues', session: document.session }, { cwd })).issues || [])
+    .filter((entry) => entry.code === 'low_contrast');
+  assert.equal(rows.length, 4, JSON.stringify(rows));
+  assert.equal(rows[0].path, '/body/tbl[1]/row[1]/cell[1]');
+  assert.match(rows[0].message, /readable minimum at 10pt/);
+});
+
+test('a paged workbook snapshot reports the whole workbook calculation state', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'paged.xlsx'),
+    format: 'xlsx',
+    mode: 'portable',
+    operations: [
+      { op: 'set_range', range: 'A1:B2', values: [['a', 1], ['b', 2]] },
+      { op: 'add_sheet', name: 'Calc' },
+      { op: 'set_formula', sheet: 'Calc', cell: 'B1', formula: '=SUM(Sheet1!B1:B2)' },
+    ],
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  // The page carries the first sheet, which has no formula at all; the
+  // calculation state still has to describe the workbook the caller holds.
+  assert.equal(snapshot.document.pagination.scope, 'Sheet1');
+  assert.equal(snapshot.document.sheets.length, 1);
+  assert.equal(snapshot.document.sheetCount, 2);
+  assert.equal(snapshot.document.formulaCount, 1);
+  assert.equal(snapshot.document.formulaCacheMissing, 1);
+  assert.equal(snapshot.document.needsRecalculation, true);
 });
 
 test('XLSX finalize assertions prove values, formulas, tie-outs, and errors', async (t) => {

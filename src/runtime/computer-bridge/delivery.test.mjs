@@ -11,7 +11,7 @@ test('background is the default and explicit foreground selects the real pointer
     assert.equal(validateComputerToolArgs(request), null);
     const command = toComputerHostCommand(request);
     assert.equal(command.delivery, delivery ?? 'background');
-    assert.equal(command.steps[0].action, delivery === 'foreground' ? 'click' : 'invoke');
+    assert.equal(command.steps[0].action, 'click');
     assert.deepEqual(command.steps[1], { action: 'type', text: 'hello' });
   }
 });

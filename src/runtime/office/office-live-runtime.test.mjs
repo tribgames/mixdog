@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import test from 'node:test';
+import JSZip from 'jszip';
 
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
 import { value } from './office-test-support.mjs';
@@ -362,7 +363,7 @@ test('[word] persistent Word sessions create, save, and read Unicode content', {
     session: word.session,
     operations: [
       { op: 'append_text', text: '한글-日本語-中文 {{ name }}' },
-      { op: 'set_header_footer', section: 1, kind: 'primary', header: true, text: 'Owner {{owner}}' },
+      { op: 'set_header_footer', section: 1, kind: 'header', text: 'Owner {{owner}}' },
       { op: 'fill_template', tokens: { name: '재영', owner: 'Mixdog' }, strict: true },
       {
         op: 'add_table',
@@ -529,7 +530,10 @@ test('[powerpoint] persistent PowerPoint sessions create, save, and read Unicode
         op: 'add_table',
         slide: 1,
         values: [['Metric', 'Value'], ['Users', 42]],
-        properties: { left: 240, top: 240, width: 280, height: 100 },
+        left: 240,
+        top: 240,
+        width: 280,
+        height: 100,
       },
       {
         op: 'set_table_data',
@@ -879,6 +883,55 @@ test('[attach] attach selects the exact workbook across multiple Excel instances
   await stopExternalExcel(secondExternal);
   firstExternal = null;
   secondExternal = null;
+});
+
+// The default header used to land on the first page only: the HeadersFooters
+// collection, handed through an if-expression, was unrolled into an array whose
+// Item(1) is the first-page story. A picture went to the document start, the
+// footer read "Page 1 of 1", and a sheet added later came first in the workbook.
+test('[word] a background Word session writes the header, the picture, and the page number where the portable writer does', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-stories-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const picture = join(cwd, 'dot.png');
+  await writeFile(picture, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+  const path = join(cwd, 'stories.docx');
+  const word = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'docx',
+    mode: 'background',
+    operations: [
+      { op: 'append_text', text: '본문 첫 단락' },
+      { op: 'append_text', text: '그림 앞 제목', style: 'Heading 1' },
+      { op: 'add_image', path: picture, width: 24, height: 24, altText: '점' },
+      { op: 'set_header_footer', kind: 'header', text: '머리글 · 운영기획팀' },
+      { op: 'add_page_numbers' },
+    ],
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: word.session }, { cwd }));
+  const stories = snapshot.document.sections[0].stories;
+  assert.deepEqual(
+    stories.filter((story) => story.location === 'header').map((story) => [story.kind, story.text]),
+    [['primary', '머리글 · 운영기획팀']],
+    JSON.stringify(stories),
+  );
+  value(await executeOfficeTool({ action: 'close', session: word.session }, { cwd }));
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const document = await zip.file('word/document.xml').async('string');
+  assert.match(document, /<w:headerReference w:type="default"/);
+  assert.doesNotMatch(document, /<w:titlePg\/>/);
+  // The picture follows the heading it was appended after, not the document start.
+  assert.ok(document.indexOf('그림 앞 제목') < document.indexOf('<w:drawing>'), 'picture before its heading');
+  assert.ok(document.indexOf('본문 첫 단락') < document.indexOf('<w:drawing>'), 'picture before the body');
+  const footers = await Promise.all(Object.keys(zip.files).filter((name) => /^word\/footer\d*\.xml$/.test(name)).map((name) => zip.file(name).async('string')));
+  const numbered = footers.find((xml) => /PAGE/.test(xml));
+  assert.ok(numbered, 'a footer carries the PAGE field');
+  assert.doesNotMatch(numbered, /NUMPAGES|Page /);
 });
 
 test('[word] a background Word session reports and settles a redline like the portable reader', {

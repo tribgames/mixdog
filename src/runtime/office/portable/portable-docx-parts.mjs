@@ -2,7 +2,7 @@ import { extname, join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { IMAGE_CONTENT_TYPES, addPackageRelationship, ensureContentTypeOverride, ensureDefaultContentType, imagePixelSize, partRelationshipPath, zipText } from './portable-opc.mjs';
 import { docxBodyModel } from './portable-snapshot.mjs';
-import { DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, XML_HEADER, xmlEncode } from './portable-xml.mjs';
+import { DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, SECTION_PROPERTIES_SOURCE, TRAILING_SECTION_PATTERN, XML_HEADER, settingsTrackChanges, xmlEncode } from './portable-xml.mjs';
 
 export const WORD_MAIN_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -42,17 +42,20 @@ export async function addDocumentImage(zip, source) {
 
 
 
-export function wordDrawingXml({ id, embedId, name, width, height }) {
+export function wordDrawingXml({ id, embedId, name, width, height, altText = '' }) {
   const cx = Math.max(1, Math.round(width * 12_700));
   const cy = Math.max(1, Math.round(height * 12_700));
+  // A reader who cannot see the picture hears this description; Word reads it
+  // from the drawing's descr, so it is written on both names of the picture.
+  const descr = String(altText ?? '').trim() ? ` descr="${xmlEncode(String(altText).trim())}"` : '';
   return `<w:drawing><wp:inline xmlns:wp="${WORD_DRAWING_NS}" distT="0" distB="0" distL="0" distR="0">`
     + `<wp:extent cx="${cx}" cy="${cy}"/>`
     + '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
-    + `<wp:docPr id="${id}" name="${xmlEncode(name)}"/>`
+    + `<wp:docPr id="${id}" name="${xmlEncode(name)}"${descr}/>`
     + `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="${DRAWING_MAIN_NS}" noChangeAspect="1"/></wp:cNvGraphicFramePr>`
     + `<a:graphic xmlns:a="${DRAWING_MAIN_NS}"><a:graphicData uri="${PICTURE_NS}">`
     + `<pic:pic xmlns:pic="${PICTURE_NS}">`
-    + `<pic:nvPicPr><pic:cNvPr id="${id}" name="${xmlEncode(name)}"/><pic:cNvPicPr/></pic:nvPicPr>`
+    + `<pic:nvPicPr><pic:cNvPr id="${id}" name="${xmlEncode(name)}"${descr}/><pic:cNvPicPr/></pic:nvPicPr>`
     + `<pic:blipFill><a:blip xmlns:a="${DRAWING_MAIN_NS}" r:embed="${embedId}"/>`
     + `<a:stretch xmlns:a="${DRAWING_MAIN_NS}"><a:fillRect/></a:stretch></pic:blipFill>`
     + `<pic:spPr><a:xfrm xmlns:a="${DRAWING_MAIN_NS}"><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`
@@ -65,7 +68,7 @@ export function wordDrawingXml({ id, embedId, name, width, height }) {
 export function trailingSectionProperties(documentXml) {
   const model = docxBodyModel(documentXml);
   if (!model.body) throw new Error('DOCX document body is missing');
-  const match = /<w:sectPr(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/w:sectPr>)\s*$/.exec(model.body.inner);
+  const match = TRAILING_SECTION_PATTERN.exec(model.body.inner);
   return { model, match };
 }
 
@@ -90,6 +93,34 @@ export function upsertSectionChild(sectionXml, tag, element, afterTags = []) {
 
 
 
+// Sections in reading order: each break paragraph carries the properties of the
+// section it closes, and the trailing sectPr governs the last one.
+export function documentSectionSpans(documentXml) {
+  const model = docxBodyModel(documentXml);
+  if (!model.body) throw new Error('DOCX document body is missing');
+  const spans = [...model.body.inner.matchAll(new RegExp(SECTION_PROPERTIES_SOURCE, 'g'))]
+    .map((match) => ({ start: match.index, end: match.index + match[0].length, xml: match[0] }));
+  return { model, spans };
+}
+
+// `section` names one of those, 1-based; without it the edit lands on the
+// section the document is currently being written into — the last one.
+export function writeSectionPropertiesAt(documentXml, section, mutate) {
+  const requested = section == null || section === '' ? null : Number(section);
+  if (requested !== null && (!Number.isInteger(requested) || requested < 1)) {
+    throw new Error('DOCX section must be a positive whole number');
+  }
+  const { model, spans } = documentSectionSpans(documentXml);
+  if (!spans.length) return writeSectionProperties(documentXml, mutate);
+  const target = spans[requested === null ? spans.length - 1 : requested - 1];
+  if (!target) {
+    throw new Error(`DOCX has ${spans.length} section${spans.length === 1 ? '' : 's'}; section ${requested} does not exist`);
+  }
+  const next = mutate(target.xml);
+  const inner = `${model.body.inner.slice(0, target.start)}${next}${model.body.inner.slice(target.end)}`;
+  return `${documentXml.slice(0, model.body.start)}${inner}${documentXml.slice(model.body.end)}`;
+}
+
 export function writeSectionProperties(documentXml, mutate) {
   const { model, match } = trailingSectionProperties(documentXml);
   const current = match ? match[0] : '<w:sectPr></w:sectPr>';
@@ -104,6 +135,60 @@ export function writeSectionProperties(documentXml, mutate) {
 
 const COMMENTS_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml';
 
+
+
+const NOTE_PARTS = Object.freeze({
+  footnote: Object.freeze({
+    part: 'word/footnotes.xml',
+    root: 'w:footnotes',
+    tag: 'w:footnote',
+    reference: 'w:footnoteReference',
+    style: 'FootnoteReference',
+    textStyle: 'FootnoteText',
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml',
+    relationship: `${OFFICE_RELATIONSHIP_BASE}/footnotes`,
+  }),
+  endnote: Object.freeze({
+    part: 'word/endnotes.xml',
+    root: 'w:endnotes',
+    tag: 'w:endnote',
+    reference: 'w:endnoteReference',
+    style: 'EndnoteReference',
+    textStyle: 'EndnoteText',
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml',
+    relationship: `${OFFICE_RELATIONSHIP_BASE}/endnotes`,
+  }),
+});
+
+
+export function noteDefinition(kind) {
+  const definition = NOTE_PARTS[String(kind || 'footnote').toLowerCase()];
+  if (!definition) throw new Error(`Unsupported note kind: ${kind}. Use footnote or endnote.`);
+  return definition;
+}
+
+
+// Word reads the separator notes (ids -1 and 0) before any real note: without
+// them the note area has no rule above it and Word repairs the file on open.
+export async function ensureNotePart(zip, kind) {
+  const definition = noteDefinition(kind);
+  const existing = await zipText(zip, definition.part);
+  if (existing) return { ...definition, xml: existing };
+  const separator = (id, element) => `<${definition.tag} w:type="${element}" w:id="${id}">`
+    + `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>`
+    + `<w:r><w:${element === 'separator' ? 'separator' : 'continuationSeparator'}/></w:r></w:p></${definition.tag}>`;
+  const xml = `${XML_HEADER}<${definition.root} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">`
+    + `${separator(-1, 'separator')}${separator(0, 'continuationSeparator')}</${definition.root}>`;
+  zip.file(definition.part, xml);
+  await ensureContentTypeOverride(zip, `/${definition.part}`, definition.contentType);
+  await addPackageRelationship(
+    zip,
+    partRelationshipPath('word/document.xml'),
+    definition.relationship,
+    definition.part.replace(/^word\//, ''),
+  );
+  return { ...definition, xml };
+}
 
 
 const COMMENTS_EXTENDED_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml';
@@ -283,13 +368,35 @@ export function anchorDocxComment(paragraphXml, id) {
 
 
 
-export async function writeHeaderFooterPart(zip, { header, body }) {
+export async function writeHeaderFooterPart(zip, { header, body, documentXml = '', kind = '' }) {
   const tag = header ? 'hdr' : 'ftr';
   const prefix = header ? 'header' : 'footer';
+  const document = (content) => `${XML_HEADER}<w:${tag} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">${content}</w:${tag}>`;
+  // A story this section already references is rewritten where it lives.
+  // Writing a new part for every call left the previous one orphaned in the
+  // package while the section pointed at whichever was written last.
+  const reference = kind && documentXml
+    ? [...documentXml.matchAll(new RegExp(`<w:${prefix}Reference\\b[^>]*\\/>`, 'g'))]
+      .map((match) => match[0])
+      .find((element) => new RegExp(`\\bw:type="${kind}"`).test(element))
+    : '';
+  const referencedId = reference ? /\br:id="([^"]+)"/.exec(reference)?.[1] || '' : '';
+  if (referencedId) {
+    const relationships = await zipText(zip, partRelationshipPath('word/document.xml'));
+    const target = [...String(relationships || '').matchAll(/<Relationship\b[^>]*\/>/g)]
+      .map((match) => match[0])
+      .find((element) => new RegExp(`\\bId="${referencedId}"`).test(element));
+    const path = target ? /\bTarget="([^"]+)"/.exec(target)?.[1] || '' : '';
+    const existing = path ? `word/${path.replace(/^\.?\//, '')}` : '';
+    if (existing && zip.file(existing)) {
+      zip.file(existing, document(body));
+      return { part: existing, relationshipId: referencedId, replaced: true };
+    }
+  }
   let ordinal = 1;
   while (zip.file(`word/${prefix}${ordinal}.xml`)) ordinal += 1;
   const part = `word/${prefix}${ordinal}.xml`;
-  zip.file(part, `${XML_HEADER}<w:${tag} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">${body}</w:${tag}>`);
+  zip.file(part, document(body));
   await ensureContentTypeOverride(zip, `/${part}`, header ? HEADER_CONTENT_TYPE : FOOTER_CONTENT_TYPE);
   const relationshipId = await addPackageRelationship(
     zip,
@@ -331,7 +438,7 @@ export const SETTINGS_ORDER = Object.freeze([
 
 
 export async function documentTracksChanges(zip) {
-  return /<w:trackRevisions\b/.test(await zipText(zip, 'word/settings.xml') || '');
+  return settingsTrackChanges(await zipText(zip, 'word/settings.xml') || '');
 }
 
 

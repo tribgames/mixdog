@@ -24,118 +24,23 @@ import {
   runtimeVersion,
 } from './session-wire.mjs';
 import { createFairCallScheduler } from './fair-call-scheduler.mjs';
-import { hashStructuredValue } from '../runtime/shared/json-metrics.mjs';
+import { callSignature, callIdConflict, clientCallOwner } from './rpc-call-identity.mjs';
+import { createSessionFrameStream } from './session-frame-stream.mjs';
+import { readJsonRequestBody } from '../runtime/shared/http-request-body.mjs';
+import { createLoopbackListener } from '../runtime/shared/loopback-listener.mjs';
+import { createSessionCallCache } from './session-call-cache.mjs';
 
 // A loopback front door still buffers whatever a client sends before it can be
 // parsed, so the body has an explicit ceiling instead of the client's memory.
 const MAX_BODY_BYTES = Math.max(1, Number(process.env.MIXDOG_SESSION_MAX_BODY_MB) || 32)
   * 1024 * 1024;
 
-function readLimitedBody(req, {
-  reserve = () => true,
-  release = () => {},
-} = {}) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let reserved = 0;
-    const releaseReserved = () => {
-      if (reserved <= 0) return;
-      release(reserved);
-      reserved = 0;
-    };
-    const fail = (message, statusCode) => {
-      if (settled) return;
-      settled = true;
-      releaseReserved();
-      const error = new Error(message);
-      error.statusCode = statusCode;
-      try { req.destroy(); } catch {}
-      reject(error);
-    };
-    const declared = Number(req.headers['content-length']);
-    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-      fail('request body too large', 413);
-      return;
-    }
-    const chunks = [];
-    let size = 0;
-    req.on('data', (chunk) => {
-      if (settled) return;
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) { fail('request body too large', 413); return; }
-      if (!reserve(chunk.length)) { fail('daemon request memory budget is busy', 503); return; }
-      reserved += chunk.length;
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      if (settled) return;
-      settled = true;
-      try {
-        const raw = Buffer.concat(chunks).toString('utf8').trim();
-        if (!raw) { resolve({}); return; }
-        resolve(JSON.parse(raw));
-      }
-      catch (error) {
-        const err = new Error(`invalid JSON body: ${error.message}`);
-        err.statusCode = 400;
-        reject(err);
-      }
-      finally { releaseReserved(); }
-    });
-    req.on('error', (error) => {
-      if (!settled) {
-        settled = true;
-        releaseReserved();
-        reject(error);
-      }
-    });
-  });
-}
 
-/** Identity of a call's PAYLOAD. A retry repeats it exactly; a caller-supplied
- *  submission id that happens to be reused carries a different one. */
-function callSignature(name, args) {
-  try {
-    return hashStructuredValue({ name, args: args ?? {} });
-  } catch { return null; }
-}
-
-
-// A stalled reader collapses the backlog to one frame per key. That is right
-// for SNAPSHOTS (the newest state is the whole truth) and wrong for a BYTE
-// STREAM: dropping PTY output leaves a terminal permanently corrupted. Same-key
-// terminal frames therefore concatenate, bounded so a wedged reader can never
-// grow the daemon's heap without limit.
-const TERMINAL_BACKLOG_MAX_CHARS = 256 * 1024;
 const SSE_PENDING_MAX_BYTES = Math.max(
   256 * 1024,
   (Number(process.env.MIXDOG_SESSION_SSE_PENDING_MB) || 8)
     * 1024 * 1024,
 );
-
-function terminalDataFrame(frame) {
-  return frame?.type === 'desktop-event'
-    && frame.message?.kind === 'desktop-event'
-    && frame.message?.name === 'terminal-data'
-    && typeof frame.message?.value?.data === 'string'
-    ? frame
-    : null;
-}
-
-function mergePendingFrame(existing, frame, json) {
-  const previous = existing ? terminalDataFrame(existing.frame) : null;
-  const next = terminalDataFrame(frame);
-  if (!previous || !next) return { frame, json };
-  const joined = `${previous.message.value.data}${next.message.value.data}`;
-  const data = joined.length > TERMINAL_BACKLOG_MAX_CHARS
-    ? joined.slice(joined.length - TERMINAL_BACKLOG_MAX_CHARS)
-    : joined;
-  const merged = {
-    ...next,
-    message: { ...next.message, value: { ...next.message.value, data } },
-  };
-  return { frame: merged, json: JSON.stringify(merged) };
-}
 
 export function createSessionTransport({
   handleCall,
@@ -154,7 +59,8 @@ export function createSessionTransport({
   // token -> { token, leadPid, cwd, lifecycle, sse, pending, lastSeen }
   const clients = new Map();
   let boundPort = null;
-  let server = null;
+  let listener = null;
+  let stopPromise = null;
   let graceTimer = null;
   let sweepTimer = null;
   let everHadLifecycleClient = false;
@@ -167,7 +73,10 @@ export function createSessionTransport({
       * 1024 * 1024,
   );
   let bodyBytesInFlight = 0;
-  const readBody = (req) => readLimitedBody(req, {
+  const readBody = (req) => readJsonRequestBody(req, {
+    maxBytes: MAX_BODY_BYTES,
+    tooLargeMessage: 'request body too large',
+    destroyOnLimit: true,
     reserve(bytes) {
       if (bodyBytesInFlight + bytes > BODY_INFLIGHT_MAX_BYTES) return false;
       bodyBytesInFlight += bytes;
@@ -179,8 +88,6 @@ export function createSessionTransport({
   });
   // Idempotency cache: a transport retry of the SAME callId must never run a
   // second session mutation (submit/abort are not idempotent).
-  const callCache = new Map();
-  let callCacheBytes = 0;
   // These routes are safe to replay and can return large snapshots. Keeping
   // them in the mutation-dedup cache retained multiple transcript copies for
   // a full minute under review polling and pane reconciliation.
@@ -207,6 +114,13 @@ export function createSessionTransport({
     (Number(process.env.MIXDOG_SESSION_CALL_CACHE_MB) || 8)
       * 1024 * 1024,
   );
+  const callCache = createSessionCallCache({
+    ttlMs: CALL_CACHE_TTL_MS,
+    maxEntries: CALL_CACHE_MAX,
+    maxBytes: CALL_CACHE_MAX_BYTES,
+    now: nowMs,
+    log,
+  });
   // A burst of panes used to enqueue every handleCall() as a microtask. Node
   // drains the whole microtask queue before returning to HTTP, so enough cheap
   // calls could starve /health and /client/register even though no explicit
@@ -279,67 +193,6 @@ export function createSessionTransport({
   const registrationReplays = new Map();
   const REGISTRATION_REPLAY_TTL_MS = 30_000;
   const REGISTRATION_REPLAY_MAX = 256;
-
-  function deleteCallCacheEntry(key, record = callCache.get(key)) {
-    if (!record || callCache.get(key) !== record) return false;
-    callCache.delete(key);
-    callCacheBytes = Math.max(0, callCacheBytes - (record.bytes || 0));
-    return true;
-  }
-
-  function estimateRetainedBytes(value, limit = CALL_CACHE_MAX_BYTES + 1, seen = new Set()) {
-    if (typeof value === 'string') return Math.min(limit, value.length * 2 + 16);
-    if (typeof value === 'number' || typeof value === 'bigint') return 8;
-    if (typeof value === 'boolean' || value == null) return 4;
-    if (typeof value !== 'object' || seen.has(value)) return 0;
-    seen.add(value);
-    let bytes = Array.isArray(value) ? 32 : 64;
-    const entries = Array.isArray(value) ? value : Object.entries(value);
-    for (const entry of entries) {
-      if (Array.isArray(value)) bytes += 8 + estimateRetainedBytes(entry, limit - bytes, seen);
-      else bytes += String(entry[0]).length * 2 + 16
-        + estimateRetainedBytes(entry[1], limit - bytes, seen);
-      if (bytes >= limit) break;
-    }
-    seen.delete(value);
-    return Math.min(limit, bytes);
-  }
-
-  let callCachePressureLoggedAt = 0;
-
-  function pruneCallCache() {
-    if (callCache.size <= CALL_CACHE_MAX && callCacheBytes <= CALL_CACHE_MAX_BYTES) return;
-    const now = nowMs();
-    // 1) Only an entry whose promised TTL has already elapsed may be forgotten
-    //    completely (its own timer may not have fired yet).
-    for (const [key, record] of callCache) {
-      if (callCache.size <= CALL_CACHE_MAX && callCacheBytes <= CALL_CACHE_MAX_BYTES) return;
-      if (!record.settled || !record.settledAt) continue;
-      if (now - record.settledAt < CALL_CACHE_TTL_MS) continue;
-      deleteCallCacheEntry(key, record);
-    }
-    // 2) Byte pressure drops the retained RESULT of settled entries, oldest
-    //    first, and KEEPS their dedup identity: evicting the identity inside
-    //    the promised TTL is exactly what let a retried submit/abort/configure
-    //    execute twice. A replay of a dropped result fails closed instead.
-    for (const record of callCache.values()) {
-      if (callCacheBytes <= CALL_CACHE_MAX_BYTES) break;
-      if (!record.settled || record.resultDropped) continue;
-      callCacheBytes = Math.max(0, callCacheBytes - (record.bytes || 0));
-      record.bytes = 0;
-      record.resultDropped = true;
-      record.promise = null;
-    }
-    // 3) Entry-count pressure never evicts a live dedup identity. What remains
-    //    carries no payload and expires with its own TTL timer.
-    if (callCache.size > CALL_CACHE_MAX && now - callCachePressureLoggedAt > 60_000) {
-      callCachePressureLoggedAt = now;
-      log(
-        `session call dedup cache above its entry budget (${callCache.size}/${CALL_CACHE_MAX});`
-        + ' every remaining entry is still inside its retry TTL',
-      );
-    }
-  }
 
   function callLane(name, args = {}) {
     if (CRITICAL_CALLS.has(name)) return 'critical';
@@ -537,138 +390,23 @@ export function createSessionTransport({
     return token;
   }
 
-  /** Drain the latest-wins backlog into a stream that reported room again. */
-  function flushPending(client) {
-    while (client.sse && !client.paused && client.pending.size > 0) {
-      const [key, entry] = client.pending.entries().next().value;
-      client.pending.delete(key);
-      client.pendingBytes = Math.max(0, client.pendingBytes - (entry.bytes || 0));
-      try {
-        if (client.sse.write(`data: ${entry.json}\n\n`) === false) client.paused = true;
-      } catch {
-        client.sse = null;
-        client.pending.set(key, entry);
-        client.pendingBytes += entry.bytes || 0;
-        return;
+  const { broadcast, attachSse } = createSessionFrameStream({
+    clients,
+    maxPendingBytes: SSE_PENDING_MAX_BYTES,
+    nowMs,
+    onDiagnostic: (entry) => log(`transcript-stream ${JSON.stringify(entry)}`),
+    onAttached(token) {
+      // The stream proves receipt of its token, ending registration replay.
+      for (const [registrationId, replay] of registrationReplays) {
+        if (replay.token === token) {
+          clearTimeout(replay.timer);
+          registrationReplays.delete(registrationId);
+        }
       }
-    }
-  }
-
-  function pendingEntry(frame, json) {
-    return { frame, json, bytes: Buffer.byteLength(json) + 8 };
-  }
-
-  function resyncEntry(frame) {
-    if (frame?.type !== 'session-state' || !frame.sessionId) return null;
-    const marker = {
-      type: 'session-state',
-      key: frame.key,
-      sessionId: frame.sessionId,
-      revision: -1,
-      baseRevision: -2,
-      patch: { set: {}, remove: [], itemsAppend: null },
-      resyncRequired: true,
-    };
-    return pendingEntry(marker, JSON.stringify(marker));
-  }
-
-  function setPending(client, key, entry) {
-    const previous = client.pending.get(key);
-    if (previous) client.pendingBytes = Math.max(0, client.pendingBytes - (previous.bytes || 0));
-    client.pending.delete(key);
-    client.pending.set(key, entry);
-    client.pendingBytes += entry.bytes || 0;
-    while (client.pendingBytes > SSE_PENDING_MAX_BYTES && client.pending.size > 0) {
-      const [oldestKey, oldest] = client.pending.entries().next().value;
-      const marker = resyncEntry(oldest.frame);
-      if (marker && marker.bytes < oldest.bytes) {
-        client.pending.set(oldestKey, marker);
-        client.pendingBytes += marker.bytes - oldest.bytes;
-        continue;
-      }
-      client.pending.delete(oldestKey);
-      client.pendingBytes = Math.max(0, client.pendingBytes - (oldest.bytes || 0));
-    }
-  }
-
-  function writeFrame(client, frame, json) {
-    const key = frame.key || `${frame.type}:${frame.sessionId || frame.desktopId || ''}`;
-    // A stalled reader must never make the daemon buffer a whole stream in
-    // Node's socket queue: while the socket is full the backlog collapses to
-    // one frame per key, exactly like a client with no stream at all.
-    if (!client.sse || client.paused) {
-      const merged = mergePendingFrame(client.pending.get(key), frame, json);
-      setPending(client, key, pendingEntry(merged.frame, merged.json));
-      return;
-    }
-    try {
-      if (client.sse.write(`data: ${json}\n\n`) === false) client.paused = true;
-    } catch {
-      client.sse = null;
-      const merged = mergePendingFrame(client.pending.get(key), frame, json);
-      setPending(client, key, pendingEntry(merged.frame, merged.json));
-    }
-  }
-
-  /** Session and desktop state reaches only subscribed client tokens. Calls
-   *  without a target set retain the transport-level diagnostic broadcast. */
-  function broadcast(frame, targetTokens = null) {
-    const json = JSON.stringify(frame);
-    if (targetTokens) {
-      for (const token of targetTokens) {
-        const client = clients.get(String(token || ''));
-        if (client) writeFrame(client, frame, json);
-      }
-      return;
-    }
-    for (const client of clients.values()) writeFrame(client, frame, json);
-  }
-
-  function attachSse(token, res) {
-    const c = clients.get(token);
-    if (!c) return false;
-    // Interactive lane: PTY output and keystroke echoes are small writes, and
-    // Nagle on a loopback socket adds a full delayed-ACK round trip to each.
-    try { res.socket?.setNoDelay(true); } catch { /* transport default stands */ }
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    res.write(': attached\n\n');
-    c.sse = res;
-    c.paused = false;
-    c.lastSeen = nowMs();
-    // The stream proves the client received its token; response-loss replay is
-    // no longer needed for this registration.
-    for (const [registrationId, replay] of registrationReplays) {
-      if (replay.token === token) {
-        clearTimeout(replay.timer);
-        registrationReplays.delete(registrationId);
-      }
-    }
-    res.on('drain', () => {
-      if (c.sse !== res) return;
-      c.paused = false;
-      flushPending(c);
-    });
-    flushPending(c);
-    const ka = setInterval(() => {
-      try { res.write(': ka\n\n'); } catch {}
-    }, 15_000);
-    ka.unref?.();
-    const cleanup = () => {
-      clearInterval(ka);
-      if (c.sse === res) { c.sse = null; c.paused = false; }
-      // Stream loss alone never drops the client: a desktop reload or a TUI
-      // resize can bounce the stream while the session runtime keeps running.
-      maybeArmGrace('sse closed');
-    };
-    res.on('close', cleanup);
-    res.on('error', cleanup);
-    return true;
-  }
+    },
+    // Stream loss alone does not remove a client or its live session.
+    onClosed: () => maybeArmGrace('sse closed'),
+  });
 
   async function handleRequest(req, res) {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -704,7 +442,7 @@ export function createSessionTransport({
             bodyBytesInFlight,
             bodyBytesMax: BODY_INFLIGHT_MAX_BYTES,
             callCacheEntries: callCache.size,
-            callCacheBytes,
+            callCacheBytes: callCache.bytes,
             callCacheMaxBytes: CALL_CACHE_MAX_BYTES,
             ssePendingBytes: [...clients.values()]
               .reduce((sum, client) => sum + (client.pendingBytes || 0), 0),
@@ -774,9 +512,7 @@ export function createSessionTransport({
         // Scheduling fairness follows the addressed session, but idempotency
         // belongs to the CALLING PROCESS. Two clients legitimately issuing the
         // same callId against one shared session must not dedupe each other.
-        const cacheOwnerKey = c.leadPid
-          ? `pid:${c.leadPid}`
-          : `client:${clientToken}`;
+        const cacheOwnerKey = clientCallOwner(c, clientToken);
         const cacheKey = callId && !REPLAY_SAFE_CALLS.has(name)
           ? `${cacheOwnerKey}\u0000${callId}`
           : null;
@@ -798,10 +534,7 @@ export function createSessionTransport({
             // callId is an idempotency key, not a caller-selected overwrite
             // slot. Fail closed while the original keeps its cache identity;
             // dispatching here could execute two side-effecting mutations.
-            dispatch = Promise.reject(Object.assign(
-              new Error(`callId '${callId}' was reused with a different payload`),
-              { code: 'ECALLIDCONFLICT' },
-            ));
+            dispatch = Promise.reject(callIdConflict(callId));
           } else {
             dispatch = cached.promise;
           }
@@ -817,31 +550,7 @@ export function createSessionTransport({
             { lane: callLane(name, body.args || {}) },
           );
           if (cacheKey) {
-            const record = {
-              promise: dispatch,
-              at: nowMs(),
-              signature,
-              settled: false,
-              settledAt: 0,
-              resultDropped: false,
-              bytes: 0,
-            };
-            callCache.set(cacheKey, record);
-            pruneCallCache();
-            // TTL starts at SETTLE: a long-running submit must not expire its
-            // dedup entry mid-flight and let a retry run the turn twice.
-            dispatch.then((result) => {
-              record.bytes = estimateRetainedBytes(result);
-              callCacheBytes += record.bytes;
-            }, () => {}).then(() => {
-              record.settled = true;
-              record.settledAt = nowMs();
-              pruneCallCache();
-              const t = setTimeout(() => {
-                deleteCallCacheEntry(cacheKey, record);
-              }, CALL_CACHE_TTL_MS);
-              t.unref?.();
-            });
+            callCache.track(cacheKey, dispatch, signature);
           }
         }
         try {
@@ -907,36 +616,41 @@ export function createSessionTransport({
   }
 
   function start() {
-    return new Promise((resolve, reject) => {
-      server = http.createServer(handleRequest);
-      server.on('error', reject);
-      // 127.0.0.1 ONLY — the session service executes tools; it must never be
-      // reachable off-box.
-      server.listen(0, '127.0.0.1', () => {
-        server.removeListener('error', reject);
-        boundPort = server.address().port;
-        server.on('error', (err) => log(`server error: ${err?.message || err}`));
+    if (closed) return Promise.reject(new Error('session service transport is closed'));
+    listener ??= createLoopbackListener({
+      server: http.createServer(handleRequest),
+      onListening(port) {
+        boundPort = port;
         log(`session service transport listening on 127.0.0.1:${boundPort} pid=${process.pid}`);
-        resolve({ port: boundPort, token: serverToken });
-      });
+      },
+      onError(error, fatal) {
+        if (!fatal) log(`server error: ${error?.message || error}`);
+      },
     });
+    return listener.start().then((port) => ({ port, token: serverToken }));
   }
 
   async function stop() {
+    if (stopPromise) return stopPromise;
+    const completion = Promise.withResolvers();
+    stopPromise = completion.promise;
     closed = true;
-    cancelGrace();
-    if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
-    normalCalls.close('session service transport is closed');
-    interactiveCalls.close('session service transport is closed');
-    criticalCalls.close('session service transport is closed');
-    for (const replay of registrationReplays.values()) clearTimeout(replay.timer);
-    registrationReplays.clear();
-    for (const token of [...clients.keys()]) removeClientRecord(token);
-    await new Promise((resolve) => {
-      if (!server) { resolve(); return; }
-      server.close(() => resolve());
-      server = null;
-    });
+    try {
+      cancelGrace();
+      if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
+      normalCalls.close('session service transport is closed');
+      interactiveCalls.close('session service transport is closed');
+      criticalCalls.close('session service transport is closed');
+      callCache.close();
+      for (const replay of registrationReplays.values()) clearTimeout(replay.timer);
+      registrationReplays.clear();
+      for (const token of [...clients.keys()]) removeClientRecord(token);
+      await listener?.stop();
+      completion.resolve();
+    } catch (error) {
+      completion.reject(error);
+    }
+    return stopPromise;
   }
 
   return {

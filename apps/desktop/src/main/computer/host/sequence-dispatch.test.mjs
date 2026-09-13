@@ -15,9 +15,14 @@ registerHooks({
 const { createCommandRouter } = await import('./command-router.ts');
 const { createSequenceRunner } = await import('./sequence-runner.ts');
 const { computerRunRecord } = await import('../session/run-log.ts');
+const { createExecutionState } = await import('./execution-state.ts');
+const { createSessionState } = await import('../session/state.ts');
 
 const windows = [{ id: 'hwnd:0x1', pid: 10, title: 'Fixture', width: 500, height: 300 }];
-const scope = { primaryWindowId: 'hwnd:0x1', relatedWindowIds: ['hwnd:0x1'], observedAt: Date.now() };
+const scope = {
+  primaryWindowId: 'hwnd:0x1', relatedWindowIds: ['hwnd:0x1'], observedAt: Date.now(),
+  inputObservation: { ready: true, monitor: 'fixture', sequence: 0 },
+};
 const WINDOWS_ONLY = { skip: process.platform !== 'win32' };
 
 function fixture(replyFor) {
@@ -29,10 +34,13 @@ function fixture(replyFor) {
   let separateSettles = 0;
   let recoveries = 0;
   let aborted = false;
+  const activeExecution = { sessionId: 'sequence-batch-test', aborted: false };
   const assertExecutionNotAborted = () => {
     if (aborted) throw new Error('computer_session_aborted: fixture stopped');
   };
   const host = {
+    ...createExecutionState(),
+    ...createSessionState({ callPowerShell: async () => ({ ok: true }) }),
     isObserveOnly: () => false, sessionIdFor: () => 'sequence-batch-test',
     framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
     lastCaptureBySession: new Map(), sessionRecoveryBySession: new Map(),
@@ -40,7 +48,7 @@ function fixture(replyFor) {
     freshObservedWindowScope: () => scope,
     resolveInputTarget: async () => ({ targetWindowId: 'hwnd:0x1', allowedWindowIds: ['hwnd:0x1'], observedScope: scope }),
     claimComputerTargets: async (_, ids) => { claims.push(...ids); },
-    executionContext: { getStore: () => undefined },
+    executionContext: { getStore: () => activeExecution },
     readInputRecovery: async () => ({}),
     verifyInputRecovery: async () => { recoveries++; return { ok: true }; },
     readWindowIntegrity: async () => ({ known: true, higher: false }),

@@ -44,6 +44,7 @@ export function createFairCallScheduler({
   let queued = 0;
   let scheduled = false;
   let closed = false;
+  let closeError = null;
 
   function ownerId(value) {
     const clean = String(value || '').trim();
@@ -128,6 +129,14 @@ export function createFairCallScheduler({
     return chosen;
   }
 
+  function runAdmitted(run, signal) {
+    // Admission reserves capacity, but invocation occurs in a later microtask.
+    // Recheck that boundary without revoking work that has already started.
+    if (signal?.aborted) throw abortError(signal);
+    if (closed) throw closeError;
+    return run();
+  }
+
   function scheduleDispatch() {
     if (closed || scheduled || active >= maxActive || queued === 0) return;
     scheduled = true;
@@ -144,7 +153,7 @@ export function createFairCallScheduler({
         group.active += 1;
         started += 1;
         Promise.resolve()
-          .then(item.run)
+          .then(() => runAdmitted(item.run, item.signal))
           .then(item.resolve, item.reject)
           .finally(() => {
             active = Math.max(0, active - 1);
@@ -171,7 +180,7 @@ export function createFairCallScheduler({
       active += 1;
       group.active += 1;
       return Promise.resolve()
-        .then(run)
+        .then(() => runAdmitted(run, signal))
         .finally(() => {
           active = Math.max(0, active - 1);
           group.active = Math.max(0, group.active - 1);
@@ -182,12 +191,14 @@ export function createFairCallScheduler({
     const hasCompetitor = queuedGroups(group).some((candidate) =>
       candidate !== group && candidate.queue.length > 0);
     if (hasCompetitor && group.queue.length >= fairQueueLimit(group)) {
+      maybeDeleteGroup(group);
       return Promise.reject(schedulerError(
         `${name} client queue is full; retry after this client's running work completes`,
         429,
       ));
     }
     if (queued >= maxQueued && !rejectBorrowedTail(group)) {
+      maybeDeleteGroup(group);
       return Promise.reject(schedulerError(`${name} queue is full`, 503));
     }
     let item;
@@ -223,6 +234,7 @@ export function createFairCallScheduler({
     if (closed) return;
     closed = true;
     const error = schedulerError(reason);
+    closeError = error;
     for (const group of groups.values()) {
       for (const item of group.queue.splice(0)) {
         detach(item);

@@ -4,7 +4,7 @@
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { createSessionStats } from './session-stats.mjs';
-  import { queuePriorityValue, defaultQueuePriority, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, promptContentImageMeta, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
+import { queuePriorityValue, defaultQueuePriority, isGoalQueuedEntry, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, promptContentImageMeta, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { parseModelVisibleCompletionWrapper } from './agent-envelope.mjs';
 import { hydratePastedAttachments } from '../../runtime/attachments/store.mjs';
@@ -223,7 +223,7 @@ export function createSessionFlow(bag) {
         });
         firstBatch = false;
         if (batch.length === 0) break;
-        if (batch[0]?.mode === 'goal-continuation'
+        if (isGoalQueuedEntry(batch[0])
           && bag.shouldRunGoalContinuation?.(batch[0]) !== true) {
           continue;
         }
@@ -277,6 +277,7 @@ export function createSessionFlow(bag) {
           return Number.isFinite(value) && value > 0 ? Math.min(earliest, value) : earliest;
         }, Infinity);
         const turnStatus = await bag.runTurn(merged, {
+          promptSource: isGoalQueuedEntry(batch[0]) ? batch[0].mode : undefined,
           displayText: batch.map((entry) => entry.text).filter((text) => String(text || '').trim()).join('\n'),
           pastedImages: batchPastedImages,
           pastedTexts: batchPastedTexts,
@@ -374,13 +375,16 @@ export function createSessionFlow(bag) {
     const predicate = (entry) => {
       if (isSlashQueuedEntry(entry)) return false;
       const mode = entry?.mode || 'prompt';
-      return mode === 'prompt' || mode === 'task-notification';
+      return mode === 'prompt' || mode === 'task-notification' || mode === 'goal-closeout';
     };
     const out = [];
     for (;;) {
       const batch = dequeueQueueBatch(maxPriority, { predicate });
       if (batch.length === 0) break;
-      for (const entry of batch) {
+      const accepted = batch.filter(
+        (entry) => !isGoalQueuedEntry(entry) || bag.shouldRunGoalContinuation?.(entry) === true,
+      );
+      for (const entry of accepted) {
         const content = entry.content;
         const steeringMeta = {
           id: entry.id,
@@ -409,7 +413,7 @@ export function createSessionFlow(bag) {
           out.push({ ...steeringMeta, text: displayText, content });
         }
       }
-      commitSteeringQueueEntries(batch);
+      commitSteeringQueueEntries(accepted);
     }
     return out;
   }

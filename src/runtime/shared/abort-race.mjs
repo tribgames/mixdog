@@ -21,7 +21,10 @@ export async function runAbortable(signal, task, fallback) {
   if (!signal) return await task();
   throwIfAborted(signal, fallback);
 
-  const underlying = Promise.resolve().then(task);
+  const underlying = Promise.resolve().then(() => {
+    throwIfAborted(signal, fallback);
+    return task();
+  });
   underlying.catch(() => {});
 
   return await new Promise((resolve, reject) => {

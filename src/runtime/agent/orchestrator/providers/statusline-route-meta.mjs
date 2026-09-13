@@ -37,3 +37,10 @@ export function recordGatewayUsageEvent(summary) {
 export function summarizeGatewayUsage(routeInfo, providerOut, compact = null, durationMs = null) {
   return requireRouteMeta().summarizeGatewayUsage(routeInfo, providerOut, compact, durationMs);
 }
+
+/** Reader for surfaces that aggregate past turns; loads the module on demand
+ *  instead of requiring a turn to have warmed it first. */
+export async function loadGatewayUsageEvents() {
+  const mod = await loadRouteMetaModule();
+  return mod.loadUsageEvents();
+}

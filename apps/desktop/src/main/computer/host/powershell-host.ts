@@ -121,7 +121,7 @@ export function createPowerShellComputerHost(
     dataDirectory: mixdogDataDirectory,
     isBridgeEnabled: () => bridgeWanted,
     isDisposed: () => disposed,
-    onSessionRetired: (sessionId, child) => lifecycle.onSessionWorkerRetired(sessionId, child),
+    onSessionRetired: (sessionId, child, interruptedInput) => lifecycle.onSessionWorkerRetired(sessionId, child, interruptedInput),
     maxWorkers: options.maxWorkers,
     onPointerProgress: (sessionId, x, y, held, mode, phase) => {
       const state = computerUseCoordinator.snapshot();
@@ -170,6 +170,7 @@ export function createPowerShellComputerHost(
     ...sessionState,
     callPowerShell,
     assertExecutionNotAborted,
+    beginObservation: execution.beginObservation,
     resolveAppWindowId: targeting.resolveAppWindowId,
     resolveForegroundWindowId: targeting.resolveForegroundWindowId,
     authorizeCapture: async (command, windowId) => {

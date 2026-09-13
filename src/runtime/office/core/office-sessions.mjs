@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir } from 'node:fs/promises';
+import { access, copyFile, mkdir, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -20,6 +20,28 @@ export function fullPath(path, cwd) {
 }
 
 
+// Word, Excel, and PowerPoint answer a damaged file with their own wording, in
+// the language they are installed in, and nothing else: the caller still needs
+// to know which file refused to open and what to do about it.
+// The application refusing to automate is not a damaged document: sending the
+// caller to repair an intact file wastes the turn, while the route that works
+// (no Office at all, or co-editing the instance already running) goes unsaid.
+const OFFICE_APPLICATION_REFUSAL = /shared or unidentified application|already running|RPC server|automation server|is busy|call was rejected/i;
+
+export function officeOpenFailure(reason, path) {
+  const message = String(reason || '').trim().replace(/\.+$/, '');
+  if (!message) return `Microsoft Office could not open ${path}`;
+  if (message.includes(path)) return message;
+  if (OFFICE_APPLICATION_REFUSAL.test(message)) {
+    return `Microsoft Office could not open ${path}: ${message}.`
+      + " This is the Office application, not the file: retry with mode:'portable' (no Office needed),"
+      + " or mode:'attach' to co-edit the instance that is already open.";
+  }
+  return `Microsoft Office could not open ${path}: ${message}.`
+    + ' If the file is damaged or incomplete, ask for an intact copy or let Office repair it and save a fresh file.';
+}
+
+
 function defaultOutput(source) {
   const extension = extname(source);
   return join(dirname(source), `${basename(source, extension)}.mixdog-edit${extension}`);
@@ -38,6 +60,23 @@ export async function exists(path) {
   } catch {
     return false;
   }
+}
+
+
+// Several operations take a folder (split_pages, rendered page images), so a
+// caller naturally points output at one here too. Writing the document onto a
+// directory fails deep in a copy with an OS error that names neither the field
+// nor the document: the answer says what output is for, and what to pass.
+async function assertDocumentOutput(output, source) {
+  let entry;
+  try {
+    entry = await stat(output);
+  } catch {
+    return output;
+  }
+  if (!entry.isDirectory()) return output;
+  const suggestion = join(output, basename(defaultOutput(source)));
+  throw new Error(`Office output is the file to write, not a folder: ${output} is a directory. Pass a file path such as ${suggestion}.`);
 }
 
 
@@ -72,22 +111,27 @@ export async function selectMode(requested, format, source) {
 }
 
 
-export async function openSession(args, cwd, dataDir) {
+export async function openSession(args, cwd, dataDir, { readOnly = false } = {}) {
   const source = fullPath(args.path, cwd);
   if (!await exists(source)) throw new Error(`Office document not found: ${source}`);
   const fileKind = documentFileKind(source);
   const format = documentFormat(source);
   const selected = await selectMode(args.mode, format, source);
   let target = source;
-  if (['background', 'portable'].includes(selected.mode)) {
-    target = args.output ? fullPath(args.output, cwd) : defaultOutput(source);
+  // Reading a document does not need a copy of it, and making one overwrote
+  // the working copy an earlier edit had already been told was saved: the
+  // next read of the same path silently threw that edit away. A read opens
+  // the file itself; the working copy appears when an edit does.
+  const reads = readOnly && !args.output && ['mixdog-ooxml', 'mixdog-pdf', 'mixdog-tabular'].includes(selected.backend);
+  if (!reads && ['background', 'portable'].includes(selected.mode)) {
+    target = args.output ? await assertDocumentOutput(fullPath(args.output, cwd), source) : defaultOutput(source);
     if (target.toLowerCase() === source.toLowerCase()) throw new Error('background/portable editing requires an output path different from the source');
   }
   const key = documentSessionKey(target);
   const existingId = documentSessions.get(key);
   const existing = existingId ? sessions.get(existingId) : null;
   if (existing) return { ...existing, reused: true };
-  if (['background', 'portable'].includes(selected.mode)) {
+  if (!reads && ['background', 'portable'].includes(selected.mode)) {
     await mkdir(dirname(target), { recursive: true });
     await copyFile(source, target);
   }
@@ -109,6 +153,9 @@ export async function openSession(args, cwd, dataDir) {
     mode: selected.mode,
     backend: selected.backend,
     ...(selected.backend === 'mixdog-ooxml' ? { ownership: 'owned', visible: false } : {}),
+    // The session reads the file itself; the first edit gives it a working
+    // copy so the user's document is never written in place.
+    ...(reads ? { readsSource: true } : {}),
     openedAt: new Date().toISOString(),
     dataDir,
     created: false,
@@ -129,7 +176,8 @@ export async function openSession(args, cwd, dataDir) {
       mode: selected.mode,
       path: target,
     }, { signal: args.__signal || null });
-    if (!opened.ok) throw new Error(opened.error || 'Microsoft Office session open failed');
+    // The file a caller can act on is the one they named, not the working copy.
+    if (!opened.ok) throw new Error(officeOpenFailure(opened.error, session.source || target));
     Object.assign(session, {
       mode: opened.mode,
       ownership: opened.ownership,
@@ -146,6 +194,49 @@ export async function openSession(args, cwd, dataDir) {
 }
 
 
+// Content handed to create under a field this format does not read produced an
+// empty document and a success answer: the caller spent a turn discovering the
+// file was blank. Each shape is refused with the field that does write it.
+function assertCreateContentFields(format, args) {
+  const filled = (value) => Array.isArray(value) && value.length > 0;
+  const faults = [];
+  if (format === 'pdf') {
+    if (filled(args.operations)) {
+      faults.push('PDF create writes blocks, not operations: pass blocks:[{ type:\'heading\', text }, …] (and fields for a form),'
+        + ' or create the file first and edit it with action:\'batch\' operations:[…].');
+    }
+  } else if (filled(args.blocks)) {
+    faults.push(`${format.toUpperCase()} create writes operations, not blocks: pass operations:[{ op: … }].`
+      + ' blocks is the PDF create field.');
+  }
+  if (filled(args.values)) {
+    faults.push(`${format.toUpperCase()} create takes no top-level values:`
+      + " pass operations:[{ op: 'set_range', range: 'A1:B2', values: [[…]] }].");
+  }
+  if (format !== 'pdf' && typeof args.script === 'string' && args.script.trim()) {
+    faults.push(`${format.toUpperCase()} create takes no script.`
+      + (format === 'pptx' ? " A deck written from a script uses action:'author' with script." : ''));
+  }
+  // Facts and claims describe what the deliverable must carry; they do not
+  // write it. Handed over with nothing that does, the call produced an empty
+  // file and reported success, and the caller found out only on opening it.
+  const content = args.design?.content;
+  const carriesContent = content && typeof content === 'object' && !Array.isArray(content)
+    && (filled(content.facts) || filled(content.claims) || String(content.objective || content.decision || '').trim());
+  const writes = format === 'pdf' ? filled(args.blocks) || filled(args.fields) : filled(args.operations);
+  if (carriesContent && !writes) {
+    const route = {
+      pptx: "author the deck with action:'author' script:… (design travels on that call), or add slides here with operations:[{ op: 'add_slide' }, …]",
+      docx: "pass operations:[{ op: 'compose_document', … }] or the append_text/add_table operations that write it",
+      xlsx: "pass operations:[{ op: 'compose_sheet', … }] or the set_range/add_chart operations that write it",
+      pdf: "pass blocks:[{ type: 'heading', text }, …] (and fields for a form)",
+    }[format] || 'pass the operations that write it';
+    faults.push(`${format.toUpperCase()} create writes nothing from design.content on its own: ${route}.`);
+  }
+  if (faults.length === 1) throw new Error(faults[0]);
+  if (faults.length) throw new Error(`This create request breaks ${faults.length} input contracts; fix them together. ${faults.join(' ')}`);
+}
+
 export async function createSession(args, cwd, dataDir) {
   const requestedPath = String(args.path || args.output || '').trim();
   if (!requestedPath) throw new Error('create requires path or output');
@@ -154,6 +245,10 @@ export async function createSession(args, cwd, dataDir) {
   const inferredFormat = documentFormat(target);
   const format = args.format ? normalizeOfficeFormat(args.format) : inferredFormat;
   if (format !== inferredFormat) throw new Error(`Office create format ${args.format} does not match target .${fileKind}`);
+  assertCreateContentFields(format, args);
+  // Whether this call brings the file into being decides what a failed create
+  // may clean up afterwards: a file it wrote itself, never one already there.
+  const targetExisted = await exists(target);
   const designContext = await resolveOfficeDesignContext({
     args,
     dataDir,
@@ -163,16 +258,25 @@ export async function createSession(args, cwd, dataDir) {
   });
   const { designRequest, designLibrary, design } = designContext;
   if (format === 'pdf') {
-    if (await exists(target) && args.overwrite !== true) {
+    if (targetExisted && args.overwrite !== true) {
       throw new Error(`Office create target already exists: ${target}`);
     }
     await mkdir(dirname(target), { recursive: true });
-    const designed = applyPdfDesign((args.blocks || []).map((block) => (
+    // `design` is where authoring intent and content go for every other format,
+    // so blocks named there are the document's content, not an unknown key to
+    // drop: dropping them wrote an empty PDF and reported success.
+    const requestedBlocks = Array.isArray(args.blocks) && args.blocks.length
+      ? args.blocks
+      : (Array.isArray(args.design?.blocks) ? args.design.blocks : []);
+    const requestedFields = Array.isArray(args.fields) && args.fields.length
+      ? args.fields
+      : (Array.isArray(args.design?.fields) ? args.design.fields : []);
+    const designed = applyPdfDesign(requestedBlocks.map((block) => (
       block?.path ? { ...block, path: fullPath(block.path, cwd) } : block
     )), designRequest, { library: designLibrary });
     const written = await createPdf(target, {
       blocks: designed.blocks,
-      fields: args.fields,
+      fields: requestedFields,
       properties: {
         ...designed.properties,
         ...args.properties,
@@ -190,11 +294,16 @@ export async function createSession(args, cwd, dataDir) {
       openedAt: new Date().toISOString(),
       dataDir,
       created: true,
+      createdNewFile: !targetExisted,
       // What the writer decided (numbering, the font it embedded) rides on the
       // create result so the caller need not re-open the file to learn it.
       createReceipt: {
         pageNumbers: written.pageNumbers,
         font: written.font,
+        // What the writer actually flowed: a document with nothing in it is a
+        // result the caller has to see, not a silent success.
+        blocks: designed.blocks.length,
+        fields: requestedFields.length,
         ...(written.form?.issueCount ? { formIssues: written.form.issues } : {}),
       },
       ownership: 'owned',
@@ -211,7 +320,7 @@ export async function createSession(args, cwd, dataDir) {
   if (!FORMATS.has(format) || format === 'pdf') {
     throw new Error('Office create currently supports Word, Excel, PowerPoint, CSV, and TSV files');
   }
-  if (await exists(target) && args.overwrite !== true) {
+  if (targetExisted && args.overwrite !== true) {
     throw new Error(`Office create target already exists: ${target}`);
   }
   const key = documentSessionKey(target);
@@ -232,6 +341,7 @@ export async function createSession(args, cwd, dataDir) {
       openedAt: new Date().toISOString(),
       dataDir,
       created: true,
+      createdNewFile: !targetExisted,
       ownership: 'owned',
       visible: false,
       snapshotVersion: 0,
@@ -268,6 +378,7 @@ export async function createSession(args, cwd, dataDir) {
       openedAt: new Date().toISOString(),
       dataDir,
       created: true,
+      createdNewFile: !targetExisted,
       ownership: 'owned',
       visible: false,
       snapshotVersion: 0,
@@ -307,6 +418,7 @@ export async function createSession(args, cwd, dataDir) {
     openedAt: new Date().toISOString(),
     dataDir,
     created: true,
+    createdNewFile: !targetExisted,
     ownership: opened.ownership,
     visible: opened.visible,
     appPid: opened.appPid,
@@ -401,7 +513,7 @@ export async function createAuthoredSession(args, cwd, dataDir, target) {
       mode: selected.mode,
       path: target,
     }, { signal: args.__signal || null });
-    if (!opened.ok) throw new Error(opened.error || 'Microsoft Office session open failed');
+    if (!opened.ok) throw new Error(officeOpenFailure(opened.error, target));
     Object.assign(session, {
       mode: opened.mode,
       ownership: opened.ownership,
@@ -418,14 +530,35 @@ export async function createAuthoredSession(args, cwd, dataDir, target) {
 }
 
 
-export async function resolveSession(args, cwd, dataDir) {
+export async function resolveSession(args, cwd, dataDir, { readOnly = false } = {}) {
   if (args.session) {
     const session = sessions.get(String(args.session));
     if (!session) throw new Error(`Unknown or closed Office Use session: ${args.session}`);
     return { session, implicit: false };
   }
   if (!args.path) throw new Error('session or path is required');
-  return { session: await openSession(args, cwd, dataDir), implicit: true };
+  return { session: await openSession(args, cwd, dataDir, { readOnly }), implicit: true };
+}
+
+
+// A session opened for reading holds the user's own file. Before the first
+// edit it takes the working copy it would have had, so the edit lands beside
+// the document instead of inside it.
+export async function materializeWorkingCopy(session) {
+  if (!session?.readsSource) return session.target;
+  const target = defaultOutput(session.source);
+  if (target.toLowerCase() === session.source.toLowerCase()) {
+    throw new Error('portable editing requires an output path different from the source');
+  }
+  await mkdir(dirname(target), { recursive: true });
+  await copyFile(session.source, target);
+  if (documentSessions.get(documentSessionKey(session.target)) === session.id) {
+    documentSessions.delete(documentSessionKey(session.target));
+  }
+  session.target = target;
+  delete session.readsSource;
+  documentSessions.set(documentSessionKey(target), session.id);
+  return target;
 }
 
 
@@ -541,10 +674,47 @@ export async function trustForMutation(session) {
 }
 
 
+// A match answers where the text is, not with the whole field it sits in: a
+// document body comes back as the text around each hit, so a query costs a few
+// lines instead of the page (or the entire PDF) that contains them.
+const QUERY_VALUE_LIMIT = 240;
+const QUERY_EXCERPT_RADIUS = 90;
+
+function queryMatchValue(value, query) {
+  const text = String(value);
+  if (text.length <= QUERY_VALUE_LIMIT) return { value: text };
+  const haystack = text.toLowerCase();
+  const hits = [];
+  for (let from = 0; hits.length < 3;) {
+    const index = haystack.indexOf(query, from);
+    if (index < 0) break;
+    hits.push(index);
+    from = index + Math.max(1, query.length);
+  }
+  let occurrences = hits.length;
+  for (let from = hits.at(-1) ?? 0; occurrences < 1000;) {
+    const index = haystack.indexOf(query, from + Math.max(1, query.length));
+    if (index < 0) break;
+    occurrences += 1;
+    from = index;
+  }
+  const excerpt = hits.map((index) => {
+    const start = Math.max(0, index - QUERY_EXCERPT_RADIUS);
+    const end = Math.min(text.length, index + query.length + QUERY_EXCERPT_RADIUS);
+    return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`;
+  }).join(' ⋯ ');
+  return {
+    value: excerpt || text.slice(0, QUERY_VALUE_LIMIT),
+    excerpt: true,
+    valueLength: text.length,
+    ...(occurrences > hits.length ? { occurrences } : {}),
+  };
+}
+
 export function queryObject(value, query, path = '$', matches = []) {
   if (matches.length >= 100) return matches;
   if (typeof value === 'string') {
-    if (value.toLowerCase().includes(query)) matches.push({ path, value });
+    if (value.toLowerCase().includes(query)) matches.push({ path, ...queryMatchValue(value, query) });
     return matches;
   }
   if (Array.isArray(value)) {
@@ -556,7 +726,7 @@ export function queryObject(value, query, path = '$', matches = []) {
     for (const [key, entry] of Object.entries(value)) {
       if (key === 'path') continue;
       if (typeof entry === 'string' && entry.toLowerCase().includes(query)) {
-        matches.push({ path: logicalPath, field: key, value: entry });
+        matches.push({ path: logicalPath, field: key, ...queryMatchValue(entry, query) });
       } else {
         queryObject(entry, query, `${logicalPath}.${key}`, matches);
       }

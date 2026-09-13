@@ -74,7 +74,7 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one Git command, or up to 5 Git commands in order, directly without a shell. Batch known read-only commands; keep dependent mutations sequential. Owns repository state, diffs, history, and mutations. Shell operators and substitution are rejected. An array runs each command in order, reports each result, and stops at the first failure. Repository mutations are serialized. Successful output is compacted.',
+    description: 'Run Git here, not through shell: commands in order. First batch required read-only commands in one array, not separate calls; then parallelize with independent tools. Use diff for known changes, status to discover them; reuse returned status. If diff establishes the cause, edit site and required change, implement next without confirming read/graph/history calls. Otherwise query only missing evidence; inspect history only when needed for that evidence or requested. Arrays report each result and stop on failure. Mutations are serialized; successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {
@@ -83,7 +83,7 @@ export const GIT_TOOL_DEF = {
                     { type: 'string' },
                     { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5 },
                 ],
-                description: 'Full command beginning with git, or an ordered array of commands (mutations allowed; execution stops at the first failure). Quote arguments as for a shell; shell operators are not allowed.',
+                description: 'Commands starting with git. Shell-style quoting; no shell operators/substitution. Mutations are allowed.',
             },
             output_limit: { type: 'integer', minimum: 1, maximum: GIT_OUTPUT_LIMIT_MAX, description: 'Item/line cap. Default 50; git log defaults to 10.' },
         },
@@ -173,8 +173,24 @@ function failureText(value, max) {
     return rows.length > max ? `…[${rows.length - max} earlier lines omitted]\n${kept.join('\n')}` : kept.join('\n');
 }
 
-function parseCommand(command, workDir) {
-    if (commandHasShellSyntax(command)) throw new Error('git command must not contain shell operators or substitution');
+// A provider sometimes delivers the whole command as one quoted scalar
+// (`"git diff"`). That tokenizes to a single argument, so the git prefix check
+// rejected it and the caller paid a failed call plus a retry for a command it
+// had already written correctly. Unwrap exactly one balanced quote layer when
+// the inner text holds no further quote of that kind; anything else is left
+// byte-identical. Operator, substitution, and prefix checks then run on the
+// real command, so a quoted `"git log | cat"` is still refused.
+function unwrapQuotedCommand(command) {
+    const text = String(command ?? '').trim();
+    const quote = text[0];
+    if ((quote !== '"' && quote !== "'") || text.length < 2 || !text.endsWith(quote)) return command;
+    const inner = text.slice(1, -1);
+    return inner.includes(quote) ? command : inner;
+}
+
+function parseCommand(rawCommand, workDir) {
+    const command = unwrapQuotedCommand(rawCommand);
+    if (commandHasShellSyntax(command)) throw new Error('git command must not contain shell operators or substitution; multiple commands belong in the command array');
     const tokens = tokenizeDirectArgv(command);
     if (!tokens?.length || !/(^|[\\/])git(?:\.exe)?$/i.test(tokens[0])) {
         throw new Error('command must begin with git');
@@ -464,13 +480,6 @@ function prepare(plan, limit) {
         }
         return { argv: ['log', ...limitArgs, '--no-color', ...args], format: 'text', action: 'list' };
     }
-    if (operation === 'show') {
-        const blob = args.some((value) => !value.startsWith('-') && value.includes(':'));
-        const explicit = hasOutputFormat(args) || hasSpecialHistoryPresentation(args);
-        if (!blob && !explicit) {
-            return { argv: ['show', '--no-color', '--format=%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%s%n', ...args], format: 'show', action: 'list' };
-        }
-    }
     if (operation === 'for-each-ref' && !args.some((value) => value.startsWith('--format'))) {
         return {
             argv: ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(objecttype)%00%(upstream:short)%00%(subject)', ...args],
@@ -602,14 +611,6 @@ function formatRead(prepared, stdout, stderr, limit) {
             };
         });
         data = { commits };
-    } else if (format === 'show' && !raw) {
-        const records = stdout.split('\x1e').map((row) => row.trim()).filter(Boolean);
-        const commits = records.map((record) => {
-            const split = record.indexOf('\n');
-            const [oid, short, author, date, subject] = record.slice(0, split).split('\x1f');
-            return { commit: { oid, short, author, date, subject }, diff: compactDiff(record.slice(split + 1), limit) };
-        });
-        data = commits.length === 1 ? commits[0] : { commits };
     } else if (format === 'refs' && !raw) {
         const refs = cleanText(stdout).split('\n').filter(Boolean).slice(0, limit).map((line) => {
             const [name, oid, type, upstream, subject] = line.split('\0');

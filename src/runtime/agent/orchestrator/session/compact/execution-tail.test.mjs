@@ -8,6 +8,7 @@ import { runFreshContextCompact } from '../loop/fresh-context.mjs';
 import { persistToolResultArtifactSync, pruneOffloadSession } from '../tool-result-offload.mjs';
 import { projectSessionMessagesForIngest } from '../../../../memory/lib/session-ingest.mjs';
 import { buildExecutionTail, executionTokens, EXECUTION_RECOVERY_SOURCE } from './execution-tail.mjs';
+import { isActualUserInstructionMessage } from './messages.mjs';
 
 function sandbox(t) {
     const previous = process.env.MIXDOG_DATA_DIR;
@@ -68,6 +69,55 @@ test('failed, partially applied, and running outcomes remain verbatim and are ne
     const result = buildExecutionTail(messages, { contextWindow: 100_000 });
     assert.deepEqual(result.messages.filter(m => m.role === 'tool'), messages.filter(m => m.role === 'tool'));
     assert.equal(result.toolBudget, 5_000);
+});
+
+test('repeated legacy Goal turns cannot crowd the real request and execution evidence out of Compact', () => {
+    const request = { role: 'user', content: 'Finish the approved changes and verify them.' };
+    const evidence = pair('verified-edit', 'Updated source.js; verification passed.');
+    const clock = '<system-reminder>\n# Current Time\n2026-09-13\n</system-reminder>';
+    const messages = [{ role: 'system', content: 'Session rules.' }, request, ...evidence];
+    for (let index = 0; index < 125; index++) {
+        messages.push(
+            { role: 'user', content: `<system-reminder>\n# Active Goal\n${'Approved task details. '.repeat(250)}\n</system-reminder>\n\n${clock}` },
+            { role: 'assistant', content: 'No changes; waiting for the deadline.' },
+        );
+    }
+    const before = structuredClone(messages);
+    const currentGoal = '<system-reminder>\n<goal_state>\nCurrent verified Goal state.\n</goal_state>\n</system-reminder>';
+    const result = freshContextCompactMessages(messages, 10_000, {
+        force: true,
+        contextWindow: 200_000,
+        handoffText: 'The requested edit and verification finished. The full duration has not ended.',
+        latestUserPrefix: currentGoal,
+        activeTurn: true,
+    });
+    assert.ok(result.diagnostics.finalTokens <= 10_000);
+    assert.equal(result.messages.filter(m => m.content === `${currentGoal}\n\n${request.content}`).length, 1);
+    assert.deepEqual(result.messages.filter(m => m.role === 'tool'), [evidence[1]]);
+    assert.deepEqual(result.messages.flatMap(m => m.toolCalls || []), evidence[0].toolCalls);
+    assert.equal(result.messages.some(m => typeof m.content === 'string' && m.content.includes('# Active Goal')), false);
+    assert.deepEqual(messages, before, 'compaction must not alter the original transcript');
+});
+
+test('a legacy transcript with no raw human request still receives the current Goal snapshot after Compact', () => {
+    const currentGoal = '<system-reminder>\n<goal_state>\nStatus: blocked\nKeep the unfinished work.\n</goal_state>\n</system-reminder>';
+    const messages = [
+        { role: 'system', content: 'Session rules.' },
+        ...pair('prior-edit', 'Updated source.js.'),
+        {
+            role: 'user',
+            content: '<system-reminder>\n# Active Goal\nOld automatic continuation.\n</system-reminder>\n\n<system-reminder>\n# Current Time\n2026-09-13\n</system-reminder>',
+        },
+    ];
+    const result = freshContextCompactMessages(messages, 10_000, {
+        force: true, contextWindow: 200_000,
+        handoffText: 'The earlier user request is summarized here; its raw turn is no longer present.',
+        latestUserPrefix: currentGoal, activeTurn: true,
+    });
+    assert.equal(result.messages.filter(m => m.content === currentGoal).length, 1);
+    assert.equal(result.messages.filter(isActualUserInstructionMessage).length, 0);
+    assert.equal(result.messages.find(m => m.toolCallId === 'prior-edit').content, 'Updated source.js.');
+    assert.equal(result.messages.some(m => m.content?.includes?.('# Active Goal')), false);
 });
 
 test('large tool results are archived exactly and retained calls remain paired under the strict cap', t => {

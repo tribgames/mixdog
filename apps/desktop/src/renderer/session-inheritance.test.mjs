@@ -87,6 +87,8 @@ test("successful inheritance restores its boundary and offers compact before the
   const original = structuredClone(source);
   const target = {
     id: "heir", provider: "openai-oauth", model: "gpt-6-astra",
+    contextWindow: 200_000, compactBoundaryTokens: 200_000,
+    compaction: { auto: true }, tools: [],
     messages: [{ role: "system", content: "Target instructions." }],
   };
   let persisted;
@@ -94,7 +96,6 @@ test("successful inheritance restores its boundary and offers compact before the
     getSession: () => target,
     mgr: { getSession: () => source },
     invalidateContextStatusCache() {},
-    computeContextStatus: () => ({ usedTokens: 100, contextWindow: 10000 }),
     saveSession: (session) => { persisted = JSON.parse(JSON.stringify(session)); },
   });
   await api.inheritFrom(source.id);
@@ -119,15 +120,19 @@ test("successful inheritance restores its boundary and offers compact before the
 });
 
 test("rejected inheritance does not persist or display a successful boundary", async () => {
-  const target = { id: "heir", provider: "openai", model: "small", messages: [] };
+  const target = {
+    id: "heir", provider: "openai", model: "small", messages: [],
+    contextWindow: 1_000, compactBoundaryTokens: 1_000,
+    compaction: { auto: true }, tools: [],
+  };
   let saved = false;
   const api = createLifecycleApi({
     getSession: () => target,
     mgr: { getSession: () => ({
-      id: "source", messages: [{ role: "user", content: "Too large." }],
+      id: "source",
+      messages: [{ role: "user", content: "Too large for this heir. ".repeat(500) }],
     }) },
     invalidateContextStatusCache() {},
-    computeContextStatus: () => ({ usedTokens: 200, contextWindow: 100 }),
     saveSession: () => { saved = true; },
   });
   await assert.rejects(api.inheritFrom("source"), /full conversation needs/);

@@ -1,13 +1,18 @@
 import {
+    closeSync,
+    constants,
     existsSync,
+    fstatSync,
+    lstatSync,
     mkdirSync,
+    openSync,
     readFileSync,
     readdirSync,
     rmdirSync,
     unlinkSync,
     writeFileSync,
 } from 'fs';
-import { readdir, readFile, rmdir, stat, unlink, writeFile } from 'fs/promises';
+import { lstat, open, readdir, readFile, rmdir, stat, unlink, writeFile } from 'fs/promises';
 import { createHash } from 'crypto';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
@@ -21,8 +26,14 @@ const TOOL_RESULT_SHELL_THRESHOLD_CHARS = 30_000;
 const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_GREP_THRESHOLD_CHARS = 20_000;
 const TOOL_RESULT_MESSAGE_MAX_CHARS = 200_000;
+// A structured result's text part only buys context back when it is larger
+// than the pointer + preview replacing it; smaller parts stay inline.
+const TOOL_RESULT_MIN_PART_OFFLOAD_CHARS = 2_000;
 const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
 const OFFLOAD_PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
+const ARTIFACT_READ_FLAGS = constants.O_RDONLY
+    | (constants.O_NOFOLLOW ?? 0)
+    | (constants.O_NONBLOCK ?? 0);
 
 // Per-tool persistence limits are per-tool maxResultSizeChars values rather
 // than a single global value: grep persists at 20k, glob and list/find_* at
@@ -58,6 +69,46 @@ function getOffloadThreshold(toolName) {
     return INLINE_THRESHOLD_BY_TOOL.get(key) ?? TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS;
 }
 
+// A structured (multimodal) result — { content: [{ type:'text', text }, { type:'image', … }] }
+// — puts its text in the transcript exactly like a string result, so the same
+// per-tool and per-message budgets apply to the text parts. Image parts are the
+// reason the tool answered with parts at all and are never offloaded here.
+function isTextPart(part) {
+    return !!part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string';
+}
+
+function structuredTextParts(result) {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+    const parts = result.content;
+    if (!Array.isArray(parts) || !parts.some(isTextPart)) return null;
+    return parts;
+}
+
+// Inline text a result costs the transcript, string or structured.
+function inlineTextLength(result) {
+    if (typeof result === 'string') return result.length;
+    const parts = structuredTextParts(result);
+    if (!parts) return 0;
+    return parts.reduce((total, part) => (isTextPart(part) ? total + part.text.length : total), 0);
+}
+
+function isOffloadableTextPart(part) {
+    return isTextPart(part)
+        && part.text.length >= TOOL_RESULT_MIN_PART_OFFLOAD_CHARS
+        && !isOffloadedToolResultText(part.text);
+}
+
+// Chars still available for reduction: a pointer is never re-offloaded, and a
+// part below the pointer's own size would grow the transcript instead.
+function offloadableTextLength(result) {
+    if (typeof result === 'string') return isOffloadedToolResultText(result) ? 0 : result.length;
+    const parts = structuredTextParts(result);
+    if (!parts) return 0;
+    return parts.reduce((total, part) => (
+        isOffloadableTextPart(part) ? total + part.text.length : total
+    ), 0);
+}
+
 const AGGREGATE_OFFLOAD_EXCLUDED_TOOLS = new Set([
     'read',
     'head',
@@ -69,7 +120,7 @@ const AGGREGATE_OFFLOAD_EXCLUDED_TOOLS = new Set([
 ]);
 
 function isAggregateOffloadEligible(toolName, result) {
-    if (typeof result !== 'string') return false;
+    if (typeof result !== 'string' && !structuredTextParts(result)) return false;
     const key = String(toolName || '').toLowerCase();
     return !AGGREGATE_OFFLOAD_EXCLUDED_TOOLS.has(key);
 }
@@ -78,9 +129,9 @@ function rankAggregateOffloadCandidates(entries) {
     return entries
         .map((entry, index) => ({
             index,
-            length: typeof entry?.result === 'string' ? entry.result.length : 0,
+            length: offloadableTextLength(entry?.result),
             eligible: isAggregateOffloadEligible(entry?.toolName, entry?.result)
-                && !String(entry?.result || '').startsWith(TOOL_RESULT_OFFLOAD_PREFIX),
+                && offloadableTextLength(entry?.result) > 0,
         }))
         .filter((entry) => entry.eligible)
         .sort((a, b) => b.length - a.length || b.index - a.index)
@@ -109,16 +160,25 @@ function artifactIdentity(sha256) {
     return `${sha256}.txt`;
 }
 
+function splitsSurrogatePair(text, offset) {
+    const before = text.charCodeAt(offset - 1);
+    const after = text.charCodeAt(offset);
+    return before >= 0xD800 && before <= 0xDBFF && after >= 0xDC00 && after <= 0xDFFF;
+}
+
 function buildPreview(text, maxChars = TOOL_RESULT_PREVIEW_CHARS) {
     if (text.length <= maxChars) {
         return { preview: text, truncated: false };
     }
     const headBudget = Math.floor(maxChars * 0.6);
     const tailBudget = maxChars - headBudget;
-    let head = text.slice(0, headBudget);
+    const headEnd = headBudget - (splitsSurrogatePair(text, headBudget) ? 1 : 0);
+    let head = text.slice(0, headEnd);
     const headCut = head.lastIndexOf('\n');
     if (headCut > Math.floor(headBudget * 0.6)) head = head.slice(0, headCut);
-    let tail = text.slice(Math.max(0, text.length - tailBudget));
+    let tailStart = Math.max(0, text.length - tailBudget);
+    if (splitsSurrogatePair(text, tailStart)) tailStart += 1;
+    let tail = text.slice(tailStart);
     const tailCut = tail.indexOf('\n');
     if (tailCut !== -1 && tailCut < Math.floor(tailBudget * 0.4)) tail = tail.slice(tailCut + 1);
     const omittedKb = Math.max(1, Math.round((text.length - head.length - tail.length) / 1024));
@@ -151,6 +211,10 @@ function artifactMeta(sessionId, toolCallId, channel, content) {
     };
 }
 
+function artifactShapeMatches(meta, info) {
+    return info.isFile() && info.size === meta.bytes;
+}
+
 export function persistToolResultArtifactSync({
     sessionId,
     toolCallId,
@@ -164,10 +228,17 @@ export function persistToolResultArtifactSync({
         writeFileSync(meta.path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
     } catch (error) {
         if (error?.code !== 'EEXIST') return null;
+        let fd;
         try {
-            if (createHash('sha256').update(readFileSync(meta.path)).digest('hex') !== meta.sha256) return null;
+            if (!artifactShapeMatches(meta, lstatSync(meta.path))) return null;
+            fd = openSync(meta.path, ARTIFACT_READ_FLAGS);
+            if (!artifactShapeMatches(meta, fstatSync(fd))) return null;
+            if (createHash('sha256').update(readFileSync(fd)).digest('hex') !== meta.sha256) return null;
         } catch {
             return null;
+        } finally {
+            try { if (fd !== undefined) closeSync(fd); }
+            catch { return null; }
         }
     }
     return meta;
@@ -186,10 +257,17 @@ async function persistToolResultArtifact({
         await writeFile(meta.path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
     } catch (error) {
         if (error?.code !== 'EEXIST') return null;
+        let handle;
         try {
-            if (createHash('sha256').update(await readFile(meta.path)).digest('hex') !== meta.sha256) return null;
+            if (!artifactShapeMatches(meta, await lstat(meta.path))) return null;
+            handle = await open(meta.path, ARTIFACT_READ_FLAGS);
+            if (!artifactShapeMatches(meta, await handle.stat())) return null;
+            if (createHash('sha256').update(await handle.readFile()).digest('hex') !== meta.sha256) return null;
         } catch {
             return null;
+        } finally {
+            try { await handle?.close(); }
+            catch { return null; }
         }
     }
     return meta;
@@ -197,9 +275,12 @@ async function persistToolResultArtifact({
 
 export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, result, options = {}) {
     if (!sessionId || !toolCallId) return result;
-    if (typeof result !== 'string') return result;
-    if (result.startsWith(TOOL_RESULT_OFFLOAD_PREFIX)) return result;
     const force = options?.force === true;
+    // A structured result is not exempt from the budget — only its image parts are.
+    if (typeof result !== 'string') {
+        return offloadStructuredTextParts(sessionId, toolCallId, toolName, result, force);
+    }
+    if (result.startsWith(TOOL_RESULT_OFFLOAD_PREFIX)) return result;
     if (!force && result.length <= getOffloadThreshold(toolName)) return result;
     // Keep error surfaces inline so the model can self-correct without an
     // extra read turn — but only up to the global default. A giant error
@@ -208,24 +289,61 @@ export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, re
     if (!force && classifyResultKind(result) === 'error'
         && result.length <= TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS) return result;
 
+    return offloadText(sessionId, toolCallId, toolName, result, 'result');
+}
+
+// Persist one text body and return the pointer + preview that stands in for it.
+// Persistence is the reduction commit point: if it did not land and verify, the
+// complete text is preserved unchanged.
+async function offloadText(sessionId, toolCallId, toolName, text, channel) {
     const artifact = await persistToolResultArtifact({
         sessionId,
         toolCallId,
-        channel: 'result',
-        content: result,
+        channel,
+        content: text,
     });
-    // Persistence is the reduction commit point. If it did not land and
-    // verify, preserve the complete inline result unchanged.
-    if (!artifact) return result;
+    if (!artifact) return text;
 
-    const { preview, truncated } = buildPreview(result);
-    const sizeKb = Math.max(1, Math.round(result.length / 1024));
+    const { preview, truncated } = buildPreview(text);
+    const sizeKb = Math.max(1, Math.round(text.length / 1024));
     const displayPath = normalizeOutputPath(artifact.path);
     const header = `${TOOL_RESULT_OFFLOAD_PREFIX} ${toolName} → ${displayPath} (${sizeKb} KB, ${artifact.lines} lines, sha256 ${artifact.sha256})]`;
     const suffix = truncated
         ? '\n[preview truncated; full output preserved at the artifact path above]'
         : '';
     return `${header}\n\n${preview}${suffix}`;
+}
+
+// Largest text part first, until the inline text fits the tool's budget. Part
+// order, image parts, and every other field of the result are left as they are,
+// so the tool's own envelope still reaches the model.
+async function offloadStructuredTextParts(sessionId, toolCallId, toolName, result, force) {
+    const parts = structuredTextParts(result);
+    if (!parts) return result;
+    const threshold = force ? 0 : getOffloadThreshold(toolName);
+    let inline = inlineTextLength(result);
+    if (inline <= threshold) return result;
+    // Error convention reads the very start of the body, so the first text part
+    // is the one that classifies the result.
+    if (!force && classifyResultKind(parts.find(isTextPart).text) === 'error'
+        && inline <= TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS) return result;
+
+    const order = parts
+        .map((_, index) => index)
+        .filter((index) => isOffloadableTextPart(parts[index]))
+        .sort((a, b) => parts[b].text.length - parts[a].text.length);
+    const next = parts.slice();
+    let changed = false;
+    for (const index of order) {
+        const text = next[index].text;
+        const replaced = await offloadText(sessionId, toolCallId, toolName, text, `result-part-${index}`);
+        if (replaced === text) continue;
+        next[index] = { ...next[index], text: replaced };
+        inline += replaced.length - text.length;
+        changed = true;
+        if (inline <= threshold) break;
+    }
+    return changed ? { ...result, content: next } : result;
 }
 
 // Apply per-tool persistence first, then enforce the message-level
@@ -261,7 +379,7 @@ export async function maybeOffloadToolResultBatch(sessionId, entries, options = 
     const inlineChars = () => states.reduce((total, state, index) => (
         state.error || !isAggregateOffloadEligible(source[index]?.toolName, state.result)
             ? total
-            : total + state.result.length
+            : total + inlineTextLength(state.result)
     ), 0);
     let total = inlineChars();
     const attempted = new Set();
@@ -282,10 +400,10 @@ export async function maybeOffloadToolResultBatch(sessionId, entries, options = 
                 before,
                 { force: true },
             );
-            total += String(states[index].result || '').length - before.length;
+            total += inlineTextLength(states[index].result) - inlineTextLength(before);
         } catch (error) {
             states[index].error = error;
-            total -= before.length;
+            total -= inlineTextLength(before);
         }
     }
     return states;
@@ -398,6 +516,10 @@ export const _internals = {
     TOOL_RESULT_GREP_THRESHOLD_CHARS,
     getOffloadThreshold,
     TOOL_RESULT_PREVIEW_CHARS,
+    TOOL_RESULT_MESSAGE_MAX_CHARS,
+    TOOL_RESULT_MIN_PART_OFFLOAD_CHARS,
     buildPreview,
     countLines,
+    inlineTextLength,
+    offloadableTextLength,
 };

@@ -256,14 +256,41 @@ function makeTurnHarness({
   };
 }
 
+test('runtime ask preserves the provenance of automatic Goal input for the session transcript', async () => {
+  const sources = [];
+  const harness = makeTurnHarness({
+    askSession: async (_id, _prompt, _context, _onToolCall, _cwd, _prefetch, options) => {
+      sources.push(options.promptSource);
+      return { content: 'done' };
+    },
+  });
+  await harness.api.ask('Runtime-owned closeout.', { promptSource: 'goal-closeout' });
+  await harness.api.ask('Actual user follow-up.');
+  assert.deepEqual(sources, ['goal-closeout', undefined]);
+});
+
 test('abort-aware waits settle even when the underlying operation never does', async () => {
   const controller = new AbortController();
   const waiting = runAbortable(controller.signal, () => new Promise(() => {}));
+  await Promise.resolve();
   controller.abort(new SessionClosedError('abort-race', 'test abort', 'user-cancel'));
   await Promise.race([
     assert.rejects(waiting, (error) => error?.name === 'SessionClosedError'),
     failAfter(200, 'abort-aware wait remained pending'),
   ]);
+});
+
+test('abort-aware waits never start work cancelled before its first microtask', async () => {
+  for (const alreadyAborted of [false, true]) {
+    const controller = new AbortController();
+    const reason = new SessionClosedError('abort-before-start', 'test abort', 'user-cancel');
+    let calls = 0;
+    if (alreadyAborted) controller.abort(reason);
+    const waiting = runAbortable(controller.signal, () => { calls += 1; });
+    if (!alreadyAborted) controller.abort(reason);
+    await assert.rejects(waiting, (error) => error === reason);
+    assert.equal(calls, 0);
+  }
 });
 
 test('an aborted mutex waiter settles immediately without opening the lock', async () => {

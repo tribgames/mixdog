@@ -75,7 +75,9 @@ export function useAppSessionActions({
       pendingRenames.current.delete(sessionId);
       invalidateSessionListings();
       setSessions((current) => current.map((session) =>
-        session.id === sessionId && session.title === title ? previousSession : session));
+        session.id === sessionId && session.title === title
+          ? { ...session, title: previousSession.title }
+          : session));
       if (previousTabTitle !== undefined) {
         setTabs((current) => current.map((tab) =>
           tab.key === tabKey && tab.title === title ? { ...tab, title: previousTabTitle } : tab));
@@ -122,7 +124,9 @@ export function useAppSessionActions({
       pendingArchives.current.delete(sessionId);
       invalidateSessionListings();
       setSessions((current) => current.map((session) =>
-        session.id === sessionId && session.archived === archived ? previousSession : session));
+        session.id === sessionId && session.archived === archived
+          ? { ...session, archived: previousSession.archived }
+          : session));
       setError(reason instanceof Error ? reason.message : String(reason));
       throw reason;
     }
@@ -141,6 +145,7 @@ export function useAppSessionActions({
     const previousSession = sessions.find((session) => session.id === sessionId);
     if (!previousSession || pendingDeletes.current.has(sessionId)) return;
     const deletingCurrent = selection.kind === "session" && selection.id === sessionId;
+    const navigationToken = navigationEpoch.current;
     pendingDeletes.current.add(sessionId);
     setError("");
     let next: SessionSnapshot;
@@ -158,7 +163,7 @@ export function useAppSessionActions({
     setSessions((current) => current.filter((session) => session.id !== sessionId));
     setTabs((current) => current.filter((tab) =>
       !(tab.selection.kind === "session" && tab.selection.id === sessionId)));
-    if (deletingCurrent) {
+    if (deletingCurrent && navigationEpoch.current === navigationToken) {
       navigationEpoch.current += 1;
       activateSelection({ kind: "new" }, "New task");
       setRequestedSessionId("");

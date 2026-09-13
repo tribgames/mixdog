@@ -41,6 +41,10 @@ for (const outcome of ["success", "failure"]) {
     let reject;
     const pending = new Promise((yes, no) => { resolve = yes; reject = no; });
     const calls = [];
+    // The card measures the heir's own route before anything moves, so the
+    // inherit action opens with that preflight and reaches the carry only
+    // once it answers; compaction still runs as a single capability call.
+    const startedCalls = action === "inherit" ? ["inheritancePreflight"] : ["compact"];
     window.mixdogDesktop = {
       invokeCapability: (request) => { calls.push(request.capability); return pending; },
     };
@@ -64,7 +68,7 @@ for (const outcome of ["success", "failure"]) {
       await act(async () => { button.click(); button.click(); });
       assert.equal(button.disabled, true);
       assert.equal(button.innerHTML, idleMarkup);
-      assert.deepEqual(calls, [action]);
+      assert.deepEqual(calls, startedCalls);
       await act(async () => render(false));
       assert.equal(document.querySelector('[role="status"]'), null);
       assert.doesNotMatch(document.body.textContent, /Inheriting|Compacting/);
@@ -77,7 +81,7 @@ for (const outcome of ["success", "failure"]) {
       const otherButton = document.querySelector(".context-action");
       assert.equal(otherButton.disabled, true);
       await act(async () => otherButton.click());
-      assert.deepEqual(calls, [action]);
+      assert.deepEqual(calls, startedCalls);
       await act(async () => render(true));
       await act(async () => {
         if (outcome === "success") resolve();
@@ -85,6 +89,9 @@ for (const outcome of ["success", "failure"]) {
       });
       assert.equal(document.querySelector('[role="status"]'), null);
       if (outcome === "success") {
+        assert.deepEqual(calls, action === "inherit"
+          ? ["inheritancePreflight", "inherit"]
+          : ["compact"]);
         await act(async () => render(true, {
           ...snapshot, sessionId: "heir",
           items: [...snapshot.items, {

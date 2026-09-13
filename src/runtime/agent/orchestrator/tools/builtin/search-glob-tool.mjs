@@ -6,7 +6,6 @@ import { buildGlobPatternGroups } from './lib/glob-static-prefix.mjs';
 import {
   canonicalizeGlobSlashes,
   coerceReadFamilyPathArg,
-  coerceShapeFlex,
   extractGlobBaseDirectory,
   hasGlobMagic,
   normalizeGlobArgs,
@@ -19,12 +18,10 @@ import {
     basePathDiagnostic,
     buildNotFoundHint,
     finalizeReadFamilyEnoentTail,
-    tryReadFamilyEnoentRedirect,
     isUncOrSmbPath,
     relativePathPrefix,
     relativeSearchResultPath,
     resolveSearchScope,
-    stripEmbeddedPathQuotes,
     uncRefusalMessage,
 } from './search-path-diagnostics.mjs';
 // Facade re-export: path-diagnostic helpers moved to search-path-diagnostics.mjs;
@@ -37,7 +34,6 @@ export {
     relativePathPrefix,
     relativeSearchResultPath,
     resolveSearchScope,
-    stripEmbeddedPathQuotes,
     uncRefusalMessage,
 } from './search-path-diagnostics.mjs';
 import {
@@ -61,14 +57,6 @@ import {
   globMtimeTiePath,
 } from './lib/search-input-helpers.mjs';
 import { statReachable } from './fs-reachability.mjs';
-
-// A single glob string may pack multiple filters
-// separated by whitespace or commas, e.g. "*.ts,*.tsx" or "*.ts *.tsx". Split
-// each into its own --glob. Brace patterns ("*.{ts,tsx}") are left intact so
-// their internal commas are not torn apart.
-
-// Grep output rendering (context-block windowing, fan-out dedupe, notices)
-// lives in lib/grep-output.mjs.
 
 // Same A/B override surface for glob (stock default 100).
 function _globDefaultHeadLimit() {
@@ -136,7 +124,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         const GLOB_PATH_CAP = 10;
         const seen = new Set();
         const list = args.path
-            .map((p) => (typeof p === 'string' ? stripEmbeddedPathQuotes(normalizeInputPath(p)).trim() : ''))
+            .map((p) => (typeof p === 'string' ? normalizeInputPath(p) : ''))
             .filter((p) => p && !seen.has(p) && seen.add(p));
         if (list.length > 1) {
             const capped = list.slice(0, GLOB_PATH_CAP);
@@ -160,12 +148,11 @@ export async function executeGlobTool(args, workDir, options = {}) {
         }
         args.path = list[0] ?? '.';
     } else {
-        args.path = stripEmbeddedPathQuotes(normalizeInputPath(args.path));
+        args.path = normalizeInputPath(args.path);
     }
     if (Array.isArray(args.path) && args.path.length === 0) {
         args.path = '.';
     }
-    args.pattern = coerceShapeFlex(args.pattern);
     const rawPattern = args.pattern;
     // ripgrep `--glob` matchers use forward slashes on all platforms;
     // canonicalize `\`→`/` (win32 only) so a `**\*.ts` pattern matches
@@ -217,23 +204,6 @@ export async function executeGlobTool(args, workDir, options = {}) {
         if (statCache.get(resolvedPath) === pending) statCache.set(resolvedPath, settled);
         return settled;
     };
-    if (!options._enoentRedirectFrom) {
-        for (const only of basePaths) {
-            const resolvedOnly = resolveSearchScope(only, workDir);
-            const pre = await statCached(resolvedOnly);
-            if (pre.err) {
-                const redirected = await tryReadFamilyEnoentRedirect({
-                    workDir,
-                    resolvedPath: resolvedOnly,
-                    requestedPath: only,
-                    errCode: pre.err?.code,
-                    options,
-                    rerun: (target, opts) => executeGlobTool({ ...args, path: target }, workDir, opts),
-                });
-                if (redirected) return redirected;
-            }
-        }
-    }
     // A base path carrying glob magic (path:'src/**/cache/*') names a SET of
     // directories, not a literal one — resolving it literally ENOENTs. Split
     // it the way grep's path handling does: walk from the static baseDir and
@@ -295,6 +265,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
     // the relevant ones. sort:'natural' opts back into raw walk order, which
     // keeps early windowing and skips the stat phase on huge trees.
     const sortMode = rawSort === 'natural' ? 'natural' : 'mtime';
+    const includeNoise = args.include_noise === true;
     // Internal-only ignore extension (see normalizeGlobArgs). Caller (e.g.
     // ai-wrapped-dispatch broad-cwd preflight) appends basename ignore globs
     // so head_limit bounds SOURCE entries rather than artifact noise.
@@ -311,7 +282,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         .map((root) => normalizeOutputPath(resolvedForSearchRoot(root)))
         .sort()
         .join('\x01');
-    const cacheKey = buildGlobCacheKey({ patterns, basePath: cacheBasePath, headLimit, offset, extraIgnore: extraIgnoreGlobs, sort: sortMode, patternCapTotal: globPatternCapTotal });
+    const cacheKey = buildGlobCacheKey({ patterns, basePath: cacheBasePath, headLimit, offset, extraIgnore: extraIgnoreGlobs, sort: sortMode, patternCapTotal: globPatternCapTotal, includeNoise });
     const cached = cacheGet(cacheKey);
     if (cached !== null) {
         recordLocalSearchCacheHit('result');
@@ -335,6 +306,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         && headLimit !== Infinity;
     const groupRuns = await Promise.all(globGroups.map(async ([root, rels]) => {
         const rgArgs = ['--files', '--hidden'];
+        if (includeNoise) rgArgs.push('--no-ignore');
         // Explicit literal basenames (no glob magic in the final segment)
         // name a concrete file: honor rg's later-glob-wins contract and let
         // the lookup descend dependency-noise dirs, which the native walker
@@ -361,7 +333,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         for (const rel of rels) rgArgs.push('--glob', rel);
         for (const ex of DEFAULT_IGNORE_GLOBS) {
             const pruned = /^!\*\*\/([^/]+)\/\*\*$/.exec(ex);
-            if (pruned && (explicitBasenames || namedDirs.has(pruned[1]))) continue;
+            if (pruned && (includeNoise || explicitBasenames || namedDirs.has(pruned[1]))) continue;
             rgArgs.push('--glob', ex);
         }
         for (const ex of extraIgnoreGlobs) rgArgs.push('--glob', ex);
@@ -374,27 +346,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         const cwdStat = await statCached(rgCwd);
         if (cwdStat.err) {
             const err = cwdStat.err;
-            // One shared ENOENT scan cache for the redirect probe + not-found
-            // hint (both resolve the same missing rgCwd).
-            const groupEnoentCache = {};
-            const redirected = await tryReadFamilyEnoentRedirect({
-                workDir,
-                resolvedPath: rgCwd,
-                requestedPath: root,
-                errCode: err?.code,
-                options,
-                cache: groupEnoentCache,
-                rerun: (target, opts) => executeGlobTool({ ...args, path: target }, workDir, opts),
-            });
-            if (redirected) {
-                return {
-                    error: null,
-                    paths: [],
-                    stdoutTruncated: false,
-                    redirected,
-                };
-            }
-            const hint = buildNotFoundHint(workDir, rgCwd, 'Search', err?.code, groupEnoentCache);
+            const hint = buildNotFoundHint(workDir, rgCwd, 'Search', err?.code);
             return {
                 error: `path does not exist: ${normalizeOutputPath(rgCwd)} (${err?.code || 'ENOENT'})${finalizeReadFamilyEnoentTail(hint, root, err?.code)}`,
                 paths: [],
@@ -460,7 +412,6 @@ export async function executeGlobTool(args, workDir, options = {}) {
     }));
 
     outer: for (const run of groupRuns) {
-        if (run.redirected) return run.redirected;
         if (run.error) {
             rgErrors.push(run.error);
             continue;

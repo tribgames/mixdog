@@ -35,16 +35,27 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(value, maximum));
 }
 
+/** Sheet width: the Codex-scale panel, widened to the pill's natural label
+ *  width when a long model name needs more (user: 모델명 긴 거 잘림), and
+ *  capped to the viewport either way. */
+export function routeSheetWidth(viewport: { width: number }, preferredWidth = ROUTE_PANEL_WIDTH): number {
+  return Math.min(
+    Math.max(ROUTE_PANEL_WIDTH, Math.ceil(preferredWidth)),
+    Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2),
+  );
+}
+
 export function routeSheetBox(
   trigger: RouteAnchorRect,
   preferredHeight: number,
   viewport: RouteViewport,
+  preferredWidth = ROUTE_PANEL_WIDTH,
 ): RoutePanelBox {
   const viewportLeft = viewport.left ?? 0;
   const viewportTop = viewport.top ?? 0;
   const viewportRight = viewportLeft + viewport.width;
   const viewportBottom = viewportTop + viewport.height;
-  const width = Math.min(ROUTE_PANEL_WIDTH, Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2));
+  const width = routeSheetWidth(viewport, preferredWidth);
   const left = clamp(
     trigger.right - width,
     viewportLeft + ROUTE_PANEL_EDGE,

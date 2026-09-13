@@ -28,6 +28,7 @@ import {
   routeFlyoutFitsBeside,
   routeSheetBox,
   routeSheetRows,
+  routeSheetWidth,
   type RoutePanelBox,
   type RouteSheetPane,
 } from './route-editor-logic';
@@ -96,9 +97,9 @@ function currentViewport(anchor?: HTMLElement | null) {
 function sheetAnchor(
   rect: { left: number; top: number; bottom: number },
   viewport: { width: number },
+  preferredWidth: number,
 ) {
-  // 16 = ROUTE_PANEL_EDGE * 2 (routeSheetBox clamps the width the same way).
-  const width = Math.min(ROUTE_PANEL_WIDTH, Math.max(1, viewport.width - 16));
+  const width = routeSheetWidth(viewport, preferredWidth);
   return { left: rect.left, right: rect.left + width, top: rect.top, bottom: rect.bottom };
 }
 
@@ -213,6 +214,10 @@ export function RouteEditor({
   // The sheet scales out of the trigger pill, so the
   // pill's size at open time drives the starting transform.
   const morphFrom = useRef<{ width: number; height: number } | null>(null);
+  // The pill's natural (unclipped) label width, measured once per opening:
+  // the sheet — and the pill morphing into it — never comes out narrower
+  // than the label it shows, so a long model name stays whole while open.
+  const labelWidth = useRef<number | null>(null);
   // Context slider drag preview: local until commit (pointer/key release);
   // the routed contextPercent takes over once the snapshot catches up.
   const [contextDraft, setContextDraft] = useState<number | null>(null);
@@ -283,8 +288,12 @@ export function RouteEditor({
     setOpen(false);
     // Re-measure after a model change: the current label can have a different
     // natural width than the label captured when the sheet opened.
+    // The resting pill is capped by its lane (.route-editor shrinks to the
+    // footer's leftover width next to the context gauge), so a long label
+    // lands back on the clipped width instead of overshooting it.
+    const lane = trigger.current?.parentElement?.getBoundingClientRect().width;
     const closeWidth = trigger.current
-      ? naturalTriggerWidth(trigger.current)
+      ? Math.min(naturalTriggerWidth(trigger.current), lane || Infinity)
       : morphFrom.current?.width ?? null;
     if (closeWidth !== null) {
       morphFrom.current = {
@@ -346,13 +355,33 @@ export function RouteEditor({
     };
   }, [effortOptions.length]);
 
+  // The sheet anchors to the pill's LEFT edge: the pill expands rightwards
+  // to the sheet width, so both share the same left edge and width. That
+  // width is the panel's, or the label's natural width when a long model
+  // name needs more — measured once per opening (user: 모델명 긴 거 잘림).
+  const measureSheet = useCallback((
+    triggerRect: { left: number; top: number; bottom: number },
+    viewport: { left: number; top: number; width: number; height: number },
+    remeasure = false,
+  ): RoutePanelBox => {
+    if (remeasure || labelWidth.current === null) {
+      labelWidth.current = trigger.current
+        ? naturalTriggerWidth(trigger.current)
+        : ROUTE_PANEL_WIDTH;
+    }
+    return routeSheetBox(
+      sheetAnchor(triggerRect, viewport, labelWidth.current),
+      sheetHeight,
+      viewport,
+      labelWidth.current,
+    );
+  }, [sheetHeight]);
+
   const layout = useCallback(() => {
     const triggerRect = trigger.current?.getBoundingClientRect();
     if (!triggerRect) return;
     const viewport = currentViewport(trigger.current);
-    // The sheet anchors to the pill's LEFT edge: the pill expands rightwards
-    // to the sheet width, so both share the same left edge and width.
-    const nextSheet = routeSheetBox(sheetAnchor(triggerRect, viewport), sheetHeight, viewport);
+    const nextSheet = measureSheet(triggerRect, viewport);
     setSheetBox(nextSheet);
     if (!pane) {
       setFlyoutBox(null);
@@ -362,7 +391,7 @@ export function RouteEditor({
     const nextBox = paneLayout(nextSheet, pane, viewport);
     setFlyoutBox(nextBox.box);
     setDrill(nextBox.drilled);
-  }, [pane, paneLayout, sheetHeight]);
+  }, [measureSheet, pane, paneLayout]);
 
   const show = (focusRow: 'first' | 'last' | null = null) => {
     const triggerRect = trigger.current?.getBoundingClientRect();
@@ -377,7 +406,8 @@ export function RouteEditor({
       : null;
     if (triggerRect) {
       const viewport = currentViewport(trigger.current);
-      const nextSheet = routeSheetBox(sheetAnchor(triggerRect, viewport), sheetHeight, viewport);
+      // Fresh label measure per opening: the model may have changed since.
+      const nextSheet = measureSheet(triggerRect, viewport, true);
       setSheetBox(nextSheet);
       // Two-step width: pin the current numeric width first, then widen to
       // the sheet width on the next frame so the transition can run.
@@ -385,7 +415,6 @@ export function RouteEditor({
       window.requestAnimationFrame(() => setTriggerWidth(nextSheet.width));
     }
     setPane(null);
-    setModelCatalogReady(false);
     setOpen(true);
     if (focusRow) {
       window.setTimeout(() => {
@@ -410,7 +439,7 @@ export function RouteEditor({
     const triggerRect = trigger.current?.getBoundingClientRect();
     if (triggerRect) {
       const viewport = currentViewport(trigger.current);
-      const nextSheet = routeSheetBox(sheetAnchor(triggerRect, viewport), sheetHeight, viewport);
+      const nextSheet = measureSheet(triggerRect, viewport);
       setSheetBox(nextSheet);
       const nextBox = paneLayout(nextSheet, next, viewport);
       setFlyoutBox(nextBox.box);

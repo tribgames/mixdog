@@ -50,12 +50,17 @@ function textRun(run, text) {
   return `${run.open}${run.properties}<w:t xml:space="preserve">${xmlEncode(text)}</w:t></w:r>`;
 }
 
-/** Places comment range markers around exactly `find` inside a paragraph,
- *  cutting the runs it starts and ends in so Word highlights the phrase and
- *  not the whole paragraph. Returns null when the phrase is absent or one of
- *  its boundary runs cannot be cut (a tab, break, field, or drawing run);
- *  the caller then anchors the paragraph. */
-export function anchorPhraseInParagraph(paragraphXml, find, id) {
+/** Places markers around exactly `find` inside a paragraph, cutting the runs
+ *  it starts and ends in so Word marks the phrase and not the whole paragraph.
+ *  The default markers are a comment range; `markers` carries any other pair,
+ *  such as a footnote reference that only follows the phrase, and
+ *  `markers.replace` drops the phrase itself so the opening marker stands in
+ *  its place (a hyperlink carrying its own display run). Returns null when the
+ *  phrase is absent or one of its boundary runs cannot be cut (a tab, break,
+ *  field, or drawing run); the caller then anchors the paragraph. */
+export function anchorPhraseInParagraph(paragraphXml, find, id, markers = null) {
+  const opening = markers?.start ?? `<w:commentRangeStart w:id="${id}"/>`;
+  const closing = markers?.end ?? `<w:commentRangeEnd w:id="${id}"/><w:r><w:commentReference w:id="${id}"/></w:r>`;
   const runs = paragraphRuns(paragraphXml);
   const joined = runs.map((run) => run.text).join('');
   const start = find ? joined.indexOf(find) : -1;
@@ -83,14 +88,14 @@ export function anchorPhraseInParagraph(paragraphXml, find, id) {
     if (holdsStart) {
       const before = run.text.slice(0, start - runStart);
       if (before) output.push(textRun(run, before));
-      output.push(`<w:commentRangeStart w:id="${id}"/>`);
+      if (opening) output.push(opening);
       opened = true;
       position = start;
     }
     if (holdsEnd) {
       const inside = run.text.slice(position - runStart, end - runStart);
-      if (inside) output.push(textRun(run, inside));
-      output.push(`<w:commentRangeEnd w:id="${id}"/><w:r><w:commentReference w:id="${id}"/></w:r>`);
+      if (inside && markers?.replace !== true) output.push(textRun(run, inside));
+      output.push(closing);
       closed = true;
       const after = run.text.slice(end - runStart);
       if (after) output.push(textRun(run, after));

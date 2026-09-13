@@ -99,9 +99,11 @@ export async function probeBridgeDiscovery(
   return await new Promise<BridgeDiscoveryProbeOutcome>((resolve) => {
     let settled = false;
     let responseText = '';
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     const finish = (outcome: BridgeDiscoveryProbeOutcome): void => {
       if (settled) return;
       settled = true;
+      if (deadline) clearTimeout(deadline);
       resolve(outcome);
     };
     const probe = request({
@@ -113,6 +115,11 @@ export async function probeBridgeDiscovery(
       agent: false,
     }, (response) => {
       response.setEncoding('utf8');
+      response.once('aborted', () => finish('inconclusive'));
+      response.once('error', () => finish('inconclusive'));
+      response.once('close', () => {
+        if (!response.complete) finish('inconclusive');
+      });
       response.on('data', (chunk: string) => {
         responseText += chunk;
         if (Buffer.byteLength(responseText) > MAX_HEALTH_RESPONSE_BYTES) {
@@ -135,10 +142,10 @@ export async function probeBridgeDiscovery(
         }
       });
     });
-    probe.setTimeout(HEALTH_PROBE_TIMEOUT_MS, () => {
+    deadline = setTimeout(() => {
       probe.destroy();
       finish('inconclusive');
-    });
+    }, HEALTH_PROBE_TIMEOUT_MS);
     probe.on('error', (error: NodeJS.ErrnoException) => {
       finish(DEAD_ENDPOINT_CODES.has(String(error.code || '')) ? 'dead' : 'inconclusive');
     });

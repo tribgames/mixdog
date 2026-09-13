@@ -241,8 +241,9 @@ export function createSession(opts) {
 
     const workflowMeta = toSessionWorkflowMeta(opts.workflow);
     const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
+    const schemaAllowedTools = ownerIsAgent || !hasCallerAllow ? null : opts.schemaAllowedTools;
     const tools = finalizeSessionToolList(toolsForRouting, {
-        schemaAllowedTools: ownerIsAgent ? null : (hasCallerAllow ? opts.schemaAllowedTools : null),
+        schemaAllowedTools,
         disallowedTools: sessionDeny,
         ownerIsAgent,
         resolvedAgent,
@@ -263,7 +264,10 @@ export function createSession(opts) {
         ...schemaOmittedTools,
         unusedModelEditToolName(modelName),
     ];
-    const injectedRules = skipAgentRules ? '' : _buildSharedRules({ omitTools: ruleOmitTools });
+    const injectedRules = skipAgentRules ? '' : _buildSharedRules({
+        omitTools: ruleOmitTools,
+        allowTools: schemaAllowedTools,
+    });
     const delegationFree = !ownerIsAgent && workflowDisallowsAgentTool(opts.workflow);
     const roleRules = skipAgentRules
         ? ''
@@ -512,8 +516,9 @@ export function _refreshSessionRuleVariantsForModel(session, previousModel) {
         ...(getHiddenAgent(session?.agent || null) ? ['Skill'] : []),
         ...(!isAgentOwner(session) && workflowDisallowsAgentTool(session?.workflow) ? ['agent'] : []),
     ];
-    const previousRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(previousModel)] });
-    const nextRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(session?.model)] });
+    const allowTools = isAgentOwner(session) ? null : session?.schemaAllowedTools;
+    const previousRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(previousModel)], allowTools });
+    const nextRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(session?.model)], allowTools });
     if (!previousRules || previousRules === nextRules) return false;
     const messages = Array.isArray(session?.messages) ? session.messages : [];
     const index = messages.findIndex((message) => (

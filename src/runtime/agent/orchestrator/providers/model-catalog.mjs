@@ -56,6 +56,41 @@ function _modelsDevProviderId(provider) {
     return _MODELSDEV_PROVIDER_ALIAS[p] || p;
 }
 
+// Relays sell access, not models: one subscription fronts Anthropic, Google,
+// OpenAI and xAI SKUs at once. No catalog lists them under the relay's own
+// name, so a provider-keyed lookup finds nothing and the route silently prices
+// at zero — indistinguishable from a genuinely free local model.
+const _RELAY_PROVIDERS = new Set(['cursor-oauth', 'cursor-api', 'antigravity-oauth']);
+
+// Which vendor actually served a relayed model, read off the model id. This is
+// a LAST resort: it runs only after the provider-keyed lookup has already
+// failed, so a route with real catalog coverage can never be repriced by a
+// name guess. Ids are matched on their leading family token rather than a bare
+// substring, so an unrelated model that merely mentions a vendor is not
+// adopted by it.
+const _RELAYED_MODEL_VENDORS = [
+    [/^claude[-.]/, 'anthropic'],
+    [/^(gpt|o[1-9]|codex)[-.]/, 'openai'],
+    [/^gemini[-.]/, 'google'],
+    [/^grok[-.]/, 'xai'],
+    [/^deepseek[-.]/, 'deepseek'],
+];
+
+function _relayedModelVendor(id) {
+    const model = String(id || '').toLowerCase();
+    if (!model) return null;
+    for (const [pattern, vendor] of _RELAYED_MODEL_VENDORS) {
+        if (pattern.test(model)) return vendor;
+    }
+    return null;
+}
+
+/** The vendor to reprice a relayed model under, or null to leave it alone. */
+function _relayPricingProvider(provider, id) {
+    if (!provider || !_RELAY_PROVIDERS.has(String(provider).toLowerCase())) return null;
+    return _relayedModelVendor(id);
+}
+
 // Provider prefix variants used for catalog key lookup. Named constants so
 // all three lookup sites (getModelMetadataSync, getModelMetadata, enrichModels)
 // stay in sync. A provider needing a new prefix adds it here.
@@ -106,6 +141,8 @@ const XAI_GROK_420_ROW = Object.freeze({
     input_cost_per_token: 1.25e-6,
     output_cost_per_token: 2.5e-6,
     cache_read_input_token_cost: 0.2e-6,
+    long_context_threshold: 200000,
+    long_context_multiplier: 2,
     max_input_tokens: 1000000,
     mode: 'chat',
     supports_vision: true,
@@ -170,13 +207,28 @@ const PRICING_OVERRIDES = {
         supports_function_calling: true,
         supports_prompt_caching: true,
     },
-    // https://api-docs.deepseek.com/quick_start/pricing — official list rates
-    // ($/token), verified 2026-06-17. Both models: 1M context, 384K max output.
+    // https://api-docs.deepseek.com/quick_start/pricing — verified 2026-09-12.
+    // Peak list rates; priceUsage applies the published UTC off-peak schedule.
+    // The legacy Flash alias is now served and billed as DeepSeek-V4.1-Flash.
+    'deepseek-flash': {
+        litellm_provider: 'deepseek',
+        input_cost_per_token: 3e-7,
+        output_cost_per_token: 1.2e-6,
+        cache_read_input_token_cost: 6e-9,
+        off_peak_multiplier: 0.5,
+        max_input_tokens: 1000000,
+        max_output_tokens: 384000,
+        mode: 'chat',
+        supports_vision: true,
+        supports_function_calling: true,
+        supports_prompt_caching: true,
+    },
     'deepseek-v4-flash': {
         litellm_provider: 'deepseek',
-        input_cost_per_token: 1.4e-7,
-        output_cost_per_token: 2.8e-7,
-        cache_read_input_token_cost: 2.8e-9,
+        input_cost_per_token: 3e-7,
+        output_cost_per_token: 1.2e-6,
+        cache_read_input_token_cost: 6e-9,
+        off_peak_multiplier: 0.5,
         max_input_tokens: 1000000,
         max_output_tokens: 384000,
         mode: 'chat',
@@ -185,9 +237,10 @@ const PRICING_OVERRIDES = {
     },
     'deepseek-v4-pro': {
         litellm_provider: 'deepseek',
-        input_cost_per_token: 4.35e-7,
-        output_cost_per_token: 8.7e-7,
-        cache_read_input_token_cost: 3.625e-9,
+        input_cost_per_token: 1.32e-6,
+        output_cost_per_token: 3.96e-6,
+        cache_read_input_token_cost: 4.4e-8,
+        off_peak_multiplier: 0.5,
         max_input_tokens: 1000000,
         max_output_tokens: 384000,
         mode: 'chat',
@@ -434,6 +487,18 @@ export function getModelsDevProviderModelsSync(provider, _test) {
  */
 export function getModelMetadataSync(id, provider) {
     if (!id) return null;
+    // A relay's own name matches no catalog, so the lookup runs under the
+    // vendor that actually served the model. Vendor limits describe a different
+    // endpoint: leave them unknown unless the relay supplies its own limits.
+    const relayVendor = _relayPricingProvider(provider, id);
+    if (relayVendor) {
+        const relayed = getModelMetadataSync(id, relayVendor);
+        const pricing = relayed
+            ? { ...relayed, contextWindow: null, outputTokens: null }
+            : null;
+        const native = providerCachedModelMetadataSync(provider, id);
+        return mergeModelMetadata(pricing, native, { preserveBaseCosts: true });
+    }
     const mappedProvider = provider ? _modelsDevProviderId(provider) : null;
     const providerNative = provider ? providerCachedModelMetadataSync(provider, id) : null;
     let meta = null;
@@ -508,6 +573,11 @@ function _normalize(entry) {
         outputCostPerM: entry.output_cost_per_token != null ? entry.output_cost_per_token * 1_000_000 : null,
         cacheReadCostPerM: entry.cache_read_input_token_cost != null ? entry.cache_read_input_token_cost * 1_000_000 : null,
         cacheWriteCostPerM: entry.cache_creation_input_token_cost != null ? entry.cache_creation_input_token_cost * 1_000_000 : null,
+        ...(entry.long_context_threshold ? {
+            longContextThreshold: entry.long_context_threshold,
+            longContextMultiplier: entry.long_context_multiplier,
+        } : {}),
+        ...(entry.off_peak_multiplier ? { offPeakMultiplier: entry.off_peak_multiplier } : {}),
         supportsVision: entry.supports_vision === true,
         supportsFunctionCalling: entry.supports_function_calling === true,
         supportsWebSearch: entry.supports_web_search === true || entry.supports_websearch === true,

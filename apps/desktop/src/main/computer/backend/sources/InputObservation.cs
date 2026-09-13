@@ -62,8 +62,11 @@ public static class MixInputObservation {
   static readonly object sync = new object();
   static readonly object reads = new object();
   static readonly System.Threading.ManualResetEvent started = new System.Threading.ManualResetEvent(false);
-  static readonly System.Threading.AutoResetEvent drained = new System.Threading.AutoResetEvent(false);
   static readonly string generation = System.Guid.NewGuid().ToString("N");
+  static string MonitorName(string id) { return @"Local\MixdogInputObservation-" + id; }
+  static readonly System.Threading.EventWaitHandle drained = new System.Threading.EventWaitHandle(
+    false, System.Threading.EventResetMode.AutoReset, MonitorName(generation) + "-ready");
+  static System.IO.MemoryMappedFiles.MemoryMappedFile receipt;
   static readonly Hook mouseHook = OnMouse;
   static readonly Hook keyHook = OnKey;
   static System.Threading.Thread thread;
@@ -116,6 +119,8 @@ public static class MixInputObservation {
       threadId = GetCurrentThreadId();
       MSG initialMessage;
       PeekMessage(out initialMessage, System.IntPtr.Zero, 0, 0, 0);
+      receipt = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateNew(MonitorName(generation), 64);
+      using (var view = receipt.CreateViewAccessor()) view.Write(24, threadId);
       long initialTick = MixWin32.InputTick();
       lock (sync) ledger = new MixInputLedger(unchecked((uint)initialTick));
       mouse = SetWindowsHookEx(14, mouseHook, GetModuleHandle(null), 0);
@@ -124,13 +129,68 @@ public static class MixInputObservation {
       started.Set();
       MSG message;
       while (GetMessage(out message, System.IntPtr.Zero, 0, 0) > 0) {
-        if (message.message == 0x8001) drained.Set();
+        if (message.message == 0x8001) {
+          PublishSnapshot();
+          drained.Set();
+        }
       }
     } finally {
       lock (sync) ready = false;
+      if (receipt != null) {
+        PublishSnapshot();
+        receipt.Dispose();
+      }
+      drained.Set();
       started.Set();
       if (mouse != System.IntPtr.Zero) UnhookWindowsHookEx(mouse);
       if (keyboard != System.IntPtr.Zero) UnhookWindowsHookEx(keyboard);
+    }
+  }
+  static void PublishSnapshot() {
+    lock (sync) {
+      long tick = MixWin32.InputTick();
+      using (var view = receipt.CreateViewAccessor()) {
+        view.Write(0, ready && tick >= 0 && ledger != null && ledger.LatestTick == unchecked((uint)tick));
+        view.Write(4, ledger != null && ledger.LatestOwn);
+        view.Write(8, ledger == null ? 0L : ledger.ForeignSequence);
+        view.Write(16, unchecked((uint)tick));
+        view.Write(20, ledger == null ? 0u : ledger.LastOwnTick);
+      }
+    }
+  }
+  // A one-shot elevated sender must compare against the original resident
+  // observer, not reinterpret its foreign sequence as a new local baseline.
+  // Drain that observer's own message queue before reading its volatile receipt.
+  static MixInputSnapshot ReadMonitor(string id) {
+    var unavailable = new MixInputSnapshot { Generation = id, Ready = false };
+    System.Guid parsed;
+    if (!System.Guid.TryParseExact(id, "N", out parsed)) return unavailable;
+    try {
+      using (var mutex = new System.Threading.Mutex(false, MonitorName(id) + "-read"))
+      using (var memory = System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting(
+        MonitorName(id), System.IO.MemoryMappedFiles.MemoryMappedFileRights.Read))
+      using (var completed = System.Threading.EventWaitHandle.OpenExisting(MonitorName(id) + "-ready"))
+      using (var view = memory.CreateViewAccessor(0, 64, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read)) {
+        bool acquired;
+        try { acquired = mutex.WaitOne(1000); }
+        catch (System.Threading.AbandonedMutexException) { acquired = true; }
+        if (!acquired) return unavailable;
+        try {
+          completed.Reset();
+          uint ownerThread = view.ReadUInt32(24);
+          if (!PostThreadMessage(ownerThread, 0x8001, System.UIntPtr.Zero, System.IntPtr.Zero)
+            || !completed.WaitOne(1000)) return unavailable;
+          long tick = MixWin32.InputTick();
+          return new MixInputSnapshot {
+            Ready = view.ReadBoolean(0) && tick >= 0 && view.ReadUInt32(16) == unchecked((uint)tick),
+            Generation = id, Sequence = view.ReadInt64(8), LastOwn = view.ReadBoolean(4),
+            Tick = view.ReadUInt32(16), OwnTick = view.ReadUInt32(20)
+          };
+        } finally { mutex.ReleaseMutex(); }
+      }
+    } catch {
+      // A missing, inaccessible or dead monitor is not permission to rebase.
+      return unavailable;
     }
   }
   public static MixInputSnapshot Read() {
@@ -143,19 +203,8 @@ public static class MixInputObservation {
           thread.Start();
         }
       }
-      bool live = started.WaitOne(1000);
-      // Drain callbacks on their owner thread before comparing the OS watermark.
-      drained.Reset();
-      live = live && PostThreadMessage(threadId, 0x8001, System.UIntPtr.Zero, System.IntPtr.Zero) && drained.WaitOne(1000);
-      lock (sync) {
-        long tick = MixWin32.InputTick();
-        return new MixInputSnapshot {
-          Ready = live && ready && tick >= 0 && ledger != null && ledger.LatestTick == unchecked((uint)tick),
-          Generation = generation, Sequence = ledger == null ? 0 : ledger.ForeignSequence,
-          LastOwn = ledger != null && ledger.LatestOwn,
-          Tick = unchecked((uint)tick), OwnTick = ledger == null ? 0 : ledger.LastOwnTick
-        };
-      }
+      if (!started.WaitOne(1000)) return new MixInputSnapshot { Generation = generation, Ready = false };
+      return ReadMonitor(generation);
     }
   }
   public static void Begin() {
@@ -167,12 +216,15 @@ public static class MixInputObservation {
   }
   public static void BeginExpected(string expectedGeneration, long expectedSequence) {
     var value = Read();
-    if (!value.Ready || value.Generation != expectedGeneration) {
-      throw new System.Exception("input_observation_unavailable: recovery observation was replaced");
+    var expected = value.Generation == expectedGeneration ? value : ReadMonitor(expectedGeneration);
+    if (!value.Ready || !expected.Ready) {
+      throw new System.Exception("input_observation_unavailable: original observation is unavailable");
     }
-    if (value.Sequence != expectedSequence) throw new System.Exception("user_input_active: recovery was superseded by external input");
-    actionSequence = expectedSequence;
+    if (expected.Sequence != expectedSequence) throw new System.Exception("user_input_active: observation was superseded by external input");
+    actionSequence = value.Sequence;
     actionDepth = 1;
+    try { AssertContinue(); }
+    catch { End(); throw; }
   }
   public static bool CanContinue() {
     var value = Read();

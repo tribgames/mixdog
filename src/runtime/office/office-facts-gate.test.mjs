@@ -43,7 +43,27 @@ test('the brief names its facts mode and the author gate mirrors the fact review
   assert.deepEqual(factsGate(document, sample), { blocked: false });
   assert.deepEqual(factsGate(document, parseAuthoringBrief('const deckWithoutBrief = 1;')), { blocked: false });
   assert.deepEqual(factsGate({ slides: [{ index: 1, shapes: [{ text: 'No figures here' }] }] }, none), { blocked: false });
+  // A dateline is chrome: the dotted year-month(-day) of Korean and Japanese decks passes like the hyphenated one; a decimal that only looks like one is still a figure.
+  assert.deepEqual(factsGate({ slides: [{ index: 1, shapes: [{ text: '2026.09 · 운영 보고' }, { text: '2026.09.12 기준 · 2026-09' }] }] }, sourced), { blocked: false });
+  assert.deepEqual(factsGate({ slides: [{ index: 1, shapes: [{ text: '2026.5 배' }] }] }, sourced), { blocked: true, code: 'number_without_fact', slides: [{ slide: 1, figures: ['2026.5'] }] });
   assert.deepEqual(reviewFactCoverage(document, sample).map((issue) => [issue.code, issue.severity]), [['facts_illustrative', 'info']]);
+
+  // The gate compared a figure with the fact's whole value as a string, so a
+  // slide could show 42 because a fact carried 84,200, and 96 because another
+  // carried 96.1% — the unfounded numbers the gate exists to stop.
+  const table = {
+    slides: [{ index: 1, shapes: [{ text: '대전 128,400 92.8% 96 · 광주 84,200 96.1% 42' }] }],
+  };
+  const listed = parseAuthoringBrief('// BRIEF\n// facts: F1 처리량 128,400 84,200 — 시트 B4 · F2 정시 출고율 92.8% 96.1% — 시트 B5\n');
+  assert.deepEqual(factsGate(table, listed), {
+    blocked: true,
+    code: 'number_without_fact',
+    slides: [{ slide: 1, figures: ['96', '42'] }],
+  });
+  // Every value of a series fact covers the figure it states, whatever its form.
+  const covered = parseAuthoringBrief('// BRIEF\n// facts: F1 처리량 128,400 84,200 — 시트 B4 · F2 정시 출고율 92.8% 96.1% — 시트 B5'
+    + ' · F3 지연 건수 96 42 — 시트 B6\n');
+  assert.deepEqual(factsGate(table, covered), { blocked: false });
 });
 
 test('author refuses to land a deck whose figures have no fact and leaves the previous deck untouched', async (t) => {

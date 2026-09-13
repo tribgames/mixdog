@@ -29,6 +29,8 @@ import {
 import { PaneSurfaceCover } from "./PaneSurfaceGate";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store";
 import { useSessionLaneRead } from "./use-session-lane-read";
+import { requestSessionRead } from "./session-read-request";
+export { requestSessionRead } from "./session-read-request";
 import { asRecord } from "./text-format";
 import { t } from "./i18n";
 import {
@@ -344,55 +346,6 @@ export const PaneConversation = memo(function PaneConversation({
       : null}
   </>;
 });
-
-// Canonical session.read fills a cold lane without resuming it. The visible
-// session subscription remains responsible for subsequent live frames.
-// Dedupe only while a request is in flight; a failed/missed startup read gets
-// bounded retries instead of being suppressed forever.
-const sessionReadsInFlight = new Map<string, Promise<boolean>>();
-const MAX_SESSION_READ_ATTEMPTS = 3;
-export function requestSessionRead(
-  sessionId: string,
-  { refresh = false }: { refresh?: boolean } = {},
-): Promise<boolean> {
-  if (!sessionId) return Promise.resolve(false);
-  const existing = defaultSessionLaneStore.get(sessionId);
-  // A lane that already has rows is the live truth on the lossless desktop
-  // bridge. Re-peeking republished the same session after first paint and the
-  // transcript rebuilt. Over the relay a sync gap voids that assumption, so a
-  // refresh read bypasses the guard; the store's contentRevision gate rejects
-  // the replay when nothing actually changed.
-  if (!refresh && existing && Array.isArray(existing.items) && existing.items.length > 0) {
-    return Promise.resolve(true);
-  }
-  const inFlight = sessionReadsInFlight.get(sessionId);
-  if (inFlight) return inFlight;
-  const readSession = window.mixdogDesktop?.prefetchSession;
-  if (typeof readSession !== "function") return Promise.resolve(false);
-  defaultSessionLaneStore.start();
-  const request = (async () => {
-    for (let attempt = 1; attempt <= MAX_SESSION_READ_ATTEMPTS; attempt += 1) {
-      let accepted = false;
-      try {
-        accepted = await Promise.resolve(readSession(sessionId)) === true;
-      } catch {
-        accepted = false;
-      }
-      if (accepted) return true;
-      if (attempt < MAX_SESSION_READ_ATTEMPTS) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
-      }
-    }
-    return false;
-  })();
-  sessionReadsInFlight.set(sessionId, request);
-  void request.finally(() => {
-    if (sessionReadsInFlight.get(sessionId) === request) {
-      sessionReadsInFlight.delete(sessionId);
-    }
-  });
-  return request;
-}
 
 // Relay hops drop per-session lane pushes for a congested or backgrounded
 // leg, and stateResync recovery only restores the bound-session state lane.

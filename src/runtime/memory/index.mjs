@@ -70,6 +70,8 @@ import { createMemoryActionHandlers } from './lib/memory-action-handlers.mjs'
 import { createHttpRouter } from './lib/http-router.mjs'
 import { createMemoryPortAdvertiser } from './lib/memory-port-advertiser.mjs'
 import { createMemoryDaemonLifecycle } from './lib/memory-daemon-lifecycle.mjs'
+import { createLoopbackListener } from '../shared/loopback-listener.mjs'
+import { createMemoryServiceLifecycle } from './lib/memory-service-lifecycle.mjs'
 import {
   readMainConfig,
   envFlagEnabled,
@@ -139,7 +141,7 @@ const _daemonLifecycle = createMemoryDaemonLifecycle({
   clientGraceMs: MEMORY_CLIENT_GRACE_MS,
   parsePositivePid,
   isPidAlive: _isPidAliveLocal,
-  isStopping: () => _stopPromise != null,
+  isStopping: () => _serviceLifecycle.isStopping(),
   stop,
   log: __mixdogMemoryLog,
 })
@@ -168,9 +170,6 @@ let mainConfig = null
 // live inside the cycle scheduler factory (lib/cycle-scheduler.mjs). The
 // AUTHORITATIVE cycle1 guard is still memory-cycle.mjs:runCycle1; the
 // scheduler's outer layer coalesces simultaneous awaitCycle1Run callers.
-let _initialized = false
-let _initPromise = null
-let _stopPromise = null
 let _embeddingReindexController = null
 let _embeddingReindexPromise = null
 let _bootTimestamp = null
@@ -459,11 +458,11 @@ function _startEmbeddingReindex() {
   _embeddingReindexPromise = promise
 }
 
-async function _initRuntime() {
-  if (_initialized) return
+async function _initRuntime(signal) {
   const runtimeStartedAt = performance.now()
   memoryProfile('runtime-init:start')
   await _initStore()
+  signal.throwIfAborted()
   memoryProfile('runtime-init:init-store-ready', { ms: (performance.now() - runtimeStartedAt).toFixed(1) })
   // First boot migrates existing PG core data; later boots reconcile any
   // crash window between a committed PG mutation and its atomic file refresh.
@@ -478,6 +477,7 @@ async function _initRuntime() {
   // tick loop entirely.
   if (!memorySecondaryMode()) {
     _transcriptWatcher = await _transcriptIngest.initTranscriptWatcher()
+    signal.throwIfAborted()
   } else {
     __mixdogMemoryLog('[memory-service] secondary mode; skipping transcript watcher\n')
   }
@@ -488,21 +488,8 @@ async function _initRuntime() {
   } else {
     __mixdogMemoryLog('[memory-service] background cycle tick loop not started (secondary/env-disabled)\n')
   }
-  _initialized = true
   _startEmbeddingReindex()
   memoryProfile('runtime-init:done', { ms: (performance.now() - runtimeStartedAt).toFixed(1) })
-}
-
-function _beginRuntimeInit() {
-  if (_initialized) return Promise.resolve()
-  if (!_initPromise) {
-    _initPromise = _initRuntime().catch((e) => {
-      __mixdogMemoryLog(`[memory-service] runtime init failed: ${e?.stack || e?.message || e}\n`)
-      _initPromise = null
-      throw e
-    })
-  }
-  return _initPromise
 }
 
 const __queryHandlers = createQueryHandlers({
@@ -567,15 +554,15 @@ const _httpRouter = createHttpRouter({
   touchDaemonIdleTimer,
   entryStats,
   cycleScheduler: _cycleScheduler,
-  getInitialized: () => _initialized,
-  getInitPromise: () => _initPromise,
+  getInitialized: () => _serviceLifecycle.getInitialized(),
+  getInitPromise: () => _serviceLifecycle.getInitPromise(),
   setBootTimestamp: (v) => { _bootTimestamp = v },
   handleMemoryAction,
   handleToolCall,
   stop,
   registerClient,
   deregisterClient,
-  getDraining: () => _stopPromise != null,
+  getDraining: () => _serviceLifecycle.isStopping(),
   getTraceDb: () => _traceDb,
   setTraceDb: (v) => { _traceDb = v },
   ingestTranscriptFile,
@@ -585,6 +572,38 @@ const _httpRouter = createHttpRouter({
 })
 const buildSessionCoreMemoryPayload = _httpRouter.buildSessionCoreMemoryPayload
 const httpServer = http.createServer(_httpRouter.requestHandler)
+const _httpListener = createLoopbackListener({
+  server: httpServer,
+  basePort: BASE_PORT,
+  maxPort: MAX_PORT,
+  onListening: (port) => __mixdogMemoryLog(`[memory-service] HTTP listening on 127.0.0.1:${port}\n`),
+  onError: (error, fatal) => {
+    __mixdogMemoryLog(`[memory-service] HTTP ${fatal ? 'fatal' : 'error'}: ${error?.message || error}\n`)
+  },
+})
+const _serviceLifecycle = createMemoryServiceLifecycle({
+  initialize: _initRuntime,
+  openListener: () => memorySecondaryMode() || INTEGRATED_DAEMON_HOST ? null : _httpListener.start(),
+  closeListener: _httpListener.stop,
+  advertisePort: advertiseMemoryPort,
+  withdraw: () => {
+    _memoryPortAdvertiser.reset()
+    _daemonLifecycle.reset()
+  },
+  stopBackgroundWork: _stopBackgroundWork,
+  shutdown: _stopRuntime,
+  onStart: () => __mixdogMemoryLog(`[boot-time] tag=memory-init-start tMs=${Date.now()}\n`),
+  onInitError: (error) => {
+    __mixdogMemoryLog(`[memory-service] runtime init failed: ${error?.stack || error?.message || error}\n`)
+  },
+  onReady: (port) => {
+    __mixdogMemoryLog(`[memory-service] init() complete (entries unified mode, version=${PLUGIN_VERSION})\n`)
+    if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
+      safeIpcSend(process, { type: 'ready', port })
+    }
+    touchDaemonIdleTimer('init')
+  },
+})
 
 export { TOOL_DEFS, handleToolCall, buildSessionCoreMemoryPayload }
 export { MEMORY_INSTRUCTIONS_TEXT as instructions }
@@ -641,136 +660,45 @@ export async function recordTraceEvents(events = []) {
   return { ok: true, queued: events.length }
 }
 export async function init() {
-  if (_initialized) return
-  __mixdogMemoryLog(`[boot-time] tag=memory-init-start tMs=${Date.now()}\n`)
-  const runtimeReady = _beginRuntimeInit()
-  let boundPort = null
-  if (!memorySecondaryMode() && !INTEGRATED_DAEMON_HOST) {
-    boundPort = await _startHttpServer()
-    advertiseMemoryPort(boundPort)
-    try {
-      await runtimeReady
-    } catch (e) {
-      // Runtime init failed AFTER we advertised the HTTP port. Leaving the
-      // listener up would answer discovery with a live 503, which HTTP
-      // ingest callers treat as a delivered (non-buffered) write — silently
-      // dropping entries that would otherwise be buffered when no port is
-      // advertised. stop() withdraws the advert (clears _currentAdvertisedPort
-      // + cancels the periodic re-advertise) and closes the HTTP server, so
-      // clients see conn-refused and buffer/respawn instead.
-      try { await stop() } catch {}
-      throw e
-    }
-  } else {
-    await runtimeReady
-  }
-  __mixdogMemoryLog(`[memory-service] init() complete (entries unified mode, version=${PLUGIN_VERSION})\n`)
-  if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
-    safeIpcSend(process, { type: 'ready', port: boundPort })
-  }
-  touchDaemonIdleTimer('init')
+  return _serviceLifecycle.init()
 }
 
 export async function stop() {
-  if (_stopPromise) return _stopPromise
-  _stopPromise = (async () => {
-    _stopCycles()
-    _embeddingReindexController?.abort(new Error('memory service stopping'))
-    const reindexPromise = _embeddingReindexPromise
-    _memoryPortAdvertiser.reset()
-    _daemonLifecycle.reset()
-    await Promise.allSettled([
-      stopLlmWorker(),
-      reindexPromise,
-    ])
-    await shutdownEmbeddingProvider()
-    resetHttpListenErrorHandler()
-    if (_httpBoundPort != null || _httpReadyPromise) {
-      await new Promise(resolve => {
-        try {
-          httpServer.close(() => resolve())
-        } catch {
-          resolve()
-        }
-      })
-    }
-    _httpReadyPromise = null
-    _httpBoundPort = null
-    activePort = BASE_PORT
-    if (_traceDb) {
-      try { await closeTraceDatabase(DATA_DIR) } catch {}
-      _traceDb = null
-    }
-    await closeDatabase(DATA_DIR)
-    // Stop the PG postmaster after the connection pools have been drained.
-    // closeDatabase() only ends the client pool; without this the child
-    // postmaster keeps running after the unified daemon exits.
-    if (!memorySecondaryMode()) {
-      const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
-      await stopPgForShutdown()
-    } else {
-      __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n')
-    }
-    db = null
-    mainConfig = null
-    _initialized = false
-    _initPromise = null
-    _bootTimestamp = null
-    _transcriptIngest.resetOffsets()
-    _cycleScheduler.resetInFlight()
-    releaseLock()
-  })().finally(() => {
-    _stopPromise = null
-  })
-  return _stopPromise
+  return _serviceLifecycle.stop()
 }
 
-let activePort = BASE_PORT
-let _httpReadyPromise = null
-let _httpBoundPort = null
-let _httpListenErrorHandler = null
-
-function resetHttpListenErrorHandler() {
-  if (!_httpListenErrorHandler) return
-  try { httpServer.off('error', _httpListenErrorHandler) } catch {}
-  _httpListenErrorHandler = null
+async function _stopBackgroundWork() {
+  _stopCycles()
+  _embeddingReindexController?.abort(new Error('memory service stopping'))
+  const reindexPromise = _embeddingReindexPromise
+  await Promise.allSettled([
+    stopLlmWorker(),
+    reindexPromise,
+  ])
+  await shutdownEmbeddingProvider()
 }
 
-function _startHttpServer() {
-  if (_httpBoundPort != null) return Promise.resolve(_httpBoundPort)
-  if (_httpReadyPromise) return _httpReadyPromise
-  _httpReadyPromise = new Promise((resolve, reject) => {
-    function tryListen() {
-      httpServer.listen(activePort, '127.0.0.1', () => {
-        // Use actual bound port (important when activePort=0, OS assigns a free port).
-        const boundPort = httpServer.address().port
-        _httpBoundPort = boundPort
-        __mixdogMemoryLog(`[memory-service] HTTP listening on 127.0.0.1:${boundPort}\n`)
-        resolve(boundPort)
-      })
-    }
-    _httpListenErrorHandler = (err) => {
-      if (_httpBoundPort != null) {
-        __mixdogMemoryLog(`[memory-service] HTTP error: ${err?.message || err}\n`)
-        return
-      }
-      if (err.code === 'EADDRINUSE' && activePort < MAX_PORT) {
-        activePort++
-        tryListen()
-      } else if (err.code === 'EADDRINUSE') {
-        // All fixed ports exhausted; let OS pick a free port.
-        activePort = 0
-        tryListen()
-      } else {
-        __mixdogMemoryLog(`[memory-service] HTTP fatal: ${err.message}\n`)
-        resetHttpListenErrorHandler()
-        reject(err)
-      }
-    }
-    httpServer.on('error', _httpListenErrorHandler)
-    tryListen()
-  })
-  return _httpReadyPromise
+async function _stopRuntime() {
+  if (_traceDb) {
+    try { await closeTraceDatabase(DATA_DIR) } catch {}
+    _traceDb = null
+  }
+  await closeDatabase(DATA_DIR)
+  // Stop the PG postmaster after the connection pools have been drained.
+  // closeDatabase() only ends the client pool; without this the child
+  // postmaster keeps running after the unified daemon exits.
+  if (!memorySecondaryMode()) {
+    const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
+    await stopPgForShutdown()
+  } else {
+    __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n')
+  }
+  db = null
+  mainConfig = null
+  _bootTimestamp = null
+  _transcriptIngest.resetOffsets()
+  _cycleScheduler.resetInFlight()
+  releaseLock()
 }
 
 // Standalone MCP launcher path. Product mode imports this module into the

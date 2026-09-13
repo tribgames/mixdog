@@ -15,6 +15,56 @@ export const LABEL_POSITION_CODES = Object.freeze({
 });
 
 
+const LABEL_POSITION_NAMES = Object.freeze(Object.fromEntries(
+  Object.entries(LABEL_POSITION_CODES).map(([name, code]) => [code, name]),
+));
+
+// How an existing chart presents itself: labels, number format, legend, base
+// line, and the series fills. New numbers must not silently strip the treatment
+// the deck was approved with, so a refresh reads these and keeps them unless the
+// caller asks for something else.
+export function readChartPresentation(xml) {
+  const source = String(xml || '');
+  const labels = /<c:dLbls>[\s\S]*?<\/c:dLbls>/.exec(source)?.[0] || '';
+  const valueAxis = /<c:valAx>[\s\S]*?<\/c:valAx>/.exec(source)?.[0] || '';
+  const categoryAxis = /<c:catAx>[\s\S]*?<\/c:catAx>/.exec(source)?.[0] || '';
+  const code = /<c:dLblPos val="([^"]+)"\/>/.exec(labels)?.[1] || '';
+  const scale = (pattern) => {
+    const value = Number(pattern.exec(valueAxis)?.[1]);
+    return Number.isFinite(value) ? value : null;
+  };
+  return {
+    // The axis is part of the reading, not scaffolding: a hidden axis, a zoomed
+    // range, and gridlines off are how the approved chart says what it says.
+    axis: {
+      hideValueAxis: /<c:delete val="1"\/>/.test(valueAxis),
+      hideCategoryAxis: /<c:delete val="1"\/>/.test(categoryAxis),
+      min: scale(/<c:min val="([^"]+)"\/>/),
+      max: scale(/<c:max val="([^"]+)"\/>/),
+      gridlines: /<c:majorGridlines/.test(valueAxis),
+    },
+    // The emphasized point (an accent bar, one highlighted slice) is per point,
+    // not per series: rewriting the series alone flattens the chart's message.
+    pointColors: [...source.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)].map((match) => {
+      const colors = [];
+      for (const point of match[0].matchAll(/<c:dPt>[\s\S]*?<\/c:dPt>/g)) {
+        const index = Number(/<c:idx val="(\d+)"\/>/.exec(point[0])?.[1]);
+        const color = /<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(point[0])?.[1] || '';
+        if (Number.isInteger(index) && color) colors[index] = color;
+      }
+      return colors;
+    }),
+    showValues: /<c:showVal val="1"\/>/.test(labels),
+    dataLabelPosition: LABEL_POSITION_NAMES[code] || '',
+    dataLabelColor: /<c:txPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(labels)?.[1] || '',
+    valueNumberFormat: xmlDecode(/<c:numFmt formatCode="([^"]*)"/.exec(valueAxis)?.[1] || ''),
+    zeroBaseline: /<c:min val="0"\/>/.test(valueAxis),
+    showLegend: /<c:legend>/.test(source),
+    seriesColors: [...source.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)]
+      .map((match) => /<c:spPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(match[0])?.[1] || ''),
+  };
+}
+
 export function chartFrameXml({ id, relationshipId, left, top, width, height }) {
   return '<p:graphicFrame><p:nvGraphicFramePr>'
     + `<p:cNvPr id="${id}" name="Chart ${id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>`

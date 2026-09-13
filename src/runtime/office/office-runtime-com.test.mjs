@@ -149,4 +149,29 @@ test('operation registry matches every COM implementation and rejects unknown fi
     }),
     /unknown field\(s\): alowNoChange.*alowNoChange→allowNoChange/,
   );
+  // Geometry lives in properties for add_shape and at the top level for
+  // add_image within this same format, so a caller who follows the
+  // neighbouring operation's convention is taken at their word: the style key
+  // is applied where it belongs instead of costing a round trip.
+  const styled = [{ op: 'add_textbox', slide: 1, text: 'Title', bold: true, fontSize: 20 }];
+  assert.doesNotThrow(() => assertOfficeOperationContracts({ format: 'pptx', backend: 'mixdog-ooxml', operations: styled }));
+  assert.deepEqual(styled[0].properties, { bold: true });
+  assert.equal(styled[0].bold, undefined);
+  // fontSize is a field this operation already takes, so it stays where it was
+  // written: only a key the operation does not accept there is moved.
+  assert.equal(styled[0].fontSize, 20);
+  const placed = [{ op: 'add_image', slide: 1, path: 'map.png', properties: { left: 60, top: 240, width: 300, height: 180 } }];
+  assert.doesNotThrow(() => assertOfficeOperationContracts({ format: 'pptx', backend: 'mixdog-ooxml', operations: placed }));
+  assert.equal(placed[0].left, 60);
+  assert.equal(placed[0].properties, undefined);
+  // A key the operation does not declare anywhere is still refused, so a typo
+  // is never applied as a style.
+  assert.throws(
+    () => assertOfficeOperationContracts({
+      format: 'pptx',
+      backend: 'mixdog-ooxml',
+      operations: [{ op: 'add_textbox', slide: 1, text: 'Title', boldish: true }],
+    }),
+    /unknown field\(s\): boldish/,
+  );
 });

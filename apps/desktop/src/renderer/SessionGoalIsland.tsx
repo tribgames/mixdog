@@ -184,6 +184,20 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             <span className="session-goal-time">{elapsedLabel}</span>
           </span>
         </button>
+        {!terminal && <div className="session-goal-controls">
+          <button type="button" className="session-goal-control" disabled={pending}
+            aria-label={t(active ? 'Pause' : 'Resume')} title={t(active ? 'Pause' : 'Resume')}
+            onClick={() => {
+              if (!active && exhausted) setEditing({ ...goal });
+              else void control(active ? 'pause' : 'resume');
+            }}><MxIcon name={active ? 'paused' : 'play'} size={16} /></button>
+          <button type="button" className="session-goal-control" disabled={pending}
+            aria-label={t('Edit goal')} title={t('Edit goal')}
+            onClick={() => setEditing({ ...goal })}><MxIcon name="edit" size={16} /></button>
+          <button type="button" className="session-goal-control" disabled={pending}
+            aria-label={t('Stop goal')} title={t('Stop goal')}
+            onClick={() => { setConfirmStop(true); setOpen(true); }}><MxIcon name="stop" size={16} /></button>
+        </div>}
       </div>
       <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'} inert={!open}>
         <div className="session-goal-drawer-clip">
@@ -191,6 +205,9 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             role="region" aria-label={t('Goal tasks')}>
             <div className="session-goal-content">
               <div className="session-goal-details" role="status">
+                {/* The header shows the objective on one ellipsized line; the
+                    open drawer is where the full text reads, wrapped. */}
+                {objective && <p className="session-goal-objective-full">{objective}</p>}
                 <span>{goalStatusLabel(goal)}</span>
                 <span>{goalTimeLabel(goal, clock)}</span>
               </div>
@@ -209,17 +226,6 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
               </div>
               {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
               {error && <p role="alert" className="session-goal-blocker">{error}</p>}
-              {!terminal && <div className="session-goal-actions">
-                <button type="button" className="composer-tool" disabled={pending}
-                  onClick={() => {
-                    if (!active && exhausted) setEditing({ ...goal });
-                    else void control(active ? 'pause' : 'resume');
-                  }}>{t(active ? 'Pause' : 'Resume')}</button>
-                <button type="button" className="composer-tool" disabled={pending}
-                  onClick={() => setEditing({ ...goal })}>{t('Edit goal')}</button>
-                <button type="button" className="composer-tool" disabled={pending}
-                  onClick={() => setConfirmStop(true)}>{t('Stop goal')}</button>
-              </div>}
               {confirmStop && !terminal && <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
                 <p className="session-goal-blocker">{t('Stop this goal? Progress is kept, but it will not resume automatically.')}</p>
                 <div className="session-goal-actions">

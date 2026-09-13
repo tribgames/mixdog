@@ -26,20 +26,97 @@ export function worksheetGeometry(xml) {
     return width === 0 ? 0 : Math.floor(width * 7 + 5) * 0.75;
   };
   const rowPoints = (index) => rows.get(index) ?? defaultRow;
-  const edgeCell = (points, size, limit) => {
+  // Which cell a point falls in. A drawing that starts exactly on a boundary
+  // sits in the cell that begins there (an image placed at D2 is in D2, not in
+  // C1), while one that ends on a boundary still ends in the cell before it.
+  const edgeCell = (points, size, limit, trailing) => {
     let edge = 0;
     for (let index = 1; index <= limit; index += 1) {
       edge += size(index);
-      if (edge >= points) return index;
+      if (trailing ? edge >= points : edge > points) return index;
     }
     throw new Error('Worksheet drawing exceeds the Excel page grid');
   };
   return {
     columnPoints,
     rowPoints,
-    columnAt: (points) => edgeCell(points, columnPoints, 16_384),
-    rowAt: (points) => edgeCell(points, rowPoints, 1_048_576),
+    columnAt: (points, { trailing = false } = {}) => edgeCell(points, columnPoints, 16_384, trailing),
+    rowAt: (points, { trailing = false } = {}) => edgeCell(points, rowPoints, 1_048_576, trailing),
   };
+}
+
+/** Every chart and picture anchored to a worksheet, resolved onto the cell grid
+ *  (1-based, inclusive). Excel writes three anchor kinds and our own writer uses
+ *  the absolute one, so the print area and the snapshot read the same resolver
+ *  rather than each parsing anchors again. `body` is the anchor's own markup,
+ *  which the caller inspects to tell a chart frame from a picture. */
+export async function worksheetDrawings(zip, sheet, xml) {
+  const relations = await zipText(zip, partRelationshipPath(sheet.path));
+  const geometry = worksheetGeometry(xml);
+  const drawings = [];
+  for (const match of (relations || '').matchAll(/<Relationship\b([^>]*?)\/>/g)) {
+    const attrs = match[1];
+    if (!String(xmlAttribute(attrs, 'Type') || '').endsWith('/drawing') || xmlAttribute(attrs, 'TargetMode') === 'External') continue;
+    const target = xmlAttribute(attrs, 'Target');
+    const part = target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(sheet.path), target));
+    const drawing = await zipText(zip, part);
+    for (const anchor of (drawing || '').matchAll(/<xdr:(absoluteAnchor|oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/xdr:\1>/g)) {
+      const kind = anchor[1];
+      const body = anchor[2];
+      const marker = (tag) => {
+        const value = new RegExp(`<xdr:${tag}>([\\s\\S]*?)<\\/xdr:${tag}>`).exec(body)?.[1] || '';
+        const number = (name) => Number(new RegExp(`<xdr:${name}>(\\d+)<\\/xdr:${name}>`).exec(value)?.[1]) || 0;
+        return { column: number('col'), row: number('row'), x: number('colOff') / 12700, y: number('rowOff') / 12700 };
+      };
+      const start = kind === 'absoluteAnchor' ? null : marker('from');
+      if (start && (start.column >= 16_384 || start.row >= 1_048_576)) {
+        throw new Error('Worksheet drawing anchor exceeds the Excel grid');
+      }
+      if (kind === 'twoCellAnchor') {
+        const end = marker('to');
+        if (end.column >= 16_384 || end.row >= 1_048_576) throw new Error('Worksheet drawing anchor exceeds the Excel grid');
+        drawings.push({
+          part,
+          kind,
+          body,
+          startColumn: start.column + 1,
+          startRow: start.row + 1,
+          endColumn: end.column + (end.x > 0 ? 1 : 0),
+          endRow: end.row + (end.y > 0 ? 1 : 0),
+        });
+        continue;
+      }
+      const extent = /<xdr:ext\b([^>]*?)\/>/.exec(body)?.[1] || '';
+      let x = 0;
+      let y = 0;
+      if (kind === 'absoluteAnchor') {
+        const position = /<xdr:pos\b([^>]*?)\/>/.exec(body)?.[1] || '';
+        x = Number(xmlAttribute(position, 'x')) / 12700 || 0;
+        y = Number(xmlAttribute(position, 'y')) / 12700 || 0;
+      } else {
+        x = start.x;
+        y = start.y;
+        for (let index = 1; index <= start.column; index += 1) x += geometry.columnPoints(index);
+        for (let index = 1; index <= start.row; index += 1) y += geometry.rowPoints(index);
+      }
+      const width = (Number(xmlAttribute(extent, 'cx')) || 0) / 12700;
+      const height = (Number(xmlAttribute(extent, 'cy')) || 0) / 12700;
+      drawings.push({
+        part,
+        kind,
+        body,
+        startColumn: geometry.columnAt(x),
+        startRow: geometry.rowAt(y),
+        endColumn: geometry.columnAt(x + width, { trailing: true }),
+        endRow: geometry.rowAt(y + height, { trailing: true }),
+        left: x,
+        top: y,
+        width,
+        height,
+      });
+    }
+  }
+  return drawings;
 }
 
 export async function contentPrintArea(zip, sheet, xml) {
@@ -56,48 +133,30 @@ export async function contentPrintArea(zip, sheet, xml) {
     lastColumn = Math.max(lastColumn, area.endCol);
     lastRow = Math.max(lastRow, area.endRow);
   }
-  const relations = await zipText(zip, partRelationshipPath(sheet.path));
-  const geometry = worksheetGeometry(xml);
-  for (const match of relations.matchAll(/<Relationship\b([^>]*?)\/>/g)) {
-    const attrs = match[1];
-    if (!String(xmlAttribute(attrs, 'Type') || '').endsWith('/drawing') || xmlAttribute(attrs, 'TargetMode') === 'External') continue;
-    const target = xmlAttribute(attrs, 'Target');
-    const part = target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(sheet.path), target));
-    const drawing = await zipText(zip, part);
-    for (const anchor of drawing.matchAll(/<xdr:(absoluteAnchor|oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/xdr:\1>/g)) {
-      const body = anchor[2];
-      const marker = (tag) => {
-        const value = new RegExp(`<xdr:${tag}>([\\s\\S]*?)<\\/xdr:${tag}>`).exec(body)?.[1] || '';
-        const number = (name) => Number(new RegExp(`<xdr:${name}>(\\d+)<\\/xdr:${name}>`).exec(value)?.[1]) || 0;
-        return { column: number('col'), row: number('row'), x: number('colOff') / 12700, y: number('rowOff') / 12700 };
-      };
-      if (anchor[1] === 'twoCellAnchor') {
-        const end = marker('to');
-        if (end.column >= 16_384 || end.row >= 1_048_576) throw new Error('Worksheet drawing anchor exceeds the Excel grid');
-        lastColumn = Math.max(lastColumn, end.column + (end.x > 0 ? 1 : 0));
-        lastRow = Math.max(lastRow, end.row + (end.y > 0 ? 1 : 0));
-        continue;
-      }
-      const extent = /<xdr:ext\b([^>]*?)\/>/.exec(body)?.[1] || '';
-      let x = 0;
-      let y = 0;
-      if (anchor[1] === 'absoluteAnchor') {
-        const position = /<xdr:pos\b([^>]*?)\/>/.exec(body)?.[1] || '';
-        x = Number(xmlAttribute(position, 'x')) / 12700 || 0;
-        y = Number(xmlAttribute(position, 'y')) / 12700 || 0;
-      } else {
-        const start = marker('from');
-        if (start.column >= 16_384 || start.row >= 1_048_576) throw new Error('Worksheet drawing anchor exceeds the Excel grid');
-        x = start.x;
-        y = start.y;
-        for (let index = 1; index <= start.column; index += 1) x += geometry.columnPoints(index);
-        for (let index = 1; index <= start.row; index += 1) y += geometry.rowPoints(index);
-      }
-      lastColumn = Math.max(lastColumn, geometry.columnAt(x + (Number(xmlAttribute(extent, 'cx')) || 0) / 12700));
-      lastRow = Math.max(lastRow, geometry.rowAt(y + (Number(xmlAttribute(extent, 'cy')) || 0) / 12700));
-    }
+  for (const drawing of await worksheetDrawings(zip, sheet, xml)) {
+    lastColumn = Math.max(lastColumn, drawing.endColumn);
+    lastRow = Math.max(lastRow, drawing.endRow);
   }
   return `A1:${columnLabel(lastColumn)}${lastRow}`;
+}
+
+// A chart or picture beside a table is wider than a portrait page, and a sheet
+// with no page setup exports by column blocks — the page break runs through the
+// chart. A sheet that declares nothing takes one page wide and keeps paging down
+// (a fit only scales down, so a small sheet prints as before); a declared fit,
+// print scale, or print area is the author's and stays.
+export function fitDrawingSheetOnePageWide(xml) {
+  if (/<pageSetUpPr\b[^>]*\bfitToPage="1"/.test(xml)) return { xml, applied: false };
+  const setup = worksheetSection(xml, 'pageSetup');
+  if (setup && /\bscale="/.test(setup[0])) return { xml, applied: false };
+  const sheetPr = worksheetSection(xml, 'sheetPr');
+  const attrs = sheetPr ? /^<sheetPr\b([^>]*?)(?:\/>|>)/.exec(sheetPr[0])?.[1] || '' : '';
+  const body = sheetPr && !sheetPr[0].endsWith('/>')
+    ? sheetPr[0].slice(sheetPr[0].indexOf('>') + 1, sheetPr[0].lastIndexOf('</sheetPr>')) : '';
+  let next = upsertWorksheetSection(xml, 'sheetPr', `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`);
+  const existing = setup ? setup[0].replace(/\s+fitTo(?:Width|Height)="[^"]*"/g, '') : '<pageSetup/>';
+  next = upsertWorksheetSection(next, 'pageSetup', existing.replace(/\/?>$/, ' fitToWidth="1" fitToHeight="0"/>'));
+  return { xml: next, applied: true };
 }
 
 export async function applyWorksheetPageSetup(zip, sheets, sheet, xml, op) {
@@ -107,6 +166,12 @@ export async function applyWorksheetPageSetup(zip, sheets, sheet, xml, op) {
   }
   const fitWide = Number(op.fitToPagesWide) || 0;
   const fitTall = op.fitToPagesTall == null ? null : Number(op.fitToPagesTall) || 0;
+  // A call that sets only the print area or margins keeps the fit the sheet
+  // already declares: with fitToPage on and the counts dropped, Excel would
+  // read the default 1 × 1 and shrink a long sheet onto one page.
+  const carriedFit = fitWide || fitTall != null
+    ? ''
+    : (worksheetSection(xml, 'pageSetup')?.[0].match(/\s+fitTo(?:Width|Height)="[^"]*"/g) || []).join('');
   if (fitWide || fitTall != null) {
     const existing = worksheetSection(xml, 'sheetPr');
     const attrs = existing ? /^<sheetPr\b([^>]*?)(?:\/>|>)/.exec(existing[0])?.[1] || '' : '';
@@ -118,7 +183,7 @@ export async function applyWorksheetPageSetup(zip, sheets, sheet, xml, op) {
   xml = upsertWorksheetSection(xml, 'printOptions', centered ? `<printOptions${centered}/>` : '');
   const margin = (value, fallback) => Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : fallback;
   xml = upsertWorksheetSection(xml, 'pageMargins', `<pageMargins left="${margin(op.leftMargin, 0.7)}" right="${margin(op.rightMargin, 0.7)}" top="${margin(op.topMargin, 0.75)}" bottom="${margin(op.bottomMargin, 0.75)}" header="0.3" footer="0.3"/>`);
-  xml = upsertWorksheetSection(xml, 'pageSetup', `<pageSetup paperSize="9"${orientation ? ` orientation="${orientation}"` : ''}${fitWide ? ` fitToWidth="${fitWide}"` : ''}${fitTall == null ? '' : ` fitToHeight="${fitTall}"`}/>`);
+  xml = upsertWorksheetSection(xml, 'pageSetup', `<pageSetup paperSize="9"${orientation ? ` orientation="${orientation}"` : ''}${fitWide ? ` fitToWidth="${fitWide}"` : ''}${fitTall == null ? '' : ` fitToHeight="${fitTall}"`}${carriedFit}/>`);
   const printArea = op.fitToContent === true ? await contentPrintArea(zip, sheet, xml) : op.printArea;
   if (printArea) {
     const area = parseAreaRange(printArea);
