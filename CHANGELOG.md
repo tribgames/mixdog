@@ -5,6 +5,21 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Compact the shared and Lead rules and the built-in tool descriptions to the
+  same behavior in fewer tokens; the `shell` description keeps only its role,
+  the boundary with the dedicated file/search/Git tools, and the background
+  task contract.
+- Headless (`mixdog exec`) runs state that no user intervenes mid-run: the
+  request is treated as approved and carried out to the end before reporting,
+  instead of stopping to ask a question nobody can answer.
+- `apply_patch` typed into the shell is no longer rerouted to the patch
+  engine; the model calls `apply_patch`/`edit` directly.
+- A stopped Goal retires like a completed one: the user's next prompt
+  archives it, and confirming a stop archives it at once.
+- Usage stats attribute measured tokens and cost per request in the ledger,
+  and the desktop usage explorer shows the resulting breakdown.
+- Cursor provider wire fixes.
+
 ## v0.9.163 - 2026-09-10
 
 - Refine UI localization, startup language selection, native menus, and
