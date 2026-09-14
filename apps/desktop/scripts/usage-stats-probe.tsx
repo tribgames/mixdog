@@ -54,7 +54,8 @@ function sample() {
     });
     frames.push({ x: box.x, y: box.y, width: box.width, height: box.height, busy, active, sections,
       models: document.querySelectorAll('.stats-model-row').length,
-      cardsOpacity: getComputedStyle(document.querySelector('.stats-cards')!).opacity });
+      cardsOpacity: document.querySelector('.stats-cards')
+        ? getComputedStyle(document.querySelector('.stats-cards')!).opacity : null });
     const key = `${innerWidth}x${innerHeight}:${busy}:${active}`;
     const values = [box.x, box.y, box.width, box.height, ...sections.flatMap((s) => [s?.y ?? 0, s?.height ?? 0])];
     const measure = geometry.get(key) || { min: values.slice(), max: values.slice(), frames: 0 };

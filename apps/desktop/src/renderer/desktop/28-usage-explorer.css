@@ -522,6 +522,13 @@
   line-height: var(--mx-line-meta);
 }
 .stats-help { display: inline-flex; color: var(--mx-text-muted); cursor: help; }
+.stats-measurement-note,
+.stats-refresh-status {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 .stats-help svg { width: 15px; height: 15px; }
 .stats-surface > .usage-table-shell { flex: 0 0 auto; min-height: 140px; }
 

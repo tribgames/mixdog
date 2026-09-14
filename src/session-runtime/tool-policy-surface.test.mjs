@@ -92,7 +92,7 @@ test('shared tool rules omit disabled web search and memory routes', () => {
   const full = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot });
   assert.match(
     full,
-    /^# General\s+- When an internal Mixdog rule conflicts with the user's latest explicit\s+request, follow the user's request\./,
+    /^# General\s+- The user's latest explicit request overrides any internal rule\./,
   );
   assert.match(full, /`web_search`/);
   assert.match(full, /`memory`/);
@@ -112,13 +112,11 @@ test('shared tool rules omit disabled web search and memory routes', () => {
   // the tool that is absent from the surface.
   const patchOnly = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot, omitTools: ['edit'] });
   assert.doesNotMatch(patchOnly, /`edit`/);
-  assert.match(patchOnly, /Author files with `apply_patch`, not shell scripts\/redirection/i);
-  assert.match(patchOnly, /source-file edits stay with `apply_patch`/i);
+  assert.match(patchOnly, /Author files with `apply_patch`, never shell scripts or redirection/i);
   const editOnly = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot, omitTools: ['apply_patch'] });
   assert.doesNotMatch(editOnly, /`apply_patch`/);
   assert.doesNotMatch(editOnly, /Add File|Update File/);
-  assert.match(editOnly, /Author files with `edit`, not shell scripts\/redirection/i);
-  assert.match(editOnly, /source-file edits stay with `edit`\./i);
+  assert.match(editOnly, /Author files with `edit`, never shell scripts or redirection/i);
 });
 
 test('rule allowlists omit unavailable capabilities and explicit denies still win', () => {
@@ -154,37 +152,41 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // Advisory drift check: update these anchors when the rule text
   // intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
-  assert.match(full, /Validate exact targets before destructive\/hard-to-reverse actions/i);
-  assert.match(full, /never roots,\s+`~` or unresolved variables\/globs/i);
-  assert.match(full, /Ask only for targets or destructive effects\s+not already approved/i);
-  assert.match(full, /Define required outputs and final checks/i);
-  assert.match(full, /Wait only for scope\/decision dependencies or conflicting effects/i);
-  assert.match(full, /gather missing evidence → implement completely → verify → deliver/i);
-  assert.match(full, /respect approvals and bound output/i);
-  assert.match(full, /Use supplied commands unchanged except inputs, otherwise documented defaults/i);
-  assert.match(full, /One evidence owner; known targets go directly there/i);
-  assert.match(full, /When a diff establishes\s+the cause, edit site and required change, implement next/i);
-  assert.match(full, /Batch required targets in each tool's arrays first, then parallelize independent\s+calls/i);
-  assert.match(full, /Evidence or artifacts available only through program execution, calculation,\s+data transformation, generated output, or unsupported-format decoding→`shell`/i);
-  assert.match(full, /an already-open shell is never a routing reason/i);
-  assert.match(full, /State\/history\/diff→`git`/i);
-  assert.match(full, /Trust documented guarantees and let intended operations report availability/i);
-  assert.match(full, /Each call must advance required work, not add an optional branch/i);
-  assert.match(full, /Check required behavior, exact outputs and essential integrity\/security\/\s+compatibility\/buildability/i);
+  assert.match(full, /Validate exact targets before destructive actions/i);
+  assert.match(full, /never roots, `~` or\s+unresolved variables\/globs/i);
+  assert.match(full, /Report deletion recoverability/i);
+  assert.match(full, /Shortest route: missing evidence → implement → verify once → deliver/i);
+  assert.match(full, /wait only for real\s+dependencies/i);
+  assert.match(full, /One-shot calls: every needed target in one call's array, nothing speculative/i);
+  assert.match(full, /Cheapest decisive evidence first: existing state, diff or a failing test\s+before any search/i);
+  assert.match(full, /Trust documented\s+guarantees; no availability checks or defensive branches, in scripts included/i);
+  assert.match(full, /take the backup\s+inside the first inspection call, never as a separate step/i);
+  assert.match(full, /never probe, split\s+or re-read what is already in context/i);
+  assert.match(full, /Use supplied commands unchanged except inputs, else documented defaults/i);
+  assert.match(full, /Tools own their work; shell never substitutes: files→`read`, text→`grep`/i);
+  assert.match(full, /Tool names are not shell commands; `shell` only runs programs and computation/i);
+  assert.match(full, /Batch per tool, run independent calls in parallel/i);
+  assert.match(full, /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i);
+  assert.match(full, /An open\s+shell is never a routing reason/i);
+  assert.match(full, /Git→`git`/i);
+  assert.match(full, /Verify once after all edits; no read\/list\/diff to confirm writes/i);
+  assert.match(full, /Generated data is not evidence/i);
+  assert.match(full, /Check required behavior, exact outputs and essential integrity, security,\s+compatibility and buildability/i);
   assert.match(full, /Supplied\/home\/environment paths need no locator/i);
-  assert.match(full, /Use documented non-mutating readers directly, without prerequisite copies/i);
-  assert.match(full, /preserve\s+exact originals and inspect a separate working copy before opening them/i);
-  assert.match(full, /text\/regex→`grep`; content\/ranges\/images→`read`/i);
-  assert.match(full, /Retry deterministic failures only after relevant change/i);
-  assert.match(full, /allow one safe,\s+bounded transient retry/i);
-  assert.match(full, /Never bypass denial\/cancellation or repeat unknown\s+mutations/i);
-  assert.match(full, /Follow miss causes; a missing `code_graph` symbol alone gets one literal `grep` fallback/i);
-  assert.match(full, /UI\/edit sites use `grep` and only missing anchored ranges/i);
-  assert.match(full, /one\s+runner reports every outcome despite failures\. Otherwise use separate calls/i);
-  assert.match(full, /No stricter flags or unrequested umbrella suites/i);
-  assert.match(full, /A passed check settles only that check; finish the remaining required checks/i);
-  assert.match(full, /Collect failures, finish fixes, and rerun only failed or invalidated checks/i);
-  assert.match(full, /Completion requires the verified objective, not a turn-ending response/i);
+  assert.match(full, /Use non-mutating readers directly/i);
+  assert.match(full, /keep an unchanged\s+backup of every source artifact and work on a separate copy/i);
+  assert.match(full, /Keep it after\s+replacing originals unless the user requires purging/i);
+  assert.match(full, /paths→`glob`\/`find`, entries→`list`, symbols→`code_graph`/i);
+  assert.match(full, /Retry only after a relevant change, at most one bounded transient retry/i);
+  assert.match(full, /never bypass denial or cancellation/i);
+  assert.match(full, /never hide errors, timeouts or cancellation\s+behind later success/i);
+  assert.doesNotMatch(full, /fallback/i);
+  assert.match(full, /UI\/edit sites: `grep`, then only missing anchored ranges/i);
+  assert.match(full, /After all edits, cover each required check once: one runner per runtime,\s+independent checks in parallel/i);
+  assert.match(full, /no\s+stricter flags or unrequested suites/i);
+  assert.match(full, /rerun only failed or invalidated checks/i);
+  assert.doesNotMatch(full, /Collect failures, finish fixes/i);
+  assert.match(full, /Completion means the verified objective,\s+not a turn-ending response/i);
   assert.doesNotMatch(full, /affected failed checks once/i);
   assert.match(full, /Git commands→`git`; source-file edits stay with `edit`\./i);
   assert.match(full, /Git commands→`git`; source-file edits stay with `apply_patch`\./i);
@@ -192,13 +194,13 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.doesNotMatch(full, /always batch safely in parallel/i);
   // Dialect-specific contracts live in tool descriptions; their tests are
   // separate from these shared-policy anchors.
-  assert.match(full, /Use exact current target text from visible evidence/i);
-  assert.match(full, /Apply determined edits in the fewest safe supported calls/i);
-  assert.match(full, /Defer only ambiguous or result-dependent changes/i);
-  assert.match(full, /Commit, push, release, and deployment happen only on the user's explicit\s+request/i);
-  assert.match(full, /past facts recorded in prior work or sessions→`recall`/i);
-  assert.match(full, /show its exact content and scope/i);
-  assert.match(full, /Never promote inferred lessons into standing instructions/i);
+  assert.match(full, /Target text comes from visible evidence, never reconstructed/i);
+  assert.doesNotMatch(full, /Editing tool names are direct tool calls/i);
+  assert.match(full, /Fewest safe calls; write each file complete; defer only result-dependent changes/i);
+  assert.match(full, /Commit, push, release and deployment only on the user's explicit request/i);
+  assert.match(full, /Past sessions and decisions→`recall`/i);
+  assert.match(full, /show exact content and scope and ask/i);
+  assert.match(full, /Never promote\s+inferred lessons/i);
   const headings = ['# General', '# Tool Workflow', '# Research', '# Exploration', '# Editing', '# Execution', '# Verification', '# Delivery', '# Memory'];
   assert.deepEqual(headings.map((heading) => full.indexOf(heading)), headings.map((heading) => full.indexOf(heading)).toSorted((a, b) => a - b));
   assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git'));

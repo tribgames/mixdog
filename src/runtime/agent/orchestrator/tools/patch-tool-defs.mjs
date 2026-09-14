@@ -28,7 +28,7 @@ const APPLY_PATCH_FREEFORM_DESCRIPTION =
   `Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once: literal "hello" becomes "+hello", not "++hello". ${APPLY_PATCH_CONTRACT}`;
 
 const APPLY_PATCH_JSON_DESCRIPTION =
-  `Edit files with one complete V4A patch in \`patch\`. One file block per target, with all its hunks. ${APPLY_PATCH_CONTRACT}`;
+  `Edit files with one complete V4A patch in \`patch\`. Call this tool directly, not as a shell command. One file block per target, with all its hunks. ${APPLY_PATCH_CONTRACT}`;
 
 export const PATCH_TOOL_DEFS = [
   {

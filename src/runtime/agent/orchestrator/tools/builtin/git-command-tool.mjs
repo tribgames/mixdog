@@ -74,7 +74,7 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run Git here, not through shell: commands in order. First batch required read-only commands in one array, not separate calls; then parallelize with independent tools. Use diff for known changes, status to discover them; reuse returned status. If diff establishes the cause, edit site and required change, implement next without confirming read/graph/history calls. Otherwise query only missing evidence; inspect history only when needed for that evidence or requested. Arrays report each result and stop on failure. Mutations are serialized; successful output is compacted.',
+    description: 'Run Git here, never through shell; commands run in order and arrays stop on failure. Batch required read-only commands in one array. diff for known changes, status to discover them; history only when needed. Mutations are serialized; output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {

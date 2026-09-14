@@ -898,49 +898,6 @@ export async function analyzeShellCommandEffects(command, cwd) {
     return { mutationMode: 'none', paths: [], finalCwd: localCwd };
 }
 
-// Shell interception: patch-trained models type `apply_patch <<'EOF' … EOF`
-// INTO THE SHELL. No
-// such binary exists here, so the invocation is extracted and routed to the
-// internal apply_patch engine instead of dying as "command not found".
-// Returns null when the command is not an apply_patch invocation, { patch }
-// when one was extracted, or { error } for a recognized-but-malformed call.
-export function extractShellApplyPatchInvocation(command) {
-    let cmd = String(command || '').trim();
-    if (!cmd) return null;
-    // Unwrap one `bash|sh|zsh -lc '<script>'` / `-c "<script>"` layer.
-    const wrap = /^(?:bash|sh|zsh)\s+-l?c\s+(['"])([\s\S]*)\1\s*$/.exec(cmd);
-    if (wrap) cmd = wrap[2].trim();
-    // A bare patch pasted into the shell (implicit invocation) is
-    // unambiguous — route it to the engine directly.
-    if (cmd.startsWith('*** Begin Patch')) return { patch: cmd };
-    if (!/^apply_patch(?:\s|$)/.test(cmd)) return null;
-    const rest = cmd.slice('apply_patch'.length).trim();
-    // Heredoc form: apply_patch <<'EOF' \n <patch> \n EOF
-    const heredoc = /^<<-?\s*(['"]?)(\w+)\1\s*\n([\s\S]*)$/.exec(rest);
-    if (heredoc) {
-        const terminator = heredoc[2];
-        const lines = heredoc[3].split('\n');
-        const endIdx = lines.findIndex((l) => l.trim() === terminator);
-        const patch = (endIdx === -1 ? lines : lines.slice(0, endIdx)).join('\n').trim();
-        if (patch) return { patch };
-        return { error: 'apply_patch heredoc contained no patch body' };
-    }
-    // Single-argument form: apply_patch '<patch>' / "<patch>" / bare.
-    if (rest) {
-        const q = rest[0];
-        let patch = rest;
-        if ((q === "'" || q === '"') && rest.length >= 2 && rest.endsWith(q)) {
-            patch = rest.slice(1, -1);
-            if (q === '"') patch = patch.replace(/\\([\\"$`])/g, '$1');
-            else patch = patch.replace(/'\\''/g, "'");
-        }
-        patch = patch.trim();
-        if (patch.startsWith('*** Begin Patch')) return { patch };
-        return { error: 'apply_patch argument did not contain a V4A patch (expected "*** Begin Patch")' };
-    }
-    return { error: 'apply_patch requires the patch text (heredoc or single argument)' };
-}
-
 // ---------------------------------------------------------------------------
 // Filter-swallow rescue (PowerShell one-shot path). Measured 2026-08: ~37
 // failures/14d were `<producer> 2>&1 | Select-String … | Select-Object …`

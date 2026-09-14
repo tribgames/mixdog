@@ -37,13 +37,13 @@ function button(label) {
     return [...document.querySelectorAll('button')].find((node) => node.textContent === t(label));
 }
 
-test('statistics mount once the initial response completes and wait for fresh data on reopen', async (context) => {
+test('statistics open before the response and repaint cached figures immediately on reopen', async (context) => {
     const render = harness(context, CommandSurface);
     let resolve;
     const props = { surface: 'stats', open: true, onClose() {},
         api: { invokeCapability: () => new Promise((yes) => { resolve = yes; }) } };
     await render(props);
-    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.querySelector('[role="dialog"]').getAttribute('aria-busy'), 'true');
     assert.equal(document.querySelector('.stats-surface'), null);
     await act(async () => resolve({ value: snapshot() }));
     assert.equal(document.querySelector('[role="dialog"]').getAttribute('aria-busy'), 'false');
@@ -51,7 +51,9 @@ test('statistics mount once the initial response completes and wait for fresh da
     assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K');
     await render({ ...props, open: false });
     await render(props);
-    assert.equal(document.querySelector('[role="dialog"]'), null, 'no stale cache flash on reopen');
+    assert.equal(document.querySelector('[role="dialog"]').getAttribute('aria-busy'), 'true');
+    assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K');
+    assert.equal(document.querySelector('.stats-refresh-status').textContent, t('Refreshing…'));
     await act(async () => resolve({ value: snapshot('hour', 2400) }));
     assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '2.4K');
 });
@@ -68,7 +70,8 @@ test('closing a pending statistics request prevents its late response from openi
     await render({ ...props, open: false });
     await render(props);
     await act(async () => resolvers[0]({ value: snapshot('hour', 999) }));
-    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.querySelector('[role="dialog"]').getAttribute('aria-busy'), 'true');
+    assert.equal(document.querySelector('.stats-surface'), null, 'retired response cannot paint');
     await act(async () => resolvers[1]({ value: snapshot('hour', 1200) }));
     assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K');
 });
@@ -79,6 +82,43 @@ test('an initial statistics failure presents the error without inventing an empt
         api: { async invokeCapability() { throw new Error('usage offline'); } } });
     assert.equal(document.querySelector('[role="alert"]').textContent, 'usage offline');
     assert.equal(document.querySelector('.stats-surface'), null);
+});
+
+test('a reopen refresh failure retains the cached figures beside the error', async (context) => {
+    const render = harness(context, CommandSurface);
+    let fail = false;
+    const props = { surface: 'stats', open: true, onClose() {},
+        api: { async invokeCapability() {
+            if (fail) throw new Error('refresh offline');
+            return { value: snapshot() };
+        } } };
+    await render(props);
+    await render({ ...props, open: false });
+    fail = true;
+    await render(props);
+    assert.equal(document.querySelector('[role="alert"]').textContent, 'refresh offline');
+    assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K');
+});
+
+test('unmeasured Cursor usage is not displayed as zero cache, zero hit rate or a confirmed cost', async (context) => {
+    const render = harness(context);
+    const stats = snapshot();
+    const cursor = { ...stats.providers[0], provider: 'cursor-oauth', providerKind: 'oauth',
+        input: null, output: 200, tokens: 200, cacheRead: null, cacheWrite: null,
+        cacheHitRate: null, costUsd: 0, costCoverage: 0, unmeasuredTurns: 1, share: null };
+    stats.providers = [cursor];
+    stats.totals = { ...cursor };
+    await render({ data: { getUsageStats: stats }, request: async () => stats });
+    const row = document.querySelector('.stats-provider tr');
+    assert.equal(row.cells[3].textContent, '—');
+    assert.equal(row.cells[4].textContent, '200');
+    assert.equal(row.cells[5].textContent, '—');
+    assert.equal(row.cells[6].textContent, '—');
+    assert.equal(row.cells[7].textContent, '200+');
+    assert.equal(row.cells[8].textContent, '—');
+    assert.equal(document.querySelector('.stats-provider-toggle small').textContent, '—');
+    assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '200+');
+    assert.match(document.querySelector('[role="note"]').textContent, /Cursor/);
 });
 
 test('API-only catalog estimates are not labeled subscription value or no bill', async (context) => {

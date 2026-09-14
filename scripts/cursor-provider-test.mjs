@@ -930,6 +930,56 @@ test('Cursor request context exposes tools without duplicating root prompt instr
     assert.equal(context.mcpInstructions, undefined);
 });
 
+test('Cursor checkpoint occupancy never becomes billable prompt tokens', async () => {
+    let data;
+    let close;
+    const bridge = {
+        alive: true,
+        write() {},
+        onData(handler) { data = handler; },
+        onClose(handler) { close = handler; },
+        close(error = null) { this.alive = false; close?.(error); },
+    };
+    const response = __cursorWireInternals.createStreamResponse({
+        bridge, heartbeat: setInterval(() => {}, 10_000),
+        conversation: { blobs: new Map(), checkpoint: null },
+        tools: [], model: 'auto', key: 'usage-measurement-fixture',
+    });
+    const emit = (message) => data(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', message)));
+    emit({ conversationCheckpointUpdate: __cursorWireInternals.encodeMessage(
+        'ConversationStateStructure', { tokenDetails: { usedTokens: 2_000_000 } }) });
+    emit({ interactionUpdate: { textDelta: { text: 'hello' }, tokenDelta: { tokens: 7 } } });
+    emit({ interactionUpdate: { turnEnded: {} } });
+    bridge.close();
+    const events = (await response.text()).split('\n')
+        .filter((line) => line.startsWith('data: {')).map((line) => JSON.parse(line.slice(6)));
+    const usage = events.find((event) => event.usage)?.usage;
+    assert.equal(usage.completion_tokens, 7);
+    assert.equal(usage.context_tokens, 2_000_000);
+    assert.equal(usage.input_tokens_known, false);
+    assert.equal(usage.cache_tokens_known, false);
+    assert.equal(usage.prompt_tokens, undefined);
+    assert.equal(usage.total_tokens, undefined);
+
+    const provider = new CursorApiProvider({
+        apiKey: 'fixture-key',
+        exchangeFn: async () => ({ access_token: 'fixture-access', expires_at: Date.now() + 60_000 }),
+        runtime: {
+            async handleChatCompletion() {
+                return sseResponse([{ choices: [{ delta: {}, finish_reason: 'stop' }], usage }]);
+            },
+            async getCursorModels() { return []; },
+        },
+    });
+    const result = await provider.send([{ role: 'user', content: 'hi' }], 'auto');
+    assert.equal(result.usage.inputTokens, null);
+    assert.equal(result.usage.cachedTokens, null);
+    assert.equal(result.usage.inputTokensKnown, false);
+    assert.equal(result.usage.outputTokens, 7);
+    assert.equal(result.usage.contextTokens, 2_000_000);
+});
+
 test('Cursor Connect parser handles split frames without losing protobuf bytes', () => {
     const payload = __cursorWireInternals.encodeMessage('AgentServerMessage', {
         interactionUpdate: { textDelta: { text: 'hello' }, tokenDelta: { tokens: 3 } },

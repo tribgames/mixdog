@@ -99,7 +99,6 @@ import {
     analyzeShellCommandEffects,
     buildPowerShellFilterTeePlan,
     consumeFilterTeeCapture,
-    extractShellApplyPatchInvocation,
     planInlineScriptHoist,
     planLongInlineScriptFileTransport,
     planLongShellScriptFileTransport,
@@ -426,21 +425,6 @@ export async function executeBashTool(args, workDir, options = {}) {
     const bashWorkDir = workDir;
     // Run hard-block policy before any shell dispatch.
     const _rawCmd = String(args && args.command != null ? args.command : '');
-    // `apply_patch` typed into the shell (heredoc/argument/bare
-    // patch forms) routes to the internal patch engine instead of failing as
-    // an unknown binary. Runs BEFORE the exec-policy scan so patch BODY lines
-    // (e.g. `+ rm -rf …`) are never misread as shell commands. Dynamic import
-    // avoids a bash-tool <-> patch/orchestrator module cycle.
-    if (_rawCmd) {
-        const _apCall = extractShellApplyPatchInvocation(_rawCmd);
-        if (_apCall?.error) {
-            return formatShellToolFailure(`${_apCall.error}. Call the apply_patch tool with the patch string instead of the shell.`);
-        }
-        if (_apCall?.patch) {
-            const { executePatchTool } = await import('../patch/orchestrator.mjs');
-            return executePatchTool('apply_patch', { patch: _apCall.patch }, bashWorkDir, options);
-        }
-    }
     if (_rawCmd) {
         const _policyBlock = checkExecPolicyMessage(_rawCmd);
         if (_policyBlock) return formatShellToolFailure(_policyBlock);

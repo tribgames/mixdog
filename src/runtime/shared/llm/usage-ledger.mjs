@@ -11,6 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { usageRollupDayKey, isConversationUsageSource } from './usage-rollup.mjs';
 import { priceUsage } from './cost.mjs';
+import { normalizeUsageMeasurement, normalizeLegacyUsageDay } from './usage-measurement.mjs';
 
 const stores = new Map();
 const number = (value) => Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0;
@@ -161,13 +162,15 @@ export function makeUsageRecord(args) {
     const ts = Number(args.ts ?? Date.now());
     if (!Number.isSafeInteger(ts) || ts <= 0) throw new Error('Usage requires a valid timestamp');
     const kind = args.kind || usageRouteKind(provider);
-    const priced = priceUsage({ ...args, provider, model, ts });
+    const priced = args.inputTokensKnown === false
+        ? { input: 0, costUsd: null, rates: null }
+        : priceUsage({ ...args, provider, model, ts });
     const supplied = args.costUsd !== null && args.costUsd !== undefined && args.costUsd !== ''
         && Number.isFinite(Number(args.costUsd)) && Number(args.costUsd) >= 0;
     // OAuth/quota plans have value, not per-request invoices. A backend's
     // quota/cost ticks must not be mistaken for an API bill.
     const subscription = kind === 'oauth' || kind === 'quota-api';
-    const reported = !subscription && kind !== 'local' && supplied;
+    const reported = args.inputTokensKnown !== false && !subscription && kind !== 'local' && supplied;
     const costUsd = kind === 'local' ? 0 : reported ? Number(args.costUsd) : priced.costUsd;
     const row = {
         ts, day: usageRollupDayKey(ts), provider, model, kind,
@@ -295,36 +298,54 @@ export class UsageLedger {
     }
 
     /** Read cached amounts; group retained attribution separately for distinct sessions. */
-    rollup({ hourlyDay = null } = {}) {
+    rollup({ hourlyDay = null, fromDay = '0000-01-01', toDay = '9999-12-31' } = {}) {
         const days = {};
         const hourly = hourlyDay ? { rows: [], unallocated: [] } : null;
+        const fromTs = fromDay === '0000-01-01' ? 0 : new Date(`${fromDay}T00:00:00`).getTime();
+        const end = toDay === '9999-12-31' ? null : new Date(`${toDay}T00:00:00`);
+        if (end) end.setDate(end.getDate() + 1);
+        const toTs = end ? end.getTime() : Number.MAX_SAFE_INTEGER;
         const empty = () => ({
             turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0,
             costBilled: 0, costEstimated: 0, costKnownTurns: 0, durationMs: 0, durationTurns: 0,
+            unmeasuredTurns: 0,
             sessions: {}, sessionsComplete: true,
         });
         const add = (target, row) => {
-            target.turns += row.turns;
-            target.input += row.input; target.output += row.output;
-            target.cacheRead += row.cache_read; target.cacheWrite += row.cache_write;
-            target.costUsd += row.cost_usd;
-            if (row.cost_source !== 'unpriced') target.costKnownTurns += row.turns;
-            if (row.cost_source === 'provider') target.costBilled += row.cost_usd;
-            else target.costEstimated += row.cost_usd;
+            const usage = normalizeUsageMeasurement(row.provider, {
+                turns: row.turns, input: row.input, output: row.output,
+                cacheRead: row.cache_read, cacheWrite: row.cache_write, costUsd: row.cost_usd,
+                costKnownTurns: row.cost_source !== 'unpriced' ? row.turns : 0,
+                costBilled: row.cost_source === 'provider' ? row.cost_usd : 0,
+                costEstimated: row.cost_source === 'provider' ? 0 : row.cost_usd,
+            });
+            for (const field of ['turns', 'input', 'output', 'cacheRead', 'cacheWrite',
+                'costUsd', 'costKnownTurns', 'costBilled', 'costEstimated', 'unmeasuredTurns']) {
+                target[field] += usage[field] || 0;
+            }
             target.durationMs += row.duration_ms;
             if (row.duration_ms > 0) target.durationTurns += row.turns;
         };
         // A detail and its terminal summary can overlap on the SAME route.
         // Another provider/model on that day is independent and must survive.
-        const best = 'SELECT day,provider,model,MIN(rank) AS rank FROM daily GROUP BY day,provider,model';
+        const best = `SELECT day,provider,model,MIN(rank) AS rank FROM daily
+            WHERE day BETWEEN ? AND ? GROUP BY day,provider,model`;
         if (hourly) {
+            const start = new Date(`${hourlyDay}T00:00:00`);
+            const end = new Date(start);
+            end.setDate(end.getDate() + 1);
             hourly.rows = this.db.prepare(`
                 SELECT e.ts,e.provider,e.source_type,e.input,e.output,e.cost_usd
                 FROM events e JOIN (${best}) b USING(day,provider,model,rank)
-                WHERE e.day=? ORDER BY e.ts
-            `).all(hourlyDay);
+                WHERE e.ts>=? AND e.ts<? ORDER BY e.ts
+            `).all(fromDay, toDay, start.getTime(), end.getTime()).map((row) => {
+                const usage = normalizeUsageMeasurement(row.provider,
+                    { turns: 1, input: row.input, costUsd: row.cost_usd });
+                return { ...row, input: usage.input, cost_usd: usage.costUsd,
+                    unmeasuredTurns: usage.unmeasuredTurns || 0 };
+            });
         }
-        for (const row of this.db.prepare(`SELECT d.* FROM daily d JOIN (${best}) b USING(day,provider,model,rank)`).all()) {
+        for (const row of this.db.prepare(`SELECT d.* FROM daily d JOIN (${best}) b USING(day,provider,model,rank)`).all(fromDay, toDay)) {
             const day = days[row.day] ||= { ...empty(), models: {}, sessions: {}, conversation: empty() };
             const key = `${row.provider}/${row.model}`;
             const route = day.models[key] ||= {
@@ -336,12 +357,27 @@ export class UsageLedger {
         }
         // day_sessions cannot attribute an id to a route. Use the retained
         // originals, without modifying them or guessing from account/pool ids.
+        // Aggregate compact integer keys BEFORE decoding attribution. The old
+        // view decoded JSON and joined every historical request on each open.
         const sessions = this.db.prepare(`
-            SELECT e.day,e.provider,e.model,e.source_type,e.origin,e.session_id,
-                SUM(e.input+e.output+e.cache_read+e.cache_write) AS tokens
-            FROM events e JOIN (${best}) b USING(day,provider,model,rank)
-            GROUP BY e.day,e.provider,e.model,e.source_type,e.origin,e.session_id
-        `).all();
+            WITH grouped AS (
+                SELECT day,route,session,SUM(input) AS input,SUM(output) AS output,
+                    SUM(cache_read) AS cacheRead,SUM(cache_write) AS cacheWrite
+                FROM usage_events WHERE ts>=? AND ts<?
+                GROUP BY day,route,session
+            ), attributed AS (
+                SELECT printf('%04d-%02d-%02d',e.day/10000,(e.day/100)%100,e.day%100) AS day,
+                    json_extract(r.signature,'$[0]') AS provider,
+                    json_extract(r.signature,'$[1]') AS model,
+                    json_extract(r.signature,'$[3]') AS source_type,
+                    json_extract(r.signature,'$[6]') AS origin,
+                    json_extract(r.signature,'$[7]') AS rank,
+                    s.value AS session_id,e.input,e.output,e.cacheRead,e.cacheWrite
+                FROM grouped e JOIN usage_routes r ON r.id=e.route
+                JOIN usage_sessions s ON s.id=e.session
+            )
+            SELECT e.* FROM attributed e JOIN (${best}) b USING(day,provider,model,rank)
+        `).all(fromTs, toTs, fromDay, toDay);
         for (const row of sessions) {
             const classified = row.origin !== 'trace' || Boolean(row.source_type);
             if (classified && !isConversationUsageSource(row.source_type)) continue;
@@ -353,12 +389,14 @@ export class UsageLedger {
                 if (!classified || !row.session_id || ['no-session', '(none)'].includes(row.session_id)) {
                     target.sessionsComplete = false;
                 } else {
-                    target.sessions[row.session_id] = (target.sessions[row.session_id] || 0) + row.tokens;
+                    const usage = normalizeUsageMeasurement(row.provider, row);
+                    const tokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+                    target.sessions[row.session_id] = (target.sessions[row.session_id] || 0) + tokens;
                 }
             }
         }
-        for (const row of this.db.prepare('SELECT day,document FROM legacy_days').all()) {
-            const legacy = JSON.parse(row.document);
+        for (const row of this.db.prepare('SELECT day,document FROM legacy_days WHERE day BETWEEN ? AND ?').all(fromDay, toDay)) {
+            const legacy = normalizeLegacyUsageDay(JSON.parse(row.document));
             const day = days[row.day];
             if (!day) {
                 days[row.day] = { ...legacy, importedPartial: true };
@@ -375,7 +413,7 @@ export class UsageLedger {
                 const merge = (target, source) => {
                     if (!source) return;
                     for (const field of ['turns', 'input', 'output', 'cacheRead', 'cacheWrite', 'costUsd',
-                        'durationMs', 'durationTurns']) target[field] += number(source[field]);
+                        'durationMs', 'durationTurns', 'unmeasuredTurns']) target[field] += number(source[field]);
                     target.costKnownTurns += source.costKnownTurns == null
                         ? (number(source.costUsd) > 0 || route.kind === 'local' ? number(source.turns) : 0)
                         : number(source.costKnownTurns);

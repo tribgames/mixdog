@@ -215,20 +215,25 @@ try {
   const redirectedRead = await executeBuiltinTool('read', {
     path: 'wrong/nested/redirected.txt',
   }, tmp, { sessionId: redirectSession });
-  assert(/^\[redirected from /i.test(String(redirectedRead)), `read did not establish a canonical redirect:\n${redirectedRead}`);
+  assert(/^\[path absent\]/i.test(String(redirectedRead)), `read must report the missing literal path:\n${redirectedRead}`);
+  assert(readFileSync(canonicalTarget, 'utf8') === 'before redirect\n',
+    'reading a missing path changed the suggested file');
+  await executeBuiltinTool('read', {
+    path: 'actual/nested/redirected.txt',
+  }, tmp, { sessionId: redirectSession });
   const redirectedPatch = await executePatchTool('apply_patch', {
     base_path: tmp,
     patch: `*** Begin Patch
-*** Update File: wrong/nested/redirected.txt
+*** Update File: actual/nested/redirected.txt
 @@
 -before redirect
 +after redirect
 *** End Patch
 `,
   }, tmp, { sessionId: redirectSession });
-  assertOk('apply_patch same-session canonical redirect', redirectedPatch);
+  assertOk('apply_patch explicit read-confirmed path', redirectedPatch);
   assert(readFileSync(canonicalTarget, 'utf8') === 'after redirect\n',
-    'apply_patch did not reuse the read-confirmed canonical path');
+    'apply_patch did not modify the explicit read-confirmed path');
   assert(!existsSync(join(tmp, 'wrong', 'nested', 'redirected.txt')),
     'apply_patch created or modified the original missing guessed path');
 

@@ -36,8 +36,8 @@ test('source precedence preserves independent provider/model routes and disjoint
     });
     const stats = snapshot(ledger);
     assert.equal(stats.totals.turns, 4);
-    assert.equal(stats.totals.tokens, 1100);
-    assert.equal(stats.totals.costUsd, 10);
+    assert.equal(stats.totals.tokens, 700);
+    assert.equal(stats.totals.costUsd, 6);
     assert.equal(stats.providers.length, 3);
     assert.equal(stats.providers.find((p) => p.provider === 'openai').models.length, 2);
     // A legacy route cannot be tied to session ids: its count is a floor of zero.
@@ -46,9 +46,12 @@ test('source precedence preserves independent provider/model routes and disjoint
     assert.equal(legacy.sessionsComplete, false);
     assert.equal(stats.totals.sessions, 1);
     assert.equal(stats.totals.sessionsComplete, false);
-    assert.equal(stats.daily[0].tokens, 1100);
-    assert.equal(stats.daily[0].costUsd, 10);
-    assert.equal(snapshot(ledger).totals.tokens, 1100, 'reading again never accumulates fallback routes');
+    assert.equal(stats.daily[0].tokens, 700);
+    assert.equal(stats.daily[0].costUsd, 6);
+    assert.equal(legacy.input, null, 'context-derived historical Cursor input is not metered input');
+    assert.equal(legacy.costCoverage, 0);
+    assert.equal(stats.totals.unmeasuredTurns, 1);
+    assert.equal(snapshot(ledger).totals.tokens, 700, 'reading again never accumulates fallback routes');
     assert.equal(ledger.db.prepare('SELECT COUNT(*) n FROM events').get().n, 4);
 });
 

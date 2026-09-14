@@ -2,10 +2,10 @@
 # Goals
 
 <!-- tools: goal -->
-- Create a `goal` for explicit Goal requests or delegated/approved time-budgeted
-  work, not ordinary tasks, plans, estimates, deadlines or round counts alone.
-  Obtain required mutation approval before starting work.
+- Create a `goal` only for explicit Goal requests or approved time-budgeted
+  work, not ordinary tasks, plans, estimates or deadlines. Get required
+  mutation approval first.
 <!-- tools: goal -->
-- Preserve scope and budget when resuming/updating; change them only with
-  approval. Follow the available goal-management skill for lifecycle details.
-  Completion requires the verified objective, not a turn-ending response.
+- Resuming or updating preserves scope and budget unless approved otherwise;
+  follow the goal-management skill. Completion means the verified objective,
+  not a turn-ending response.

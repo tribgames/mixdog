@@ -203,7 +203,8 @@ export function createGoalContinuation({
       if (removed && currentGoal?.status === 'duration_reached') {
         runtime.markGoalReminder?.('deadline-reached');
       }
-      const archivedGoalId = currentGoal?.status === 'complete' ? clean(currentGoal.id) : '';
+      const archivedGoalId = ['complete', 'stopped'].includes(currentGoal?.status)
+        ? clean(currentGoal.id) : '';
       if (archivedGoalId) {
         suppressedCompletedGoalId = archivedGoalId;
         set({ goal: null });

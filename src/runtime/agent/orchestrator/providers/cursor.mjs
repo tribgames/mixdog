@@ -578,10 +578,15 @@ class CursorProviderBase {
             stopReason: assembled.stopReason,
             ...(assembled.reasoningContent ? { reasoningContent: assembled.reasoningContent } : {}),
             usage: rawUsage ? {
-                inputTokens: Number(rawUsage.prompt_tokens ?? rawUsage.input_tokens ?? 0),
+                inputTokens: rawUsage.input_tokens_known === false ? null
+                    : Number(rawUsage.prompt_tokens ?? rawUsage.input_tokens ?? 0),
                 outputTokens: Number(rawUsage.completion_tokens ?? rawUsage.output_tokens ?? 0),
-                cachedTokens: Number(rawUsage.cached_tokens ?? 0),
-                promptTokens: Number(rawUsage.prompt_tokens ?? rawUsage.input_tokens ?? 0),
+                cachedTokens: rawUsage.cache_tokens_known === false ? null : Number(rawUsage.cached_tokens ?? 0),
+                promptTokens: rawUsage.input_tokens_known === false ? null
+                    : Number(rawUsage.prompt_tokens ?? rawUsage.input_tokens ?? 0),
+                inputTokensKnown: rawUsage.input_tokens_known !== false,
+                cacheTokensKnown: rawUsage.cache_tokens_known !== false,
+                contextTokens: rawUsage.context_tokens ?? null,
                 raw: { ...rawUsage },
             } : undefined,
         };

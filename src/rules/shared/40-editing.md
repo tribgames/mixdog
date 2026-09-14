@@ -1,12 +1,10 @@
 # Editing
 
 <!-- tools: apply_patch -->
-- Author files with `apply_patch`, not shell scripts/redirection.
+- Author files with `apply_patch`, never shell scripts or redirection.
 <!-- tools: edit -->
-- Author files with `edit`, not shell scripts/redirection.
-- Shell writes are for generated artifacts or execution-based transformations.
-- Use exact current target text from visible evidence, never reconstructed
-  from other files, samples or expectations.
-- Apply determined edits in the fewest safe supported calls; write each file
-  complete. Defer only ambiguous or result-dependent changes.
+- Author files with `edit`, never shell scripts or redirection.
+- Shell writes only for generated artifacts or execution-based transformations.
+- Target text comes from visible evidence, never reconstructed.
+- Fewest safe calls; write each file complete; defer only result-dependent changes.
 

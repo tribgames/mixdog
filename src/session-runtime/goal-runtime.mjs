@@ -355,7 +355,7 @@ export function createGoalRuntime({
   // Explicit retirement of a superseded Goal. The create guard stays strict so
   // parallel Goals stay impossible; this is the one way out of it, and it is
   // deliberately an act the model has to take rather than a silent overwrite.
-  const abandonGoal = async (sessionId, { expectedGoalId = '' } = {}) => {
+  const abandonGoal = async (sessionId, { expectedGoalId = '', archive = false } = {}) => {
     const id = assertSessionId(sessionId);
     const goal = requireGoal(id);
     if (clean(expectedGoalId) && clean(expectedGoalId) !== clean(goal.id)) {
@@ -366,6 +366,10 @@ export function createGoalRuntime({
     goal.stoppedAt = now();
     goal.updatedAt = goal.stoppedAt;
     goal.blocker = '';
+    // A stopped Goal can neither resume nor be edited, so a user who confirmed
+    // the stop has nothing left to do with its chrome: retire it at once. The
+    // record stays for history so the unfinished work is still preserved.
+    if (archive) goal.archivedAt = goal.stoppedAt;
     await commit(id, goal);
     turnGoalIds.delete(id);
     return publicGoal(goal, now());
@@ -426,7 +430,7 @@ export function createGoalRuntime({
     const at = now();
     if (goal.status === 'stopped') throw new Error('a stopped Goal cannot be changed; create a new Goal');
     if (action === 'stop') {
-      goal = await abandonGoal(id, { expectedGoalId });
+      goal = await abandonGoal(id, { expectedGoalId, archive: true });
       return { ok: true, action, goal, message: `Goal stopped · ${goal.objective}` };
     }
     if (action === 'pause') {
@@ -739,7 +743,9 @@ export function createGoalRuntime({
       if (!sessionId) return null;
       return withMutation(sessionId, async (id) => {
         const goal = readRecord(id).goal;
-        if (!goal || goal.status !== 'complete' || goal.archivedAt) return visibleSnapshot(id);
+        // A model-abandoned Goal retires the same way a completed one does:
+        // the user's next prompt is the acknowledgement that supersedes it.
+        if (!goal || !['complete', 'stopped'].includes(goal.status) || goal.archivedAt) return visibleSnapshot(id);
         const at = now();
         goal.archivedAt = at;
         goal.updatedAt = at;

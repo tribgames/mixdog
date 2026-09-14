@@ -1,9 +1,9 @@
 # Implementation
 
-- Stop at the smallest implementation satisfying the full contract. Change
-  code only for an unmet requirement or demonstrated defect, never optional
-  cleanup. Reuse functions; avoid heuristics, generalization and duplicate logic.
-- Normalize by source formats and required schema before comparing/selecting;
-  equivalent representations are not conflicts. Invent no extra conversions.
-- Fix causes, not symptom-specific exceptions. Remove obsolete branches and
-  dependencies when replacing an implementation.
+- Smallest implementation that meets the full contract; change code only for
+  an unmet requirement or demonstrated defect, never optional cleanup. Reuse
+  functions; no heuristics, generalization or duplicate logic.
+- Normalize by source format and required schema before comparing; equivalent
+  representations are not conflicts. No extra conversions.
+- Fix causes, not symptoms. Remove obsolete branches and dependencies when
+  replacing an implementation.

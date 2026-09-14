@@ -17,15 +17,10 @@ import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 // truncation (proceed with cap) rather than refusing. Hard in-memory cap
 // for loading a full file remains READ_MAX_SIZE_BYTES (10 MiB).
 //
-// READ_MAX_OUTPUT_BYTES (30 KB) — output-truncation cap. Lead-facing default tightened from 50k. Follows the
-// common max-output-size intent and the throw-vs-truncate
-// trade-off Anthropic chose in #21841 (throw is more token-efficient).
-// NOTE: the usual alternative is a ~25,000-token output budget
-// enforced post-read via a tokenizer throw. mixdog
-// caps on BYTES at read time instead (no tokenizer in the hot path);
-// 30 KB ≈ well under a 25k-token budget, so the byte cap is left as-is
-// rather than converted to a token count that can't be expressed
-// cleanly without a tokenizer.
+// READ_MAX_OUTPUT_BYTES — output-truncation cap, shared with the other
+// tools via TOOL_OUTPUT_MAX_BYTES (50 KB by default). mixdog caps on BYTES at
+// read time (no tokenizer in the hot path); 50 KB stays well under a
+// 25k-token output budget, so no token-count conversion is needed.
 export const READ_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 export const READ_WHOLE_FILE_MAX_BYTES = 256 * 1024;
 export const READ_MAX_OUTPUT_BYTES = TOOL_OUTPUT_MAX_BYTES;

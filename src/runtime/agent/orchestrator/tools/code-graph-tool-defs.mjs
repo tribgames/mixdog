@@ -3,7 +3,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
     name: 'code_graph',
     title: 'Code Graph',
     annotations: { title: 'Code Graph', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false, compressibleLossless: true },
-    description: 'Source-file structure and symbol relations. Query only missing evidence, not another view of sufficient diff/grep/read context. First batch required targets by mode; then parallelize with independent tools. Exact identifiers use find_symbol/references/callers/callees; keywords use symbol_search/search. Text, literals, and regex belong to grep. find_symbol returns declaration/body; references returns declaration/usages plus optional body; callers/callees return locations.',
+    description: 'Source-file structure and symbol relations; query only what diff/grep/read did not settle. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; text and regex belong to grep. find_symbol returns declaration/body; references adds usages (body opt-in); callers/callees return locations.',
     inputSchema: {
       type: 'object',
       properties: {

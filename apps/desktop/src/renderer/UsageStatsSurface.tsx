@@ -30,8 +30,9 @@ function statsNumber(value: unknown): number {
   return Number.isFinite(amount) ? amount : 0;
 }
 
-function statsTokens(value: unknown): string {
-  return usageCompact(value) || '—';
+function statsTokens(value: unknown, incomplete = false): string {
+  if (incomplete && !(statsNumber(value) > 0)) return '—';
+  return (usageCompact(value) || '—') + (incomplete && usageNumber(value) !== null ? '+' : '');
 }
 
 function statsCount(value: unknown): string {
@@ -54,6 +55,7 @@ function statsSessions(route: Row): { text: string; title?: string } {
 }
 
 function statsPercent(value: unknown): string {
+  if (usageNumber(value) === null) return '—';
   return `${Math.round(statsNumber(value) * 100)}%`;
 }
 
@@ -81,6 +83,7 @@ function StatCard({ label, value, detail }: {
 }
 
 function TokenMix({ totals }: { totals: Row }) {
+  const incomplete = statsNumber(totals.unmeasuredTurns) > 0;
   // Cache stays OUT of the bar. It runs two orders of magnitude above the rest
   // on a long session, so including it painted one flat grey block and buried
   // the only split worth reading here: how much was sent versus generated.
@@ -104,10 +107,10 @@ function TokenMix({ totals }: { totals: Row }) {
     </div>
     <ul>
       {parts.map((part) => <li key={part.key}>
-        <i data-part={part.key} aria-hidden="true" />{part.label}<b>{statsTokens(part.value)}</b>
+        <i data-part={part.key} aria-hidden="true" />{part.label}<b>{statsTokens(part.value, incomplete && part.key === 'input')}</b>
       </li>)}
-      <li title={`${t('Cache writes')}: ${statsTokens(cacheWrite)}`}>
-        <i data-part="cache" aria-hidden="true" />{t('Cache hits')}<b>{statsTokens(cache)}</b>
+      <li title={`${t('Cache writes')}: ${statsTokens(cacheWrite, incomplete)}`}>
+        <i data-part="cache" aria-hidden="true" />{t('Cache hits')}<b>{statsTokens(cache, incomplete)}</b>
       </li>
     </ul>
   </section>;
@@ -133,6 +136,7 @@ type TrendBucket = {
   tokens: number;
   costUsd: number;
   turns: number;
+  unmeasuredTurns: number;
   providers: Map<string, number>;
 };
 
@@ -145,11 +149,12 @@ function groupTrend(daily: Row[], grain: Grain, metric: Metric): TrendBucket[] {
     const bucket = buckets.get(key)
       || { key, label: grain === 'hour'
         ? entry.unknown ? t('Unknown time') : String(entry.label || key) : key,
-      future: true, tokens: 0, costUsd: 0, turns: 0, providers: new Map<string, number>() };
+      future: true, tokens: 0, costUsd: 0, turns: 0, unmeasuredTurns: 0, providers: new Map<string, number>() };
     bucket.future = bucket.future && entry.future === true;
     bucket.tokens += statsNumber(entry.tokens);
     bucket.costUsd += statsNumber(entry.costUsd);
     bucket.turns += statsNumber(entry.turns);
+    bucket.unmeasuredTurns += statsNumber(entry.unmeasuredTurns);
     for (const raw of (Array.isArray(entry.providers) ? entry.providers as unknown[] : [])) {
       const slice = record(raw);
       const id = String(slice.provider || '');
@@ -166,8 +171,10 @@ function metricValue(bucket: TrendBucket, metric: Metric): number {
   return metric === 'costUsd' ? bucket.costUsd : metric === 'turns' ? bucket.turns : bucket.tokens;
 }
 
-function metricText(value: number, metric: Metric): string {
-  return metric === 'costUsd' ? usageMoney(value) : metric === 'turns' ? statsCount(value) : statsTokens(value);
+function metricText(value: number, metric: Metric, incomplete = false): string {
+  if (metric === 'turns') return statsCount(value);
+  if (incomplete && value === 0) return '—';
+  return metric === 'costUsd' ? usageMoney(value) + (incomplete ? '+' : '') : statsTokens(value, incomplete);
 }
 
 /** Provider identity, not rank or metric, owns the colour of every band. */
@@ -183,7 +190,8 @@ function TrendBar({ bucket, metric, peak, order }: {
     .map((id) => ({ id, value: bucket.providers.get(id) || 0 }))
     .filter((part) => part.value > 0);
   const summed = parts.reduce((sum, part) => sum + part.value, 0);
-  const title = bucket.future ? bucket.label : `${bucket.label} · ${metricText(total, metric)}`;
+  const title = bucket.future ? bucket.label
+    : `${bucket.label} · ${metricText(total, metric, bucket.unmeasuredTurns > 0)}`;
   return <i style={{ height: `${height}%` }} title={title} data-empty={total > 0 ? undefined : 'true'}
     data-future={bucket.future ? 'true' : undefined}>
     {/* A bar with no split to draw stays a plain block rather than an empty
@@ -218,7 +226,7 @@ function UsageTrend({ daily, hourly, view, providerOrder }: {
           aria-pressed={option.key === metric}
           onClick={() => setMetric(option.key)}>{option.label}</button>)}
       </div>
-      {peak > 0 && <span>{t('Peak')} {metricText(peak, metric)}</span>}
+      {peak > 0 && <span>{t('Peak')} {metricText(peak, metric, series.some((entry) => entry.unmeasuredTurns > 0))}</span>}
     </header>
     {/* A period with nothing in it says so. A row of hairlines under
         "Peak 0" read as a chart that failed to draw. */}
@@ -227,7 +235,8 @@ function UsageTrend({ daily, hourly, view, providerOrder }: {
         {series.map((entry) => <TrendBar key={entry.key}
           bucket={entry} metric={metric} peak={peak} order={providerOrder} />)}
       </div>
-      : <p className="stats-trend-empty">{t('No usage in this period.')}</p>}
+      : <p className="stats-trend-empty">{series.some((entry) => entry.unmeasuredTurns > 0)
+        ? t('Unknown usage') : t('No usage in this period.')}</p>}
     <footer data-single={series.length === 1 ? 'true' : undefined}>
       <span>{series.length ? series[0].label : ''}</span>
       {series.length > 1 && <span>{series[series.length - 1].label}</span>}
@@ -243,16 +252,17 @@ function UsageTrend({ daily, hourly, view, providerOrder }: {
 
 function RouteCells({ route }: { route: Row }) {
   const sessions = statsSessions(route);
+  const incomplete = statsNumber(route.unmeasuredTurns) > 0;
   return <>
     <td title={sessions.title}>{sessions.text}</td>
     <td>{statsCount(route.turns)}</td>
-    <td className="stats-breakdown">{statsTokens(route.input)}</td>
+    <td className="stats-breakdown">{statsTokens(route.input, incomplete)}</td>
     <td className="stats-breakdown">{statsTokens(route.output)}</td>
-    <td className="stats-breakdown" title={`${t('Cache writes')}: ${statsTokens(route.cacheWrite)}`}>
-      {statsTokens(route.cacheRead)}
+    <td className="stats-breakdown" title={`${t('Cache writes')}: ${statsTokens(route.cacheWrite, incomplete)}`}>
+      {statsTokens(route.cacheRead, incomplete)}
     </td>
     <td className="stats-optional">{statsPercent(route.cacheHitRate)}</td>
-    <td className="stats-total-cell">{statsTokens(route.tokens)}</td>
+    <td className="stats-total-cell">{statsTokens(route.tokens, incomplete)}</td>
     <td className="stats-cost-cell" title={statsNumber(route.costCoverage) < 1 && statsNumber(route.turns) > 0
       ? t('Some usage has no known price; the displayed cost is incomplete.') : undefined}>{usageMoney(
       statsNumber(route.costCoverage) === 0 && statsNumber(route.turns) > 0 ? null : route.costUsd
@@ -350,13 +360,16 @@ export function UsageStatsBody({ data, request }: {
   const subscriptionCost = subscriptionRows.reduce((sum, row) => sum + statsNumber(row.costUsd), 0);
   const apiCost = apiRows.reduce((sum, row) => sum + statsNumber(row.costUsd), 0);
   const moneyFor = (rows: Row[], amount: number) => rows.length > 0 && rows.every((row) => statsNumber(row.costCoverage) === 0)
-    ? usageMoney(null) : usageMoney(amount);
+    ? usageMoney(null) : usageMoney(amount) + (rows.some((row) => statsNumber(row.unmeasuredTurns) > 0) ? '+' : '');
   const tokens = statsNumber(totals.tokens);
   const turns = statsNumber(totals.turns);
   const historyDays = statsNumber(coverage.historyDays);
   const partialDays = statsNumber(coverage.partialDays);
+  const incomplete = statsNumber(totals.unmeasuredTurns) > 0;
+  const measurementInfo = t('Cursor does not report per-request input or cache usage. Context-derived historical inputs and costs are excluded; + marks incomplete totals.');
   const usageInfo = [
     t('Subscription values use list prices. API costs may be estimates; neither is an invoice.'),
+    incomplete ? measurementInfo : '',
     `${t('Tokens')}: ${t('Cache excluded')}`,
     historyDays > 0 ? t('Some historical days use estimated token counts, dates and costs.')
       : partialDays > 0 ? t('Historical records may be incomplete; only surviving usage is counted.') : '',
@@ -405,11 +418,12 @@ export function UsageStatsBody({ data, request }: {
         detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')} />
       <StatCard label={t('API usage cost')} value={moneyFor(apiRows, apiCost)}
         detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')} />
-      <StatCard label={t('Tokens')} value={statsTokens(tokens)}
+      <StatCard label={t('Tokens')} value={statsTokens(tokens, incomplete)}
         detail={t('Cache excluded')} />
       <StatCard label={t('Usage records')} value={statsCount(turns)} />
       <StatCard label={t('Sessions')} value={sessionsCard.text} detail={sessionsCard.title} />
     </div>
+    {incomplete && <p className="stats-measurement-note" role="note">{measurementInfo}</p>}
     <TokenMix totals={totals} />
     {/* The legend and every bar band read from one order, so a provider keeps
         its colour no matter which metric or grain is showing. */}
@@ -448,9 +462,9 @@ export function UsageStatsBody({ data, request }: {
                   {plan && <span className="usage-plan" data-plan={plan}>
                     {plan === 'subscription' ? t('Subscription') : plan === 'local' ? t('Local') : 'API'}
                   </span>}
-                  <small>{share}%</small>
+                  <small>{incomplete ? '—' : `${share}%`}</small>
                 </button>
-                <i className="stats-share"><i style={{ width: `${share}%` }} /></i>
+                <i className="stats-share"><i style={{ width: `${incomplete ? 0 : share}%` }} /></i>
               </td>
               <RouteCells route={provider} />
             </tr>

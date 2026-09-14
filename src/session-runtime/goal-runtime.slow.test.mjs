@@ -466,6 +466,10 @@ test('abandoning a superseded Goal releases the create guard', async () => {
     }, { callerSessionId: 'sess_goal_abandon' }));
     assert.equal(abandoned.goal.status, 'stopped');
     assert.equal(runtime.snapshot('sess_goal_abandon').status, 'stopped');
+    // The user's next prompt retires a model-abandoned Goal like a completed one.
+    await runtime.archiveCompletedOnUserInput('sess_goal_abandon');
+    assert.equal(runtime.snapshot('sess_goal_abandon'), null);
+    assert.equal(runtime.storedSnapshot('sess_goal_abandon').status, 'stopped');
 
     const created = JSON.parse(await runtime.executeTool('goal', {
       action: 'create',

@@ -1006,7 +1006,7 @@ function createStreamResponse({
             const filter = thinkingFilter();
             const state = {
                 outputTokens: 0,
-                totalTokens: 0,
+                contextTokens: null,
                 pending: [],
                 streamedTools: new Map(),
                 closed: false,
@@ -1042,14 +1042,16 @@ function createStreamResponse({
                 if (flushed.content) send(completionChunk(id, model, { content: flushed.content }));
                 send(completionChunk(id, model, {}, reason));
                 const completionTokens = state.outputTokens;
-                const totalTokens = state.totalTokens || completionTokens;
                 send({
                     ...completionChunk(id, model, {}),
                     choices: [],
                     usage: {
-                        prompt_tokens: Math.max(0, totalTokens - completionTokens),
                         completion_tokens: completionTokens,
-                        total_tokens: totalTokens,
+                        // Checkpoint occupancy is not per-request prompt usage
+                        // and supplies no cache split or billable token count.
+                        input_tokens_known: false,
+                        cache_tokens_known: false,
+                        context_tokens: state.contextTokens,
                     },
                 });
                 controller.enqueue(textEncoder.encode('data: [DONE]\n\n'));
@@ -1138,7 +1140,7 @@ function createStreamResponse({
                     state.batchBoundaryChunkSeq = state.chunkSeq;
                     try {
                         const checkpoint = decodeMessage('ConversationStateStructure', conversation.checkpoint);
-                        state.totalTokens = checkpoint.tokenDetails?.usedTokens || state.totalTokens;
+                        state.contextTokens = checkpoint.tokenDetails?.usedTokens ?? state.contextTokens;
                     } catch {}
                     progress = 'work';
                 } else if (message.execServerMessage) {

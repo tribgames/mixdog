@@ -19,7 +19,7 @@ function goalRevision(goal: GoalSnapshot | null): string {
 export function useGoalAfterSubmission(goal: GoalSnapshot | null, sessionId: string) {
   const submission = useContext(GoalSubmissionContext);
   const revision = goalRevision(goal);
-  const complete = goal?.status === "complete";
+  const complete = goal?.status === "complete" || goal?.status === "stopped";
   const state = useRef({ sessionId, submission, revision, complete, suppressed: "" });
   const previous = state.current;
   let suppressed = previous.sessionId === sessionId ? previous.suppressed : "";

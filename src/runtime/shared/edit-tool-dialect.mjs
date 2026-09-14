@@ -25,11 +25,18 @@ export function unusedModelEditToolName(modelName) {
 // rewrites it to the one dialect the session can call, so a Claude session
 // never reads `apply_patch` and a GPT session never reads `edit`.
 const EDIT_DIALECT_TOKEN = 'edit/apply_patch';
+// Preserve the template across shallow catalog copies and model switches.
+// Symbol metadata is not serialized into provider tool schemas.
+const EDIT_DIALECT_DESCRIPTION = Symbol('editDialectDescription');
 
 function bindEditDialectDescription(tool, selected) {
-  const description = tool?.description;
+  const description = tool?.[EDIT_DIALECT_DESCRIPTION] ?? tool?.description;
   if (typeof description !== 'string' || !description.includes(EDIT_DIALECT_TOKEN)) return tool;
-  return { ...tool, description: description.split(EDIT_DIALECT_TOKEN).join(selected) };
+  return {
+    ...tool,
+    [EDIT_DIALECT_DESCRIPTION]: description,
+    description: description.split(EDIT_DIALECT_TOKEN).join(selected),
+  };
 }
 
 export function filterModelEditTools(tools, modelName) {

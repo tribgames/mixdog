@@ -80,6 +80,7 @@ function createState() {
     costBilled: 0,
     costEstimated: 0,
     costKnownTurns: 0,
+    unmeasuredTurns: 0,
     durationMs: 0,
     durationTurns: 0,
     providers: new Map(),
@@ -150,6 +151,7 @@ function addUsage(target, usage) {
   target.cacheWrite += usage.cacheWrite;
   target.costUsd += usage.costUsd;
   target.costKnownTurns = (target.costKnownTurns || 0) + (usage.costKnownTurns || 0);
+  target.unmeasuredTurns = (target.unmeasuredTurns || 0) + (usage.unmeasuredTurns || 0);
 }
 
 function foldRoute(state, providerId, modelId, kind, usage) {
@@ -168,6 +170,7 @@ function foldRoute(state, providerId, modelId, kind, usage) {
   state.cacheRead += usage.cacheRead;
   state.cacheWrite += usage.cacheWrite;
   state.costUsd += usage.costUsd;
+  state.unmeasuredTurns += usage.unmeasuredTurns || 0;
 }
 
 function addDaily(state, key, usage, providerId) {
@@ -240,6 +243,7 @@ function foldRollupDay(state, key, day, conversationOnly) {
         ? (num(route.costUsd) > 0 ? num(route.turns) : 0) : num(route.costKnownTurns),
       sessions: route.sessions,
       sessionsComplete: route.sessionsComplete,
+      unmeasuredTurns: num(route.unmeasuredTurns),
     };
     foldRoute(state, providerId, modelId, text(raw?.kind), usage);
     addDaily(state, key, usage, providerId);
@@ -423,25 +427,28 @@ function tokensOf(bucket) {
 function exportRoute(bucket, totalTokens) {
   const tokens = tokensOf(bucket);
   const prompt = bucket.input + bucket.cacheRead + bucket.cacheWrite;
+  const unmeasuredTurns = num(bucket.unmeasuredTurns);
+  const unknown = unmeasuredTurns > 0 && unmeasuredTurns === bucket.turns;
   return {
     turns: bucket.turns,
     // Ids that were seen are counted even when some turns carried none: the
     // figure is then a floor, and the flag says so, rather than an unknown.
     sessions: bucket.sessions.size,
     sessionsComplete: bucket.sessionsComplete,
-    input: bucket.input,
+    input: unknown ? null : bucket.input,
     output: bucket.output,
-    cacheRead: bucket.cacheRead,
-    cacheWrite: bucket.cacheWrite,
+    cacheRead: unknown ? null : bucket.cacheRead,
+    cacheWrite: unknown ? null : bucket.cacheWrite,
     cacheTokens: bucket.cacheRead + bucket.cacheWrite,
     tokens,
+    unmeasuredTurns,
     costUsd: round(bucket.costUsd, 6),
     costCoverage: bucket.turns > 0 ? num(bucket.costKnownTurns) / bucket.turns : 0,
-    share: totalTokens > 0 ? round(tokens / totalTokens, 6) : 0,
+    share: unmeasuredTurns > 0 ? null : totalTokens > 0 ? round(tokens / totalTokens, 6) : 0,
     // How much of this route's prompt arrived from cache instead of being read
     // again. Cache writes are misses, so belong in the denominator, not the
     // numerator.
-    cacheHitRate: prompt > 0 ? round(bucket.cacheRead / prompt, 4) : 0,
+    cacheHitRate: unmeasuredTurns > 0 ? null : prompt > 0 ? round(bucket.cacheRead / prompt, 4) : 0,
     // What a million tokens actually cost on this route. Cache is excluded from
     // the divisor for the same reason it is excluded from the token figure —
     // including it would divide real spend by a number two orders of magnitude
@@ -532,6 +539,7 @@ export function usageStatsSnapshot({
       tokens: bucket.input + bucket.output,
       cacheTokens: bucket.cacheRead + bucket.cacheWrite,
       costUsd: round(bucket.costUsd, 6),
+      unmeasuredTurns: num(bucket.unmeasuredTurns),
       ...future,
       providers: [...bucket.providers.values()]
         .map((slice) => ({
@@ -539,6 +547,7 @@ export function usageStatsSnapshot({
           turns: slice.turns,
           tokens: slice.input + slice.output,
           costUsd: round(slice.costUsd, 6),
+          unmeasuredTurns: num(slice.unmeasuredTurns),
         }))
         .sort((a, b) => b.tokens - a.tokens),
     };
@@ -571,6 +580,7 @@ export function usageStatsSnapshot({
       input: state.input,
       output: state.output,
       tokens: totalTokens,
+      unmeasuredTurns: state.unmeasuredTurns,
       cacheRead: state.cacheRead,
       cacheWrite: state.cacheWrite,
       cacheTokens,
@@ -578,7 +588,7 @@ export function usageStatsSnapshot({
       // question is how much data flowed rather than what it cost.
       totalTokens: totalTokens + cacheTokens,
       // How much of the prompt arrived from cache instead of being read again.
-      cacheHitRate: state.input + state.cacheRead + state.cacheWrite > 0
+      cacheHitRate: state.unmeasuredTurns > 0 ? null : state.input + state.cacheRead + state.cacheWrite > 0
         ? round(state.cacheRead / (state.input + state.cacheRead + state.cacheWrite), 4)
         : 0,
       costUsd: round(state.costUsd, 6),

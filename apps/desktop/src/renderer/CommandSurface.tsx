@@ -55,6 +55,7 @@ const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
 // reopening paints instantly without retaining every conversation forever.
 const SURFACE_DATA_CACHE_LIMIT = 64;
 const surfaceDataCache = new Map<string, Record<string, unknown>>();
+const statsDataCache = new WeakMap<SurfaceApi, Record<string, unknown>>();
 
 function readSurfaceDataCache(key: string): Record<string, unknown> | undefined {
   const retained = surfaceDataCache.get(key);
@@ -103,12 +104,14 @@ export function CommandSurface({
   // 튐): context payloads cache per session exactly like /usage, so the
   // dialog opens full-size with the last data while a silent refresh runs.
   const cacheKey = commandSurfaceCacheKey(surface, sessionId);
-  // Statistics open from one completed response, never stale cached figures
-  // followed by a second layout when the fresh rows arrive.
-  const cacheable = surface !== 'doctor' && surface !== 'stats';
-  const cachedSurface = cacheable ? readSurfaceDataCache(cacheKey) : undefined;
+  // Paint the last statistics immediately, then revalidate. Scope the snapshot
+  // to its API owner so another host cannot inherit its figures.
+  const cacheable = surface !== 'doctor';
+  const cachedSurface = surface === 'stats' ? statsDataCache.get(api)
+    : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
   const [data, setData] = useState<Record<string, unknown>>(() => cachedSurface ?? {});
   const [loading, setLoading] = useState(() => !cachedSurface);
+  const [refreshing, setRefreshing] = useState(false);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const capabilityRequest = useCallback((capability: DesktopCapability, args: unknown[] = []) => ({
@@ -120,9 +123,11 @@ export function CommandSurface({
     if (loadingSurface.current === surface) return;
     const request = ++loadSequence.current;
     loadingSurface.current = surface;
-    const cached = cacheable ? readSurfaceDataCache(cacheKey) : undefined;
+    const cached = surface === 'stats' ? statsDataCache.get(api)
+      : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
     if (cached) setData(cached);
     setLoading(!cached);
+    setRefreshing(true);
     setError('');
     try {
       const capabilities = LOADERS[surface];
@@ -134,7 +139,8 @@ export function CommandSurface({
           ...Object.fromEntries(capabilities.map((capability, index) => [capability, results[index]?.value])),
           ...(surface === 'context' ? { snapshot: results[0]?.snapshot ?? null } : {}),
         };
-        if (cacheable) writeSurfaceDataCache(cacheKey, next);
+        if (surface === 'stats') statsDataCache.set(api, next);
+        else if (cacheable) writeSurfaceDataCache(cacheKey, next);
         setData(next);
       }
     } catch (reason) {
@@ -143,6 +149,7 @@ export function CommandSurface({
       }
     } finally {
       if (loadSequence.current === request) setLoading(false);
+      if (loadSequence.current === request) setRefreshing(false);
       if (loadSequence.current === request && loadingSurface.current === surface) loadingSurface.current = null;
     }
   }, [api, cacheKey, cacheable, capabilityRequest, surface]);
@@ -151,23 +158,13 @@ export function CommandSurface({
     else if (surface === 'stats') {
       ++loadSequence.current;
       loadingSurface.current = null;
-      setLoading(true);
-      setData({});
+      setLoading(!statsDataCache.has(api));
+      setRefreshing(false);
       setError('');
     }
-  }, [load, open, surface]);
+  }, [api, load, open, surface]);
   useErrorToast(open && surface !== 'stats' ? error : '', `command:${surface}`);
-  const visible = open && (surface !== 'stats' || !loading);
-  useEffect(() => {
-    if (!open || surface !== 'stats' || visible) return undefined;
-    const cancelPending = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      onCloseRef.current();
-    };
-    document.addEventListener('keydown', cancelPending);
-    return () => document.removeEventListener('keydown', cancelPending);
-  }, [open, surface, visible]);
+  const visible = open;
   useEffect(() => {
     if (!open || surface !== 'context' || loading
       || typeof api.subscribeState !== 'function') return undefined;
@@ -289,7 +286,7 @@ export function CommandSurface({
     inherit: 'Inherit session',
     stats: 'Token usage',
   })[surface]);
-  if (surface === 'stats' && !visible) return null;
+  if (surface === 'stats' && !open) return null;
   return createPortal(<div ref={surfaceLayer}
     className="mixdog-settings-layer stable-surface-preserved"
     data-surface-active={open ? "true" : "false"}
@@ -301,7 +298,7 @@ export function CommandSurface({
     <section ref={dialog} className="mixdog-settings command-surface" data-surface={surface}
       role="dialog" aria-modal={open ? 'true' : 'false'}
       aria-labelledby="command-surface-title" aria-describedby="command-surface-description" tabIndex={-1}
-      aria-busy={loading || Boolean(pending)}>
+      aria-busy={loading || refreshing || Boolean(pending)}>
       <div className="mixdog-settings__panel">
         <header className="mixdog-settings__header"><h1 id="command-surface-title">{title}</h1>
           <div className="command-surface-header-actions">
@@ -312,7 +309,7 @@ export function CommandSurface({
           {/* /inherit reads its facts from the snapshot it already holds, so it
               paints complete at once and only waits on the context percentage
               before unlocking the decision — never behind a loading cover. */}
-          <PaneSurfaceGate ready={!loading || surface === 'inherit'}
+          <PaneSurfaceGate ready={!loading || surface === 'inherit' || surface === 'stats'}
             label={t('Loading {{title}}…', { title })}>
           <div className="command-surface-content">
           {/* The dialog heading already names the surface, so the old
@@ -320,8 +317,11 @@ export function CommandSurface({
               (user decision). Keep the sentence for screen readers only. */}
           <p id="command-surface-description" className="sr-only">
             {t('{{title}} for the active Mixdog session.', { title })}</p>
-          {surface === 'stats' && error
-            ? <p className="stats-error" role="alert">{error}</p>
+          {surface === 'stats' && error && <p className="stats-error" role="alert">{error}</p>}
+          {surface === 'stats' && refreshing && !loading
+            && <p className="stats-refresh-status" role="status">{t('Refreshing…')}</p>}
+          {surface === 'stats' && error && !data.getUsageStats
+            ? null
             : loading && surface !== 'inherit'
             ? surface === 'usage'
               ? <UsageSkeleton />

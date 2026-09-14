@@ -5,6 +5,7 @@ import { importUsageHistory } from '../runtime/shared/llm/usage-ledger-import.mj
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { usageStatsSnapshot } from '../standalone/usage-stats-model.mjs';
 import { resolveUsageStatsPeriod } from '../standalone/usage-stats-period.mjs';
+import { usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
 
 const MAX_MODEL_LIMIT = 50;
 
@@ -46,7 +47,13 @@ export function createUsageStatsApi({ ledger = getUsageLedger, importHistory = i
         view: options.view, anchor: options.anchor, now,
       });
       const snapshot = usageStatsSnapshot({
-        rollup: store.rollup({ hourlyDay: period?.view === 'hour' ? period.startDay : null }),
+        rollup: store.rollup({
+          hourlyDay: period?.view === 'hour' ? period.startDay : null,
+          ...(period ? {
+            fromDay: period.startDay || undefined,
+            toDay: usageRollupDayKey(period.toMs),
+          } : {}),
+        }),
         days: normalizeDays(options?.days),
         period,
         modelLimit: normalizeModelLimit(options?.modelLimit),

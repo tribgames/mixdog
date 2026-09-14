@@ -26,6 +26,7 @@ export async function accountProviderSend(provider, instance, send, model, opts 
             sessionId: opts.sessionId || opts.session?.id,
             sourceType: opts.session?.sourceType || opts.sourceType || opts.requestKind || '',
             inputTokens: usage.inputTokens,
+            inputTokensKnown: usage.inputTokensKnown,
             inputTokensInclusive: instance.constructor?.inputExcludesCache !== true,
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cachedTokens,

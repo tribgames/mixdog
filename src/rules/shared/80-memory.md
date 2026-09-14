@@ -2,12 +2,9 @@
 # Memory
 
 <!-- tools: recall -->
-- past facts recorded in prior work or sessions→`recall`
-  (stored history only, never current local state).
+- Past sessions and decisions→`recall` (stored history, never current state).
 <!-- tools: memory -->
-- Durable user preferences and constraints→`memory`.
-<!-- tools: memory -->
-- Standing memory is only for user-specific preferences and constraints.
-  Before adding, editing, or promoting one, show its exact content and scope
-  and ask for approval; an explicit user request for that exact change already
-  supplies approval. Never promote inferred lessons into standing instructions.
+- Durable user preferences and constraints→`memory`, nothing else. Before
+  adding, editing or promoting one, show exact content and scope and ask;
+  an explicit request for that exact change is approval. Never promote
+  inferred lessons.

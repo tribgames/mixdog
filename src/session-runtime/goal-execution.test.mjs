@@ -104,11 +104,15 @@ test('stop preserves unfinished work across restart and archives it before a rep
   const stopped = (await f.control({ action: 'stop', expectedGoalId: created.id })).goal;
   assert.equal(stopped.status, 'stopped');
   assert.equal(stopped.tasks[0].status, 'in_progress');
+  // A user-confirmed stop retires the chrome at once; the record still exists.
+  assert.equal(f.runtime.snapshot(f.sessionId), null);
+  assert.equal(f.runtime.storedSnapshot(f.sessionId).status, 'stopped');
   await assert.rejects(f.control({ action: 'resume' }), /stopped Goal/);
   f.runtime.close();
   const restored = createGoalRuntime(f.options);
   t.after(() => restored.close());
-  assert.equal(restored.continuation(f.sessionId).reason, 'stopped');
+  assert.equal(restored.snapshot(f.sessionId), null);
+  assert.equal(restored.continuation(f.sessionId).reason, 'missing');
   await restored.control(f.sessionId, { command: 'New objective' });
   const history = JSON.parse(readFileSync(join(f.dataDir, 'goals', 'history', f.sessionId, `${created.id}.json`), 'utf8'));
   assert.equal(history.goal.status, 'stopped');

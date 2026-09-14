@@ -41,7 +41,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read known file ranges or images. First batch all known required paths in file_path, using per-entry windows for different ranges; never split a supported read array. Then parallelize with independent tools. Acquire missing source context; planned output checks need no extra preview. Diff hunks and grep/graph spans are sufficient source context; unchanged results refer to prior context. No directories: use list. Other binaries return bounded hex, not decoded contents; request format-aware decoding directly. Literal paths unless a glob is explicit; missing paths are reported, never replaced.',
+        description: 'Read known file ranges or images; batch all required paths in file_path with per-entry windows. Diff hunks and grep/graph spans already in context need no re-read. Directories: use list. Binaries return bounded hex. Literal paths; missing paths are reported, never replaced.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -69,7 +69,7 @@ export const BUILTIN_TOOLS = [
                             },
                         },
                     ],
-                    description: 'Known path(s) or per-file windows. Entry windows override batch defaults. A glob fans out to per-file results: max 10, newest first, 25 lines/file; literal-named files win. Shared 10 KB cap; per-entry results/errors.',
+                    description: 'Known path(s) or per-file windows; entry windows override batch defaults. A glob fans out to at most 10 newest files, 25 lines each. Shared 10 KB cap.',
                 },
                 offset: {
                     type: 'integer',
@@ -92,7 +92,7 @@ export const BUILTIN_TOOLS = [
         name: 'edit',
         title: 'Edit',
         annotations: { title: 'Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-        description: 'Replace exact text in one file. old_string must match once unless replace_all is true. Batch non-overlapping edits in call order using existing text, not text another edit creates. Widened replacements must keep intervening lines verbatim.',
+        description: 'Replace exact text in one file. old_string must match once unless replace_all is true. Batch non-overlapping edits in call order using existing text, not text another edit creates. Widened replacements must keep intervening lines verbatim. Call this tool directly, not as a shell command.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -121,7 +121,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, and data computation/generation/decoding. Stateful reads need preserved originals and a working copy unless all source artifacts stay unchanged. Allocate unique temporary directories; never clear existing paths to prepare them. No shell substitutes for inspection/search or Git: use read/list/find/glob/grep/code_graph/git. Author source with the available apply_patch or edit tool, never shell scripts. First batch supported tool arrays, then parallelize independent jobs. Chain dependencies with failure propagation. Use supplied/default check commands; after a pass, do not edit or rerun for warnings unless they prove a required contract violation. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id. Use task wait, not read polling, for completion or a due report.'}`,
+        description: `Run programs, builds, tests and computation. Not for files, search or Git; those have tools (read, grep, glob, list, find, code_graph, git, edit/apply_patch) and tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id. Use task wait, not read polling, for completion or a due report.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -129,7 +129,7 @@ export const BUILTIN_TOOLS = [
                 timeout_ms: {
                     type: 'number',
                     minimum: 0,
-                    description: 'Hard process-kill deadline in ms, including after background promotion; separate from the 10s foreground window. Omit for normal builds/tests unless forced termination is intended. Omit or 0 = no deadline.',
+                    description: 'Hard kill deadline in ms, separate from the 10s foreground window; omit or 0 = none.',
                 },
             },
             required: ['command'],
@@ -183,7 +183,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search literal/regex file contents; return contextual path:line blocks. Symbol relations: use code_graph. First batch only patterns/scopes needed for unresolved evidence; then parallelize independent tools. If a pending diff or lookup determines the search, wait; do not prefetch speculative alternatives. Reuse returned spans. Broad reconnaissance: mode:files; locations only: context:0. Single-line ripgrep; 10 KB cap. include_noise/text opt into ignored files/binary data separately.',
+        description: 'Search literal/regex file contents; returns path:line blocks with context. Symbol relations: code_graph. Batch only patterns and scopes for unresolved evidence; never prefetch alternatives a pending diff or lookup would settle. Broad reconnaissance: mode:files; locations only: context:0. Single-line ripgrep; 10 KB cap. include_noise/text opt into ignored files/binary data.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -205,7 +205,7 @@ export const BUILTIN_TOOLS = [
                     type: 'string',                    description: 'Relative glob filter evaluated inside path, e.g. "*.cs" or "src/**/*.ts". For exact/absolute paths, use path instead.',
                 },
                 mode: { type: 'string', enum: ['content', 'files', 'count'], description: 'content default; files lists matching paths; count totals all patterns together per file.' },
-                limit: { type: 'integer', minimum: 0, description: 'Requested results; default 250. Context output caps at 40 match blocks, even with 0. All output remains capped; follow returned offset when truncated.' },
+                limit: { type: 'integer', minimum: 0, description: 'Requested results; default 250. Context output caps at 40 blocks; follow the returned offset when truncated.' },
                 offset: { type: 'integer', minimum: 0, description: 'Result offset.' },
                 context: { type: 'integer', minimum: 0, maximum: 200, description: 'Omit for automatic context; 0 for matches only.' },
                 include_noise: { type: 'boolean', description: 'Also search gitignored/dependency trees. Explicit exclusions still apply.' },
@@ -219,7 +219,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Wildcard file-path lookup under a known directory; directories never match. First batch required patterns; then parallelize with independent tools. No preliminary listing. Unknown base: find first. Gitignored paths need include_noise:true.',
+        description: 'Wildcard file-path lookup under a known directory; directories never match. No preliminary listing; unknown base: find first. Gitignored paths need include_noise:true.',
         inputSchema: {
             type: 'object',
             properties: {
