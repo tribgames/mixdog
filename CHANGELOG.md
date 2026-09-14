@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.164 - 2026-09-14
+
 - Compact the shared and Lead rules and the built-in tool descriptions to the
   same behavior in fewer tokens; the `shell` description keeps only its role,
   the boundary with the dedicated file/search/Git tools, and the background
