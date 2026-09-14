@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.166 - 2026-09-14
+
 - Studio recognizes the selected ChatGPT account after provider login and
   account switches, using the same credential path as chat without falling
   back to another account's credentials.
