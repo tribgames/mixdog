@@ -12,6 +12,7 @@ test('a local iframe lookup cannot send input after navigation, tab switch, dial
     let rejected = false;
     const sent = [];
     const dispatch = createBrowserInputDispatch({
+      documentId: () => 'document',
       frames: () => new Map([['child', { frameId: 'frame' }]]),
       frameOffset: async () => {
         lookupEntered();

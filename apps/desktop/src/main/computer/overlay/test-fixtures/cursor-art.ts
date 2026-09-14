@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { cursorHtml, cursorScript, CURSOR_HOTSPOT, CURSOR_SIZE } from '../cursor-art';
+import { emulateMotionPreference } from './outline-check';
 
 app.disableHardwareAcceleration();
 app.setPath('userData', join(process.env.CURSOR_TEST_DIRECTORY!, 'profile'));
@@ -12,7 +13,12 @@ void app.whenReady().then(async () => {
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
   try {
+    // Windows Server (the CI runner) turns system animations off, which Chromium
+    // reads as reduced motion; the stylesheet then drops every animation and the
+    // checks below read nothing. Pin the media feature as electron-resume does.
+    window.webContents.debugger.attach('1.3');
     await window.loadURL(`data:text/html;base64,${Buffer.from(cursorHtml()).toString('base64')}`);
+    await emulateMotionPreference(window.webContents, 'no-preference');
     await window.webContents.executeJavaScript(cursorScript());
     const result = await window.webContents.executeJavaScript(`(() => {
       window.mixdogAgentCursor({ effect: 'move' });

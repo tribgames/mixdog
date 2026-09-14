@@ -60,30 +60,11 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
     assert.equal(trigger.getAttribute('aria-expanded'), 'false');
     await click(trigger);
     await click(document.querySelectorAll('[role="menuitem"]')[1]);
-    assert.ok(document.querySelector('[role="dialog"]'));
-    assert.equal(goals.length, 0);
+    // The goal dialog is pane-scoped and lives in the composer
+    // (composer-goal-dialog.slow.test.mjs); the menu only hands over the
+    // /goal command and closes.
+    assert.deepEqual(goals, ['/goal']);
     assert.equal(document.querySelector('[role="menu"]'), null);
-    assert.equal(document.querySelector('[role="dialog"]').getAttribute('aria-modal'), 'true');
-    const objective = document.querySelector('[role="dialog"] textarea');
-    const duration = document.querySelector('[role="dialog"] input');
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(objective, 'Finish the report');
-      objective.dispatchEvent(new window.Event('input', { bubbles: true }));
-      setter.call(duration, '30');
-      duration.dispatchEvent(new window.Event('input', { bubbles: true }));
-    });
-    await act(async () => document.querySelector('[role="dialog"] form').dispatchEvent(
-      new window.Event('submit', { bubbles: true, cancelable: true }),
-    ));
-    assert.deepEqual(goals, ['/goal Finish the report --time 30m']);
-    assert.equal(document.querySelector('[role="dialog"] textarea').value, 'Finish the report');
-    assert.ok(document.querySelector('[role="dialog"] [role="alert"]'));
-    acceptGoal = true;
-    await act(async () => document.querySelector('[role="dialog"] form').dispatchEvent(
-      new window.Event('submit', { bubbles: true, cancelable: true }),
-    ));
-    assert.equal(goals.length, 2);
     assert.equal(document.querySelector('[role="dialog"]'), null);
   } finally {
     await act(async () => root.unmount());

@@ -58,7 +58,9 @@ test('memory editor keeps common/project scopes separate and ignores late closed
   }));
   await page.goto('http://mixdog.test');
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
-  await page.waitForFunction(() => window.fixture?.calls.memories === 3, { timeout: 5000 })
+  // The warm-up reads one scope at a time, common memory first, so only that
+  // read is in flight until it settles; a clicked row starts its own read.
+  await page.waitForFunction(() => window.fixture?.calls.memories === 1, { timeout: 5000 })
     .catch(error => { throw new Error(`${error.message}; page errors: ${pageErrors.join('; ')}`); });
   const open = async (name) => {
     await page.evaluate((name) => {
@@ -80,7 +82,9 @@ test('memory editor keeps common/project scopes separate and ignores late closed
     }, { kind, path, value });
   };
   await open('Alpha');
-  assert.equal(await page.$eval('.projects-edit-dialog', el => /Loading|로딩/.test(el.textContent)), false);
+  // An unread scope shows its loading state until the read settles; a scope
+  // the warm-up already read opens from the cache (checked below).
+  assert.equal(await page.$eval('.projects-edit-dialog', el => /Loading|로딩/.test(el.textContent)), true);
   assert.equal(await page.$('[aria-label="Instructions markdown"]'), null);
   await settle('memories', 'a', JSON.stringify({ entries: [{ id: 1, summary: 'Alpha memory', source: 'curated', index_revision: 'alpha-v1' }], nextOffset: null }));
   await page.waitForFunction(() => document.querySelector('.core-memory-edit textarea')?.value === 'Alpha memory');
@@ -91,7 +95,7 @@ test('memory editor keeps common/project scopes separate and ignores late closed
     calls: window.fixture.calls,
   })), {
     memory: 'Alpha memory',
-    calls: { instructions: 0, memories: 3, saves: 0 },
+    calls: { instructions: 0, memories: 2, saves: 0 },
   });
   // Saving an unchanged cached form must not overwrite newer disk content.
   await page.click('.projects-edit-dialog button[type="submit"]');

@@ -111,7 +111,9 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.doesNotMatch(service, /startRemoteBridge|resolveRemoteBridgePort|remoteBridge/);
   assert.match(service, /startRemoteRelay/);
   assert.doesNotMatch(ipc, /import \* as .* from ['"]electron['"]/);
-  assert.doesNotMatch(ipc, /from ['"]\.\/window-options['"];/);
+  // IPC may drive the title bar (theme, dim, zoom) but never builds a window
+  // from the shell's window options.
+  assert.doesNotMatch(ipc, /DESKTOP_WINDOW_OPTIONS|initialTitleBarWindowOverrides|new BrowserWindow\(/);
   assert.match(builder, /files:\s+-\s*out\/\*\*/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/main\/daemon\.cjs/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/renderer\/\*\*/);
@@ -594,7 +596,7 @@ test('production shell persists safe window state and installs native shortcuts'
   assert.match(state, /MIN_VISIBLE_PIXELS/);
   assert.match(state, /writeFile\(temporaryPath/);
   assert.match(state, /rename\(temporaryPath,\s*filePath\)/);
-  assert.match(menu, /role:\s*'quit',\s*registerAccelerator:\s*false/);
+  assert.match(menu, /role:\s*'quit',[^}]*registerAccelerator:\s*false/);
   assert.match(menu, /CmdOrCtrl\+0/);
   assert.match(menu, /togglefullscreen/);
   assert.doesNotMatch(menu, /openExternal|loadURL/);

@@ -259,6 +259,11 @@ test("installed phone boot promotes only its locale and preserves asset priority
     configurable: true,
     value: "ko-KR",
   });
+  // boot.js reads the ordered preference list first; JSDOM's default is en-US.
+  Object.defineProperty(dom.window.navigator, "languages", {
+    configurable: true,
+    value: ["ko-KR", "ko"],
+  });
   dom.window.matchMedia = (query) => ({
     matches: query === "(display-mode: standalone)",
     media: query,

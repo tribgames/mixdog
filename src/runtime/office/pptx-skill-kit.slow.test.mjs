@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { GlobalFonts } from '@napi-rs/canvas';
 import { executeOfficeTool } from './index.mjs';
 import { isAdvisoryOfficeIssue } from './quality/quality-pipeline.mjs';
 import { libreOfficeAvailable } from './portable/portable-soffice.mjs';
@@ -24,6 +25,12 @@ const value = (result) => JSON.parse(result.content[0].text);
 const measured = (qa) => (qa.issuesAfter || qa.issues || []).filter((issue) => !isAdvisoryOfficeIssue(issue)).map((issue) => `${issue.code} ${issue.path}: ${issue.message}`);
 // The authored decks are rendered (render: true), which portable mode does through LibreOffice.
 const RENDERED = { skip: !(await libreOfficeAvailable()) && 'LibreOffice is not installed' };
+// The safe pairing is the Windows Office faces; the font review can only pass Malgun Gothic
+// as safe on a host that has it (Linux runners report it unavailable, which is also correct).
+const MALGUN = {
+  skip: !(GlobalFonts.families || []).some((entry) => /^malgun gothic$/i.test(String(entry?.family || '')))
+    && 'Malgun Gothic is not installed',
+};
 
 // A twelve-slide deck composed slide by slide from the kit primitives: a cover on a gradient field, a
 // statement hanging from a rule, a chart as spine, a stat band by weight, a chevron run with measured
@@ -947,7 +954,7 @@ test('a deck composed from the kit primitives authors, validates, and passes the
 
 // The same deck at the presentation scale in the safe (system) pairing: the largest type must not
 // overflow the measured boxes and Malgun Gothic must pass the font review as safe.
-test('the kit deck holds at presentation scale with the safe Korean pairing', { timeout: 180_000, ...RENDERED }, async (t) => {
+test('the kit deck holds at presentation scale with the safe Korean pairing', { timeout: 180_000, ...RENDERED, ...(RENDERED.skip ? {} : MALGUN) }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-presentation-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const script = `deck({ hue: 205, accentHue: 205, mode: 'presentation', script: 'ko', pairing: 'serif', fonts: 'safe' });\n${DECK}`;
