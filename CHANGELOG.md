@@ -5,6 +5,17 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The Source Control dock keeps its row window bound to the live list: a
+  rebuilt dock (tab switch, first-run surface to list) no longer scrolls into
+  empty rows.
+- macOS release assets upload through the delete-then-retry script on both
+  architectures, so a recovery run no longer fails on an asset that already
+  exists on the hidden draft.
+- Release gate: every lane runs green on the hosted runners. Linux installs
+  NanumGothic for Hangul PDFs and the current LibreOffice for rendered
+  reviews; the Windows cursor check pins its motion preference; test
+  expectations follow the shipped contracts.
+
 ## v0.9.164 - 2026-09-14
 
 - Compact the shared and Lead rules and the built-in tool descriptions to the
