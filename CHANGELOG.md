@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.165 - 2026-09-14
+
 - The Source Control dock keeps its row window bound to the live list: a
   rebuilt dock (tab switch, first-run surface to list) no longer scrolls into
   empty rows.
