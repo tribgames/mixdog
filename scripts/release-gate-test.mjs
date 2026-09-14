@@ -549,11 +549,15 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
   assert.doesNotMatch(desktopPackage, /name:\s*Stage (?:Windows|macOS|Linux)/);
   assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
-  assert.equal((desktopPackage.match(/^\s*gh release upload/gm) || []).length, 2);
+  assert.equal((desktopPackage.match(/^\s*gh release upload/gm) || []).length, 1);
   assert.match(desktopPackage,
     /name:\s*Smoke and upload verified Windows assets in parallel[\s\S]*upload-release-assets\.sh "\$\{assets\[@\]\}" &[\s\S]*npm run verify:packaged-runtime[\s\S]*wait "\$upload_pid"/);
+  // A recovery run meets the earlier attempt's macOS assets on the draft;
+  // `gh release upload --clobber` raced GitHub's asset delete and failed with
+  // 422 "already exists", so both macOS architectures go through the script.
   assert.match(desktopPackage,
-    /inputs\.arch \}\}" == x64[\s\S]*upload-release-assets\.sh[\s\S]*gh release upload/);
+    /name:\s*Upload verified macOS assets to hidden draft[\s\S]*?upload-release-assets\.sh "\$\{assets\[@\]\}"/);
+  assert.doesNotMatch(desktopPackage, /inputs\.arch \}\}" == x64/);
   assert.match(desktopPackage, /RELEASE_ID:\s*\$\{\{ inputs\.release_id \}\}/);
   assert.match(uploadScript, /--http1\.1/);
   assert.match(uploadScript, /--max-time 150/);

@@ -954,7 +954,10 @@ test('PDF tables keep a digit-bearing label column left and figures right', asyn
   const layout = value(await executeOfficeTool({ action: 'query', session: created.session, queryKind: 'pdf-layout' }, { cwd }));
   const items = layout.pages[0].items;
   const at = (text) => items.find((item) => item.text === text);
-  const [line, one, two, oct, big, small, second] = ['Line', '1호', '2호', 'Oct', '1,200', '980', 'second point'].map(at);
+  const [line, one, two, oct, big, small] = ['Line', '1호', '2호', 'Oct', '1,200', '980'].map(at);
+  // pdf.js joins the bullet and its text into one run or two depending on the
+  // embedded face's space width; the list item is the run that ends with its text.
+  const second = items.find((item) => item.text.endsWith('second point'));
   assert.ok(line && one && two && oct && big && small && second, JSON.stringify(items.map((item) => item.text)));
   // Labels share the header's left edge; figures share one right edge.
   assert.ok(Math.abs(one.x - line.x) < 1 && Math.abs(two.x - line.x) < 1, `${one.x} ${two.x} vs ${line.x}`);

@@ -209,11 +209,11 @@ jobs:
             "apps/desktop/dist/mixdog-desktop-mac-${{ inputs.artifact_arch }}.zip"
           )
           for asset in "${assets[@]}"; do test -f "$asset"; done
-          if [[ "${{ inputs.arch }}" == x64 ]]; then
-            bash .github/scripts/upload-release-assets.sh "${assets[@]}"
-          else
-            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
-          fi
+          # A recovery run finds the earlier attempt's assets on the draft;
+          # `gh release upload --clobber` then fails with 422 "ReleaseAsset.name
+          # already exists". The script deletes the remote asset first and
+          # retries once over bounded HTTP/1.1, so both architectures use it.
+          bash .github/scripts/upload-release-assets.sh "${assets[@]}"
       - name: Upload verified Linux asset to hidden draft
         if: inputs.platform == 'linux'
         timeout-minutes: 6
