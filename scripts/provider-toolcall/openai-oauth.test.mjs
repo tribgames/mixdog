@@ -164,7 +164,7 @@ test('openai-oauth always builds the standard Responses payload', () => {
     assert.equal(body.tools[0].name, 'read');
     assert.equal(body.parallel_tool_calls, true);
     assert.equal('context' in body.reasoning, false);
-    assert.equal(body.input[0].role, 'user');
+    assert.equal(body.input[0].role, 'developer');
     assert.equal(body.input[1].role, 'user');
     // Turn identity rides request metadata, not the reusable input prefix.
     assert.deepEqual(body.input[0].internal_chat_message_metadata_passthrough, {});
@@ -283,6 +283,7 @@ test('openai-oauth Responses: load_tool uses native tool_search history', () => 
             description: 'read',
             defer_loading: true,
             parameters: { type: 'object', properties: {} },
+            strict: false,
         }],
     });
 });

@@ -86,7 +86,7 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
     allPositiveProbes: true,
     mutate: (parts) => ({
       ...parts,
-      description: parts.description.replace(/keywords\s+(?:use|route through|select|via)/i, "keywords won't use"),
+      description: parts.description.replace(/keywords(?::|\s+(?:use|route through|select|via))/i, "keywords won't use"),
     }),
   },
   {

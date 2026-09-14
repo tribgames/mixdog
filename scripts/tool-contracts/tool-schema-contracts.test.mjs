@@ -35,7 +35,9 @@ test('shell, edit, and task keep their execution contracts', () => {
   const shellDescription = shellTool?.description || '';
   // The timeout contract is anchored on the timeout_ms argument description
   // below — the tool description no longer duplicates it.
-  if (!/Run programs, runtime\/state operations/i.test(shellDescription)
+  if (!/^Run programs, builds, tests and computation/i.test(shellDescription)
+      || !/Not for files, search or Git/i.test(shellDescription)
+      || !/tool names are not shell commands/i.test(shellDescription)
       || !/10s foreground window.*not a timeout/i.test(shellDescription)
       || !/use task wait, not read polling/i.test(shellDescription)) {
     throw new Error(`shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`);
@@ -67,8 +69,8 @@ test('shell, edit, and task keep their execution contracts', () => {
   // rules both steer models to omit it.
   if (shellProps.timeout_ms?.type !== 'number'
     || shellProps.timeout_ms?.minimum !== 0
-    || !/hard process-kill deadline/i.test(shellProps.timeout_ms?.description || '')
-    || !/Omit or 0 = no deadline/.test(shellProps.timeout_ms?.description || '')) {
+    || !/hard kill deadline/i.test(shellProps.timeout_ms?.description || '')
+    || !/omit or 0 = none/i.test(shellProps.timeout_ms?.description || '')) {
     throw new Error(`shell timeout_ms must declare the no-deadline-by-default contract: ${JSON.stringify(shellProps.timeout_ms)}`);
   }
   const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
@@ -216,7 +218,7 @@ test('read schema exposes canonical scalar and batch windows', () => {
   const readDescription = readTool?.description || '';
   const readSchema = readTool?.inputSchema || {};
   const readProps = readSchema.properties || {};
-  if (!/(?:no|not) director/i.test(readDescription)) {
+  if (!/Directories: use list/i.test(readDescription)) {
     throw new Error('read description must keep directory-vs-file guidance');
   }
   if (/line\+context/i.test(readDescription) || !/Read known file ranges or images/i.test(readDescription)) {
@@ -225,7 +227,7 @@ test('read schema exposes canonical scalar and batch windows', () => {
   if (readProps.file_path?.anyOf?.[0]?.type !== 'string'
     || readProps.file_path?.minLength !== undefined
     || readProps.file_path?.anyOf?.[1]?.type !== 'array'
-    || !/fans out to per-file results/i.test(readProps.file_path?.description || '')
+    || !/fans out to/i.test(readProps.file_path?.description || '')
     || readProps.path
     || JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])) {
     throw new Error('read schema must expose canonical file_path with explicit batch support');
@@ -253,7 +255,7 @@ test('code_graph descriptions route structure lookups away from grep', () => {
   // enumerate modes, but must not drift into web-search territory.
   if (!/Source-file structure/i.test(codeGraphDescription)
     || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))
-    || !/Text, literals, and regex belong to grep/i.test(codeGraphDescription)) {
+    || !/text and regex belong to grep/i.test(codeGraphDescription)) {
     throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
   }
   if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative or absolute/i.test(codeGraphProps.files?.description || '')) {
@@ -263,7 +265,7 @@ test('code_graph descriptions route structure lookups away from grep', () => {
     throw new Error('code_graph schema must expose its explicit outside-cwd root');
   }
   if (!/find_symbol returns declaration\/body/i.test(codeGraphDescription)
-      || !/references returns declaration\/usages plus optional body/i.test(codeGraphDescription)
+      || !/references adds usages \(body opt-in\)/i.test(codeGraphDescription)
       || !/callers\/callees return locations/i.test(codeGraphDescription)
       || !/find_symbol defaults true/i.test(codeGraphProps.body?.description || '')
       || !/references is opt-in/i.test(codeGraphProps.body?.description || '')) {
@@ -507,7 +509,7 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
     throw new Error('grep schema must expose pattern and path fan-out with scalar glob guidance');
   }
   if (!/\bSearch literal\/regex file contents\b/i.test(grepTool?.description || '')
-      || !/contextual path:line blocks/i.test(grepTool?.description || '')
+      || !/path:line blocks with context/i.test(grepTool?.description || '')
       || !/Broad reconnaissance: mode:files/i.test(grepTool?.description || '')) {
     throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
   }

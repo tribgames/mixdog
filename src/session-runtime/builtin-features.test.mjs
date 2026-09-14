@@ -51,7 +51,7 @@ test('headless basic tools omit the loader and its guidance without removing opt
     assert.ok(headless.session.tools.some((tool) => tool.name === 'shell'));
     assert.ok(headless.session.tools.some((tool) => tool.name === 'git'));
     assert.doesNotMatch(headless.rules, /load_tool|# Skills|# Goals/);
-    assert.match(headless.rules, /Use current named tools directly/);
+    assert.match(headless.rules, /Tools own their work; shell never substitutes/);
 
     const interactive = surface(basic, 'interactive');
     assert.ok(interactive.session.tools.some((tool) => tool.name === 'load_tool'));

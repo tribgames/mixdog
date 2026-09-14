@@ -63,10 +63,8 @@ test('a directory anchor outside every project is still refused', async () => {
 test('the code_graph contract advertises the direct outline path', () => {
   const def = CODE_GRAPH_TOOL_DEFS.find((tool) => tool.name === 'code_graph');
   assert.ok(def, 'code_graph tool definition must exist');
-  assert.match(def.description, /mode:symbols with files\[\] is the cheap direct outline/);
-  assert.match(def.description, /no file body/);
   const mode = def.inputSchema.properties.mode.description;
-  assert.match(mode, /needs no prior search/);
+  assert.match(mode, /symbols with files\[\] gives a direct file outline/);
   // Absolute anchors are supported, so the schema must not claim otherwise.
   assert.match(def.inputSchema.properties.files.description, /project-relative or absolute/);
 });

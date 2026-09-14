@@ -31,10 +31,10 @@ test('shell execution policy matches sync-first background-task parity', () => {
     );
     assert.equal(shellTool.inputSchema.properties.timeout_ms.minimum, 0);
     assert.equal(shellTool.inputSchema.properties.monitor_interval_ms, undefined);
-    assert.match(shellTool.description, /10s foreground window.*continues as a tracked task_id.*Completion notifications are automatic/i);
+    assert.match(shellTool.description, /10s foreground window \(not a timeout\).*continues under task_id.*task wait, not read polling/i);
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.equal(taskTool.title, 'Task');
-    assert.match(taskTool.description, /List shell tasks.*snapshot.*wait for one to finish.*cancel by task_id.*Completion notifications are automatic/i);
+    assert.match(taskTool.description, /Manage shell tasks.*Wait for completion instead of repeatedly polling.*Completion notifications are automatic/i);
     assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'read', 'wait', 'cancel']);
     assert.deepEqual(taskTool.inputSchema.required, ['action']);
     assert.equal(taskTool.inputSchema.properties.monitor_interval_ms, undefined);
@@ -90,13 +90,14 @@ test('B: POSIX host is a strict no-op', () => {
 test('C: shell surface keeps execution contract separate from the platform command cheat', (t) => {
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.ok(shellTool, 'shell tool must exist');
-    assert.match(shellTool.description, /^Run programs, runtime\/state operations,/);
+    assert.match(shellTool.description, /^Run programs, builds, tests and computation\./);
     // Cross-tool routing policy lives in rules/shared; the description keeps
-    // only the platform command cheat that rules cannot express.
+    // only the tool boundary and the background-task contract, and the
+    // platform command cheat lives on the command argument.
     assert.doesNotMatch(shellTool.description, /Avoid file operations covered by dedicated tools|never a reason to route work to it/);
-    assert.match(shellTool.description, /Use read, NOT cat/);
-    assert.match(shellTool.description, /list, NOT ls/);
-    assert.match(shellTool.description, /grep, NOT grep\/rg/);
+    assert.match(shellTool.description, /Not for files, search or Git; those have tools \(read, grep, glob, list, find, code_graph, git, edit\/apply_patch\)/);
+    assert.match(shellTool.description, /tool names are not shell commands/);
+    assert.doesNotMatch(shellTool.description, /Use read, NOT cat|Get-Content|Select-String/);
     assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
     assert.equal(shellTool.inputSchema?.properties?.shell, undefined);
     assert.equal(shellTool.inputSchema?.properties?.cwd, undefined);
@@ -107,12 +108,10 @@ test('C: shell surface keeps execution contract separate from the platform comma
     assert.doesNotMatch(commandDescription, /PATH (?:available|unavailable)|Startup environment:/);
     assert.doesNotMatch(commandDescription, /Use read|Get-Content|cat\/head/);
     if (process.platform !== 'win32') {
-        assert.equal(/Select-String/.test(shellTool.description), false,
-            'non-win32 must NOT carry PowerShell routing aliases');
+        assert.equal(/PowerShell:/.test(commandDescription), false,
+            'non-win32 must NOT carry the PowerShell command cheat');
         return;
     }
-    assert.match(shellTool.description, /Get-Content/);
-    assert.match(shellTool.description, /Select-String/);
     assert.match(commandDescription, /PowerShell:/);
     assert.match(commandDescription, /\$PID is reserved/);
 });

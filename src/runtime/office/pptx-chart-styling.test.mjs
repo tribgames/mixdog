@@ -10,12 +10,9 @@ import { runPptxAuthoringScript } from './authoring/pptx-script-runner.mjs';
 test('chart and table styles preserve editable data with explicit visual roles', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'pptx-chart-style-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const kit = await readFile(new URL('../../defaults/skills/pptx/references/kit.md', import.meta.url), 'utf8');
-  const blocks = [...kit.matchAll(/```js\n([\s\S]*?)```/g)].map((m) => m[1]);
-  const charts = (await readFile(new URL('../../defaults/skills/pptx/references/charts.md', import.meta.url), 'utf8')).match(/```js\n([\s\S]*?)```/)[1];
-  const script = `${blocks[0]}
-${blocks.find((b) => b.startsWith('// fitH:')).split('// Title:')[0]}
-${charts}
+  // The runner runs the whole kit (kit.md, charts.md, pictures.md) before the script, the way an authored deck runs:
+  // the helpers share tokens and guards (table() checks the foot against Z), so a pasted subset drifts from the skill.
+  const script = `deck({ hue: 205, mode: 'balanced', script: 'ko' });
 chart(pres.addSlide(), 1, 1, 10, 5, {
   labels: ['Revenue'], series: [{name:'Prior',values:[10.125]},{name:'Current',values:[15.625]}],
   colors: ['445566','007A60'], legend:false

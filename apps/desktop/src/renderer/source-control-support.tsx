@@ -158,9 +158,18 @@ export function useRowWindow(
   resetKey: string,
 ): ScmRowWindow {
   const [metrics, setMetrics] = useState({ top: 0, height: 0 });
+  /** The viewport NODE is tracked as state, not read once from the ref: the
+   *  dock swaps its whole body (InitialSurface → list, tab switches, remounts)
+   *  without `active` or `count` changing, and a listener bound to the old
+   *  node left the window frozen on stale metrics (user: 소스컨트롤 스크롤해도
+   *  항목이 비어있는). Comparing after every commit re-binds on the new node. */
+  const [node, setNode] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
-    const node = viewport.current;
-    if (!node || !active) return undefined;
+    const next = active ? viewport.current : null;
+    if (next !== node) setNode(next);
+  });
+  useLayoutEffect(() => {
+    if (!node) return undefined;
     const measure = () => {
       const top = node.scrollTop;
       const height = node.clientHeight;
@@ -178,13 +187,12 @@ export function useRowWindow(
       window.removeEventListener("resize", measure);
       observer?.disconnect();
     };
-  }, [active, count, rowHeight, viewport]);
+  }, [node, count, rowHeight]);
   useLayoutEffect(() => {
-    const node = viewport.current;
-    if (!node || !active) return;
+    if (!node) return;
     node.scrollTop = 0;
     setMetrics((current) => (current.top === 0 ? current : { ...current, top: 0 }));
-  }, [active, resetKey, viewport]);
+  }, [node, resetKey]);
   return useMemo(() => {
     const { top, height } = metrics;
     if (height <= 0) {

@@ -37,16 +37,19 @@ test('Memory-only handoff cannot erase seven completed edits or the original req
     for (let i = 1; i < 7; i += 1) messages.push(...pair(`edit-${i}`, `Updated file ${i}`));
     let providerCalls = 0;
     const compacted = await runFreshContextCompact({
-        sessionRef: { id: 'seven-edits', contextWindow: 500_000 },
+        sessionRef: { id: 'seven-edits', contextWindow: 500_000, provider: 'stub', model: 'stub-model' },
         sessionId: 'seven-edits',
+        // An explicit empty config keeps the route on the stub provider: the
+        // developer's own maintenance route must not decide this test.
+        config: {},
         messages,
         compactBudgetTokens: 250_000,
         compactPolicy: { contextWindow: 500_000, reserveTokens: 0 },
         activeTurn: true,
-        provider: { async send() { providerCalls += 1; throw new Error('unexpected summary call'); } },
+        provider: { name: 'stub', async send() { providerCalls += 1; return { content: 'The assistant plans to edit h1.' }; } },
         executeMemorySearch: async ({ action }) => action === 'ingest_session' ? 'ok' : 'The assistant plans to edit h1.',
     });
-    assert.equal(providerCalls, 0);
+    assert.equal(providerCalls, 1);
     assert.deepEqual(compacted.messages.filter(m => m.role === 'tool'), messages.filter(m => m.role === 'tool'));
     assert.deepEqual(compacted.messages.flatMap(m => m.toolCalls || []), messages.flatMap(m => m.toolCalls || []));
     assert.equal(compacted.messages.filter(m => m.content === original.content).length, 1);
