@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { cursorTokenExpiry } from './cursor-auth.mjs';
 
 const ANTHROPIC_DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
@@ -133,9 +134,12 @@ function anthropicOAuthState() {
 }
 
 function openAIOAuthState() {
+  // Match the chat provider's account/path precedence. Credentials belonging
+  // to another account must never authenticate a missing or unreadable one.
   const paths = [
-    process.env.OPENAI_OAUTH_CREDENTIALS_PATH,
-    join(resolvePluginData(), 'openai-oauth.json'),
+    boundProviderAuthPath('openai-oauth')
+      || process.env.OPENAI_OAUTH_CREDENTIALS_PATH
+      || join(resolvePluginData(), 'openai-oauth.json'),
   ];
   return memoProbe('openai-oauth', paths, () => resolveProbeState(
     paths,

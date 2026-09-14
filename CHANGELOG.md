@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Studio recognizes the selected ChatGPT account after provider login and
+  account switches, using the same credential path as chat without falling
+  back to another account's credentials.
+
 ## v0.9.165 - 2026-09-14
 
 - The Source Control dock keeps its row window bound to the live list: a
