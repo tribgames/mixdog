@@ -111,11 +111,12 @@ jobs:
       # Office audits measure text in the deck's own faces and Ubuntu ships none of the
       # Microsoft families; the metric-compatible Liberation faces stand in for Arial,
       # Times New Roman, and Courier New (src/runtime/office/portable/text-metrics.mjs).
-      # The PDF suites write Hangul through an installed Unicode face (Noto CJK is on
-      # the pdf-fonts.mjs candidate list), and portable rendering and recalculation
-      # go through LibreOffice; neither is on the runner image.
+      # The PDF suites write Hangul through an installed Unicode face: NanumGothic.ttf
+      # heads the Linux list in pdf-fonts.mjs (a .ttc collection such as Noto CJK
+      # cannot be embedded), and portable rendering and recalculation go through
+      # LibreOffice; neither is on the runner image.
       - name: Install fonts and LibreOffice for the Office suites
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fonts-liberation fonts-noto-cjk libreoffice-writer libreoffice-impress libreoffice-calc
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fonts-liberation fonts-nanum libreoffice-writer libreoffice-impress libreoffice-calc
       # The tool-contract and shell-hardening suites drive the debug native
       # spawn binary; the build reuses the runner's preinstalled Rust toolchain.
       - name: Build the native spawn test binary
@@ -143,7 +144,18 @@ jobs:
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
       - name: Install fonts and LibreOffice for the Office suites
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fonts-liberation fonts-noto-cjk libreoffice-writer libreoffice-impress libreoffice-calc
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fonts-liberation fonts-nanum libreoffice-writer libreoffice-impress libreoffice-calc
+      # The kit decks author in Noto Sans / Noto Sans KR. The runtime's own
+      # provisioner installs them into the user font directory, as it does for a
+      # user, so the rendered review sees the faces the deck declares.
+      - name: Provision the Office Noto core fonts
+        run: |
+          node --input-type=module <<'NODE'
+          import { prepareOfficeFonts } from './src/runtime/office/portable/font-provisioner.mjs';
+          const results = await prepareOfficeFonts({ coreOnly: true });
+          console.log(JSON.stringify(results, null, 2));
+          if (!Object.values(results).every((font) => font.installed)) process.exit(1);
+          NODE
       - name: Build the native spawn test binary
         run: npm run build:spawn:test
       - name: Run the slow test lane

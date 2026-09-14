@@ -306,10 +306,10 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
     // Advisory wording anchors; update when the public description changes.
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
-    assert.match(GIT_TOOL_DEF.description, /Run one Git command, or up to 5 in order, directly without a shell/i);
-    assert.match(GIT_TOOL_DEF.description, /Shell operators and substitution are rejected/i);
-    assert.match(GIT_TOOL_DEF.description, /Arrays report each result and stop at the first failure/i);
-    assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
+    assert.match(GIT_TOOL_DEF.description, /Run Git here, never through shell/i);
+    assert.match(GIT_TOOL_DEF.description, /commands run in order and arrays stop on failure/i);
+    assert.match(GIT_TOOL_DEF.description, /Mutations are serialized/i);
+    assert.match(properties.command.description, /no shell operators\/substitution/i);
 });
 
 test('git command arrays run in order, allow mutations, and stop at the first failure', async (t) => {
