@@ -36,11 +36,11 @@ export const TOOL_DEFS = [
     name: 'recall',
     title: 'Recall',
     annotations: { title: 'Recall', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    description: 'Retrieve stored memory/session history (prior work, resumes, decisions). Query is semantic, not regex; period=time window; id=exact follow-up.',
+    description: 'Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, maxItems: 5 }], description: 'Search text, or array for independent fan-out queries.' },
+        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, maxItems: 5 }], description: 'Query or independent fan-out array; shared scope/period.' },
         id: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'array', items: { type: 'integer', minimum: 1 } }], description: 'Exact #id(s) from recall. Do not invent ids.' },
         period: { type: 'string', description: PERIOD_DESCRIPTION },
         limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max entries; default 10, or 5 sessions for period=last.' },

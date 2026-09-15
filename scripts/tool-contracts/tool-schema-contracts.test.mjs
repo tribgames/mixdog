@@ -258,7 +258,7 @@ test('code_graph descriptions route structure lookups away from grep', () => {
     || !/text and regex belong to grep/i.test(codeGraphDescription)) {
     throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
   }
-  if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative or absolute/i.test(codeGraphProps.files?.description || '')) {
+  if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative\/absolute/i.test(codeGraphProps.files?.description || '')) {
     throw new Error('code_graph schema must keep compact relative/absolute path descriptions');
   }
   if (!/Explicit root outside the project/i.test(codeGraphProps.cwd?.description || '') || !/omit for project root/i.test(codeGraphProps.cwd?.description || '')) {
@@ -397,14 +397,14 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
   const webSearchQueryShapes = webSearchProps.query?.anyOf || [];
   const webSearchQueryStringShape = webSearchQueryShapes.find((shape) => shape?.type === 'string');
   const webSearchQueryArrayShape = webSearchQueryShapes.find((shape) => shape?.type === 'array');
-  if (!/Runs synchronously/i.test(webSearchTool?.description || '')
+  if (!/Returns final results in this call/i.test(webSearchTool?.description || '')
     || webSearchProps.mode
     || webSearchProps.action
     || webSearchProps.task_id
     || !webSearchProps.query?.anyOf
-    || webSearchQueryStringShape?.minLength !== undefined
-    || webSearchQueryArrayShape?.minItems !== undefined
-    || webSearchQueryArrayShape?.items?.minLength !== undefined
+    || webSearchQueryStringShape?.minLength !== 1
+    || webSearchQueryArrayShape?.minItems !== 1
+    || webSearchQueryArrayShape?.items?.minLength !== 1
     || !/lossless fan-out/i.test(webSearchProps.query?.description || '')
     || !webSearchTool?.inputSchema?.required?.includes('query')) {
     throw new Error('web_search schema must preserve sync execution guidance and string/array query shape');
@@ -426,7 +426,7 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
   if (!/Fetch page\/docs body from URL/i.test(webFetchTool?.description || '')
     || webFetchUrlStringShape?.minLength !== undefined
     || webFetchUrlStringShape?.format !== 'uri'
-    || webFetchUrlArrayShape?.minItems !== undefined
+    || webFetchUrlArrayShape?.minItems !== 1
     || webFetchUrlArrayShape?.maxItems !== 10
     || webFetchUrlArrayShape?.items?.minLength !== undefined
     || webFetchUrlArrayShape?.items?.format !== 'uri'
@@ -449,7 +449,9 @@ test('load_tool and Skill schemas stay pure loaders', () => {
   const toolSearchNamesSchema = TOOL_SEARCH_TOOL.inputSchema?.properties?.names;
   const toolSearchNamesStringSchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'string');
   const toolSearchNamesArraySchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'array');
-  if (!/full schemas for exact deferred tool names/i.test(TOOL_SEARCH_TOOL.description || '')
+  if (!/full schemas for missing deferred tool names/i.test(TOOL_SEARCH_TOOL.description || '')
+    || !/batch needed names in one call/i.test(TOOL_SEARCH_TOOL.description || '')
+    || !/Exact name\(s\)\/aliases/i.test(toolSearchNamesSchema?.description || '')
     || !toolSearchNamesSchema
     || toolSearchNamesStringSchema?.minLength !== undefined
     || toolSearchNamesArraySchema?.minItems !== undefined
@@ -593,9 +595,10 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
     throw new Error('list description must state its known-directory immediate-entry contract');
   }
   if (findTool?.inputSchema?.properties?.query?.type !== 'string'
-      || findTool?.inputSchema?.properties?.query?.minLength !== undefined
+      || findTool?.inputSchema?.properties?.query?.minLength !== 1
+      || findTool?.inputSchema?.properties?.query?.pattern !== '\\S'
       || findTool?.inputSchema?.properties?.query?.anyOf) {
-    throw new Error('find schema must expose scalar query');
+    throw new Error('find schema must expose a nonblank scalar query matching its runtime guard');
   }
   if (findTool?.inputSchema?.properties?.path?.type !== 'string'
       || findTool?.inputSchema?.properties?.path?.minLength !== undefined

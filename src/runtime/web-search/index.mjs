@@ -75,11 +75,8 @@ function normalizeWebSearchArgs(rawArgs) {
     }
   }
   if (Array.isArray(args.keywords)) {
-    const keywords = args.keywords
+    args.keywords = args.keywords
       .map(value => typeof value === 'string' ? value.trim() : value)
-      .filter(value => typeof value === 'string' ? value.length > 0 : Boolean(value))
-    if (keywords.length > 0) args.keywords = keywords
-    else delete args.keywords
   }
   return args
 }
@@ -476,16 +473,24 @@ async function handleToolCall(name, rawArgs, options = {}) {
           const keywords = [...new Set(args.keywords.map(kw => String(kw || '').trim()).filter(Boolean))]
           const sections = new Array(keywords.length)
           let cursor = 0
+          let failed = 0
           await Promise.all(Array.from({ length: Math.min(concurrency, keywords.length) }, async () => {
             while (cursor < keywords.length) {
               const index = cursor++
               const kw = keywords[index]
               const sub = await handleToolCall('web_search', { ...rawArgs, keywords: kw }, { signal, nativeWebSearch })
               const text = (sub.content || []).filter(p => p.type === 'text').map(p => p.text).join('\n')
+              if (sub.isError) failed++
               sections[index] = `### Query: ${kw}\n\n${text}`
             }
           }))
-          return { content: [{ type: 'text', text: sections.join('\n\n---\n\n') }] }
+          const summary = failed
+            ? `[web_search] ${failed}/${keywords.length} queries failed; successful results are retained.\n\n`
+            : ''
+          return {
+            content: [{ type: 'text', text: summary + sections.join('\n\n---\n\n') }],
+            ...(failed ? { isError: true } : {}),
+          }
         }
         try {
           const result = await _webSearchCore(args, { cacheState, nativeWebSearch, signal })

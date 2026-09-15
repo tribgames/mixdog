@@ -13,11 +13,11 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Load full schemas for exact deferred tool names/aliases not already available; returns function descriptions and parameter schemas.',
+  description: 'Load full schemas for missing deferred tool names/aliases; batch needed names in one call.',
   inputSchema: {
     type: 'object',
     properties: {
-      names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact deferred tool names/aliases to load.' },
+      names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact name(s)/aliases.' },
     },
     required: ['names'],
     additionalProperties: false,

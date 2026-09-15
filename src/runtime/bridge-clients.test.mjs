@@ -158,15 +158,15 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.equal(propertyFor('downloads', 'attach').description.includes('8 MiB'), true);
   assert.ok(propertyFor('drag', 'targetX'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('never replayed after dispatch'));
-  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('Do not batch calls that need earlier results'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('Batch independent pages'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('order actions that depend on results or invalidate refs'));
   // Method lives in the built-in browser-use skill; the description is contract only.
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('browser-use skill'));
   assert.ok(!BROWSER_TOOL_DEFS[0].description.includes('fill.fields'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.length < 1000);
-  // The ladder opens the description: the deferred catalog previews only the
-  // start, and that is where the model decides between fetch, MCP, CLI, and
-  // a live page.
-  assert.match(BROWSER_TOOL_DEFS[0].description.slice(0, 200), /Last resort.*web_fetch.*MCP.*CLI/);
+  // The preview routes directly by capability, not through mandatory failed probes.
+  assert.match(BROWSER_TOOL_DEFS[0].description.slice(0, 200), /directly for rendered, signed-in or interactive pages/);
+  assert.match(BROWSER_TOOL_DEFS[0].description.slice(0, 200), /public page text uses web_fetch, external windows computer/);
   assert.equal(propertyFor('snapshot', 'maxElements').maximum, 500);
   assert.equal(propertyFor('navigate', 'maxChars').maximum, 30_000);
   assert.equal(propertyFor('upload', 'paths').maxItems, 10);

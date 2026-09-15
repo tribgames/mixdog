@@ -40,7 +40,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read known file ranges or images; batch all required paths in file_path with per-entry windows. Diff hunks and grep/graph spans already in context need no re-read. Directories: use list. Binaries return bounded hex. Literal paths; missing paths are reported, never replaced.',
+        description: 'Read known file ranges or images. Prefer one file_path array for independent files or windows, including multiple windows of the same file. If the shared output cap requires separate calls, issue them together. Explicit globs use the documented survey limits; missing exact paths are reported, never replaced. Reuse unchanged content already in context. Directories: use list. Binaries return bounded hex.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -68,7 +68,7 @@ export const BUILTIN_TOOLS = [
                             },
                         },
                     ],
-                    description: 'Known path(s) or per-file windows; entry windows override batch defaults. A glob fans out to at most 10 newest files, 25 lines each. Shared 10 KB cap.',
+                    description: 'Known path(s) or per-entry windows; repeat a file_path with different offset/limit for multiple ranges. Entry windows override batch defaults. A glob fans out to at most 10 newest files, 25 lines each. Shared 10 KB cap.',
                 },
                 offset: {
                     type: 'integer',
@@ -198,7 +198,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', minItems: 1, maxItems: PUBLIC_PATH_BATCH_LIMIT, items: { type: 'string' } },
                     ],
-                    description: 'Plain file/directory scopes; array scopes are independent. Omit for Project root. Missing explicit scopes are reported, never widened or replaced.',
+                    description: 'Plain file/directory scopes. Every pattern searches every path; arrays are not zipped. For specific pattern/path pairs, issue separate calls together. Omit for Project root. Missing explicit scopes are reported, never widened or replaced.',
                 },
                 glob: {
                     type: 'string',                    description: 'Relative glob filter evaluated inside path, e.g. "*.cs" or "src/**/*.ts". For exact/absolute paths, use path instead.',
@@ -218,7 +218,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Wildcard file-path lookup under a known directory; directories never match. No preliminary listing; unknown base: find first. Gitignored paths need include_noise:true.',
+        description: 'Wildcard file-path lookup under a known directory; directories never match. The current Project is already a known base: omit path to search it directly. No preliminary listing; unknown base: find first with a known non-empty path fragment. Gitignored paths need include_noise:true.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -227,7 +227,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, maxItems: 10 },
                     ],
-                    description: 'Glob pattern(s).',
+                    description: 'Path union; use separate calls for different bases or per-pattern results.',
                 },
                 path: {
                     type: 'string',                    description: 'Known existing base directory; omit for the current Project.',
@@ -245,12 +245,13 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Find Files',
         annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only. Fuzzy filename/directory path lookup; returns paths only. Use only when the target path is unknown and cannot be directly resolved.',
+        description: 'Read-only. Fuzzy filename/directory path lookup; returns paths only. Use only when the target path is unknown and cannot be directly resolved, and a non-empty filename/path fragment is known. For general discovery in the current Project, use glob; never send an empty query.',
         inputSchema: {
             type: 'object',
             properties: {
                 query: {
-                    type: 'string',                    description: 'Filename/path fragment; space-separated fragments AND-match within one path.',
+                    type: 'string', minLength: 1, pattern: '\\S',
+                    description: 'Non-empty filename/path fragment; space-separated fragments AND-match within one path.',
                 },
                 path: { type: 'string', description: 'Base directory; omit for the current Project.' },
                 limit: { type: 'integer', minimum: 0, description: 'Max paths; default 25; 0 unlimited.' },
@@ -264,7 +265,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'List Directory',
         annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: "Return a known directory's immediate entries (path + type); no wildcard. Not a prerequisite for read/glob.",
+        description: "Return a known directory's immediate entries (path + type); no wildcard. Use when those entries or metadata are needed, not to re-confirm an already complete path listing. Not a prerequisite for read/glob.",
         inputSchema: {
             type: 'object',
             properties: {

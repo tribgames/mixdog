@@ -151,21 +151,22 @@ test('headless rules omit Skill and Goal guidance while interactive rules retain
 test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // Advisory drift check: update these anchors when the rule text
   // intentionally changes.
-  const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
+  const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') }).replace(/\s+/g, ' ');
   assert.match(full, /Validate exact targets before destructive actions/i);
   assert.match(full, /never roots, `~` or\s+unresolved variables\/globs/i);
   assert.match(full, /Report deletion recoverability/i);
   assert.match(full, /Shortest route: missing evidence → implement → verify once → deliver/i);
-  assert.match(full, /wait only for real\s+dependencies/i);
-  assert.match(full, /One-shot calls: every needed target in one call's array, nothing speculative/i);
+  assert.match(full, /Wait only for actual result dependencies or correctness\/safety ordering/i);
+  assert.match(full, /collect all known independent next actions across tool types/i);
   assert.match(full, /Cheapest decisive evidence first: existing state, diff or a failing test\s+before any search/i);
   assert.match(full, /Trust documented\s+guarantees; no availability checks or defensive branches, in scripts included/i);
   assert.match(full, /take the backup\s+inside the first inspection call, never as a separate step/i);
-  assert.match(full, /never probe, split\s+or re-read what is already in context/i);
+  assert.match(full, /Reuse unchanged content already delivered; changed sources and omitted ranges are new evidence/i);
   assert.match(full, /Use supplied commands unchanged except inputs, else documented defaults/i);
-  assert.match(full, /Tools own their work; shell never substitutes: files→`read`, text→`grep`/i);
+  assert.match(full, /Tools own their work; shell never substitutes\. Route by missing evidence:/i);
   assert.match(full, /Tool names are not shell commands; `shell` only runs programs and computation/i);
-  assert.match(full, /Batch per tool, run independent calls in parallel/i);
+  assert.match(full, /issue them together in the same response/i);
+  assert.match(full, /Prefer supported arrays when options, query combinations and required outputs are preserved; otherwise use separate calls/i);
   assert.match(full, /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i);
   assert.match(full, /An open\s+shell is never a routing reason/i);
   assert.match(full, /Git→`git`/i);
@@ -176,12 +177,12 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Use non-mutating readers directly/i);
   assert.match(full, /keep an unchanged\s+backup of every source artifact and work on a separate copy/i);
   assert.match(full, /Keep it after\s+replacing originals unless the user requires purging/i);
-  assert.match(full, /paths→`glob`\/`find`, entries→`list`, symbols→`code_graph`/i);
+  assert.match(full, /known files\/ranges→`read`, content→`grep`, symbols\/relations→`code_graph`/i);
   assert.match(full, /Retry only after a relevant change, at most one bounded transient retry/i);
   assert.match(full, /never bypass denial or cancellation/i);
   assert.match(full, /never hide errors, timeouts or cancellation\s+behind later success/i);
   assert.doesNotMatch(full, /fallback/i);
-  assert.match(full, /UI\/edit sites: `grep`, then only missing anchored ranges/i);
+  assert.match(full, /UI\/edit sites: use `grep` to locate unknown regions/i);
   assert.match(full, /After all edits, cover each required check once: one runner per runtime,\s+independent checks in parallel/i);
   assert.match(full, /no\s+stricter flags or unrequested suites/i);
   assert.match(full, /rerun only failed or invalidated checks/i);

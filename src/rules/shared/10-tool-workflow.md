@@ -1,20 +1,23 @@
 # Tool Workflow
 
-- Tools own their work; shell never substitutes: files→`read`, text→`grep`,
-  paths→`glob`/`find`, entries→`list`, symbols→`code_graph`, Git→`git`.
-  Tool names are not shell commands; `shell` only runs programs and computation.
+- Tools own their work; shell never substitutes. Route by missing evidence:
+  known files/ranges→`read`, content→`grep`, symbols/relations→`code_graph`,
+  known filename/path fragments→`find`, path listings→`glob`,
+  immediate entries/metadata→`list`, Git→`git`. With a known scope, query
+  content or symbols directly, without first enumerating paths. Tool names
+  are not shell commands; `shell` only runs programs and computation.
 - Shortest route: missing evidence → implement → verify once → deliver.
   Cheapest decisive evidence first: existing state, diff or a failing test
   before any search; once it establishes the cause, implement.
-- One-shot calls: put every already-justified target in the tool's array.
-  Do not add work whose need depends on a pending result. Do not re-read
-  unchanged content already delivered; changed sources and omitted ranges
-  are new evidence. Trust documented guarantees; no availability checks or
-  defensive branches, in scripts included.
-- Before requesting tools, collect the known independent next actions.
-  Batch same-tool targets in arrays and issue independent calls together in
-  the same response. Wait only for actual result dependencies or ordering
-  required for correctness or safety.
+- Before requesting tools, collect all known independent next actions across
+  tool types and issue them together in the same response. Prefer supported
+  arrays when options, query combinations and required outputs are preserved;
+  otherwise use separate calls. Respect output limits and execution order.
+  Wait only for actual result dependencies or correctness/safety ordering.
+- Do not add work whose need depends on a pending result. Reuse unchanged
+  content already delivered; changed sources and omitted ranges are new
+  evidence. Trust documented guarantees; no availability checks or defensive
+  branches, in scripts included.
 - Verify once after all edits; no read/list/diff to confirm writes; rerun only
   failed checks.
 - Validate exact targets before destructive actions; never roots, `~` or

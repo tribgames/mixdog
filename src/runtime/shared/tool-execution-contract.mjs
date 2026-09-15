@@ -1,7 +1,7 @@
 import { clean } from './clean.mjs';
 
 export const TOOL_SYNC_EXECUTION_CONTRACT =
-  'Runs synchronously in this tool call.';
+  'Returns final results in this call.';
 
 export const TOOL_ASYNC_EXECUTION_CONTRACT =
   'Runs sync inline by default; async returns a background task_id and delivers a completion notification.';

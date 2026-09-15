@@ -8,11 +8,11 @@ export const TOOL_DEFS = [
   {
     name: 'web_search',
     title: 'Mixdog Web Search',
-    description: `Cached web/docs/current-info search. ${TOOL_SYNC_EXECUTION_CONTRACT}`,
+    description: `Cached web/docs/current-info search; batch queries sharing filters. ${TOOL_SYNC_EXECUTION_CONTRACT}`,
     inputSchema: {
       type: 'object',
       properties: {
-        query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Required query or array for lossless fan-out.' },
+        query: { anyOf: [{ type: 'string', minLength: 1, pattern: '\\S' }, { type: 'array', minItems: 1, items: { type: 'string', minLength: 1, pattern: '\\S' } }], description: 'Non-empty query or array for lossless fan-out.' },
         site: { type: 'string', description: 'Site/domain filter.' },
         type: { type: 'string', enum: ['web', 'news', 'images'], description: 'Default web.' },
         maxResults: { type: 'integer', minimum: 1, maximum: 20, description: 'Result count; default 10; 1-20.' },
@@ -27,11 +27,11 @@ export const TOOL_DEFS = [
   {
     name: 'web_fetch',
     title: 'Mixdog Web Fetch',
-    description: 'Fetch page/docs body from URL.',
+    description: 'Fetch page/docs body from URL; batch known URLs with shared slice options.',
     inputSchema: {
       type: 'object',
       properties: {
-        url: { anyOf: [{ type: 'string', format: 'uri' }, { type: 'array', items: { type: 'string', format: 'uri' }, maxItems: 10 }], description: 'Public HTTP(S) URL or array of up to 10 URLs.' },
+        url: { anyOf: [{ type: 'string', format: 'uri' }, { type: 'array', items: { type: 'string', format: 'uri' }, minItems: 1, maxItems: 10 }], description: 'Public HTTP(S) URL or array of up to 10 URLs.' },
         startIndex: { type: 'integer', minimum: 0, description: 'Character offset; default 0.' },
         maxLength: { type: 'integer', minimum: 0, description: 'Maximum characters; default 50000; 0 unlimited.' },
       },

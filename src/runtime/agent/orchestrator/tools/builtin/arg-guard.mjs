@@ -803,7 +803,7 @@ function guardList(a) {
 function guardFind(a) {
     const queryOk = hasOwn(a, 'query') && typeof a.query === 'string' && a.query.trim().length > 0;
     if (!queryOk) {
-        return `Error: find requires non-empty string "query" (got ${describeType(a.query)})`;
+        return `Error: find requires non-empty string "query" (got ${describeType(a.query)}). For general path discovery, use glob in the current Project; use find only with a known filename/path fragment.`;
     }
     if (hasOwn(a, 'path') && !isString(a.path)) {
         return `Error: find arg "path" must be a string (got ${describeType(a.path)})`;

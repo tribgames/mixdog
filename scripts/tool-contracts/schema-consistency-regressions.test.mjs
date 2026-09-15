@@ -8,8 +8,44 @@ import { toGeminiTools } from '../../src/runtime/agent/orchestrator/providers/ge
 import { sanitizeAnthropicInputSchema } from '../../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
 import { normalizeGrokToolSchemas } from '../../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
 import { TOOL_DEFS as browser } from '../../src/runtime/browser-bridge/tool-defs.mjs';
+import { BUILTIN_TOOLS } from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
+import { validateBuiltinArgs } from '../../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
+import { executeBuiltinTool } from '../../src/runtime/agent/orchestrator/tools/builtin.mjs';
 
 const ajv = new Ajv({ strict: false, validateFormats: false });
+
+test('find query constraints agree between the public schema, Gemini wire and runtime', () => {
+  const tool = BUILTIN_TOOLS.find(tool => tool.name === 'find');
+  const original = structuredClone(tool);
+  const wire = toGeminiTools([tool]).functionDeclarations[0];
+  const validators = [
+    ajv.compile(tool.inputSchema),
+    ajv.compile(wire.parametersJsonSchema || wire.parameters),
+  ];
+  for (const [args, expected] of [
+    [{ query: '' }, false],
+    [{ query: ' \t\n' }, false],
+    [{}, false],
+    [{ query: 'network' }, true],
+    [{ query: 'src network' }, true],
+    [{ query: ' 네트워크 ' }, true],
+  ]) {
+    for (const validate of validators) assert.equal(validate(args), expected, JSON.stringify(args));
+    assert.equal(validateBuiltinArgs('find', structuredClone(args)) === null, expected, JSON.stringify(args));
+  }
+  assert.deepEqual(tool, original, 'Provider conversion must preserve the source contract');
+});
+
+test('invalid find queries stay errors and explain discovery without silently changing the operation', async () => {
+  for (const args of [{ query: '' }, { query: ' \t\n' }, {}]) {
+    const original = structuredClone(args);
+    const result = String(await executeBuiltinTool('find', args));
+    assert.match(result, /^Error: find requires non-empty string "query"/);
+    assert.match(result, /use glob in the current Project/);
+    assert.match(result, /known filename\/path fragment/);
+    assert.deepEqual(args, original);
+  }
+});
 
 test('setup rejects missing reset values and unrelated action fields before accessing the runtime', async () => {
   const executor = createSetupToolExecutor({
