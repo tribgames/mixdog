@@ -85,8 +85,16 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
     const sameFile = existing
         && statMatchesSnapshot({ mtimeMs, ctimeMs, size }, existing)
         && Array.isArray(existing.ranges);
+    // A mutation snapshot claims the full range because it knows the bytes it
+    // wrote, not because the session received them. Merging a later partial
+    // read into that synthetic range produced full coverage, which promoted
+    // bodyDelivered and let the next edit hide never-delivered ranges behind
+    // "[file unchanged]". Only delivered ranges take part in the merge.
+    const existingIsUndeliveredMutation = sameFile
+        && (existing.source === 'edit' || String(existing.source || '').startsWith('apply_patch_'))
+        && existing.bodyDelivered !== true;
     const merged = sameFile
-        ? mergeReadRanges([...existing.ranges, ...incomingRanges])
+        ? mergeReadRanges([...(existingIsUndeliveredMutation ? [] : existing.ranges), ...incomingRanges])
         : mergeReadRanges(incomingRanges);
     // fileLineCount is omitted here so it can ONLY be set via the explicit
     // guard below (which excludes source==='read_batch_sliced'); otherwise a

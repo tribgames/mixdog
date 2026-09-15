@@ -5,7 +5,65 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-import { describeCwdStartupEntries, describeGitStartupState } from './runtime-capabilities.mjs';
+import {
+    describeCwdStartupEntries,
+    describeGitStartupState,
+    describeShellToolsStartupState,
+} from './runtime-capabilities.mjs';
+
+test('Shell tools startup line reads a POSIX login shell and renders present/absent names', () => {
+    const calls = [];
+    const line = describeShellToolsStartupState({
+        platform: 'linux',
+        shellPath: '/bin/bash',
+        names: ['python3', 'python', 'file', 'node'],
+        _spawnSync: (shell, args, options) => {
+            calls.push({ shell, args, options });
+            return { status: 1, stdout: '/usr/bin/python3\n/usr/local/bin/node\n', stderr: '' };
+        },
+    });
+    assert.equal(line, '- Shell tools at startup: python3 node; absent: python file.');
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].args, ['-lc', 'command -v python3 python file node']);
+    assert.ok(calls[0].options.timeout > 0, 'probe is time-bounded');
+});
+
+test('Shell tools startup line renders nothing when the probe fails or times out', () => {
+    const timedOut = describeShellToolsStartupState({
+        platform: 'linux',
+        shellPath: '/bin/bash',
+        _spawnSync: () => ({ status: null, stdout: '', error: Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' }) }),
+    });
+    assert.equal(timedOut, '');
+    const threw = describeShellToolsStartupState({
+        platform: 'linux',
+        shellPath: '/bin/bash',
+        _spawnSync: () => { throw new Error('spawn failed'); },
+    });
+    assert.equal(threw, '');
+});
+
+test('Shell tools startup line on Windows walks PATH and ignores the Store stub', {
+    skip: process.platform === 'win32' ? false : 'PATH delimiter is platform-bound',
+}, () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-tools-win-'));
+    try {
+        const real = join(root, 'real');
+        const store = join(root, 'WindowsApps');
+        mkdirSync(real);
+        mkdirSync(store);
+        writeFileSync(join(real, 'node.exe'), '');
+        writeFileSync(join(store, 'python.exe'), '');
+        const line = describeShellToolsStartupState({
+            platform: 'win32',
+            names: ['python', 'node', 'jq'],
+            pathValue: `${real};${store}`,
+        });
+        assert.equal(line, '- Shell tools at startup: node; absent: python jq.');
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
 
 const gitAvailable = spawnSync('git', ['--version'], {
     encoding: 'utf8',

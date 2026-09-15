@@ -21,6 +21,9 @@ import {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
 const GIT_OUTPUT_LIMIT_MAX = 200;
+// Matches the other batch tools' 10-entry fan-out; a 6-command survey used to
+// be refused outright, costing the model a round trip.
+const GIT_COMMAND_ARRAY_LIMIT = 10;
 // git's subcommand namespace is open-ended: any `git-*` executable on PATH
 // (git-filter-repo, git-lfs, in-house wrappers) dispatches as a subcommand, so
 // a finite allowlist can never keep up. It rejected `git filter-repo` as an
@@ -74,16 +77,16 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run Git here, never through shell; commands run in order and arrays stop on failure. Batch required read-only commands in one array. diff for known changes, status to discover them; history only when needed. Mutations are serialized; output is compacted.',
+    description: 'Run Git here, never through shell; commands run in order and arrays stop on failure. Batch needed read-only commands in one array (max 10). diff for known changes, status to discover them; history only when needed. Mutations are serialized; output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {
             command: {
                 anyOf: [
                     { type: 'string' },
-                    { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5 },
+                    { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: GIT_COMMAND_ARRAY_LIMIT },
                 ],
-                description: 'Commands starting with git. Shell-style quoting; no shell operators/substitution. Mutations are allowed.',
+                description: 'Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed.',
             },
             output_limit: { type: 'integer', minimum: 1, maximum: GIT_OUTPUT_LIMIT_MAX, description: 'Item/line cap. Default 50; git log defaults to 10.' },
         },
@@ -753,10 +756,23 @@ async function resolveRepo(plan, signal) {
     const hit = cachedRepoRoot(key, plan);
     if (hit) return { root: hit, probe: null };
     const result = await runGit(plan, ['rev-parse', '--show-toplevel'], { signal });
-    if (!succeeded(result)) return { root: null, probe: result };
-    const root = cleanText(result.stdout);
-    rememberRepoRoot(key, root);
-    return { root, probe: result };
+    if (succeeded(result)) {
+        const root = cleanText(result.stdout);
+        rememberRepoRoot(key, root);
+        return { root, probe: result };
+    }
+    // A bare repository (mirror clone, server-side repo) has no work tree, so
+    // `--show-toplevel` refuses; that is still a repository. Answering
+    // "not a git repository" here sent a caller off to clone a work tree just
+    // to inspect objects it already had.
+    if (/must be run in a work tree/i.test(String(result.stderr || ''))) {
+        const bare = await runGit(plan, ['rev-parse', '--absolute-git-dir'], { signal });
+        if (!succeeded(bare)) return { root: null, probe: bare };
+        const root = cleanText(bare.stdout);
+        rememberRepoRoot(key, root);
+        return { root, probe: bare };
+    }
+    return { root: null, probe: result };
 }
 
 function localizeConfigPlan(plan) {
@@ -993,11 +1009,47 @@ function gitBatchRow(command, raw) {
     }
 }
 
+// `git a && git b` written as one string means exactly what the command array
+// means: run in order, stop at the first failure. Splitting it here answers in
+// one shot instead of rejecting and costing a round trip. Only top-level `&&`,
+// `;` and newlines split; each piece still has to be a full git command, so
+// pipes, redirects, substitution and non-git segments are refused as before.
+function splitChainedGitCommands(command) {
+    const text = String(command ?? '');
+    const pieces = [];
+    let quote = null;
+    let start = 0;
+    for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (quote) {
+            if (char === '\\' && quote === '"') { index += 1; continue; }
+            if (char === quote) quote = null;
+            continue;
+        }
+        if (char === "'" || char === '"') { quote = char; continue; }
+        let width = 0;
+        if (char === '&' && text[index + 1] === '&') width = 2;
+        else if (char === ';' || char === '\n') width = 1;
+        else if (char === '\r' && text[index + 1] === '\n') width = 2;
+        if (!width) continue;
+        pieces.push(text.slice(start, index));
+        index += width - 1;
+        start = index + 1;
+    }
+    if (quote || pieces.length === 0) return null;
+    pieces.push(text.slice(start));
+    const commands = pieces.map((piece) => piece.trim()).filter(Boolean);
+    return commands.length > 1 ? commands : null;
+}
+
 export async function executeGitTool(input, workDir, options = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('git requires an arguments object');
-    if (!Array.isArray(input.command)) return executeSingleGitTool(input, workDir, options);
-    const commands = input.command;
-    if (commands.length < 1 || commands.length > 5) return fail('git command array requires 1 to 5 commands');
+    const chained = typeof input.command === 'string' ? splitChainedGitCommands(input.command) : null;
+    if (!Array.isArray(input.command) && !chained) return executeSingleGitTool(input, workDir, options);
+    const commands = chained || input.command;
+    if (commands.length < 1 || commands.length > GIT_COMMAND_ARRAY_LIMIT) {
+        return fail(`git command array requires 1 to ${GIT_COMMAND_ARRAY_LIMIT} commands`);
+    }
 
     for (let index = 0; index < commands.length; index += 1) {
         const command = commands[index];

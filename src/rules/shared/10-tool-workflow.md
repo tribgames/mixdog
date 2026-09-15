@@ -8,18 +8,20 @@
   are not shell commands; `shell` only runs programs and computation.
 - Shortest route: missing evidence → implement → verify once → deliver.
   Cheapest decisive evidence first: existing state, diff or a failing test
-  before any search; once it establishes the cause, implement.
+  before any search; once it establishes the cause, implement: read the exact
+  edit sites and their direct references, no further surveys or history.
+  When that evidence already contains the exact lines to change (a diff, a
+  failing assertion, an error location), patch from it directly; read beyond
+  it only for anchors the patch needs or when the fix is not in the evidence.
 - Before requesting tools, collect all known independent next actions across
   tool types and issue them together in the same response. Prefer supported
   arrays when options, query combinations and required outputs are preserved;
-  otherwise use separate calls. Respect output limits and execution order.
+  otherwise use separate calls.
   Wait only for actual result dependencies or correctness/safety ordering.
 - Do not add work whose need depends on a pending result. Reuse unchanged
   content already delivered; changed sources and omitted ranges are new
   evidence. Trust documented guarantees; no availability checks or defensive
   branches, in scripts included.
-- Verify once after all edits; no read/list/diff to confirm writes; rerun only
-  failed checks.
 - Validate exact targets before destructive actions; never roots, `~` or
   unresolved variables/globs. Report deletion recoverability.
 - Generated data is not evidence; never hide errors, timeouts or cancellation

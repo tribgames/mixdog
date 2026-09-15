@@ -261,7 +261,10 @@ function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }
     if (briefLead) parts.push(briefLead);
   }
 
-  if (general) parts.push(general);
+  // Delegation-free workflows (Solo, headless) never expose the `agent` tool,
+  // so Lead guidance marked `<!-- tools: agent -->` is dropped there and kept
+  // verbatim for delegating workflows.
+  if (general) parts.push(omitToolRoutes(general, includeLeadBrief ? [] : ['agent']));
   if (persona) parts.push(persona);
 
   return parts.join('\n\n');

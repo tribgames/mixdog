@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises';
 import { executeSingleReadTool } from './read-single-tool.mjs';
 import { imageMimeForPath, readImageAsContent } from './read-image.mjs';
-import { readEntryCoalescedDiskWindow } from './read-batch.mjs';
+import { mergeOverlappingReadEntries, readEntryCoalescedDiskWindow } from './read-batch.mjs';
 import { readPathStringGuardError } from './read-open.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
 import { existsSync } from 'fs';
@@ -304,7 +304,12 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         // range into one huge window. Far-apart reads stay separate,
         // which avoids scanning and then slicing thousands of lines
         // just to return two tiny windows.
-        const entries = coalesceObjectReadEntries(rawEntries, (p) => resolveAgainstCwd(p, workDir));
+        // Overlapping windows of one file render as a single block so no
+        // requested line is delivered twice.
+        const entries = coalesceObjectReadEntries(
+            mergeOverlappingReadEntries(rawEntries, (p) => resolveAgainstCwd(p, workDir)),
+            (p) => resolveAgainstCwd(p, workDir),
+        );
         // Deduplicate so the same union-range is read only once per path.
         const _seen = new Map(); // cacheKey → dedupedEntries index
         const dedupedEntries = [];

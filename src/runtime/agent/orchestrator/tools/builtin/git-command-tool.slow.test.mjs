@@ -137,7 +137,19 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     assert.match(JSON.stringify(parseOk(await git(repo, 'worktree list --porcelain'))), /topic/);
     assert.match(JSON.stringify(parseOk(await git(repo, 'branch --list'))), /topic/);
 
-    assert.match(String(await executeGitTool({ command: 'git status && git log' }, root)), /^Error: git command must not contain shell operators/);
+    // A `&&` chain is the command array written as one string: same order,
+    // same stop-on-failure, answered in one shot.
+    const chain = parseOk(await executeGitTool({ command: `git -C ${quote(repo)} status --short && git -C ${quote(repo)} log --oneline -1` }, root));
+    assert.equal(chain.batched, true);
+    assert.equal(chain.results.length, 2);
+    assert.equal(chain.results[1].ok, true);
+    const semi = parseOk(await executeGitTool({ command: `git -C ${quote(repo)} status --short; git -C ${quote(repo)} branch --list` }, root));
+    assert.equal(semi.results.length, 2);
+    // Non-git segments, pipes and substitution stay refused before anything runs.
+    assert.match(String(await executeGitTool({ command: 'git status && echo x' }, root)), /^Error: git command 2: command must begin with git/);
+    assert.match(String(await executeGitTool({ command: 'git status && git log | head' }, root)), /^Error: git command 2: git command must not contain shell operators/);
+    assert.match(String(await executeGitTool({ command: 'git log --format="a && b" -1' }, root)), /^Error: git command must not contain shell operators|"ok":true/);
+    assert.match(String(await executeGitTool({ command: Array.from({ length: 11 }, () => 'git status') }, root)), /^Error: git command array requires 1 to 10 commands/);
 });
 
 test('git tool answers semantic exits and keeps literal operator characters', async (t) => {
@@ -296,7 +308,7 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
     assert.deepEqual(properties.command.anyOf.map((entry) => entry.type), ['string', 'array']);
     assert.equal(properties.command.anyOf[1].minItems, 1);
-    assert.equal(properties.command.anyOf[1].maxItems, 5);
+    assert.equal(properties.command.anyOf[1].maxItems, 10);
     assert.equal(properties.output_limit.maximum, 200);
     const stageProperties = GIT_STAGE_TOOL_DEF.inputSchema.properties;
     assert.deepEqual(Object.keys(stageProperties), ['diff_id', 'change_ids', 'output_limit']);
@@ -309,7 +321,33 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.match(GIT_TOOL_DEF.description, /Run Git here, never through shell/i);
     assert.match(GIT_TOOL_DEF.description, /commands run in order and arrays stop on failure/i);
     assert.match(GIT_TOOL_DEF.description, /Mutations are serialized/i);
-    assert.match(properties.command.description, /no shell operators\/substitution/i);
+    assert.match(properties.command.description, /no pipes\/redirects\/substitution/i);
+    assert.match(properties.command.description, /&& chain runs as the array/i);
+});
+
+test('git answers read and mutation commands inside a bare repository', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-bare-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+    writeFileSync(join(repo, 'base.txt'), 'base\n');
+    parseOk(await git(repo, 'add --all'));
+    parseOk(await git(repo, 'commit -m base'));
+    const bare = join(root, 'mirror.git');
+    parseOk(await executeGitTool({ command: `git clone --mirror --no-hardlinks ${quote(repo)} ${quote(bare)}` }, root));
+
+    // A mirror has no work tree; it is still a repository, not "repo:false".
+    const log = parseOk(await git(bare, 'log --oneline -1'));
+    assert.equal(log.repo, undefined);
+    assert.match(JSON.stringify(log), /base/);
+    const fsck = parseOk(await git(bare, 'fsck --full --no-reflogs --unreachable'));
+    assert.equal(fsck.repo, undefined);
+    const expire = parseOk(await git(bare, 'reflog expire --expire=now --all'));
+    assert.equal(expire.ok, true);
+    // A plain directory still reports the honest absence.
+    assert.equal(parseOk(await executeGitTool({ command: `git -C ${quote(root)} status` }, root)).repo, false);
 });
 
 test('git command arrays run in order, allow mutations, and stop at the first failure', async (t) => {
@@ -426,6 +464,8 @@ test('git runs a fully quoted command and keeps refusing quoted shell syntax', a
         ['base.txt'],
     );
 
+    // A quoted chain is one quoted command, not a chain: the unwrapped text
+    // still carries the operator and is refused.
     assert.match(
         String(await executeGitTool({ command: '"git status && git log"' }, repo)),
         /^Error: git command must not contain shell operators/,

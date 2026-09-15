@@ -40,7 +40,7 @@ import { ensureCodexWireSessionId, mintSessionId, mintUuidV7 } from './session-i
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mjs';
 import { IMPLICIT_APPROVAL_MODE } from '../approval-mode.mjs';
-import { describeCwdStartupEntries, describeGitStartupState } from '../../tools/builtin/runtime-capabilities.mjs';
+import { describeCwdStartupEntries, describeGitStartupState, describeShellToolsStartupState } from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
 import { publishPromptSurface } from './prompt-surface-publish.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
@@ -294,13 +294,16 @@ export function createSession(opts) {
                 : '- Relative paths and shell commands resolve in the active Project shown by Session Cwd.')
             : '',
         `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`,
-        // A startup inventory of PATH binaries used to sit here; see
-        // runtime-capabilities.mjs for why it cannot be stated truthfully
-        // before a command has run. Whether the cwd is inside a repository is
-        // different: it is a property of this directory, true at startup and
-        // observable without spawning anything, and the git tool cannot infer
-        // it. Without it a session spends a call discovering `exited 128`, and
-        // repeats it per candidate path.
+        // Which common tools the shell can run, measured where commands run
+        // (login shell on POSIX, this process's PATH on Windows); see
+        // runtime-capabilities.mjs. Recorded runs spent a round per session
+        // guessing python vs python3 or calling `file` that was not there.
+        // Rendered as a startup observation; an unknown answer renders nothing.
+        describeShellToolsStartupState(),
+        // Whether the cwd is inside a repository is a property of this
+        // directory, true at startup and observable without spawning anything,
+        // and the git tool cannot infer it. Without it a session spends a call
+        // discovering `exited 128`, and repeats it per candidate path.
         wantsGitStartupLine
             ? describeGitStartupState(sessionCwdLine ? { cwd: sessionCwdLine } : {})
             : '',

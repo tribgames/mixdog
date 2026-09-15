@@ -25,7 +25,7 @@ eof_line: "*** End of File" LF
 const APPLY_PATCH_CONTRACT =
   'Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.';
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  `Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once: literal "hello" becomes "+hello", not "++hello". ${APPLY_PATCH_CONTRACT}`;
+  `Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once ("+hello", not "++hello"). ${APPLY_PATCH_CONTRACT}`;
 
 const APPLY_PATCH_JSON_DESCRIPTION =
   `Edit files with one complete V4A patch in \`patch\`. Call this tool directly, not as a shell command. One file block per target, with all its hunks. ${APPLY_PATCH_CONTRACT}`;

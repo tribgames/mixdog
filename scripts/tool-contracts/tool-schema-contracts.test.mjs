@@ -36,8 +36,8 @@ test('shell, edit, and task keep their execution contracts', () => {
   // The timeout contract is anchored on the timeout_ms argument description
   // below — the tool description no longer duplicates it.
   if (!/^Run programs, builds, tests and computation/i.test(shellDescription)
-      || !/Not for files, search or Git/i.test(shellDescription)
-      || !/tool names are not shell commands/i.test(shellDescription)
+      || !/Never for files, search or Git: cat\/head\/tail→read/i.test(shellDescription)
+      || !/never `apply_patch <<EOF` in shell/i.test(shellDescription)
       || !/10s foreground window.*not a timeout/i.test(shellDescription)
       || !/use task wait, not read polling/i.test(shellDescription)) {
     throw new Error(`shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`);
@@ -369,10 +369,9 @@ test('cwd and memory schemas stay minimal and direct', () => {
   if (memoryTool?.title !== 'Memory'
     || memoryTool?.annotations?.title !== 'Memory'
     || !/standing user preferences/i.test(memoryTool?.description || '')
-    // Curated memory plus candidate curation (promote/dismiss/exclude) and the
-    // revisioned per-project index that edit/delete pair with.
-    || Object.keys(memoryProps).sort().join(',') !== 'id,include_inactive,index_revision,limit,offset,op,project_id,source,summary'
-    || memoryProps.op?.enum?.join(',') !== 'add,edit,delete,list,candidates,promote,dismiss,exclude'
+    // Direct curated memory and the revisioned per-project edit/delete index.
+    || Object.keys(memoryProps).sort().join(',') !== 'id,include_inactive,index_revision,limit,offset,op,project_id,summary'
+    || memoryProps.op?.enum?.join(',') !== 'add,edit,delete,list'
     || memoryTool?.inputSchema?.required?.join(',') !== 'op'
     || memoryProps.id?.type !== 'integer'
     || memoryProps.id?.minimum !== 1

@@ -201,3 +201,60 @@ export function readEntryCoalescedDiskWindow(entry) {
         limit: entry._unionLimit,
     };
 }
+
+/**
+ * Merge same-file explicit line windows that overlap into one entry so shared
+ * lines render once instead of once per window. Only explicit full-mode
+ * windows (numeric offset+limit, not full:true) merge; the merged entry keeps
+ * the first member's slot and later members are dropped. Adjacent or gapped
+ * windows stay separate — coalesceObjectReadEntries still shares their disk
+ * read but slices each back to what was asked.
+ */
+export function mergeOverlappingReadEntries(rawEntries, resolvePath = null) {
+    const isExplicitWindow = (entry) => !!entry
+        && !entry._invertedRangeError
+        && isFullModeReadEntry(entry)
+        && entry.full !== true
+        && typeof entry.offset === 'number' && Number.isFinite(entry.offset)
+        && typeof entry.limit === 'number' && Number.isFinite(entry.limit) && entry.limit > 0;
+    const byPath = new Map();
+    for (let i = 0; i < rawEntries.length; i++) {
+        const entry = rawEntries[i];
+        if (!isExplicitWindow(entry)) continue;
+        const key = typeof resolvePath === 'function' ? resolvePath(entry.path || '') : (entry.path || '');
+        const offset = Math.max(0, Math.trunc(entry.offset));
+        if (!byPath.has(key)) byPath.set(key, []);
+        byPath.get(key).push({ index: i, offset, end: offset + Math.max(1, Math.trunc(entry.limit)) });
+    }
+    const merged = new Map(); // head index → { offset, end }
+    const dropped = new Set();
+    for (const items of byPath.values()) {
+        if (items.length < 2) continue;
+        items.sort((a, b) => (a.offset - b.offset) || (a.end - b.end) || (a.index - b.index));
+        let run = null;
+        const runs = [];
+        for (const item of items) {
+            if (run && item.offset < run.end) {
+                run.end = Math.max(run.end, item.end);
+                run.members.push(item.index);
+            } else {
+                run = { offset: item.offset, end: item.end, members: [item.index] };
+                runs.push(run);
+            }
+        }
+        for (const r of runs) {
+            if (r.members.length < 2) continue;
+            const head = Math.min(...r.members);
+            merged.set(head, { offset: r.offset, end: r.end });
+            for (const idx of r.members) if (idx !== head) dropped.add(idx);
+        }
+    }
+    if (merged.size === 0) return rawEntries;
+    const out = [];
+    for (let i = 0; i < rawEntries.length; i++) {
+        if (dropped.has(i)) continue;
+        const m = merged.get(i);
+        out.push(m ? { ...rawEntries[i], offset: m.offset, limit: m.end - m.offset } : rawEntries[i]);
+    }
+    return out;
+}

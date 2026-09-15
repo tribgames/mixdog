@@ -8,8 +8,9 @@
   mutate to bypass unexpected state.
 - UI/edit sites: use `grep` to locate unknown regions. If locations are
   already known, read only missing ranges directly and batch independent
-  ranges. Never combine `overview` and `symbols` for one need. Prior sessions
-  need a request or open decision.
+  ranges. Reconnaissance returns locations (`context:0`, `mode:files`); fetch
+  content only for ranges you will edit or verify. Never combine `overview`
+  and `symbols` for one need. Prior sessions need a request or open decision.
 - Supplied/home/environment paths need no locator; project-relative inside,
   explicit outside; one parent listing, not sibling walks.
 - Sample each unknown format once, not every file of a known structure; list

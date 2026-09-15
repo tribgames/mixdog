@@ -69,12 +69,75 @@ export function findPathExecutable(name, {
     return null;
 }
 
-// A startup PATH inventory is deliberately not rendered into the prompt: it
-// would be measured in this process's PATH while commands run under the
-// login-shell snapshot (shell-snapshot.mjs), which does not exist until the
-// first shell call, and it would freeze at session start while an install
-// during the session changes the answer. bash-tool's _exitClassDiagnostic
-// reports a missing command after it has run, from the environment that ran it.
+// Startup shell-tool line. An earlier inventory was dropped because it was
+// measured in this process's PATH while commands run under the login-shell
+// snapshot (shell-snapshot.mjs). This one is measured where commands run: on
+// POSIX a login shell (`-lc`, the same profile the snapshot captures) answers
+// `command -v`; on Windows there is no snapshot layer and commands inherit
+// this process's environment, so a PATH walk is the truth there (minus the
+// Store stub in WindowsApps, which resolves but only opens the Store). It is
+// a startup observation like the git line, not a permanent rule; a failed or
+// slow probe renders nothing rather than a guess. Names are the ones models
+// guessed wrong most often in recorded runs (python3/file/python ≈ 70%).
+export const SHELL_TOOL_STARTUP_NAMES = Object.freeze([
+    'python3', 'python', 'py', 'pip3', 'node', 'npm', 'gcc', 'g++', 'make',
+    'jq', 'sqlite3', 'file', 'curl', 'xxd',
+]);
+
+function _posixStartupShell(candidates = ['/bin/bash', '/usr/bin/bash', '/bin/sh']) {
+    for (const candidate of candidates) {
+        try {
+            if (statSync(candidate).isFile()) return candidate;
+        } catch {}
+    }
+    return null;
+}
+
+export function describeShellToolsStartupState({
+    platform = process.platform,
+    names = SHELL_TOOL_STARTUP_NAMES,
+    shellPath = null,
+    timeoutMs = 1500,
+    pathValue = process.env.PATH || '',
+    _spawnSync = spawnSync,
+} = {}) {
+    const wanted = names.map((name) => String(name || '').trim()).filter(Boolean);
+    if (!wanted.length) return '';
+    let found;
+    if (platform === 'win32') {
+        found = new Set();
+        for (const name of wanted) {
+            const hit = findPathExecutable(name, { pathValue, platform });
+            if (hit && !/[\\/]WindowsApps(?:[\\/]|\)|$)/i.test(hit)) found.add(name);
+        }
+    } else {
+        const shell = shellPath || _posixStartupShell();
+        if (!shell) return '';
+        let result;
+        try {
+            result = _spawnSync(shell, ['-lc', `command -v ${wanted.join(' ')}`], {
+                encoding: 'utf8',
+                env: { ...process.env, PATH: pathValue },
+                maxBuffer: 64 * 1024,
+                timeout: timeoutMs,
+                windowsHide: true,
+            });
+        } catch {
+            return '';
+        }
+        // `command -v a b c` exits non-zero when any name is missing; only a
+        // spawn failure or timeout means the answer is unknown.
+        if (!result || result.error) return '';
+        found = new Set();
+        for (const line of String(result.stdout || '').split(/\r?\n/)) {
+            const base = line.trim().split('/').pop();
+            if (base && wanted.includes(base)) found.add(base);
+        }
+    }
+    const present = wanted.filter((name) => found.has(name));
+    const absent = wanted.filter((name) => !found.has(name));
+    return `- Shell tools at startup: ${present.length ? present.join(' ') : '(none)'}; absent: ${absent.length ? absent.join(' ') : '(none)'}.`;
+}
 
 // Walk up for a `.git` marker instead of shelling out to `git rev-parse`: it
 // costs no process spawn, and it still answers on images where the git binary

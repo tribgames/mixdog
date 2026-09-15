@@ -112,11 +112,11 @@ test('shared tool rules omit disabled web search and memory routes', () => {
   // the tool that is absent from the surface.
   const patchOnly = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot, omitTools: ['edit'] });
   assert.doesNotMatch(patchOnly, /`edit`/);
-  assert.match(patchOnly, /Author files with `apply_patch`, never shell scripts or redirection/i);
+  assert.match(patchOnly, /Author files with `apply_patch`\./i);
   const editOnly = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot, omitTools: ['apply_patch'] });
   assert.doesNotMatch(editOnly, /`apply_patch`/);
   assert.doesNotMatch(editOnly, /Add File|Update File/);
-  assert.match(editOnly, /Author files with `edit`, never shell scripts or redirection/i);
+  assert.match(editOnly, /Author files with `edit`\./i);
 });
 
 test('rule allowlists omit unavailable capabilities and explicit denies still win', () => {
@@ -170,7 +170,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i);
   assert.match(full, /An open\s+shell is never a routing reason/i);
   assert.match(full, /Git→`git`/i);
-  assert.match(full, /Verify once after all edits; no read\/list\/diff to confirm writes/i);
+  assert.match(full, /no read\/list\/diff to confirm writes/i);
+  assert.doesNotMatch(full, /Verify once after all edits/i);
   assert.match(full, /Generated data is not evidence/i);
   assert.match(full, /Check required behavior, exact outputs and essential integrity, security,\s+compatibility and buildability/i);
   assert.match(full, /Supplied\/home\/environment paths need no locator/i);
@@ -189,8 +190,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.doesNotMatch(full, /Collect failures, finish fixes/i);
   assert.match(full, /Completion means the verified objective,\s+not a turn-ending response/i);
   assert.doesNotMatch(full, /affected failed checks once/i);
-  assert.match(full, /Git commands→`git`; source-file edits stay with `edit`\./i);
-  assert.match(full, /Git commands→`git`; source-file edits stay with `apply_patch`\./i);
+  // Git routing lives once in Tool Workflow; Delivery no longer repeats it.
+  assert.doesNotMatch(full, /source-file edits stay with/i);
   assert.doesNotMatch(full, /Every repository mutation→`git`/i);
   assert.doesNotMatch(full, /always batch safely in parallel/i);
   // Dialect-specific contracts live in tool descriptions; their tests are
