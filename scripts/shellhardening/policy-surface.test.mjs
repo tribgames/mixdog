@@ -98,8 +98,8 @@ test('C: shell surface keeps execution contract separate from the platform comma
     // Explicit prohibition with the command→tool map (reference-agent style):
     // the shell never substitutes for file, search or Git tools, and tool
     // names (apply_patch heredocs in particular) are never shell commands.
-    assert.match(shellTool.description, /Never for files, search or Git: cat\/head\/tail→read, ls→list, find→glob, grep\/rg→grep, git→git\./);
-    assert.match(shellTool.description, /apply_patch and edit are tools, not shell commands — never `apply_patch <<EOF` in shell\./);
+    assert.match(shellTool.description, /Never for files, search or Git \(cat\/head\/tail→read, ls→list, find→glob, grep\/rg→grep, code_graph, git, edit\/apply_patch\)/);
+    assert.match(shellTool.description, /tool names run as tools, never as shell commands — no `edit\/apply_patch <<EOF`/);
     assert.doesNotMatch(shellTool.description, /Use read, NOT cat|Get-Content|Select-String/);
     assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
     assert.equal(shellTool.inputSchema?.properties?.shell, undefined);

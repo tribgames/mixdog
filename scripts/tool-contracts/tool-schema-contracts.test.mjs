@@ -36,8 +36,8 @@ test('shell, edit, and task keep their execution contracts', () => {
   // The timeout contract is anchored on the timeout_ms argument description
   // below — the tool description no longer duplicates it.
   if (!/^Run programs, builds, tests and computation/i.test(shellDescription)
-      || !/Never for files, search or Git: cat\/head\/tail→read/i.test(shellDescription)
-      || !/never `apply_patch <<EOF` in shell/i.test(shellDescription)
+      || !/Never for files, search or Git \(cat\/head\/tail→read/i.test(shellDescription)
+      || !/no `edit\/apply_patch <<EOF`/i.test(shellDescription)
       || !/10s foreground window.*not a timeout/i.test(shellDescription)
       || !/use task wait, not read polling/i.test(shellDescription)) {
     throw new Error(`shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`);
@@ -258,7 +258,7 @@ test('code_graph descriptions route structure lookups away from grep', () => {
     || !/text and regex belong to grep/i.test(codeGraphDescription)) {
     throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
   }
-  if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative\/absolute/i.test(codeGraphProps.files?.description || '')) {
+  if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative or absolute/i.test(codeGraphProps.files?.description || '')) {
     throw new Error('code_graph schema must keep compact relative/absolute path descriptions');
   }
   if (!/Explicit root outside the project/i.test(codeGraphProps.cwd?.description || '') || !/omit for project root/i.test(codeGraphProps.cwd?.description || '')) {

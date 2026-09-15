@@ -120,7 +120,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, builds, tests and computation. Never for files, search or Git: cat/head/tail→read, ls→list, find→glob, grep/rg→grep, git→git. apply_patch and edit are tools, not shell commands — never \`apply_patch <<EOF\` in shell. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id; use task wait, not read polling.'}`,
+        description: `Run programs, builds, tests and computation. Never for files, search or Git (cat/head/tail→read, ls→list, find→glob, grep/rg→grep, code_graph, git, edit/apply_patch); tool names run as tools, never as shell commands — no \`edit/apply_patch <<EOF\`. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id; use task wait, not read polling.'}`,
         inputSchema: {
             type: 'object',
             properties: {

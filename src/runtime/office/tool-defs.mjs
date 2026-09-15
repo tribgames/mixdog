@@ -53,7 +53,7 @@ export const TOOL_DEFS = [
         fields: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'PDF form fields; linted before writing.' },
         operations: {
           type: 'array',
-          description: 'Atomic ordered edits on one document; op names and fields per the format skill.',
+          description: 'Atomic ordered edits; op names and fields per the format skill.',
           items: {
             type: 'object',
             additionalProperties: true,

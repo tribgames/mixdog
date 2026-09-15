@@ -7,8 +7,8 @@ export const CODE_GRAPH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        mode: { type: 'string', enum: ['overview', 'imports', 'dependents', 'related', 'impact', 'symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees'], description: 'File modes: overview, imports, dependents, related, impact. symbols with files[] gives a file outline (declarations/lines); other modes use symbols[].' },
-        files: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Project-relative/absolute paths; required for file modes, symbol queries span all files.' },
+        mode: { type: 'string', enum: ['overview', 'imports', 'dependents', 'related', 'impact', 'symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees'], description: 'File modes: overview, imports, dependents, related, impact. symbols with files[] gives a direct file outline (declarations/lines); other modes use symbols[].' },
+        files: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Paths, project-relative or absolute; required for file modes, symbol queries span all files.' },
         symbols: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls.' },
         body: { type: 'boolean', description: 'true for implementation, false for locations; find_symbol defaults true, references is opt-in.' },
         limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Max results; modes may cap lower.' },
