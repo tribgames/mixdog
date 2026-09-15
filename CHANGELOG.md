@@ -5,6 +5,30 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Session start reports which common shell tools are present ("Shell tools
+  at startup"), measured in the login shell on POSIX and in the process PATH
+  on Windows, so a model no longer guesses `python` against `python3` or calls
+  `file` where it is absent; an unknown answer renders nothing.
+- `read` renders overlapping windows of one file once, no longer reports
+  unread edit ranges as already delivered, and never inherits a stale
+  whole-body-delivered mark after a file changes; array reads honor their
+  no-stub option and the description states the real output caps.
+- `git` runs `&&`-chained commands as an ordered array (up to 10) instead of
+  rejecting them, and recognizes bare repositories.
+- The session read cache honors the tool allowlist, detects `ctime`-only
+  changes, never stores a body captured before a mid-read change, keeps public
+  and legacy offset hints apart, and covers public array reads.
+- `web_search` arrays keep partial and total failures flagged as errors.
+- Rules and built-in tool descriptions are shorter with the same behavior: the
+  `shell` description carries the command→tool map and forbids tool names as
+  shell commands; `timeout_ms` guidance covers throwaway checks; Lead guidance
+  that only applies with the `agent` tool is omitted from delegation-free
+  workflows; rules ask for every independent action the current evidence
+  requires in one response, patching directly from decisive evidence, one
+  sample before parsing logic, and bounded slices for large or binary data.
+- Desktop runtime synchronized with the current browser and computer harness
+  work, and tool contract tests hardened accordingly.
+
 ## v0.9.166 - 2026-09-14
 
 - Studio recognizes the selected ChatGPT account after provider login and
