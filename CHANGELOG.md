@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.167 - 2026-09-15
+
 - Session start reports which common shell tools are present ("Shell tools
   at startup"), measured in the login shell on POSIX and in the process PATH
   on Windows, so a model no longer guesses `python` against `python3` or calls
