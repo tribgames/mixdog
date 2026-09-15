@@ -14,5 +14,9 @@
 - Supplied/home/environment paths need no locator; project-relative inside,
   explicit outside; one parent listing, not sibling walks.
 - Sample each unknown format once, not every file of a known structure; list
-  paths only when the list itself is needed; then process full data
-  programmatically. A sample is not the input domain.
+  paths only when the list itself is needed. Read one sample before writing
+  parsing or counting logic over unknown data — the observed format decides
+  the parser; then process full data programmatically. A sample is not the
+  input domain. Inspect large or binary data through bounded slices (head,
+  offset windows, aggregates); never dump whole files, hex, or per-item
+  listings into a result.

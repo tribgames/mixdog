@@ -2,7 +2,7 @@
 
 - Check required behavior, exact outputs and essential integrity, security,
   compatibility and buildability. Expected values come from sources or
-  independent invariants, never from the output itself.
+  independent invariants, never from the output itself or from recall.
 - After all edits, cover each required check once: one runner per runtime,
   independent checks in parallel; no read/list/diff to confirm writes; rerun
   only failed or invalidated checks.

@@ -128,7 +128,7 @@ export const BUILTIN_TOOLS = [
                 timeout_ms: {
                     type: 'number',
                     minimum: 0,
-                    description: 'Hard kill deadline in ms, separate from the 10s foreground window; omit or 0 = none.',
+                    description: 'Hard kill deadline in ms, separate from the 10s foreground window; omit or 0 = none. Set one for throwaway checks and probes so a slow check fails fast instead of being waited on.',
                 },
             },
             required: ['command'],
