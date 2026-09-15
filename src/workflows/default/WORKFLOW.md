@@ -20,3 +20,8 @@ Treat disjoint file or module sets as independent and merge scopes only on a
 true output dependency. Prefer parallel scopes over sequential slices in one
 agent, and brief each agent using the Lead Brief contract. If the plan has only
 one scope, Lead executes it directly.
+
+If the reviewer is disabled or unavailable, Lead alone reviews the result
+against the approved scope and performs the required verification. Do not
+change settings, enable the reviewer, or delegate review to a substitute agent.
+Do not skip review or describe Lead's own review as independent review.

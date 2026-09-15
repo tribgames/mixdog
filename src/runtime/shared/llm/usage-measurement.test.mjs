@@ -21,6 +21,7 @@ test('native Cursor historical counts survive but fabricated inputs and costs ne
         const rollup = ledger.rollup({
             fromDay: period.startDay || undefined, toDay: '2026-09-13',
             hourlyDay: view === 'hour' ? period.startDay : null,
+            ...(view === 'hour' ? { fromMs: period.fromMs, toMs: period.toMs } : {}),
         });
         const stats = usageStatsSnapshot({ rollup, period, now, source: 'all' });
         assert.equal(stats.totals.turns, 1);
@@ -52,7 +53,9 @@ test('unknown native input prevents an output-only catalog valuation for either 
         assert.equal(record.output, 7);
         assert.equal(record.costUsd, null);
         assert.equal(record.costSource, 'unpriced');
-        assert.equal(record.rates, null);
+        assert.equal(record.rates.unpricedReason, 'unmeasured-input');
+        assert.equal(record.rates.inputTokensKnown, false);
+        assert.equal(record.rates.requestedModel, null, 'an unrecorded requested id is not invented');
     }
 });
 
@@ -76,7 +79,8 @@ test('period-scoped reads match full-history selection, retain precedence and do
     ledger.record(rows);
     for (const view of ['hour', 'day', 'week', 'month', 'all']) {
         const period = resolveUsageStatsPeriod({ view, now });
-        const options = { hourlyDay: view === 'hour' ? period.startDay : null };
+        const options = { hourlyDay: view === 'hour' ? period.startDay : null,
+            ...(view === 'hour' ? { fromMs: period.fromMs, toMs: period.toMs } : {}) };
         const full = usageStatsSnapshot({ rollup: ledger.rollup(options), period, now, source: 'all' });
         const scoped = usageStatsSnapshot({ rollup: ledger.rollup({
             ...options, fromDay: period.startDay || undefined, toDay: '2026-09-13',
@@ -84,8 +88,9 @@ test('period-scoped reads match full-history selection, retain precedence and do
         assert.deepEqual(scoped, full, view);
         assert.equal(scoped.totals.sessions, 2);
         if (view === 'hour') {
-            assert.equal(scoped.totals.turns, 6);
-            assert.equal(scoped.totals.tokens, 460); // 4 measured requests × 110 + 2 output-only × 10.
+            // Both exact endpoints belong to the rolling 24-hour range.
+            assert.equal(scoped.totals.turns, 12);
+            assert.equal(scoped.totals.tokens, 920); // Two endpoints, each 4 measured × 110 + 2 output-only × 10.
         }
     }
 });

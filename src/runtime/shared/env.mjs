@@ -4,7 +4,7 @@
 // flip it, and an unrecognised value (a typo) also keeps the default instead
 // of silently enabling or disabling a feature.
 
-import { positiveInt } from './numbers.mjs';
+import { nonNegativeInt, positiveInt } from './numbers.mjs';
 
 const ON_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const OFF_VALUES = new Set(['0', 'false', 'off', 'no']);
@@ -24,8 +24,8 @@ export function envPositiveInt(name, fallback = null) {
 }
 
 export function envNonNegativeInt(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+  const parsed = nonNegativeInt(process.env[name], Number.NaN);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function envPresent(name) {

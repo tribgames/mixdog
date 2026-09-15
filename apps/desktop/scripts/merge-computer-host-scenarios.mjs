@@ -1,11 +1,9 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, relative, resolve } from 'node:path';
-import { mkdir } from 'node:fs/promises';
 
-const argument = (name) => {
-  const prefix = `--${name}=`;
-  return process.argv.find((value) => value.startsWith(prefix))?.slice(prefix.length) || '';
-};
+import { optionValue } from './cli-args.mjs';
+
+const argument = optionValue;
 
 const label = argument('label') || 'merged';
 const output = resolve(argument('output') || `scenario-${label}.json`);

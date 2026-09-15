@@ -2,7 +2,6 @@
 // createSession remains the stable public facade; its projection lives in
 // session-proxy.mjs.
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fork } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -20,6 +19,7 @@ import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
+import { beginDaemonSpawnCapture, daemonDataDir } from './daemon-crash-capture.mjs';
 import { createSessionProxyFactory } from './session-proxy.mjs';
 
 function runtimeRoot() {
@@ -31,10 +31,7 @@ export function sessionDiscoveryPath() {
 }
 
 function daemonOwnerPath() {
-  const dataDir = process.env.MIXDOG_DATA_DIR
-    ? path.resolve(process.env.MIXDOG_DATA_DIR)
-    : path.join(process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog'), 'data');
-  return path.join(dataDir, 'daemon-owner.json');
+  return path.join(daemonDataDir(), 'daemon-owner.json');
 }
 
 function daemonEntry() {
@@ -238,29 +235,40 @@ async function replaceLowerDaemon(discovery, initialHealth, { log }) {
 
 /** Fork one daemon candidate DETACHED (it outlives this client — machine
  *  global) and resolve when it reports ready OR exits (race loss/crash); the
- *  caller then re-reads discovery and attaches to whoever won. */
-function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000 }) {
+ *  caller then re-reads discovery and attaches to whoever won.
+ *
+ *  fd 2 is a capture FILE, not a pipe: a V8 fatal abort (heap OOM) is written
+ *  by the runtime below every JS hook, and a pipe dies with this launcher.
+ *  The exit listener outlives the ready handoff so the daemon's code/signal is
+ *  recorded against its pid, boot time and ready state instead of discarded.
+ *  `entry` is a test seam; production always forks the real daemon. */
+export function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = daemonEntry() }) {
   return new Promise((resolve) => {
     const t0 = performance.now();
     const at = () => Math.round(performance.now() - t0);
     let settled = false;
     let timer = null;
+    const capture = beginDaemonSpawnCapture({ launcher: 'session-client', log });
     const done = () => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      // Boot diagnostics written to fd 2 reach this log exactly once, even when
+      // the candidate never reached ready.
+      capture.mirror();
       resolve();
     };
+    const detached = daemonShouldDetach();
+    // Inherit this launcher's flags (fork's default). withHeapCap('daemon')
+    // adds --max-old-space-size only when MIXDOG_DAEMON_HEAP_MB is set.
+    const execArgv = withHeapCap('daemon', process.execArgv);
     let child;
     try {
-      child = fork(daemonEntry(), [], {
+      child = fork(entry, [], {
         cwd,
-        // Inherit this launcher's flags (fork's default) and add the daemon's
-        // old-space cap on top: uncapped, a long-lived daemon stays resident
-        // far above its live set.
-        execArgv: withHeapCap('daemon', process.execArgv),
-        stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-        detached: daemonShouldDetach(),
+        execArgv,
+        stdio: ['ignore', 'ignore', capture.stderrStdio, 'ipc'],
+        detached,
         windowsHide: true,
         env: {
           ...process.env,
@@ -274,30 +282,30 @@ function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000 }) {
         },
       });
     } catch (err) {
+      capture.noteSpawnError(err);
       log(`daemon spawn failed: ${err?.message || err}`);
       done();
       return;
     }
     const forkMs = at();
+    capture.track(child, { detached, execArgv });
     child.once('spawn', () => { log(`daemon fork: forkMs=${forkMs} spawnEventMs=${at()}`); });
-    let firstStderrMs = -1;
-    const mirror = (chunk) => {
-      if (firstStderrMs < 0) { firstStderrMs = at(); log(`daemon first stderr at=${firstStderrMs}ms`); }
-      const text = String(chunk || '').trimEnd();
-      if (text) log(text);
-    };
-    child.stderr?.on('data', mirror);
     child.once('message', (msg) => {
       if (msg?.type !== 'ready') return;
+      capture.noteReady();
       log(`daemon ready at=${at()}ms`);
-      try { child.stderr?.off?.('data', mirror); } catch {}
       try { child.disconnect?.(); } catch {}
       try { child.unref?.(); } catch {}
       try { child.stderr?.unref?.(); } catch {}
       done();
     });
     child.once('exit', done);
-    child.once('error', (err) => { log(`daemon spawn error: ${err?.message || err}`); done(); });
+    child.once('error', (err) => {
+      // An async spawn failure may never emit 'exit'; the sidecar still gets it.
+      capture.noteSpawnError(err);
+      log(`daemon spawn error: ${err?.message || err}`);
+      done();
+    });
     timer = setTimeout(done, Math.max(1, timeoutMs));
     timer.unref?.();
   });

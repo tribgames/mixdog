@@ -22,6 +22,7 @@ import {
     subscribeShellJobSettled,
     watchBackgroundShellJob,
 } from './shell-jobs.mjs';
+import { envFlag } from '../../../../shared/env.mjs';
 
 // A command that detaches work is never detected from its text — the text is
 // not read at all. After the shell exits, the runner observes whether the
@@ -510,9 +511,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         } catch { _inlineHoistPath = null; }
     }
 
-    const _bgTasksDisabled = /^(1|true|yes|on)$/i.test(
-        String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
-    );
+    const _bgTasksDisabled = envFlag('MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS');
 
     let shellEffects;
     let combinedBashAbort = null;

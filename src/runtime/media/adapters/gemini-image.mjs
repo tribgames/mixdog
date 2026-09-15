@@ -44,6 +44,29 @@ async function post(model, key, body, signal, fetchFn) {
   });
 }
 
+/**
+ * First inline image among a candidate's parts. A text-only answer is the
+ * model's refusal and surfaces as such; it is never retried.
+ */
+export function pickGeminiImagePart(parts, label, failure = null) {
+  const image = parts.find((part) => part?.inlineData?.data);
+  if (!image) {
+    const refusal = failure
+      || parts.find((part) => typeof part?.text === 'string' && part.text.trim())?.text
+      || '';
+    throw mediaError(
+      `${label} returned no image data${refusal ? `: ${String(refusal).slice(0, 200)}` : ''}`,
+      'MEDIA_EMPTY_RESULT',
+      502,
+    );
+  }
+  return {
+    bytes: decodeBase64Media(image.inlineData.data, `${label} image`),
+    mime: image.inlineData.mimeType || 'image/png',
+    revisedPrompt: null,
+  };
+}
+
 export async function generateImage({ model, prompt, options = {}, references = [], signal }, {
   fetchFn = fetch, resolveKey = resolveGeminiKey,
 } = {}) {
@@ -51,19 +74,5 @@ export async function generateImage({ model, prompt, options = {}, references = 
   const res = await post(model, key, geminiImageRequestBody(prompt, options, references), signal, fetchFn);
   if (!res.ok) throw upstreamError('Gemini image', res.status, await res.text().catch(() => ''));
   const data = await res.json();
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  const image = parts.find((part) => part?.inlineData?.data);
-  if (!image) {
-    const refusal = parts.find((part) => typeof part?.text === 'string')?.text || '';
-    throw mediaError(
-      `Gemini returned no image data${refusal ? `: ${refusal.slice(0, 200)}` : ''}`,
-      'MEDIA_EMPTY_RESULT',
-      502,
-    );
-  }
-  return {
-    bytes: decodeBase64Media(image.inlineData.data, 'Gemini image'),
-    mime: image.inlineData.mimeType || 'image/png',
-    revisedPrompt: null,
-  };
+  return pickGeminiImagePart(data?.candidates?.[0]?.content?.parts || [], 'Gemini');
 }

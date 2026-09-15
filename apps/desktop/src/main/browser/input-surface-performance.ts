@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { nativeImage, type WebContents } from 'electron';
 import type { BrowserHost } from './host';
+import { measureBrowserSurfaceLoad } from './input-surface-load';
 
 /** Fixture-only input acknowledgement and visible-pixel latency measurements. */
 export async function measureBrowserPresentation(
@@ -12,13 +13,13 @@ export async function measureBrowserPresentation(
   await shell.executeJavaScript(`(() => {
     window.presentationLoads = 0;
     window.presentationListener = () => window.presentationLoads++;
-    document.querySelector('.browser-isolated-view img').addEventListener('load', window.presentationListener);
+    document.querySelector('.browser-isolated-view').addEventListener('browser-frame-presented', window.presentationListener);
   })()`);
   const started = performance.now();
   await new Promise(resolve => setTimeout(resolve, 1500));
   const elapsed = performance.now() - started;
   const loads = await shell.executeJavaScript(`(() => {
-    document.querySelector('.browser-isolated-view img').removeEventListener('load', window.presentationListener);
+    document.querySelector('.browser-isolated-view').removeEventListener('browser-frame-presented', window.presentationListener);
     window.setSurfaceActive(false);
     return window.presentationLoads;
   })()`);
@@ -72,4 +73,5 @@ export async function measureBrowserPresentation(
     inputAcknowledgementP95Ms: p95(samples),
     inputToPixelsP95Ms: p95(visible),
   })}`);
+  await measureBrowserSurfaceLoad(host, guest, shell, log);
 }

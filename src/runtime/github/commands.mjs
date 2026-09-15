@@ -78,7 +78,10 @@ export function buildGithubCommand(value) {
       return api(`${root}/actions/workflows/${encodeURIComponent(text('workflow'))}/dispatches`, 'POST', {
         ref: text('ref'), inputs: input.inputs || {},
       });
-    case 'run.list': return api(`${root}/actions/runs?${query}`);
+    case 'run.list':
+      return api(input.workflow
+        ? `${root}/actions/workflows/${encodeURIComponent(text('workflow'))}/runs?${query}`
+        : `${root}/actions/runs?${query}`);
     case 'run.view': return api(`${root}/actions/runs/${id()}`);
     case 'run.logs':
       return cli(['run', 'view', String(id()), '--repo', repo, input.failed ? '--log-failed' : '--log']);

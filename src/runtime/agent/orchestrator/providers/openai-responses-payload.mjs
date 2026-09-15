@@ -12,7 +12,7 @@ import {
     responsesToolLoadingSurface,
 } from './custom-tool-wire.mjs';
 import { _envFlag } from './openai-oauth-http-sse.mjs';
-import { _findCachedCodexModel, codexModelSupportsServiceTier } from './openai-oauth.mjs';
+import { findCachedCodexModel, codexModelSupportsServiceTier } from './openai-oauth-catalog.mjs';
 
 export function toOpenAIResponsesTool(t) {
     if (t?.name === 'load_tool' || t?.name === 'tool_search') {
@@ -41,7 +41,7 @@ export const _convertMessagesToResponsesInputForTest = convertMessagesToResponse
 // cached codex catalog; unknown models default to true (gpt-5 family all
 // support summaries) so a cold catalog cannot strip reasoning from the wire.
 function _codexModelSupportsReasoningSummaries(id) {
-    const info = _findCachedCodexModel(id);
+    const info = findCachedCodexModel(id);
     if (!info) return true;
     const flags = [info.supportsReasoningSummaries, info.supports_reasoning_summaries, info.supportsReasoning, info.supports_reasoning];
     for (const flag of flags) {

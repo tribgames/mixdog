@@ -30,8 +30,11 @@ const SCHEMAS = {
         ['mimeType', 7, 'string'],
         ['data', 8, 'bytes'],
     ]),
-    UserMessageAction: fields([['userMessage', 1, 'UserMessage']]),
-    ResumeAction: fields([]),
+    UserMessageAction: fields([
+        ['userMessage', 1, 'UserMessage'],
+        ['requestContext', 2, 'RequestContext'],
+    ]),
+    ResumeAction: fields([['requestContext', 2, 'RequestContext']]),
     ConversationAction: fields([
         ['userMessageAction', 1, 'UserMessageAction'],
         ['resumeAction', 2, 'ResumeAction'],

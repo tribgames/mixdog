@@ -4,7 +4,7 @@ import { READ_BATCH_RANGE_COALESCE_GAP_LINES } from './read-constants.mjs';
 // origOffset+origLimit] (1-based line numbers in the body). Lines whose
 // leading `^(\d+)│` prefix falls outside the window are dropped; the
 // footer line is rebuilt to reflect the new range.
-export function sliceReadBodyByLines(body, origOffset, origLimit) {
+export function sliceReadBodyByLines(body, origOffset, origLimit, readOffsetBase = 1) {
     if (typeof body !== 'string') return body;
     const off = typeof origOffset === 'number' ? origOffset : 0;
     // limit:0 = unlimited (matches single-form parseLineLimitArg invariant)
@@ -57,7 +57,7 @@ export function sliceReadBodyByLines(body, origOffset, origLimit) {
         const totalNote = haveTotal ? ` of ${totalNum}` : '';
         const limitNote = finiteLast ? ` limit:${lastLine - firstLine + 1}` : '';
         return `(lines ${wanted} were NOT returned — the coalesced read stopped after covering lines `
-            + `${minSeen}-${maxSeen}${totalNote}; re-read this file with offset:${off}${limitNote})`;
+            + `${minSeen}-${maxSeen}${totalNote}; re-read this file with offset:${off + readOffsetBase}${limitNote})`;
     }
     // Line numbers actually present in this slice — the footer is derived from
     // them, never from the request alone.
@@ -77,9 +77,9 @@ export function sliceReadBodyByLines(body, origOffset, origLimit) {
     const emittedLast = keptLast !== null ? Math.min(requestedLast, keptLast) : requestedLast;
     const totalPart = haveTotal ? ` of ${totalNum}` : '';
     const moreToRead = haveTotal ? emittedLast < totalNum : finiteLast;
-    // Report the next public coordinate without prescribing another read.
+    // Report the next caller coordinate without prescribing another read.
     const continuationPart = moreToRead && Number.isFinite(emittedLast)
-        ? `; pass offset:${emittedLast + 1} to continue`
+        ? `; pass offset:${emittedLast + readOffsetBase} to continue`
         : '';
     const newFooter = `[lines ${emittedStart}-${emittedLast}${totalPart}${continuationPart}]`;
     return kept.join('\n') + (kept.length ? '\n' : '') + newFooter;

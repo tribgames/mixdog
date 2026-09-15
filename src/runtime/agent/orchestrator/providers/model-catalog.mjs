@@ -8,7 +8,7 @@
  *
  * Source: https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
  *
- * Overlay catalogs (LiteLLM + models.dev) are fetched once per process.
+ * Overlay catalogs (LiteLLM + models.dev) refresh periodically.
  * Disk is a stale-ok fallback when the remote fetch fails. On fetch
  * failure with no disk copy, providers keep whatever metadata their
  * native endpoint exposed (usually nothing beyond the id).
@@ -16,12 +16,17 @@
 
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { createHash } from 'node:crypto';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import {
     providerCachedModelMetadataSync,
     providerUsesEndpointScopedLimits,
+    providerPricingModelSync,
+    cachedProviderModelListsSync,
+    providerCachedModelsSync,
 } from './provider-catalog-cache.mjs';
+import { litellmPricing, modelsDevPricing, PRICING_RATE_KEYS } from './model-pricing-rates.mjs';
 // Both overlays are narrowed to their read surface before becoming resident;
 // the disk caches below still receive the full payload.
 import {
@@ -37,9 +42,13 @@ const CATALOG_CACHE_FILE = 'litellm-catalog.json';
 // track yet (e.g. opencode-go). Because it is keyed provider→model, a
 // provider-scoped lookup is collision-free: deepseek-v4-pro under `deepseek`
 // and under `opencode-go` resolve to their own distinct rates. Same
-// process-lifetime fetch + disk fallback as the LiteLLM catalog above.
+// periodic refresh + disk fallback as the LiteLLM catalog above.
 const MODELSDEV_URL = 'https://models.dev/api.json';
 const MODELSDEV_CACHE_FILE = 'modelsdev-catalog.json';
+export const PRICING_CATALOG_REFRESH_MS = 6 * 60 * 60 * 1000;
+const PRICING_CATALOG_RETRY_MS = 60_000;
+let catalogRetryAt = 0;
+let modelsDevRetryAt = 0;
 
 // mixdog provider id → models.dev provider id. Identity for ids that already
 // match (opencode-go / deepseek / xai / openai / anthropic / groq /
@@ -101,9 +110,6 @@ const _CATALOG_SIMPLE_PREFIXES = [
 ];
 // Bedrock-style variants: catalog key = <prefix><id>-v1:0
 const _CATALOG_BEDROCK_PREFIXES = ['anthropic.', 'bedrock/anthropic.'];
-// Shorter prefix set for enrichModels (ids from /models endpoints are rarely
-// azure_ai- or openrouter-namespaced).
-const _CATALOG_ENRICH_PREFIXES = ['anthropic/', 'openai/', 'gemini/', 'google/', 'xai/', 'deepseek/'];
 
 // Provider hint → catalog prefixes to try (subset of _CATALOG_SIMPLE_PREFIXES /
 // _CATALOG_ENRICH_PREFIXES). Keyed by the *mapped* models.dev provider id
@@ -283,20 +289,17 @@ async function _loadCatalogImpl(fetchFn = fetch) {
         _memCache = projectLitellmCatalog(data);
         _memCacheAt = Date.now();
         _catalogFetchedRemote = true;
+        catalogRetryAt = 0;
         return _memCache;
     } catch (err) {
         process.stderr.write(`[model-catalog] fetch failed: ${err.message}\n`);
+        _catalogFetchedRemote = false;
+        catalogRetryAt = Date.now() + PRICING_CATALOG_RETRY_MS;
         const raw = readDiskCatalog(cachePath());
         if (raw?.data) {
             _memCache = projectLitellmCatalog(raw.data);
             _memCacheAt = raw.fetchedAt || Date.now();
-            _catalogFetchedRemote = true;
             return _memCache;
-        }
-        if (fetchFn !== fetch) {
-            _memCache = _memCache || {};
-            _memCacheAt = Date.now();
-            _catalogFetchedRemote = true;
         }
         return _memCache || {};
     }
@@ -317,7 +320,8 @@ export async function loadCatalog({ fetchFn, force = false } = {}) {
     if (typeof fetchFn === 'function' && fetchFn !== fetch) {
         return _loadCatalogInjected(fetchFn);
     }
-    if (!force && _catalogFetchedRemote && _memCache) return _memCache;
+    if (!force && ((_catalogFetchedRemote && _memCache && Date.now() - _memCacheAt < PRICING_CATALOG_REFRESH_MS)
+        || Date.now() < catalogRetryAt)) return _memCache || {};
     if (_loadPromise) return _loadPromise;
     _loadPromise = _loadCatalogImpl(fetchFn).finally(() => { _loadPromise = null; });
     return _loadPromise;
@@ -353,20 +357,17 @@ async function _loadModelsDevImpl(fetchFn = fetch) {
         _mdCache = projectModelsDevCatalog(data);
         _mdCacheAt = Date.now();
         _mdFetchedRemote = true;
+        modelsDevRetryAt = 0;
         return _mdCache;
     } catch (err) {
         process.stderr.write(`[model-catalog] models.dev fetch failed: ${err.message}\n`);
+        _mdFetchedRemote = false;
+        modelsDevRetryAt = Date.now() + PRICING_CATALOG_RETRY_MS;
         const raw = readDiskCatalog(mdCachePath());
         if (raw?.data) {
             _mdCache = projectModelsDevCatalog(raw.data);
             _mdCacheAt = raw.fetchedAt || Date.now();
-            _mdFetchedRemote = true;
             return _mdCache;
-        }
-        if (fetchFn !== fetch) {
-            _mdCache = _mdCache || {};
-            _mdCacheAt = Date.now();
-            _mdFetchedRemote = true;
         }
         return _mdCache || {};
     }
@@ -385,7 +386,8 @@ export async function loadModelsDevCatalog({ fetchFn, force = false } = {}) {
     if (typeof fetchFn === 'function' && fetchFn !== fetch) {
         return _loadModelsDevInjected(fetchFn);
     }
-    if (!force && _mdFetchedRemote && _mdCache) return _mdCache;
+    if (!force && ((_mdFetchedRemote && _mdCache && Date.now() - _mdCacheAt < PRICING_CATALOG_REFRESH_MS)
+        || Date.now() < modelsDevRetryAt)) return _mdCache || {};
     if (_mdLoadPromise) return _mdLoadPromise;
     _mdLoadPromise = _loadModelsDevImpl(fetchFn).finally(() => { _mdLoadPromise = null; });
     return _mdLoadPromise;
@@ -412,9 +414,8 @@ function modelsDevDisplayName(row) {
     return cleaned || null;
 }
 
-// Adapt a models.dev model row (cost in $/M) to the LiteLLM-shaped row that
-// _normalize() consumes ($/token). Only fields present are emitted.
-function _modelsDevRowToOverride(row) {
+// Capabilities share the metadata schema; prices stay in their native $/M unit.
+function _modelsDevMetadata(row) {
     const c = (row && row.cost) || {};
     const out = {
         max_input_tokens: row?.limit?.context,
@@ -427,22 +428,7 @@ function _modelsDevRowToOverride(row) {
         supports_vision: Array.isArray(row?.modalities?.input) && row.modalities.input.includes('image'),
         supports_prompt_caching: c.cache_read != null,
     };
-    if (c.input != null) out.input_cost_per_token = c.input / 1_000_000;
-    if (c.output != null) out.output_cost_per_token = c.output / 1_000_000;
-    if (c.cache_read != null) out.cache_read_input_token_cost = c.cache_read / 1_000_000;
-    if (c.cache_write != null) out.cache_creation_input_token_cost = c.cache_write / 1_000_000;
-    return out;
-}
-function _modelsDevMetadataSync(id, provider) {
-    const pid = _modelsDevProviderId(provider);
-    if (!pid) return null;
-    if (!_mdCache) {
-        warmModelsDevFromDiskSync();
-        if (!_mdCache) return null;
-    }
-    const row = _mdCache?.[pid]?.models?.[id];
-    if (!row || !row.cost) return null;
-    return _normalize(_modelsDevRowToOverride(row));
+    return { ..._normalize(out), ...modelsDevPricing(c), pricingSource: row?.cost ? 'models.dev' : null };
 }
 
 // Raw models.dev catalog row accessor for the model-list sanitizer's
@@ -487,20 +473,27 @@ export function getModelsDevProviderModelsSync(provider, _test) {
  */
 export function getModelMetadataSync(id, provider) {
     if (!id) return null;
-    // A relay's own name matches no catalog, so the lookup runs under the
-    // vendor that actually served the model. Vendor limits describe a different
-    // endpoint: leave them unknown unless the relay supplies its own limits.
-    const relayVendor = _relayPricingProvider(provider, id);
-    if (relayVendor) {
-        const relayed = getModelMetadataSync(id, relayVendor);
-        const pricing = relayed
-            ? { ...relayed, contextWindow: null, outputTokens: null }
-            : null;
-        const native = providerCachedModelMetadataSync(provider, id);
-        return mergeModelMetadata(pricing, native, { preserveBaseCosts: true });
-    }
+    warmFromDiskSync();
+    warmModelsDevFromDiskSync();
+    return lookupModelMetadata(id, provider, _memCache || {}, _mdCache || {});
+}
+
+/** The transport's explicit pricing SKU wins. Grok's documented proxy
+ * contract uses the requested SKU, not its internal response deployment id. */
+export function resolveModelPricingIdentity(model, provider, { requestedModel, pricingModel } = {}) {
+    const selected = pricingModel || (provider === 'grok-oauth' && requestedModel) || model;
+    return {
+        requestedModel: requestedModel || null,
+        pricingModel: providerPricingModelSync(provider, selected),
+        pricingProvider: provider,
+    };
+}
+
+// Both list enrichment and synchronous accounting use this exact resolver.
+function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
+    const id = providerPricingModelSync(provider, originalId);
     const mappedProvider = provider ? _modelsDevProviderId(provider) : null;
-    const providerNative = provider ? providerCachedModelMetadataSync(provider, id) : null;
+    const providerNative = provider ? providerCachedModelMetadataSync(provider, originalId) : null;
     let meta = null;
     // 1. Manual overrides — authoritative + offline. Provider-guarded: when a
     //    provider hint is given, an override is only honoured if it belongs to
@@ -509,35 +502,40 @@ export function getModelMetadataSync(id, provider) {
     //    wrong provider's rate. Bare-id callers keep the legacy behaviour.
     const ov = PRICING_OVERRIDES[id];
     if (ov && (!mappedProvider || _modelsDevProviderId(ov.litellm_provider) === mappedProvider)) {
-        meta = _normalize(ov);
+        meta = { ..._normalize(ov), pricingSource: 'override' };
     }
     const metaFromPricingOverride = meta !== null;
     // 2. LiteLLM community catalog (broad mainstream coverage).
-    if (!_memCache) warmFromDiskSync();
-    if (!meta && _memCache) {
-        const catalog = _memCache;
+    if (!meta) {
         if (catalog[id] && (!mappedProvider || _modelsDevProviderId(catalog[id].litellm_provider) === mappedProvider)) {
-            meta = _normalize(catalog[id]);
+            meta = { ..._normalize(catalog[id]), pricingSource: 'litellm' };
         }
         for (const prefix of _prefixesForProvider(mappedProvider, _CATALOG_SIMPLE_PREFIXES)) {
             if (meta) break;
-            if (catalog[prefix + id]) meta = _normalize(catalog[prefix + id]);
+            if (catalog[prefix + id]) meta = { ..._normalize(catalog[prefix + id]), pricingSource: 'litellm' };
         }
         for (const prefix of (_bedrockAllowed(mappedProvider) ? _CATALOG_BEDROCK_PREFIXES : [])) {
             if (meta) break;
             const v1 = catalog[prefix + id + '-v1:0'];
-            if (v1) meta = _normalize(v1);
+            if (v1) meta = { ..._normalize(v1), pricingSource: 'litellm' };
         }
     }
     // 3. models.dev — provider-scoped gap filler + capability overlay.
     //    Provider-scoped limits may replace generic LiteLLM rows for the same
     //    id, and add fields LiteLLM lacks, such as opencode-go reasoning_options.
     if (mappedProvider) {
-        const md = _modelsDevMetadataSync(id, provider);
+        const row = modelsDevCatalog?.[mappedProvider]?.models?.[id];
+        const md = row ? _modelsDevMetadata(row) : null;
         if (md) meta = mergeModelMetadata(meta, md, {
             preserveBaseCosts: metaFromPricingOverride,
             preserveBaseLimits: metaFromPricingOverride,
         });
+        if (row) meta = { ...meta, displayName: modelsDevDisplayName(row) };
+    }
+    const relayVendor = _relayPricingProvider(provider, id);
+    if (relayVendor && !PRICING_RATE_KEYS.some((key) => meta?.[key] != null)) {
+        const relayed = lookupModelMetadata(id, relayVendor, catalog, modelsDevCatalog);
+        if (relayed) meta = { ...relayed, contextWindow: null, outputTokens: null };
     }
     if (providerUsesEndpointScopedLimits(provider) && !providerNative && meta && !metaFromPricingOverride) {
         // OAuth/backend routes can expose smaller account/backend windows than
@@ -561,7 +559,10 @@ export function getModelMetadataSync(id, provider) {
             preserveBaseLimits: metaFromPricingOverride || !nativeLimitsAuthoritative,
         });
     }
-    return meta;
+    return meta ? {
+        ...meta, pricingModel: id,
+        pricingProvider: meta.pricingProvider || mappedProvider || provider || null,
+    } : null;
 }
 
 function _normalize(entry) {
@@ -569,10 +570,7 @@ function _normalize(entry) {
     return {
         contextWindow: entry.max_input_tokens || entry.max_tokens || null,
         outputTokens: entry.max_output_tokens || null,
-        inputCostPerM: entry.input_cost_per_token != null ? entry.input_cost_per_token * 1_000_000 : null,
-        outputCostPerM: entry.output_cost_per_token != null ? entry.output_cost_per_token * 1_000_000 : null,
-        cacheReadCostPerM: entry.cache_read_input_token_cost != null ? entry.cache_read_input_token_cost * 1_000_000 : null,
-        cacheWriteCostPerM: entry.cache_creation_input_token_cost != null ? entry.cache_creation_input_token_cost * 1_000_000 : null,
+        ...litellmPricing(entry),
         ...(entry.long_context_threshold ? {
             longContextThreshold: entry.long_context_threshold,
             longContextMultiplier: entry.long_context_multiplier,
@@ -606,6 +604,10 @@ function mergeModelMetadata(base, overlay, opts = {}) {
         outputCostPerM: (!opts.preserveBaseCosts && overlay.outputCostPerM != null) ? overlay.outputCostPerM : base.outputCostPerM,
         cacheReadCostPerM: (!opts.preserveBaseCosts && overlay.cacheReadCostPerM != null) ? overlay.cacheReadCostPerM : base.cacheReadCostPerM,
         cacheWriteCostPerM: (!opts.preserveBaseCosts && overlay.cacheWriteCostPerM != null) ? overlay.cacheWriteCostPerM : base.cacheWriteCostPerM,
+        pricingTiers: !opts.preserveBaseCosts && overlay.pricingTiers?.length
+            ? overlay.pricingTiers : base.pricingTiers || [],
+        pricingSource: !opts.preserveBaseCosts && PRICING_RATE_KEYS.some((key) => overlay[key] != null)
+            ? overlay.pricingSource : base.pricingSource,
         supportsVision: base.supportsVision || overlay.supportsVision,
         supportsFunctionCalling: base.supportsFunctionCalling || overlay.supportsFunctionCalling,
         supportsWebSearch: base.supportsWebSearch || overlay.supportsWebSearch,
@@ -634,40 +636,8 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
     return models.map(m => {
         const id = m.id || m.name;
         if (!id) return m;
-        // Same lookup logic as getModelMetadata but inlined for speed.
-        const mappedProvider = m.provider ? _modelsDevProviderId(m.provider) : null;
-        // Provider-guarded, same as getModelMetadataSync: an override/catalog
-        // row is only honoured when it belongs to the hinted provider, so a
-        // model id shared across providers never leaks the wrong rate.
-        const ov = PRICING_OVERRIDES[id];
-        let entry = (ov && (!mappedProvider || _modelsDevProviderId(ov.litellm_provider) === mappedProvider)) ? ov : null;
-        if (!entry && catalog[id] && (!mappedProvider || _modelsDevProviderId(catalog[id].litellm_provider) === mappedProvider)) {
-            entry = catalog[id];
-        }
-        if (!entry) {
-            for (const prefix of _prefixesForProvider(mappedProvider, _CATALOG_ENRICH_PREFIXES)) {
-                if (catalog[prefix + id]) { entry = catalog[prefix + id]; break; }
-            }
-        }
-        if (!entry && _bedrockAllowed(mappedProvider)) {
-            for (const prefix of _CATALOG_BEDROCK_PREFIXES) {
-                if (catalog[prefix + id + '-v1:0']) { entry = catalog[prefix + id + '-v1:0']; break; }
-            }
-        }
-        let meta = entry ? _normalize(entry) : null;
-        const metaFromPricingOverride = entry != null && entry === ov;
-        let catalogDisplay = null;
-        if (m.provider) {
-            const row = mappedProvider ? modelsDevCatalog?.[mappedProvider]?.models?.[id] : null;
-            catalogDisplay = modelsDevDisplayName(row);
-            const providerMeta = row ? _normalize(_modelsDevRowToOverride(row)) : null;
-            if (providerMeta) meta = mergeModelMetadata(meta, providerMeta, { preserveBaseCosts: metaFromPricingOverride });
-            const providerNative = providerCachedModelMetadataSync(m.provider, id);
-            if (providerUsesEndpointScopedLimits(m.provider) && !providerNative && meta) {
-                meta = { ...meta, contextWindow: null, outputTokens: null };
-            }
-            if (providerNative) meta = mergeModelMetadata(meta, providerNative, { preserveBaseCosts: true });
-        }
+        const meta = lookupModelMetadata(id, m.provider, catalog, modelsDevCatalog || {});
+        const catalogDisplay = meta?.displayName;
         if (!meta) return catalogDisplay && !m.display ? { ...m, display: catalogDisplay } : m;
         return {
             ...m,
@@ -683,6 +653,10 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
             outputCostPerM: meta.outputCostPerM,
             cacheReadCostPerM: meta.cacheReadCostPerM,
             cacheWriteCostPerM: meta.cacheWriteCostPerM,
+            pricingTiers: meta.pricingTiers,
+            pricingModel: meta.pricingModel,
+            pricingProvider: meta.pricingProvider,
+            pricingSource: meta.pricingSource,
             supportsVision: m.supportsVision === true || meta.supportsVision,
             supportsFunctionCalling: m.supportsFunctionCalling === true || meta.supportsFunctionCalling,
             supportsWebSearch: meta.supportsWebSearch || m.supportsWebSearch === true,
@@ -695,31 +669,59 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
     });
 }
 
+/** Include wire ids, not just picker rows, in automatic price coverage. */
+export function auditModelPricing(models, provider) {
+    const rows = [];
+    for (const model of models || []) {
+        const ids = new Set([model.id, ...(typeof model.wire === 'string' ? [model.wire]
+            : Object.values(model.wire || {}))].filter(Boolean));
+        for (const id of ids) {
+            const owner = provider || model.provider;
+            const meta = getModelMetadataSync(id, owner);
+            const required = ['inputCostPerM', 'outputCostPerM',
+                ...(meta?.supportsPromptCaching ? ['cacheReadCostPerM'] : [])];
+            const missingRates = required.filter((key) => meta?.[key] == null);
+            rows.push({
+                provider: owner, model: id, pricingModel: meta?.pricingModel || providerPricingModelSync(owner, id),
+                pricingProvider: meta?.pricingProvider || owner, pricingSource: meta?.pricingSource || null,
+                priced: missingRates.length === 0, missingRates,
+            });
+        }
+    }
+    return rows;
+}
+
+export function pricingCatalogRevisionSync() {
+    warmFromDiskSync();
+    warmModelsDevFromDiskSync();
+    const aliases = providerCachedModelsSync('antigravity-oauth')
+        .map(({ id, wire, pricingModel }) => ({ id, wire, pricingModel }));
+    return createHash('sha256').update(JSON.stringify([2, _memCacheAt, _mdCacheAt, aliases])).digest('hex');
+}
+
+let lastAuditedRevision = null;
+export function auditCachedModelPricing() {
+    const revision = pricingCatalogRevisionSync();
+    const rows = Object.entries(cachedProviderModelListsSync())
+        .flatMap(([provider, models]) => auditModelPricing(models, provider));
+    const unpriced = rows.filter((row) => !row.priced);
+    if (revision !== lastAuditedRevision && unpriced.length) {
+        process.stderr.write(`[model-pricing] ${unpriced.length}/${rows.length} catalog routes have no complete price: ${
+            unpriced.map((row) => `${row.provider}/${row.model} (${row.missingRates.join(', ')})`).join('; ')}\n`);
+    }
+    lastAuditedRevision = revision;
+    return { revision, rows, unpriced };
+}
+
 /**
  * Force-refresh the catalog by ignoring cached data and re-fetching.
  * Exposed so a user-initiated "refresh catalog" action in the UI can
  * bypass the process-lifetime overlay cache.
  */
 export async function refreshCatalog() {
-    _memCache = null;
-    _memCacheAt = 0;
-    _catalogFetchedRemote = false;
-    _mdCache = null;
-    _mdCacheAt = 0;
-    _mdFetchedRemote = false;
-    try {
-        if (existsSync(cachePath())) {
-            const fs = await import('fs');
-            fs.unlinkSync(cachePath());
-        }
-    } catch { /* ignore */ }
-    try {
-        if (existsSync(mdCachePath())) {
-            const fs = await import('fs');
-            fs.unlinkSync(mdCachePath());
-        }
-    } catch { /* ignore */ }
-    const [litellm] = await Promise.all([loadCatalog(), loadModelsDevCatalog()]);
+    // A failed refresh must retain the last usable price table on disk.
+    const [litellm] = await Promise.all([loadCatalog({ force: true }), loadModelsDevCatalog({ force: true })]);
+    auditCachedModelPricing();
     return litellm;
 }
 
@@ -728,11 +730,14 @@ export async function warmModelMetadataCatalogs() {
     return litellm;
 }
 
-/** Fire-and-forget warm of both overlay catalogs (remote once per process). */
+/** Refresh both overlays together before auditing the combined price table. */
 export async function warmCatalogsInBackground() {
     try {
         await Promise.all([loadCatalog(), loadModelsDevCatalog()]);
+        auditCachedModelPricing();
     } catch {
         /* never throw — boot/statusline must not fail on catalog warm */
     }
+    return { retryAfterMs: catalogRetryAt || modelsDevRetryAt
+        ? PRICING_CATALOG_RETRY_MS : PRICING_CATALOG_REFRESH_MS };
 }

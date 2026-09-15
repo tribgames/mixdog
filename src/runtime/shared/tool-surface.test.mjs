@@ -3,12 +3,14 @@ import test from 'node:test';
 
 import {
   aggregateDoneCategories,
+  classifyToolCategory,
   formatAggregateHeader,
   formatToolActionHeader,
   isTaskWaitToolCall,
   toolLoadingTargets,
 } from './tool-surface.mjs';
 import { deriveToolCardModel } from './tool-card-model.mjs';
+import { codeGraphLabel } from './tool-primitives.mjs';
 
 test('git has a first-class completed action label', () => {
   const args = { command: 'git status --short' };
@@ -77,6 +79,24 @@ test('aggregate loading cards preserve comma-separated tool and skill names', ()
     result: 'Finished',
   });
   assert.equal(model.labelText, 'Loaded grep, setup, memory');
+});
+
+test('code_graph categories use the shared mode policy', () => {
+  for (const args of [
+    { mode: 'search' },
+    { action: 'find_symbol' },
+    { mode: 'prewarm' },
+    { mode: 'index' },
+    { mode: 'build' },
+    { mode: 'refresh' },
+    { mode: 'references' },
+    {},
+  ]) {
+    assert.equal(classifyToolCategory('code_graph', args), codeGraphLabel(args));
+  }
+  assert.equal(classifyToolCategory('code_graph', { mode: 'search' }), 'Search');
+  assert.equal(classifyToolCategory('code_graph', { mode: 'prewarm' }), 'Setup');
+  assert.equal(classifyToolCategory('code_graph', {}), 'Read');
 });
 
 test('task wait display policy is scoped to the wait action', () => {

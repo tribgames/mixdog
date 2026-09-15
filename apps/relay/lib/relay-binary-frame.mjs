@@ -1,3 +1,5 @@
+import { isRoutingId } from './ids.mjs';
+
 const MAGIC = Buffer.from([0x4d, 0x58, 0x52, 0x01]);
 const HEADER_BYTES = 6;
 /** Envelope overhead is this header plus the client id — a FIXED cost, which is
@@ -28,7 +30,7 @@ export function decodeRelayBinaryFrame(raw) {
   const idLength = frame[5];
   if (idLength < 1 || idLength > 64 || frame.length < HEADER_BYTES + idLength) return null;
   const clientId = frame.subarray(HEADER_BYTES, HEADER_BYTES + idLength).toString('utf8');
-  if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) return null;
+  if (!isRoutingId(clientId)) return null;
   return {
     clientId,
     droppable: (frame[4] & FLAG_DROPPABLE) === FLAG_DROPPABLE,

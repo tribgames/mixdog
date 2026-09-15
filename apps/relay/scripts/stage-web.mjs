@@ -19,6 +19,8 @@ import { dirname, extname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { brotliCompress, constants } from 'node:zlib';
+import { HASHED_ASSET_NAME } from '../lib/hashed-asset-name.mjs';
+import { mapPool } from './map-pool.mjs';
 
 const relayRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const rendererDist = join(relayRoot, '..', 'desktop', 'out', 'renderer');
@@ -42,7 +44,6 @@ const LARGE_FILE_BYTES = 2 * 1024 * 1024;
 // zlib's async API runs on the libuv threadpool, so this is real parallelism;
 // the bound keeps peak memory to a handful of buffered chunks.
 const CONCURRENCY = 6;
-const HASHED_NAME = /-[A-Za-z0-9_-]{8,}\.[^.]+$/;
 
 function* walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -50,18 +51,6 @@ function* walk(dir) {
     if (entry.isDirectory()) yield* walk(path);
     else if (entry.isFile()) yield path;
   }
-}
-
-async function mapPool(items, limit, run) {
-  let cursor = 0;
-  const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      await run(items[index]);
-    }
-  });
-  await Promise.all(lanes);
 }
 
 const stats = { files: 0, raw: 0, brotli: 0, cacheHits: 0 };
@@ -84,7 +73,7 @@ async function precompress(file) {
   if (raw.length < MIN_BYTES) return;
   const relativeName = relative(webDir, file);
   const cacheKey = relativeName.split(sep).join('_');
-  const cacheable = HASHED_NAME.test(relativeName);
+  const cacheable = HASHED_ASSET_NAME.test(relativeName);
   const quality = raw.length >= LARGE_FILE_BYTES ? 10 : 11;
   // Brotli only. A staged .gz would add ~4.6MB of already-compressed bytes to
   // every deploy upload for the vanishingly rare client that negotiates gzip

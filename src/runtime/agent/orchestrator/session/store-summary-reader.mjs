@@ -379,6 +379,27 @@ function readWorkerSessionHeader(sessionId) {
     return header;
 }
 
+/** Owner record of a child row that is a Lead CONVERSATION. Only such an owner
+ *  lets a missing pool row mean "the Lead's lease expired"; an Agent-owned or
+ *  unreadable owner keeps its child rows visible exactly as before. */
+function leadConversationHeader(header) {
+    if (!header || typeof header !== 'object') return false;
+    const owner = cleanValue(header.owner).toLowerCase();
+    const agent = cleanValue(header.agent).toLowerCase();
+    return owner !== 'agent'
+        && (agent === 'lead' || cleanValue(header.sourceType).toLowerCase() === 'lead');
+}
+
+/** Live-work proof for an already projected row: a fresh heartbeat sidecar, or
+ *  a working status whose own stamp is still inside the pool window. */
+function poolRowWorking(row, heartbeatMtimes, now) {
+    const heartbeatAt = heartbeatMtimes.get(cleanValue(row?.sessionId)) || 0;
+    if (heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS) return true;
+    if (!WORKING_AGENT_STATUS.test(cleanValue(row?.stage || row?.status))) return false;
+    const updatedAt = Date.parse(cleanValue(row?.updatedAt)) || 0;
+    return updatedAt > 0 && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+}
+
 /** Process-global active agent pool. Fresh child heartbeat sidecars are the
  * cross-process running source even when their durable session is detached
  * (`closed`) and a terminal reaper has already removed the worker-index row.
@@ -390,6 +411,9 @@ export function listStoredAgentWorkers() {
     const bySessionId = new Map();
     const now = Date.now();
     const heartbeatMtimes = sessionHeartbeatMtimes();
+    // Lead sessions whose pool row is projected below. A child row hangs under
+    // its Lead, so an owner that has no projected row can no longer display one.
+    const liveLeadSessionIds = new Set();
     for (const row of source) {
         if (!row || typeof row !== 'object') continue;
         // Cancelled rows stay visible so the 2-minute heartbeat lease cannot
@@ -575,6 +599,7 @@ export function listStoredAgentWorkers() {
             && (heartbeatFresh || recentlyUpdated);
         const reapAt = Date.parse(cleanValue(row.reapAt)) || 0;
         if (!heartbeatFresh && reapAt > 0 && now >= reapAt) continue;
+        liveLeadSessionIds.add(sessionId);
         bySessionId.set(sessionId, {
             tag: `lead:${sessionId}`,
             sessionId,
@@ -596,6 +621,20 @@ export function listStoredAgentWorkers() {
             clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
             taskId: cleanValue(row.task_id || row.taskId) || null,
         });
+    }
+    // A child row is a projection of its Lead. Once the Lead's row is gone
+    // (its lease was reaped, or the Lead runtime that owned it exited), leaving
+    // the child in the pool paints it as a top-level Agent-window row with no
+    // Lead above it (user report). Only a Lead CONVERSATION owner is judged —
+    // and a child that is still working always stays, so live work never
+    // disappears from the window.
+    for (const [sessionId, row] of [...bySessionId]) {
+        if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
+        const ownerSessionId = cleanValue(row.ownerSessionId);
+        if (!ownerSessionId || liveLeadSessionIds.has(ownerSessionId)) continue;
+        if (!leadConversationHeader(readWorkerSessionHeader(ownerSessionId))) continue;
+        if (poolRowWorking(row, heartbeatMtimes, now)) continue;
+        bySessionId.delete(sessionId);
     }
     const rows = [...bySessionId.values()];
     return rows.sort((left, right) => {

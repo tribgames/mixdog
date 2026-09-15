@@ -42,7 +42,6 @@ import {
   useSessionLane,
 } from "./session-lane-store";
 import {
-  resolveDesktopSlashCommand,
   type SettingsSection as SlashSettingsSection
 } from "./slash-commands";
 import {
@@ -66,16 +65,12 @@ import {
   desktopBootPrerequisitesReady,
   markBootStage,
 } from "./boot-metrics";
-import { BottomPanel } from "./BottomPanel";
-import { bottomPanelOpenForPane } from "./bottom-panel-pane-state";
-import { agentActivitySessionIds, EMPTY_SNAPSHOT, type Snapshot } from "./desktop-types";
+import { EMPTY_SNAPSHOT, type Snapshot } from "./desktop-types";
 import {
   desktopFeatureEnabled,
-  desktopUtilityDockTabEnabled,
 } from "./desktop-feature-config";
 import { primeEditorFileLoad } from "./editor-file-loader";
 import { isMobileRemoteSurface } from "./MobileTabOverview";
-import { registerMobileBack } from "./mobile-back";
 import {
   getEditorCommandCapabilities,
   subscribeEditorLanguageStore,
@@ -118,14 +113,6 @@ import { useAppSessionActions } from "./use-app-session-actions";
 import {
   AppConversationPaneSurface,
 } from "./app-conversation-pane-surfaces";
-import { WORKBENCH_PANEL_REGISTRY } from "./workbench-panel-registry";
-import {
-  ProjectProblemCount,
-  WorkbenchProblemsFilter,
-  WorkbenchProblemsPane,
-  WorkbenchProblemsSeverityActions,
-} from "./WorkbenchProblems";
-
 import {
   desktopChromeSnapshotsEqual
 } from "./desktop-snapshot-store";
@@ -141,7 +128,6 @@ import {
 } from "./app-shell-components";
 import { loadStudioViewModule } from "./studio-loader";
 
-const LAST_PROJECT_KEY = 'mixdog.desktop-last-project.v1';
 const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 function applySessionLaneResult(sessionId: string, next: SessionSnapshot | null): void {
   if (!sessionId || !next || typeof next !== "object") return;
@@ -158,7 +144,6 @@ const CommandSurface = lazy(() => loadCommandSurfaceModule()
 // Route chunk warm-up is scheduled after startup settles below.
 import {
   DraftConversation,
-  preloadUtilityDock,
   selectDesktopSnapshot,
   SnapshotUtilityDock,
   requestSessionRead,
@@ -194,25 +179,22 @@ import {
   type WorkbenchSide,
   type WorkbenchSideTitleDragProps,
   type WorkbenchSideViewId,
-  type WorkbenchSideViewPlacement,
 } from "./workbench-side-view-layout";
-import {
-  paneDockActiveRoot,
-  PaneSideDock,
-} from "./pane-side-dock";
-import { PaneDockToggles } from "./pane-dock-toggles";
 import { SidebarDiffColumn, sidebarDiffColumnAvailable } from "./sidebar-diff-column";
 import {
   SessionBrowserParkingHost,
-  SessionBrowserSlot,
 } from "./session-browser-surfaces";
 import { useAgentBrowserSurfaceRequests } from "./use-agent-browser-surface-requests";
-import {
-  sessionSideDockEntryForSession,
-} from "./session-side-surface-policy";
+import { useAppSessionOpen } from "./app-shell-session-open";
+import { useAppUiOpenRequest } from "./app-shell-ui-open-request";
+import { useAppSessionTitle } from "./app-shell-session-title";
+import { useAppToolProject, LAST_PROJECT_KEY } from "./app-shell-tool-project";
+import { useAppMobileBack, useAppMobileInitialClose } from "./app-shell-mobile-back";
+import { useSideViewPrefetch, useSideViewSelection, useSideViewReordering } from "./app-shell-side-views";
+import { renderPaneSideDockView, renderPaneDockStripTrailing } from "./app-shell-side-dock";
+import { renderPaneProblemsView } from "./app-shell-pane-problems";
 import {
   SessionTerminalParkingHost,
-  SessionTerminalSlot,
 } from "./session-terminal-surfaces";
 import { useSessionPaneSurfaces } from "./use-session-pane-surfaces";
 import { useAppProjectCatalog } from "./use-app-project-catalog";
@@ -229,8 +211,6 @@ import {
   useLaunchTabMeasurements,
   useStartupCommitMeasurement,
 } from "./use-app-boot";
-
-const UI_OPEN_REQUEST_TTL_MS = 15_000;
 
 export function App() {
   markBootStage("app-render");
@@ -258,8 +238,6 @@ export function App() {
     pendingBrowserAutoReveal,
     releaseDeletedSessionSurfaces,
     sessionDiffs,
-    sessionPanelViews,
-    sessionSideSurfaces,
     setSessionDiff,
     setSessionPanelView,
     setSessionSideSurface,
@@ -433,9 +411,6 @@ export function App() {
     if (save) editorSaveHandles.current.set(key, save);
     else editorSaveHandles.current.delete(key);
   }, []);
-  const [headerTitleEditingSessionId, setHeaderTitleEditingSessionId] = useState("");
-  const [headerTitleDraft, setHeaderTitleDraft] = useState("");
-  const [headerTitleInvalid, setHeaderTitleInvalid] = useState(false);
   const {
     clearNewTaskPreferences,
     draftPanePrefs,
@@ -847,43 +822,15 @@ export function App() {
       ? effectiveDraftProjectPath(preferredDraftProjectPath) || null
       : resolvedStoredProjectPath(cachedProjectPath, effectiveDraftProjectPath));
   };
-  const openSession = async (
-    sessionId: string,
-    _force = false,
-    fallbackTitle = "",
-  ): Promise<void> => {
-    const navigationToken = ++navigationEpoch.current;
-    closeSidebarForNavigation();
-    setRequestedSessionId(sessionId);
-    // Select immediately; a cold lane fills behind the already-committed tab
-    // instead of making the relay RTT part of navigation latency.
-    const laneReady = defaultSessionLaneStore.get(sessionId)
-      ? Promise.resolve(true)
-      : requestSessionRead(sessionId);
-    if (navigationEpoch.current !== navigationToken) return;
-    const session = sessions.find((item) => item.id === sessionId);
-    finishPendingConversationHandoff();
-    // Pin explicit titles such as "Reviewer · tag" across pane moves and
-    // catalog refreshes. Re-entering an open tab recovers its pin rather than
-    // replacing it with the session's generated title or a placeholder.
-    const openedTab = tabs.find((tab) => tab.selection.kind === "session"
-      && tab.selection.id === sessionId);
-    const openedPinnedTitle = openedTab && openedTab.selection.kind === "session"
-      ? String(openedTab.selection.title || "").trim()
-      : "";
-    const pinnedTitle = fallbackTitle.trim() || openedPinnedTitle;
-    void laneReady.finally(() => {
-      if (navigationEpoch.current === navigationToken) setRequestedSessionId("");
-    });
-    activateSelection(
-      {
-        kind: "session",
-        id: sessionId,
-        ...(pinnedTitle ? { title: pinnedTitle } : {}),
-      },
-      pinnedTitle || (session ? sessionSummaryTitle(session) : "Untitled session"),
-    );
-  };
+  const { openSession } = useAppSessionOpen({
+    navigationEpoch,
+    closeSidebarForNavigation,
+    setRequestedSessionId,
+    sessions,
+    tabs,
+    finishPendingConversationHandoff,
+    activateSelection,
+  });
   openSessionRef.current = openSession;
   const prefetchSession = useCallback((sessionId: string) => (
     requestSessionRead(sessionId)
@@ -934,28 +881,12 @@ export function App() {
     warmSettingsView,
     workbenchSideLayout.sideOf,
   ]);
-  // Setup tool `open`: the engine publishes { command, seq } on the session
-  // snapshot when the model asks for a settings surface. Route it exactly as
-  // the typed slash command would (settings row, rail page, or command
-  // surface); the seq guard makes a repeated identical request fire again.
-  const uiOpenSeen = useRef(0);
-  useEffect(() => {
-    const request = snapshot.uiOpenRequest;
-    const seq = Number(request?.seq) || 0;
-    if (!request?.command || seq <= uiOpenSeen.current) return;
-    uiOpenSeen.current = seq;
-    // A re-attached renderer replays the retained snapshot; a request older
-    // than a few seconds is history, not an instruction.
-    if (Number(request.at) > 0 && Date.now() - Number(request.at) > UI_OPEN_REQUEST_TTL_MS) return;
-    const command = resolveDesktopSlashCommand(request.command);
-    if (!command) return;
-    if (command.surface) {
-      openConversationCommandSurface(command.surface, String(snapshot.sessionId || ""));
-      return;
-    }
-    if (command.settingsRow) openSettings(command.settingsRow);
-    else if (command.action === "settings") openSettings(null);
-  }, [openConversationCommandSurface, openSettings, snapshot.sessionId, snapshot.uiOpenRequest]);
+  useAppUiOpenRequest({
+    uiOpenRequest: snapshot.uiOpenRequest,
+    sessionId: snapshot.sessionId,
+    openConversationCommandSurface,
+    openSettings,
+  });
   /** /clear · /new replaces the tab with a New Task draft in the same position,
    *  carrying forward that session's project/model/workflow and remote-seat
    *  settings. The original transcript remains available in sidebar history. */
@@ -1066,92 +997,42 @@ export function App() {
   useEffect(() => {
     consumeUnread(unreadViewedSessionId, sessions);
   }, [consumeUnread, sessions, unreadViewedSessionId, windowFocusTick]);
-  const selectedSession = navigationSelection.kind === "session"
-    ? sessions.find((session) => session.id === navigationSelection.id)
-    : undefined;
-  const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
-  const workingSessionIds = useMemo(() => new Set(
-    sessions
-      .filter((session) => session.leadWorking === true || session.agentWorking === true)
-      .map((session) => session.id),
-  ), [sessions]);
-  const observedAgentSessionIds = useMemo(
-    () => desktopUtilityDockTabEnabled("agents") ? agentActivitySessionIds(sessions) : [],
-    [sessions],
-  );
-  const visibleSessionTitle = currentSessionTitle ||
-    tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || "New task";
-  const openHeaderTitleEditor = () => {
-    if (!selectedSession) return;
-    setHeaderTitleDraft(visibleSessionTitle);
-    setHeaderTitleInvalid(false);
-    setHeaderTitleEditingSessionId(selectedSession.id);
-  };
-  const closeHeaderTitleEditor = () => {
-    setHeaderTitleEditingSessionId("");
-    setHeaderTitleDraft("");
-    setHeaderTitleInvalid(false);
-  };
-  const commitHeaderTitleEditor = (fromBlur = false) => {
-    if (!selectedSession) return closeHeaderTitleEditor();
-    const title = headerTitleDraft.trim();
-    if (!title) {
-      setHeaderTitleInvalid(true);
-      if (fromBlur) closeHeaderTitleEditor();
-      return;
-    }
-    closeHeaderTitleEditor();
-    if (title !== visibleSessionTitle) void renameSession(selectedSession.id, title);
-  };
-  const activeProjectPath = navigationSelection.kind === "session"
-    ? registeredProjectPath(selectedSession?.projectPath || "")
-    : navigationSelection.kind === "project" ? navigationSelection.path
-      : effectiveDraftProjectPath(newTaskProjectPath);
-  const focusedPaneProjectPath = focusedPaneSelection?.kind === "file"
-    || focusedPaneSelection?.kind === "diff"
-    || focusedPaneSelection?.kind === "pull-request"
-    ? focusedPaneSelection.project
-    : focusedPaneSelection?.kind === "terminal" && focusedPaneSelection.cwd
-      ? focusedPaneSelection.cwd
-      : "";
-  const activeToolProjectPath = focusedPaneProjectPath || activeProjectPath;
-  const [lastToolProjectPath, setLastToolProjectPath] = useState(() => {
-    try { return window.localStorage.getItem(LAST_PROJECT_KEY) || ""; }
-    catch { return ""; }
+  const {
+    headerTitleEditingSessionId,
+    headerTitleDraft,
+    setHeaderTitleDraft,
+    headerTitleInvalid,
+    selectedSession,
+    workingSessionIds,
+    observedAgentSessionIds,
+    visibleSessionTitle,
+    openHeaderTitleEditor,
+    closeHeaderTitleEditor,
+    commitHeaderTitleEditor,
+  } = useAppSessionTitle({
+    navigationSelection,
+    sessions,
+    tabs,
+    renameSession,
   });
-  // Explorer, Source Control and Pull Requests share ONE sticky project
-  // context. Projectless panes never clear it; focusing a pane with an
-  // explicit project resumes automatic following and releases a manual pick.
-  const [toolProjectOverride, setToolProjectOverride] = useState("");
-  useLayoutEffect(() => {
-    if (!activeToolProjectPath) return;
-    setToolProjectOverride("");
-    setLastToolProjectPath((current) =>
-      current === activeToolProjectPath ? current : activeToolProjectPath);
-    try { window.localStorage.setItem(LAST_PROJECT_KEY, activeToolProjectPath); }
-    catch { /* persistence is a convenience only */ }
-  }, [activeToolProjectPath]);
-  const toolProjectPath = toolProjectOverride || activeToolProjectPath || lastToolProjectPath;
-  const selectToolProject = useCallback((path: string) => {
-    if (!path) return;
-    setToolProjectOverride(path);
-    setLastToolProjectPath(path);
-    try { window.localStorage.setItem(LAST_PROJECT_KEY, path); }
-    catch { /* persistence is a convenience only */ }
-  }, []);
+  const {
+    activeProjectPath,
+    toolProjectPath,
+    selectToolProject,
+    projectChromeLabel,
+    activeProjectLabel,
+    selectedProjectPath,
+  } = useAppToolProject({
+    navigationSelection,
+    focusedPaneSelection,
+    selectedSessionProjectPath: selectedSession?.projectPath || "",
+    newTaskProjectPath,
+    effectiveDraftProjectPath,
+    registeredProjectPath,
+    preferredDraftProjectPath,
+    projects,
+  });
   const workbenchWorkspace = useWorkbenchWorkspace(toolProjectPath);
-  // Only registered projects get project chrome, for both the header and panes.
-  const projectChromeLabel = useCallback((path: string): string => {
-    const summary = projects.find((project) =>
-      project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() ===
-      path.replace(/[\\/]+/g, "/").toLocaleLowerCase());
-    return summary
-      ? summary.alias?.trim() || summary.name?.trim() ||
-        displayProject(summary.path).name || "Project"
-      : "";
-  }, [projects]);
-  const activeProjectLabel = projectChromeLabel(activeProjectPath);
-  const selectedProjectPath = activeProjectPath || preferredDraftProjectPath;
   const activeTabKey = navigationKey(navigationSelection);
   const paneTranscriptRendererPending = paneWorkspace.leaves.some((leaf) =>
     paneActiveSelection(leaf)?.kind === "session")
@@ -1221,6 +1102,7 @@ export function App() {
     surfaces: sessionPaneSurfaces,
     prefetch: prefetchBrowserPane,
     select: paneSideDocks.select,
+    temporarySelect: paneSideDocks.temporarySelect,
   });
   const openDiffTab = (
     project: string,
@@ -1391,35 +1273,15 @@ export function App() {
     pinPaneTab,
     // Session and New Task tabs share trailing dock controls on desktop and
     // projected phone; other surfaces leave that strip slot empty.
-    stripTrailing: (leaf) => {
-      const active = leaf.tabs.find((tab) => navigationKey(tab) === leaf.activeKey);
-      // Keep a draft's three slots stable while its session-bound children are
-      // inactive, avoiding strip reflow when the session is committed.
-      if (!active || (active.kind !== "session" && active.kind !== "new")) return null;
-      const groups = workbenchSideLayout.layout.right;
-      if (groups.length === 0) return null;
-      const sessionId = active.kind === "session" ? active.id : "";
-      const entry = sessionSideDockEntryForSession(
-        paneSideDocks.entryFor(leaf.id),
-        sessionId,
-        sessionSideSurfaces.get(sessionId) ?? null,
-        sessionDiffs.get(sessionId) ?? null,
-        sessionPanelViews.get(sessionId) ?? null,
-      );
-      return <PaneDockToggles
-        groups={groups}
-        descriptors={sideViewDescriptors}
-        activeRoot={paneDockActiveRoot(entry)}
-        sessionBound={Boolean(sessionId)}
-        onSelect={(id) => {
-          paneWorkspace.focusLeaf(leaf.id);
-          selectWorkbenchSideView(id, leaf.id);
-        }}
-        onClose={() => {
-          paneWorkspace.focusLeaf(leaf.id);
-          closePaneRightRegion(leaf.id);
-        }} />;
-    },
+    stripTrailing: (leaf) => renderPaneDockStripTrailing(leaf, {
+      workbenchSideLayout,
+      paneSideDocks,
+      sessionSurfaces: sessionPaneSurfaces,
+      sideViewDescriptors,
+      selectWorkbenchSideView,
+      closePaneRightRegion,
+      focusLeaf: paneWorkspace.focusLeaf,
+    }),
     lastSessionStorageKey: LAST_SESSION_KEY,
   });
   // Ctrl+Left/Right crosses pane boundaries in visual row-major order and
@@ -1550,50 +1412,32 @@ export function App() {
     renameProject,
     removeProject,
   });
-  // Phone strip home intent: the strip renders the brand-mark home button
-  // but does not own the session drawer, so the intent rides a window event
-  // instead of prop-drilling through the pane tree.
-  useEffect(() => {
-    const onHome = () => applySidebarOpen(!sidebarOpen);
-    window.addEventListener("mixdog:mobile-home", onHome);
-    return () => window.removeEventListener("mixdog:mobile-home", onHome);
-  }, [applySidebarOpen, sidebarOpen]);
-  // Each transient mobile layer owns a history sentinel so hardware back
-  // closes that layer instead of leaving the PWA. registerMobileBack is
-  // inactive outside the projected phone surface.
-  useEffect(() => {
-    if (!sidebarOpen) return undefined;
-    return registerMobileBack(() => applySidebarOpen(false));
-  }, [applySidebarOpen, sidebarOpen]);
-  useEffect(() => {
-    if (!bottomPanel.open) return undefined;
-    return registerMobileBack(() => bottomPanel.setOpen(false));
-  }, [bottomPanel, bottomPanel.open]);
-  useEffect(() => {
-    if (!focusedPaneDockOpen) return undefined;
-    return registerMobileBack(() => {
+  useAppMobileBack({
+    sidebarOpen,
+    applySidebarOpen,
+    bottomPanelOpen: bottomPanel.open,
+    setBottomPanelOpen: bottomPanel.setOpen,
+    focusedPaneDockOpen,
+    closeFocusedPaneDock: () => {
       paneSideDocks.setOpen(focusedLeafIdRef.current, false);
-    });
-  }, [focusedPaneDockOpen, paneSideDocks.setOpen]);
-  useLayoutEffect(() => {
-    if (!settingsOpen) return undefined;
-    return registerMobileBack(() => setSettingsOpen(false));
-  }, [settingsOpen, setSettingsOpen]);
-  useEffect(() => {
-    if (!commandSurface) return undefined;
-    return registerMobileBack(() => {
+    },
+    settingsOpen,
+    setSettingsOpen,
+    commandSurface,
+    closeCommandSurface: () => {
       setCommandSurface(null);
       setCommandSurfaceSessionId("");
-    });
-  }, [commandSurface, setCommandSurface, setCommandSurfaceSessionId]);
-  useEffect(() => {
-    if (!onboardingOpen) return undefined;
-    return registerMobileBack(() => setOnboardingOpen(false));
-  }, [onboardingOpen]);
-  useEffect(() => {
-    if (!quickAccessMode) return undefined;
-    return registerMobileBack(() => setQuickAccessMode(null));
-  }, [quickAccessMode]);
+    },
+    onboardingOpen,
+    setOnboardingOpen,
+    quickAccessMode,
+    closeQuickAccess: () => setQuickAccessMode(null),
+    pendingUnsavedClose: Boolean(pendingUnsavedClose),
+    cancelPendingTabClose,
+    updateDialogOpen,
+    updaterState,
+    closeDesktopUpdate,
+  });
   // Both inheritance entry points replace the source tab only after its heir
   // is ready. The original transcript remains available in session history.
   const replaceWithInheritedSession = useStableEvent(async (
@@ -1632,151 +1476,42 @@ export function App() {
     setCommandSurface(null);
     setCommandSurfaceSessionId("");
   });
-  const cancelPendingTabCloseRef = useRef(cancelPendingTabClose);
-  cancelPendingTabCloseRef.current = cancelPendingTabClose;
-  useEffect(() => {
-    if (!pendingUnsavedClose) return undefined;
-    return registerMobileBack(() => cancelPendingTabCloseRef.current());
-  }, [pendingUnsavedClose]);
-  useEffect(() => {
-    if (!updateDialogOpen || updaterState.status !== "ready") return undefined;
-    return registerMobileBack(closeDesktopUpdate);
-  }, [closeDesktopUpdate, updateDialogOpen, updaterState.status]);
-  // Initialize mobile with drawer, docks, and bottom panel closed once per
-  // load. Apply before first paint so a persisted desktop layout never flashes.
-  const mobileStartedClosed = useRef(false);
-  useLayoutEffect(() => {
-    if (mobileStartedClosed.current || !isMobileRemoteSurface()) return;
-    mobileStartedClosed.current = true;
-    applySidebarOpen(false, "instant");
-    paneSideDocks.setOpen(focusedLeafIdRef.current, false);
-    bottomPanel.setOpen(false, "instant");
-  }, [applySidebarOpen, bottomPanel, paneSideDocks.setOpen]);
-  const prefetchWorkbenchSideView = useCallback((id: WorkbenchSideViewId) => {
-    if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
-      const panel = id as SidebarPanelKey;
-      trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
-      return;
-    }
-    if (id === "browser") {
-      void prefetchBrowserPane().catch(() => {});
-      return;
-    }
-    if (id === "terminal") {
-      void prefetchTerminalPane().catch(() => {});
-      return;
-    }
-    if (id === "session-diff") {
-      void prefetchDiffView().catch(() => {});
-      return;
-    }
-    if (id !== "sessions") void preloadUtilityDock().catch(() => {});
-  }, [trackSidebarPanelModule]);
+  useAppMobileInitialClose({
+    applySidebarOpen,
+    closeFocusedPaneDock: (leafId) => paneSideDocks.setOpen(leafId, false),
+    setBottomPanelOpen: bottomPanel.setOpen,
+    focusedLeafIdRef,
+  });
+  const prefetchWorkbenchSideView = useSideViewPrefetch(trackSidebarPanelModule);
   const sideViewDescriptors = useMemo(
     () => createAppSideViewDescriptors(prefetchWorkbenchSideView),
     [prefetchWorkbenchSideView],
   );
-  const selectWorkbenchSideView = useCallback((
-    id: WorkbenchSideViewId,
-    paneLeafId?: string,
-  ) => {
-    // The browser flows to the right-side branch as the pane dock's own child.
-    const side = workbenchSideLayout.sideOf(id);
-    if (id === "sessions") {
-      closeSidebarPanels();
-    } else if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
-      const panel = id as SidebarPanelKey;
-      mountSidebarPanel(panel);
-      trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
-      if (panel === "projects") void refreshProjects().catch(() => undefined);
-    }
-    if (side === "right") {
-      // A pane strip passes ITS leaf; window-level entry points (commands,
-      // rail drops, /settings extensions) land on the focused pane's dock.
-      const leafId = paneLeafId ?? focusedLeafIdRef.current;
-      const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
-      const selection = leaf ? paneActiveSelection(leaf) : null;
-      if (id === "browser" || id === "terminal") {
-        if (selection?.kind !== "session") return;
-        if (id === "browser") {
-          browserSurfaces.ensure(selection.id);
-          pendingBrowserAutoReveal.current.delete(selection.id);
-        } else {
-          void prefetchTerminalPane().catch(() => {});
-        }
-        setSessionSideSurface(selection.id, id);
-      } else if (selection?.kind === "session") {
-        setSessionSideSurface(selection.id, null);
-        // Session Diff selection belongs to this session, just like its browser
-        // and terminal; another destination clears that session's selection.
-        setSessionPanelView(selection.id, id === "session-diff" ? "session-diff" : null);
-      }
-      paneSideDocks.select(leafId, id);
-      return;
-    }
-    if (activeSideViews.left === id && sidebarOpen) {
-      applySidebarOpen(false);
-      return;
-    }
-    setActiveSideViews((current) =>
-      current.left === id ? current : { ...current, left: id });
-    applySidebarOpen(true);
-  }, [
+  const selectWorkbenchSideView = useSideViewSelection({
+    sideOf: workbenchSideLayout.sideOf,
+    selectDock: paneSideDocks.select,
     activeSideViews,
+    setActiveSideViews,
+    sidebarOpen,
     applySidebarOpen,
     closeSidebarPanels,
     mountSidebarPanel,
-    paneSideDocks.select,
-    browserSurfaces,
-    paneWorkspace.leaves,
-    refreshProjects,
-    setSessionSideSurface,
-    sidebarOpen,
     trackSidebarPanelModule,
+    refreshProjects,
+    paneLeavesRef,
+    focusedLeafIdRef,
+    browserSurfaces,
+    pendingBrowserAutoReveal,
+    setSessionSideSurface,
+    setSessionPanelView,
+  });
+  const { moveWorkbenchSideGroup, moveWorkbenchSideView } = useSideViewReordering(
     workbenchSideLayout.sideOf,
-  ]);
-  const moveWorkbenchSideGroup = useCallback((
-    sourceRoot: WorkbenchSideViewId,
-    targetSide: WorkbenchSide,
-    targetRoot: WorkbenchSideViewId | null,
-    placement: WorkbenchSideViewPlacement,
-  ) => {
-    // The pane-scoped right side is a fixed set (the pure move helpers refuse
-    // every cross-right move), so only the left rail actually reorders.
-    const sourceSide = workbenchSideLayout.sideOf(sourceRoot);
-    if (sourceSide === "right" || targetSide === "right") return;
-    workbenchSideLayout.moveGroup(sourceRoot, targetSide, targetRoot, placement);
-    const landedRoot = placement.startsWith("inside") && targetRoot
-      ? targetRoot
-      : sourceRoot;
-    setActiveSideViews((current) =>
-      current.left === landedRoot ? current : { ...current, left: landedRoot });
-    applySidebarOpen(true);
-  }, [
-    applySidebarOpen,
     workbenchSideLayout.moveGroup,
-    workbenchSideLayout.sideOf,
-  ]);
-  const moveWorkbenchSideView = useCallback((
-    sourceId: WorkbenchSideViewId,
-    targetSide: WorkbenchSide,
-    targetRoot: WorkbenchSideViewId | null,
-    placement: WorkbenchSideViewPlacement,
-  ) => {
-    const sourceSide = workbenchSideLayout.sideOf(sourceId);
-    if (sourceSide === "right" || targetSide === "right") return;
-    workbenchSideLayout.moveView(sourceId, targetSide, targetRoot, placement);
-    const landedView = placement.startsWith("inside") && targetRoot
-      ? targetRoot
-      : sourceId;
-    setActiveSideViews((current) =>
-      current.left === landedView ? current : { ...current, left: landedView });
-    applySidebarOpen(true);
-  }, [
-    applySidebarOpen,
     workbenchSideLayout.moveView,
-    workbenchSideLayout.sideOf,
-  ]);
+    setActiveSideViews,
+    applySidebarOpen,
+  );
   useLayoutEffect(() => {
     if (workbenchSideLayout.layout.left.length === 0 && sidebarOpen) {
       applySidebarOpen(false);
@@ -2080,116 +1815,36 @@ export function App() {
     ? paneProjectPathFor(focusedPaneForDockPrewarm)
     : quickAccessProjectPath;
   const dockBodyWarm = useAppDockWarmup(desktopBootReady, focusedPaneDockProjectPath);
-  const renderPaneSideDock = (leaf: PaneLeaf, focused: boolean) => {
-    const active = paneActiveSelection(leaf);
-    const sessionId = active?.kind === "session" ? active.id : "";
-    const entry = sessionSideDockEntryForSession(
-      paneSideDocks.entryFor(leaf.id),
-      sessionId,
-      sessionSideSurfaces.get(sessionId) ?? null,
-      sessionDiffs.get(sessionId) ?? null,
-      sessionPanelViews.get(sessionId) ?? null,
-    );
-    const prewarm = focused && dockBodyWarm;
-    return <PaneSideDock
-      leafId={leaf.id}
-      entry={entry}
-      groups={workbenchSideLayout.layout.right}
-      descriptors={sideViewDescriptors}
-      focused={focused}
-      prewarm={prewarm}
-      onFocusPane={() => paneWorkspace.focusLeaf(leaf.id)}
-      onSelect={(id) => selectWorkbenchSideView(id, leaf.id)}
-      onClose={() => closePaneRightRegion(leaf.id)}
-      onCloseDiff={() => {
-        // A session's own diff closes in its session map; the pane entry
-        // never held it.
-        if (entry.diff?.source === "session" && sessionId) {
-          setSessionDiff(sessionId, null);
-          return;
-        }
-        paneSideDocks.closeDiff(leaf.id);
-      }}
-      openFileTab={openFileTab}
-      renderBrowserSurface={(active) => {
-        if (!sessionId) return null;
-        return <SessionBrowserSlot
-          controller={browserSurfaces}
-          sessionId={sessionId}
-          active={active}
-          foreground={active && focused}
-        />;
-      }}
-      renderTerminalSurface={(active) => {
-        if (!sessionId) return null;
-        return <SessionTerminalSlot
-          controller={terminalSurfaces}
-          sessionId={sessionId}
-          cwd={paneProjectPathFor(leaf) || null}
-          active={active}
-          foreground={active && focused}
-        />;
-      }}
-      onMoveGroup={moveWorkbenchSideGroup}
-      onMoveView={moveWorkbenchSideView}
-      renderView={(id, active, titleDragProps) =>
-        renderWorkbenchSideView("right", id,
-          // The Session Diff list fetches only while actually showing: a
-          // covering browser/terminal surface keeps it mounted but quiet.
-          id === "session-diff" ? active && entry.surface === "" : active,
-          titleDragProps, {
-          leafId: leaf.id,
-          projectPath: paneProjectPathFor(leaf),
-          sessionId,
-          prewarm,
-        })}
-    />;
-  };
+  const renderPaneSideDock = (leaf: PaneLeaf, focused: boolean) =>
+    renderPaneSideDockView(leaf, focused, {
+      paneWorkspace,
+      paneSideDocks,
+      sessionSurfaces: sessionPaneSurfaces,
+      workbenchSideLayout,
+      sideViewDescriptors,
+      dockBodyWarm,
+      closePaneRightRegion,
+      selectWorkbenchSideView,
+      moveWorkbenchSideGroup,
+      moveWorkbenchSideView,
+      openFileTab,
+      paneProjectPathFor,
+      renderRightView: (id, active, titleDragProps, pane) =>
+        renderWorkbenchSideView("right", id, active, titleDragProps, pane),
+    });
   // Problems belongs to the file editor, like its diff sub-panel:
   // it docks under the pane's file editor, scoped to that file's project,
   // and exists only while the pane's active tab is a file. Open state stays
   // per pane (openPaneIds), height is shared.
-  const renderPaneProblems = (leaf: PaneLeaf) => {
-    const active = paneActiveSelection(leaf);
-    if (active?.kind !== "file") return null;
-    const open = bottomPanelOpenForPane(bottomPanel.openPaneIds, leaf.id);
-    return <BottomPanel
-      open={open}
-      height={bottomPanel.height}
-      motion={bottomPanel.motion}
-      onHeightChange={bottomPanel.setHeight}
-      tabs={WORKBENCH_PANEL_REGISTRY.map((panel) => ({
-        id: panel.id,
-        label: panel.label,
-        ...(panel.id === "problems"
-          ? { badge: <ProjectProblemCount projectPath={active.project} /> }
-          : {}),
-      }))}
-      activeTab="problems"
-      onSelectTab={() => {}}
-      onClose={() => bottomPanel.setOpenFor(leaf.id, false)}
-      headerActions={<WorkbenchProblemsFilter
-        filter={problemsFilter}
-        onFilter={setProblemsFilter} />}
-      actions={<WorkbenchProblemsSeverityActions
-        projectPath={active.project}
-        filter={problemsFilter}
-        onFilter={setProblemsFilter}
-        onCollapseAll={() => setProblemsCollapseNonce((value) => value + 1)} />}>
-      {open &&
-        <div className="workbench-panel-surface utility-dock-pane stable-surface-layer"
-          data-tab="problems"
-          data-surface-active="true">
-            <WorkbenchProblemsPane projectPath={active.project}
-              active={open}
-              activeFileRel={active.rel}
-              filter={problemsFilter}
-              collapseNonce={problemsCollapseNonce}
-              onOpenFile={openFileTab}
-              onQuickFix={openProblemQuickFix} />
-          </div>}
-    </BottomPanel>;
-  };
+  const renderPaneProblems = (leaf: PaneLeaf) => renderPaneProblemsView(leaf, {
+    bottomPanel,
+    problemsFilter,
+    setProblemsFilter,
+    problemsCollapseNonce,
+    setProblemsCollapseNonce,
+    openFileTab,
+    openProblemQuickFix,
+  });
   return (
     <DesktopBootGate
       restorePending={paneWorkspace.restorePending}

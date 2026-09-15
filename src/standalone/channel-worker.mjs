@@ -10,6 +10,7 @@ import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
 import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
+import { beginDaemonSpawnCapture } from './daemon-crash-capture.mjs';
 import { attachChannel, readChannelDiscovery, probeChannelHealth } from './channel-client.mjs';
 
 const CHANNEL_TOOLS = new Set([
@@ -195,34 +196,40 @@ export function createStandaloneChannelWorker({
   function spawnDaemonCandidate() {
     return new Promise((resolveSpawn) => {
       let settled = false;
+      // fd 2 is a capture FILE, not a pipe: a V8 fatal abort is written below
+      // every JS hook and a pipe stops being drained once this worker detaches.
+      const capture = beginDaemonSpawnCapture({
+        launcher: 'channel-worker',
+        dataDir,
+        log: (line) => logLine(logPath, line),
+      });
       const done = () => {
         if (settled) return;
         settled = true;
+        capture.mirror();
         resolveSpawn();
       };
+      // Same singleton daemon as the session spawn path, so the same heap policy.
+      const execArgv = withHeapCap('daemon', ['--require', WORKER_PRELOAD]);
       let daemon;
       try {
         daemon = fork(daemonEntry(), [], {
           cwd,
-          // Same singleton daemon as the session spawn path, so the same cap.
-          execArgv: withHeapCap('daemon', ['--require', WORKER_PRELOAD]),
-          stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+          execArgv,
+          stdio: ['ignore', 'ignore', capture.stderrStdio, 'ipc'],
           env: daemonEnv(),
           ...detachedSpawnOpts,
         });
       } catch (error) {
+        capture.noteSpawnError(error);
         logLine(logPath, `daemon spawn failed: ${error?.message || error}`);
         done();
         return;
       }
-      const mirrorStderr = (chunk) => {
-        const text = String(chunk || '').trimEnd();
-        if (text) logLine(logPath, text);
-      };
-      daemon.stderr?.on('data', mirrorStderr);
+      capture.track(daemon, { detached: Boolean(detachedSpawnOpts.detached), execArgv });
       daemon.once('message', (message) => {
         if (message?.type !== 'ready') return;
-        try { daemon.stderr?.off?.('data', mirrorStderr); } catch {}
+        capture.noteReady();
         try { daemon.disconnect?.(); } catch {}
         try { daemon.unref?.(); } catch {}
         try { daemon.stderr?.unref?.(); } catch {}
@@ -230,6 +237,8 @@ export function createStandaloneChannelWorker({
       });
       daemon.once('exit', done);
       daemon.once('error', (error) => {
+        // An async spawn failure may never emit 'exit'; the sidecar still gets it.
+        capture.noteSpawnError(error);
         logLine(logPath, `daemon spawn error: ${error?.message || error}`);
         done();
       });

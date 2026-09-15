@@ -1,4 +1,5 @@
 import { type TranscriptItem } from "./desktop-types";
+import { normalizeApplyPatch } from "./renderer-logic.mjs";
 import { asRecord, oneLine } from "./text-format";
 import {
   desktopToolActivityCategory,
@@ -67,6 +68,10 @@ export interface DesktopToolActivityItemPresentation {
   structuredRows: ToolActivityStructuredRow[];
   hasDetails: boolean;
   hideSubjectWhenOpen: boolean;
+  /** File/folder the call targeted (`file_path`, `path`…), so the header
+   *  subject can open it like a chat file link. */
+  targetPath: string;
+  targetLine?: number;
 }
 
 export function desktopToolActivityItemPresentation(
@@ -139,7 +144,12 @@ export function desktopToolActivityItemPresentation(
       label: toolActivityFieldLabel(key),
       value: toolActivityFieldValue(key, value),
     }));
-  const argumentPatch = typeof args.patch === "string" ? args.patch.trim() : "";
+  // The argument fallback is the raw apply_patch envelope (`*** Begin Patch`),
+  // which parseUnifiedDiff reads as one nameless "after" file with bogus
+  // hunks; normalize it into a unified diff so the card names each file.
+  const argumentPatch = typeof args.patch === "string"
+    ? normalizeApplyPatch(args.patch).trim()
+    : "";
   const diffPatch = typeof item.uiDiff === "string" && item.uiDiff.trim()
     ? item.uiDiff.trim()
     : normalizedName === "apply_patch" ? argumentPatch : "";
@@ -244,5 +254,8 @@ export function desktopToolActivityItemPresentation(
     structuredRows: structured.rows,
     hasDetails,
     hideSubjectWhenOpen: Boolean(command),
+    targetPath,
+    ...(normalizedName === "read" && Number(args.offset) > 0
+      ? { targetLine: Math.floor(Number(args.offset)) } : {}),
   };
 }

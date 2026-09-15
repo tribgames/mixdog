@@ -20,6 +20,7 @@ function createRouteHarness(setRoute, extra = {}) {
     runtime: { setRoute },
     getState: () => state,
     set: (patch) => { state = { ...state, ...patch }; },
+    flushEmitImmediate: () => {},
     routeState: () => ({ ...live }),
     syncContextStats: () => {},
     pushNotice: () => {},

@@ -23,7 +23,7 @@ export const GITHUB_ACTIONS = Object.freeze({
   'pr.comments': { fields: ['number', 'page', 'limit'], list: true },
   'workflow.list': { fields: ['page', 'limit'], list: true, collection: 'workflows' },
   'workflow.run': { fields: ['workflow', 'ref', 'inputs'], write: true },
-  'run.list': { fields: ['page', 'limit'], list: true, collection: 'workflow_runs' },
+  'run.list': { fields: ['workflow', 'page', 'limit'], list: true, collection: 'workflow_runs' },
   'run.view': { fields: ['id'] },
   'run.logs': { fields: ['id', 'failed'] },
   'run.rerun': { fields: ['id', 'failed'], write: true },

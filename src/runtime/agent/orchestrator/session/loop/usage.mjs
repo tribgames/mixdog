@@ -16,6 +16,42 @@ export function normalizeUsage(usage) {
     };
 }
 
+// Per-iteration usage delta published mid-turn (fix A) so watchdog /
+// agent type=list sees live totals instead of only the terminal aggregate.
+// Billing deltas include OAuth WS warmup; the context* fields must describe
+// only the main send, so they fall back to the billing value only when the
+// provider reported no separate main-send usage.
+export function usageDeltaEvent({
+    sessionId, iterationIndex, usageMetricsTurnId, usageMetricsEpoch,
+    requestedModel, model, usage, sendTools,
+}) {
+    return {
+        sessionId,
+        iterationIndex,
+        usageMetricsTurnId,
+        source: 'provider_send',
+        requestedModel,
+        model,
+        usageMetricsEpoch,
+        deltaInput: usage.inputTokens || 0,
+        deltaOutput: usage.outputTokens || 0,
+        deltaPrompt: usage.promptTokens || 0,
+        // Cache delta carried alongside input/output so live metrics reflect
+        // the same token classes the terminal aggregate adds; additive —
+        // callers that ignore these fields keep working.
+        deltaCachedRead: usage.cachedTokens || 0,
+        deltaCacheWrite: usage.cacheWriteTokens || 0,
+        contextInputTokens: usage.mainInputTokens ?? usage.inputTokens ?? 0,
+        contextOutputTokens: usage.mainOutputTokens ?? usage.outputTokens ?? 0,
+        contextPromptTokens: usage.mainPromptTokens ?? usage.promptTokens ?? 0,
+        contextCachedReadTokens: usage.mainCachedTokens ?? usage.cachedTokens ?? 0,
+        contextCacheWriteTokens: usage.mainCacheWriteTokens ?? usage.cacheWriteTokens ?? 0,
+        contextUsageAvailable: usage.mainUsageAvailable !== false,
+        sendTools,
+        ts: Date.now(),
+    };
+}
+
 export function addUsage(total, usage) {
     const delta = normalizeUsage(usage);
     if (!delta) return total;

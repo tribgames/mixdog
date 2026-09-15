@@ -11,6 +11,7 @@ import { hasAgentApiKey } from '../shared/provider-api-key.mjs';
 // Credential probes are file-level checks: the catalog must not drag the whole
 // provider graph in just to render lane availability.
 import {
+  hasAntigravityOAuthCredentials,
   hasGrokOAuthCredentials,
   hasOpenAIOAuthCredentials,
 } from '../agent/orchestrator/providers/oauth-credential-probes.mjs';
@@ -23,40 +24,37 @@ export const MEDIA_KINDS = Object.freeze(['image', 'video']);
 // resolution, Gemini/Codex take pixel sizes. The UI renders whatever the lane
 // declares instead of inventing a cross-provider size model.
 const GROK_ASPECTS = Object.freeze(['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3']);
+const GROK_IMAGE = Object.freeze({
+  controls: Object.freeze({ aspectRatio: GROK_ASPECTS, resolution: Object.freeze(['1k', '2k']), maxReferences: 5 }),
+});
+const GROK_VIDEO = Object.freeze({
+  controls: Object.freeze({
+    aspectRatio: GROK_ASPECTS,
+    resolution: Object.freeze(['480p', '720p', '1080p']),
+    durationRange: Object.freeze([1, 15]),
+    // 1 ref = image-to-video, 2-7 = reference-to-video.
+    maxReferences: 7,
+  }),
+});
+const GEMINI_IMAGE_CONTROLS = Object.freeze({
+  aspectRatio: Object.freeze(['auto', '1:1', '16:9', '9:16', '4:3', '3:4']),
+  maxReferences: 3,
+});
 
 const LANES = Object.freeze([
   Object.freeze({
     id: 'grok-oauth',
     label: 'Grok Imagine',
     auth: Object.freeze({ type: 'oauth', provider: 'grok-oauth' }),
-    image: Object.freeze({
-      controls: Object.freeze({ aspectRatio: GROK_ASPECTS, resolution: Object.freeze(['1k', '2k']), maxReferences: 5 }),
-    }),
-    video: Object.freeze({
-      controls: Object.freeze({
-        aspectRatio: GROK_ASPECTS,
-        resolution: Object.freeze(['480p', '720p', '1080p']),
-        durationRange: Object.freeze([1, 15]),
-        // 1 ref = image-to-video, 2-7 = reference-to-video.
-        maxReferences: 7,
-      }),
-    }),
+    image: GROK_IMAGE,
+    video: GROK_VIDEO,
   }),
   Object.freeze({
     id: 'xai',
     label: 'Grok Imagine',
     auth: Object.freeze({ type: 'api-key', provider: 'xai' }),
-    image: Object.freeze({
-      controls: Object.freeze({ aspectRatio: GROK_ASPECTS, resolution: Object.freeze(['1k', '2k']), maxReferences: 5 }),
-    }),
-    video: Object.freeze({
-      controls: Object.freeze({
-        aspectRatio: GROK_ASPECTS,
-        resolution: Object.freeze(['480p', '720p', '1080p']),
-        durationRange: Object.freeze([1, 15]),
-        maxReferences: 7,
-      }),
-    }),
+    image: GROK_IMAGE,
+    video: GROK_VIDEO,
   }),
   Object.freeze({
     id: 'openai-oauth',
@@ -73,11 +71,8 @@ const LANES = Object.freeze([
     label: 'Google Gemini',
     auth: Object.freeze({ type: 'api-key', provider: 'gemini' }),
     image: Object.freeze({
-      controls: Object.freeze({
-        aspectRatio: Object.freeze(['auto', '1:1', '16:9', '9:16', '4:3', '3:4']),
-        // Reference caps the image edit path at 3 inline references.
-        maxReferences: 3,
-      }),
+      // Reference caps the image edit path at 3 inline references.
+      controls: GEMINI_IMAGE_CONTROLS,
     }),
     video: Object.freeze({
       controls: Object.freeze({
@@ -90,19 +85,33 @@ const LANES = Object.freeze([
       }),
     }),
   }),
+  Object.freeze({
+    id: 'antigravity-oauth',
+    label: 'Google Antigravity',
+    auth: Object.freeze({ type: 'oauth', provider: 'antigravity-oauth' }),
+    // The gateway lists Nano Banana image models only; no video generation
+    // model is exposed, so the lane never advertises a video kind.
+    image: Object.freeze({
+      controls: GEMINI_IMAGE_CONTROLS,
+    }),
+  }),
 ]);
 
 const LANE_BY_ID = new Map(LANES.map((lane) => [lane.id, lane]));
 
+const OAUTH_PROBES = Object.freeze({
+  'grok-oauth': hasGrokOAuthCredentials,
+  'openai-oauth': hasOpenAIOAuthCredentials,
+  'antigravity-oauth': hasAntigravityOAuthCredentials,
+});
+
 function laneAuthenticated(lane) {
   try {
     if (lane.auth.type === 'api-key') return hasAgentApiKey(lane.auth.provider);
-    if (lane.auth.provider === 'grok-oauth') return hasGrokOAuthCredentials();
-    if (lane.auth.provider === 'openai-oauth') return hasOpenAIOAuthCredentials();
+    return OAUTH_PROBES[lane.auth.provider]?.() === true;
   } catch {
     return false;
   }
-  return false;
 }
 
 function laneKindView(lane, kind, models) {

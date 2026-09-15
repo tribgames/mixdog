@@ -1,6 +1,6 @@
 import type { DesktopBrowserPageAction, DesktopBrowserPageFrame, DesktopBrowserTab } from '../shared/contract';
 import { browserPageTransition } from './browser-page-recovery';
-import { BROWSER_INPUT_BUSY, BROWSER_INPUT_EXPIRED, BROWSER_INPUT_WAIT_MS, browserInputImmediate, browserTabControl } from '../shared/browser-input-policy';
+import { BROWSER_INPUT_BUSY, BROWSER_INPUT_EXPIRED, BROWSER_INPUT_WAIT_MS, browserInputImmediate, browserTabControl, browserTypingInput } from '../shared/browser-input-policy';
 
 /** A DOM-sized handle for the pane chrome, with no guest in its focus tree. */
 export interface BrowserPageElement extends HTMLDivElement {
@@ -29,6 +29,8 @@ export function createBrowserPageClient(options: {
   prepare?(frame: DesktopBrowserPageFrame): Promise<void>;
   failure(message: string): void;
   recovered?(): void;
+  /** In-memory recovery only; never log or persist potentially sensitive text. */
+  unconfirmedText?(text: string): void;
 }) {
   let current: DesktopBrowserPageFrame | null = null;
   let presentationKey = '';
@@ -49,6 +51,21 @@ export function createBrowserPageClient(options: {
   let pendingWheel: { action: Wheel; documentId: string } | null = null;
   let heldPointer: { action: Pointer; documentId: string } | null = null;
   let failureRevision = 0;
+  const unconfirmedText = new Map<number, string>();
+  const inputOrder = new WeakMap<object, number>();
+  let nextInputOrder = 0;
+  type TextInput = Extract<DesktopBrowserPageAction, { type: 'text' }>;
+  type CompositionInput = Extract<DesktopBrowserPageAction, { type: 'composition' }>;
+  let pendingText: { action: TextInput; token: string } | null = null;
+  let pendingComposition: { action: CompositionInput; token: string } | null = null;
+
+  function preserveText(action?: DesktopBrowserPageAction): void {
+    if ((action?.type === 'text' || action?.type === 'composition-end') && action.text) {
+      if (!inputOrder.has(action)) inputOrder.set(action, ++nextInputOrder);
+      unconfirmedText.set(inputOrder.get(action)!, action.text);
+      options.unconfirmedText?.([...unconfirmedText].sort(([a], [b]) => a - b).map(([, text]) => text).join(''));
+    }
+  }
 
   function reportFailure(message: string): void {
     failureRevision += 1;
@@ -61,16 +78,16 @@ export function createBrowserPageClient(options: {
 
   function accept(frame: DesktopBrowserPageFrame): void {
     const previous = current;
-    if (previous && previous.documentId !== frame.documentId) documentRevision += 1;
-    current = frame;
     // frameId owns pixel identity. An unchanged sample still refreshes host
     // state, but must not make React redraw the pane at display cadence.
     const { image: _image, ...metadata } = frame;
     const key = JSON.stringify(metadata);
     if (key !== presentationKey) {
-      presentationKey = key;
       options.update(frame);
+      presentationKey = key;
     }
+    if (previous && previous.documentId !== frame.documentId) documentRevision += 1;
+    current = frame;
     if (!previous || previous.webContentsId !== frame.webContentsId) emit('did-attach');
     if (!previous || previous.documentId !== frame.documentId) emit('dom-ready');
     if (previous?.url !== frame.url || previous?.webContentsId !== frame.webContentsId) {
@@ -107,6 +124,9 @@ export function createBrowserPageClient(options: {
   }
 
   function control(action: DesktopBrowserPageAction): Promise<void> {
+    if (!inputOrder.has(action)) inputOrder.set(action, ++nextInputOrder);
+    if (pendingText?.action !== action) pendingText = null;
+    if (pendingComposition?.action !== action) pendingComposition = null;
     // Coalescing may never cross a click, key, or another kind of input.
     // Passive hover may cross scrolling; a pressed pointer remains a barrier.
     const hover = action.type === 'pointer' && action.phase === 'mouseMoved' && action.buttons === 0;
@@ -114,6 +134,8 @@ export function createBrowserPageClient(options: {
       && !(action.type === 'wheel' && pendingMove?.action.buttons === 0)) pendingMove = null;
     if (pendingWheel?.action !== action && !hover) pendingWheel = null;
     const clearPending = () => {
+      if (pendingText?.action === action) pendingText = null;
+      if (pendingComposition?.action === action) pendingComposition = null;
       if (pendingMove?.action === action) pendingMove = null;
       if (pendingResize === action) pendingResize = null;
       if (pendingWheel?.action === action) pendingWheel = null;
@@ -129,11 +151,11 @@ export function createBrowserPageClient(options: {
       if (!disposed && !current && options.api.browserPageControl && !humanInput(action)) {
         return Promise.reject(new Error('Browser page is attaching.'));
       }
-      return rejectInput('Browser page is not ready.');
+      return rejectInput('Browser page is not ready.', action);
     }
     if (queued >= 128 && !release && !recovery) {
       clearPending();
-      return rejectInput(BROWSER_INPUT_BUSY);
+      return rejectInput(BROWSER_INPUT_BUSY, action);
     }
     if (browserTabControl(action)) inputGeneration += 1;
     const generation = inputGeneration;
@@ -147,8 +169,12 @@ export function createBrowserPageClient(options: {
       const motion = action.type === 'pointer' && action.phase === 'mouseMoved';
       // A tab switch invalidates unstarted edits even if the user switches
       // back before the stalled input lane resumes. Releases still clean up.
-      if (!recovery && !release && generation !== inputGeneration) return;
-      if (!release && !recovery && performance.now() - enqueuedAt >= BROWSER_INPUT_WAIT_MS) {
+      if (!recovery && !release && generation !== inputGeneration) {
+        preserveText(action);
+        return;
+      }
+      if (!release && !recovery && !browserTypingInput(action)
+        && performance.now() - enqueuedAt >= BROWSER_INPUT_WAIT_MS) {
         if (motion || action.type === 'resize') return;
         throw new Error(BROWSER_INPUT_EXPIRED);
       }
@@ -194,6 +220,14 @@ export function createBrowserPageClient(options: {
       if (humanInput(action) || !browserPageTransition(error, 'input')) throw error;
     });
     const completion = settled.catch(error => {
+      preserveText(action);
+      if (error instanceof Error && error.message === BROWSER_INPUT_EXPIRED
+        && generation === inputGeneration) {
+        // One stalled input rejects the unstarted batch, not each queued
+        // keystroke in turn. New input gets a fresh generation; releases
+        // still clean up any press that actually reached the page.
+        inputGeneration += 1;
+      }
       if (!disposed) reportFailure(error instanceof Error ? error.message : String(error));
     }).finally(() => {
       queued -= 1;
@@ -207,11 +241,12 @@ export function createBrowserPageClient(options: {
 
   function humanInput(action: DesktopBrowserPageAction): boolean {
     if (action.type === 'pointer') return action.phase !== 'mouseMoved';
-    return action.type === 'wheel' || action.type === 'text' || action.type === 'key'
+    return action.type === 'wheel' || browserTypingInput(action)
       || action.type === 'answer-dialog' || action.type === 'choose-files';
   }
 
-  function rejectInput(message: string): Promise<void> {
+  function rejectInput(message: string, action?: DesktopBrowserPageAction): Promise<void> {
+    preserveText(action);
     if (!disposed) reportFailure(message);
     return Promise.reject(new Error(message));
   }
@@ -222,8 +257,23 @@ export function createBrowserPageClient(options: {
 
   function fire(action: DesktopBrowserPageAction, token?: string): void {
     if (token !== undefined && token !== inputToken()) {
+      preserveText(action);
       if (!disposed) reportFailure('Browser page changed; input was not sent.');
       return;
+    }
+    if (action.type === 'text') {
+      if (pendingText?.token === inputToken() && pendingText.action.text.length + action.text.length <= 32_000) {
+        pendingText.action.text += action.text;
+        return;
+      }
+      pendingText = { action, token: inputToken() };
+    }
+    if (action.type === 'composition') {
+      if (pendingComposition?.token === inputToken()) {
+        Object.assign(pendingComposition.action, action);
+        return;
+      }
+      pendingComposition = { action, token: inputToken() };
     }
     if (action.type === 'resize') {
       if (pendingResize) {
@@ -287,6 +337,7 @@ export function createBrowserPageClient(options: {
 
   return {
     poll, fire, control, bind, inputToken,
+    clearUnconfirmedText: () => { unconfirmedText.clear(); options.unconfirmedText?.(''); },
     shortcut: (shortcut: string) => emit('browser-shortcut', { shortcut }),
     frame: () => current,
     setRefresh: (callback: () => void) => { refresh = callback; },

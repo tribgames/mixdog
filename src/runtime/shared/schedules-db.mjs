@@ -12,15 +12,10 @@
  */
 
 import { ensurePgInstance, withSchemaBootstrapLock } from '../memory/lib/pg/adapter.mjs';
+import { createPgSchemaDb } from './pg-schema-db.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const SCHEMA = 'scheduler';
-
-// ---------------------------------------------------------------------------
-// Lazy connection + one-shot idempotent DDL (keyed per resolved dataDir).
-// ---------------------------------------------------------------------------
-
-const _ready = new Map(); // dataDir → Promise<db>
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS scheduler.schedules (
@@ -61,24 +56,13 @@ ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS last_success_at timesta
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS last_failed_at timestamptz;
 `;
 
-async function getDb(dataDir = resolvePluginData()) {
-  if (_ready.has(dataDir)) return _ready.get(dataDir);
-  const p = (async () => {
-    const { db, pool } = await ensurePgInstance(dataDir, { schema: SCHEMA });
-    // Serialize the CREATE TABLE across concurrent first-boot processes on the
-    // same cluster-global advisory lock the adapter uses for schema bootstrap,
-    // so racing first calls can't run the DDL simultaneously.
-    await withSchemaBootstrapLock(pool, () => db.exec(DDL));
-    return db;
-  })();
-  _ready.set(dataDir, p);
-  try {
-    return await p;
-  } catch (err) {
-    _ready.delete(dataDir); // let the next call retry DDL after a transient failure
-    throw err;
-  }
-}
+const getDb = createPgSchemaDb({
+  schema: SCHEMA,
+  ddl: DDL,
+  defaultDataDir: resolvePluginData,
+  ensurePg: ensurePgInstance,
+  withLock: withSchemaBootstrapLock,
+});
 
 // ---------------------------------------------------------------------------
 // Row <-> def mapping

@@ -31,6 +31,9 @@ import {
     updateSessionStatus,
     closeSession,
     getSession,
+    getSessionLastProgressAt,
+    getSessionProgressSnapshot,
+    linkParentSignalToSession,
 } from '../session/manager.mjs';
 import {
     abortAgentProgressWatchdog,
@@ -306,6 +309,27 @@ export function buildAgentDispatchAskSessionArgs(factoryOpts = {}, callArgs = {}
 // cancellation sources, so collapse them before installing that one link.
 // The first already-aborted source wins (in declaration order), retaining its
 // original reason instead of replacing it with a generic AbortError.
+function nonEmptyString(value) {
+    return typeof value === 'string' && value ? value : null;
+}
+
+function abortDispatchWatchdog({
+    controller, sessionId, agent, error, snapshot, policy, now, anchorTs, lastProgressAt,
+}) {
+    const sess = getSession(sessionId);
+    abortAgentProgressWatchdog(controller, {
+        sessionId,
+        agent,
+        error,
+        snapshot,
+        policy,
+        now,
+        anchorTs,
+        lastProgressAt,
+        iteration: typeof sess?.lastIterationIndex === 'number' ? sess.lastIterationIndex : null,
+    });
+}
+
 function composeAgentDispatchAbortSignal(signals) {
     const sources = (Array.isArray(signals) ? signals : [])
         .filter((signal) => signal instanceof AbortSignal);
@@ -455,9 +479,7 @@ export function makeAgentDispatch(opts = {}) {
         // and the downstream skill-discovery path tolerates null. Combined
         // with the frozen agent skill meta-tools (collect.mjs) this keeps
         // every caller on the same provider cache shard.
-        const cwd = (typeof callCwd === 'string' && callCwd)
-            ? callCwd
-            : ((typeof opts.cwd === 'string' && opts.cwd) ? opts.cwd : null);
+        const cwd = nonEmptyString(callCwd) || nonEmptyString(opts.cwd);
 
         // Unified dispatch: Pool B/C share bit-identical tools + system prompt
         // unless a hidden role declares a narrow toolSchemaProfile. Per-role
@@ -512,24 +534,14 @@ export function makeAgentDispatch(opts = {}) {
         await updateStatus(session.id, 'running');
         // Parent→child abort cascade: when opts.parentSignal (factory) or
         // callParentSignal (per-call) fires, abort the sub-session's own
-        // controller so the provider call tears down promptly. Best-effort:
-        // if the session/manager import is unavailable we fall back silently.
-        const _managerMod = await import('../session/manager.mjs').catch(() => null);
-        const _linkSignal = _managerMod?.linkParentSignalToSession;
-        const _getProgressSnapshot = _managerMod?.getSessionProgressSnapshot;
-        const _getLastProgressAt = _managerMod?.getSessionLastProgressAt;
-        const _getSession = _managerMod?.getSession || readSession;
-        // Watchdog policy is split:
-        // - firstResponseTimeoutMs cuts quickly only when the model produces no
-        //   first stream/tool activity at all.
-        // - idle/tool-running caps come from role stallCap (hidden roles) or env defaults.
+        // controller so the provider call tears down promptly.
         const _watchdogPolicy = resolveAgentWatchdogPolicy(agent, {
             idleTimeoutMs: Number.isFinite(callIdleTimeoutMs)
                 ? callIdleTimeoutMs
                 : opts.idleTimeoutMs,
             firstResponseTimeoutMs: opts.firstResponseTimeoutMs,
         });
-        const _idleController = (agentWatchdogPolicyActive(_watchdogPolicy) && _linkSignal)
+        const _idleController = agentWatchdogPolicyActive(_watchdogPolicy)
             ? new AbortController()
             : null;
         // Do not link factory parent, per-call cancellation, and the
@@ -541,53 +553,47 @@ export function makeAgentDispatch(opts = {}) {
             callParentSignal,
             _idleController?.signal,
         ]);
-        if (_linkSignal && _abortLink.signal) {
-            try { _linkSignal(session.id, _abortLink.signal); } catch { /* ignore */ }
+        if (_abortLink.signal) {
+            try { linkParentSignalToSession(session.id, _abortLink.signal); } catch { /* ignore */ }
         }
         // Watchdog blind spot guard: when the runtime snapshot is missing AND
         // no progress timestamp exists (pre-liveness hang, swept runtime), the
         // dispatch start time anchors staleness so the abort still fires.
         const _watchdogAnchorTs = Date.now();
-        const _idleTimer = (_idleController && (typeof _getProgressSnapshot === 'function' || typeof _getLastProgressAt === 'function'))
+        const _idleTimer = _idleController
             ? setInterval(() => {
                 if (_idleController.signal?.aborted) return;
                 const now = Date.now();
-                const snapshot = typeof _getProgressSnapshot === 'function' ? _getProgressSnapshot(session.id) : null;
-                const abortErr = snapshot
-                    ? evaluateAgentWatchdogAbort(snapshot, now, _watchdogPolicy)
-                    : null;
-                if (!abortErr && !snapshot) {
-                    const reported = typeof _getLastProgressAt === 'function' ? _getLastProgressAt(session.id) : 0;
-                    const last = reported || _watchdogAnchorTs;
-                    if (_watchdogPolicy.idleStaleMs > 0 && now - last > _watchdogPolicy.idleStaleMs) {
-                        const err = new AgentStallAbortError(`agent task stale (${_watchdogPolicy.idleStaleMs}ms without progress)`);
-                        const sess = typeof _getSession === 'function' ? _getSession(session.id) : null;
-                        abortAgentProgressWatchdog(_idleController, {
+                const snapshot = getSessionProgressSnapshot(session.id);
+                if (snapshot) {
+                    const abortErr = evaluateAgentWatchdogAbort(snapshot, now, _watchdogPolicy);
+                    if (abortErr) {
+                        abortDispatchWatchdog({
+                            controller: _idleController,
                             sessionId: session.id,
                             agent,
-                            error: err,
+                            error: abortErr,
+                            snapshot,
                             policy: _watchdogPolicy,
                             now,
                             anchorTs: _watchdogAnchorTs,
-                            lastProgressAt: reported,
-                            iteration: typeof sess?.lastIterationIndex === 'number' ? sess.lastIterationIndex : null,
                         });
                     }
                     return;
                 }
-                if (abortErr) {
-                    const sess = typeof _getSession === 'function' ? _getSession(session.id) : null;
-                    abortAgentProgressWatchdog(_idleController, {
-                        sessionId: session.id,
-                        agent,
-                        error: abortErr,
-                        snapshot,
-                        policy: _watchdogPolicy,
-                        now,
-                        anchorTs: _watchdogAnchorTs,
-                        iteration: typeof sess?.lastIterationIndex === 'number' ? sess.lastIterationIndex : null,
-                    });
-                }
+                const reported = getSessionLastProgressAt(session.id);
+                const last = reported || _watchdogAnchorTs;
+                if (_watchdogPolicy.idleStaleMs <= 0 || now - last <= _watchdogPolicy.idleStaleMs) return;
+                abortDispatchWatchdog({
+                    controller: _idleController,
+                    sessionId: session.id,
+                    agent,
+                    error: new AgentStallAbortError(`agent task stale (${_watchdogPolicy.idleStaleMs}ms without progress)`),
+                    policy: _watchdogPolicy,
+                    now,
+                    anchorTs: _watchdogAnchorTs,
+                    lastProgressAt: reported,
+                });
             }, 1000)
             : null;
         if (_idleTimer && typeof _idleTimer.unref === 'function') _idleTimer.unref();

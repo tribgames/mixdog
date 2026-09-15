@@ -8,6 +8,7 @@
  */
 import type { WebContents } from 'electron';
 
+import { BrowserActionabilityError, waitForBrowserActionable } from './actionability';
 import type { BrowserSnapshotElement, BrowserSnapshotPayload } from './accessibility';
 import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
@@ -131,15 +132,17 @@ export function selectBrowserTarget(
         .map((element) => JSON.stringify(redactBrowserText(element.name || ''))).join(', ')}${
         byRole.length > MAX_LISTED_CANDIDATES ? ', …' : ''}.`
       : '';
-    throw new Error(
+    throw new BrowserActionabilityError(
       `no element matched target ${described} among ${scope.unfiltered ?? elements.length} candidate element(s).`
       + `${sameRole} Loosen the target or take a snapshot to read the page.`,
+      'missing',
     );
   }
   if (target.nth) {
     if (target.nth > matches.length) {
-      throw new Error(
+      throw new BrowserActionabilityError(
         `target ${described} asked for match #${target.nth} but only ${matches.length} matched:\n${listCandidates(matches)}`,
+        'missing',
       );
     }
     return matches[target.nth - 1];
@@ -294,22 +297,24 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
     const query = single?.name && !single.selector && !REGEX_SHAPED.test(single.name)
       ? single.name
       : undefined;
-    const payload = await host.captureSnapshotPayload(
-      guest,
-      { action: 'snapshot', maxElements: 500, ...(query ? { query } : {}) },
-      signal,
-    );
-    const resolved: ResolvedBrowserTarget[] = [];
-    for (const target of targets) {
-      const pool = target.selector
-        ? await selectorCandidates(guest, target.selector, payload, signal)
-        : payload.elements;
-      const chosen = selectBrowserTarget(target, pool, {
-        unfiltered: target.selector ? pool.length : payload.unfilteredElements,
-      });
-      resolved.push({ ref: chosen.ref, description: describeBrowserTarget(target) });
-    }
-    return resolved;
+    return waitForBrowserActionable(async () => {
+      const payload = await host.captureSnapshotPayload(
+        guest,
+        { action: 'snapshot', maxElements: 500, ...(query ? { query } : {}) },
+        signal,
+      );
+      const resolved: ResolvedBrowserTarget[] = [];
+      for (const target of targets) {
+        const pool = target.selector
+          ? await selectorCandidates(guest, target.selector, payload, signal)
+          : payload.elements;
+        const chosen = selectBrowserTarget(target, pool, {
+          unfiltered: target.selector ? pool.length : payload.unfilteredElements,
+        });
+        resolved.push({ ref: chosen.ref, description: describeBrowserTarget(target) });
+      }
+      return resolved;
+    }, signal);
   }
 
   return { resolveTargetRefs: timedBrowserOperation('target', resolveTargetRefs) };

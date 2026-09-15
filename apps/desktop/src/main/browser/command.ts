@@ -135,6 +135,9 @@ export interface BrowserCommand {
   text?: string;
   textGone?: string;
   submit?: boolean;
+  /** fill: complete the sign-in form from a stored login (account or its
+   *  masked label); the password stays inside the host. */
+  savedAccount?: string;
   key?: string;
   dy?: number;
   dx?: number;
@@ -175,6 +178,7 @@ export interface BrowserCommand {
     checked?: boolean;
     key?: string;
     submit?: boolean;
+    savedAccount?: string;
     dx?: number;
     dy?: number;
     textGone?: string;

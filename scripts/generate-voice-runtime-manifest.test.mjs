@@ -7,6 +7,7 @@ import {
   buildVoiceFfmpegPlatforms,
   buildVoiceRuntimePlatforms,
   fetchGithubRelease,
+  isHiddenDraftReleaseUrl,
   voiceRuntimeBuildHash,
 } from './generate-voice-runtime-manifest.mjs'
 import { mergeVoiceRuntimeManifest } from './sync-voice-runtime-manifest.mjs'
@@ -67,6 +68,23 @@ test('voice runtime manifest generation rejects undeclared archives', () => {
     }]),
     /unexpected runtime asset/,
   )
+})
+
+test('hidden draft release URLs accept only GitHub untagged asset paths', () => {
+  const asset = 'whisper-server-win32-x64-vulkan.zip'
+  assert.equal(isHiddenDraftReleaseUrl(
+    `https://github.com/tribgames/mixdog/releases/download/untagged-fixture/${asset}`,
+    { repository: 'tribgames/mixdog', asset },
+  ), true)
+  assert.equal(isHiddenDraftReleaseUrl(
+    `https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.0.0/${asset}`,
+    { repository: 'tribgames/mixdog', asset },
+  ), false)
+  assert.equal(isHiddenDraftReleaseUrl(
+    `https://github.com/tribgames/mixdog/releases/download/untagged-fixture/${asset}?token=1`,
+    { repository: 'tribgames/mixdog', asset },
+  ), false)
+  assert.equal(isHiddenDraftReleaseUrl('not a url', { repository: 'tribgames/mixdog', asset }), false)
 })
 
 test('voice runtime manifest normalizes hidden draft asset URLs to the published tag', () => {

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  applyInitialDeferredToolManifestToBp2,
+  buildDeferredToolManifest,
   buildSkillManifest,
   collectPromptSkillsCached,
   collectSkillsCached,
@@ -419,4 +421,37 @@ test('built-in package skills are discovered in place and shadowed by a user-glo
     else process.env.MIXDOG_ROOT = previousRoot;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('MIXDOG_DISABLE_SKILLS is truthy without trimming padded values', () => {
+  const previous = process.env.MIXDOG_DISABLE_SKILLS;
+  const skill = [{ name: 'x', whenToUse: 'go' }];
+  try {
+    process.env.MIXDOG_DISABLE_SKILLS = '1';
+    invalidateSkillsCache();
+    assert.deepEqual(collectSkillsCached(null), []);
+    assert.deepEqual(collectPromptSkillsCached(null), []);
+    assert.equal(buildSkillManifest(skill), '');
+
+    process.env.MIXDOG_DISABLE_SKILLS = ' 1 ';
+    assert.match(buildSkillManifest(skill), /^- x: go$/m);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DISABLE_SKILLS;
+    else process.env.MIXDOG_DISABLE_SKILLS = previous;
+    invalidateSkillsCache();
+  }
+});
+
+test('collect re-exports deferred-tool BP2 helpers', () => {
+  assert.equal(buildDeferredToolManifest([]), '');
+  const session = {
+    messages: [
+      { role: 'system', content: 'BP1' },
+      { role: 'system', content: 'BP2' },
+    ],
+    deferredToolCatalog: [{ name: 'recall', description: 'Recall prior work.' }],
+  };
+  assert.equal(applyInitialDeferredToolManifestToBp2(session, ['recall']), true);
+  assert.match(session.messages[1].content, /<available-deferred-tools>/);
+  assert.match(session.messages[1].content, /^- recall: Recall prior work\.$/m);
 });

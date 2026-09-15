@@ -463,7 +463,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                     ? orig._origLimit
                     : 2000;
                 const body = needsSlice && typeof r.body === 'string'
-                    ? sliceReadBodyByLines(r.body, origOffset, origLimit)
+                    ? sliceReadBodyByLines(r.body, origOffset, origLimit, options.readOffsetBase ?? 0)
                     : r.body;
                 return { ...r, mode: orig.mode || 'full', n: orig.n, body };
             })

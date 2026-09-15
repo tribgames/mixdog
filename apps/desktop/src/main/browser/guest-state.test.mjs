@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { BrowserGuestStateStore } from './guest-state.ts';
+import { browserDocumentId, BrowserGuestStateStore } from './guest-state.ts';
 
 const guest = () => ({ id: Math.random() });
 
@@ -15,6 +15,18 @@ test('page ids are stable per guest and snapshot ids advance from them', () => {
   assert.equal(store.nextSnapshotId(first), 'p1-s1');
   assert.equal(store.nextSnapshotId(first), 'p1-s2');
   assert.equal(store.nextSnapshotId(second), 'p2-s1');
+});
+
+test('document ids name one page generation and retire when the document changes', () => {
+  const store = new BrowserGuestStateStore();
+  const page = guest();
+  const other = guest();
+  assert.equal(browserDocumentId(store, page), `${store.pageId(page)}:0`);
+  assert.notEqual(browserDocumentId(store, other), browserDocumentId(store, page));
+  const before = browserDocumentId(store, page);
+  store.beginDocument(page);
+  assert.notEqual(browserDocumentId(store, page), before);
+  assert.equal(browserDocumentId(store, page), `${store.pageId(page)}:1`);
 });
 
 test('invalidating interaction forgets document-bound state only', () => {

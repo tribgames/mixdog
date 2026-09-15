@@ -36,7 +36,8 @@ import { getLlmDispatcher, recycleLlmDispatcher } from '../../../shared/llm/http
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
-import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from './openai-oauth.mjs';
+import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL } from './openai-codex-endpoints.mjs';
+import { _displayCodexModel } from './openai-codex-model.mjs';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';

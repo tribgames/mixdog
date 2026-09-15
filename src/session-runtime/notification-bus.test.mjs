@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createNotificationBus } from './notification-bus.mjs';
+import { createCompletionWakeScheduler, createNotificationBus } from './notification-bus.mjs';
 
 const completionText = [
   'background task',
@@ -145,4 +145,57 @@ test('unobserved completion fallback queues and wakes exactly once', () => {
   assert.equal(wakeups.length, 1);
   assert.equal(wakeups[0].sessionId, 'lead-idempotent');
   assert.match(enqueued[0].message.id, /^completion_[a-f0-9]{24}$/);
+});
+
+function wakeFixture({ currentSessionId = 'lead-wake', turnApi = undefined } = {}) {
+  const asks = [];
+  const api = turnApi === undefined
+    ? { ask: async (prompt, options) => { asks.push({ prompt, options }); } }
+    : turnApi;
+  const wake = createCompletionWakeScheduler({
+    getCurrentSessionId: () => currentSessionId,
+    getTurnApi: () => api,
+  });
+  return { wake, asks };
+}
+
+const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+test('a queued completion wakes its owner session with an empty turn', async () => {
+  const { wake, asks } = wakeFixture();
+
+  assert.equal(wake({ sessionId: 'lead-wake', executionId: 'exec-1', enqueuedAt: 4242 }), true);
+  await settled();
+
+  assert.deepEqual(asks, [{ prompt: '', options: { submittedAt: 4242 } }]);
+});
+
+test('one wake per session is in flight, and the session is wakeable again afterwards', async () => {
+  const { wake, asks } = wakeFixture();
+
+  assert.equal(wake({ sessionId: 'lead-wake' }), true);
+  assert.equal(wake({ sessionId: 'lead-wake' }), false);
+  assert.equal(wake({ sessionId: '   ' }), false);
+  await settled();
+  assert.equal(asks.length, 1);
+
+  assert.equal(wake({ sessionId: 'lead-wake' }), true);
+  await settled();
+  assert.equal(asks.length, 2);
+});
+
+test('a completion whose owner is no longer the live session never starts a turn', async () => {
+  const { wake, asks } = wakeFixture({ currentSessionId: 'lead-other' });
+
+  assert.equal(wake({ sessionId: 'lead-wake' }), true);
+  await settled();
+
+  assert.deepEqual(asks, []);
+});
+
+test('a wake before the turn api exists is dropped instead of throwing', async () => {
+  const { wake } = wakeFixture({ turnApi: null });
+
+  assert.equal(wake({ sessionId: 'lead-wake' }), true);
+  await settled();
 });

@@ -1,6 +1,8 @@
 import { channelNotificationModelContent } from '../runtime/shared/channel-notification-routing.mjs';
 
-const CHANNEL_NOTIFICATION_METHOD = 'notifications/claude/channel';
+/** The one inbound channel notification method. Exported so every consumer
+ *  (daemon router, session runtime) matches the same wire name. */
+export const CHANNEL_NOTIFICATION_METHOD = 'notifications/claude/channel';
 
 export function createChannelSessionRouter({
   getSessionService,

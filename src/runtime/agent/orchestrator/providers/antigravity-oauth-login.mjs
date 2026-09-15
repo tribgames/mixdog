@@ -3,12 +3,13 @@
  *
  * Flow: PKCE authorization on a loopback callback (port 51121, the port the
  * registered client is bound to) -> token exchange -> account email ->
- * `loadCodeAssist` for an existing Cloud project, falling back to `onboardUser`
- * which provisions one. A login without a project id is useless: every content
- * request carries `project`.
+ * `loadCodeAssist` for account status -> free-tier onboarding when needed ->
+ * refreshed Cloud project. A login without a project id is useless: every
+ * content request carries `project`.
  */
 import { createServer } from 'http';
 import { randomBytes } from 'crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import {
     AUTH_URL,
@@ -18,7 +19,7 @@ import {
     CLIENT_ID,
     CLIENT_SECRET,
     LOGIN_TIMEOUT_MS,
-    PROJECT_ENDPOINTS,
+    PROJECT_ENDPOINT,
     PROJECT_TIMEOUT_MS,
     REDIRECT_URI,
     SCOPES,
@@ -31,128 +32,182 @@ import {
     saveTokens,
 } from './antigravity-oauth-tokens.mjs';
 
-const ONBOARD_MAX_ATTEMPTS = 8;
-const ONBOARD_INTERVAL_MS = 2_000;
+const ONBOARD_INTERVAL_MS = 1_000;
+const CALLBACK_FAILURE_HTML = '<html><body><h2>Antigravity sign-in was not completed.</h2>'
+    + '<p>Return to Mixdog for the error details and any account verification link.</p></body></html>';
 
 export function generatePKCE() {
     return createOAuthPkce();
 }
 
-function readProjectId(value) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (value && typeof value === 'object' && typeof value.id === 'string' && value.id.trim()) {
-        return value.id.trim();
-    }
-    return '';
-}
-
 function extractProjectId(payload) {
-    if (!payload || typeof payload !== 'object') return '';
-    for (const key of ['cloudaicompanionProject', 'projectId', 'project']) {
-        const id = readProjectId(payload[key]);
-        if (id) return id;
-    }
-    return '';
+    return typeof payload?.cloudaicompanionProject === 'string' ? payload.cloudaicompanionProject : '';
 }
 
-function defaultTierId(allowedTiers, currentTier) {
-    if (Array.isArray(allowedTiers) && allowedTiers.length) {
-        const preferred = allowedTiers.find((tier) => tier?.isDefault && String(tier?.id || '').trim());
-        if (preferred) return String(preferred.id).trim();
-        const first = allowedTiers.find((tier) => String(tier?.id || '').trim());
-        if (first) return String(first.id).trim();
-    }
-    const current = String(currentTier?.id || '').trim();
-    return current || 'free-tier';
+function accountVerificationError(validationUrl, reason, email) {
+    const account = email ? ` for ${email}` : '';
+    const detail = reason ? `\n${reason}` : '';
+    const error = new Error(_scrubTokens(`[antigravity-oauth] Account verification required${account}.${detail}`
+        + `\nVisit ${validationUrl} to continue, then sign in again.`));
+    error.code = 'VALIDATION_REQUIRED';
+    error.validationUrl = validationUrl;
+    return error;
 }
 
-async function postJson(url, body, accessToken, { fetchFn = fetch, signal = null } = {}) {
-    return await fetchFn(url, {
-        method: 'POST',
+async function requestCodeAssist(action, body, context, timeoutMs = PROJECT_TIMEOUT_MS) {
+    const { accessToken, fetchFn, signal } = context;
+    signal?.throwIfAborted();
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const isPost = body !== undefined;
+    const res = await fetchFn(`${PROJECT_ENDPOINT}/v1internal${isPost ? ':' : '/'}${action}`, {
+        method: isPost ? 'POST' : 'GET',
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
             ...antigravityHeaders(),
         },
-        body: JSON.stringify(body),
-        signal: signal || AbortSignal.timeout(PROJECT_TIMEOUT_MS),
+        ...(isPost ? { body: JSON.stringify(body) } : {}),
+        redirect: 'error',
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
+    if (res.status !== 200) {
+        const text = await res.text();
+        let failure = null;
+        try { failure = JSON.parse(text); } catch { /* Non-JSON errors retain their original detail below. */ }
+        const details = failure?.error?.details;
+        const validation = Array.isArray(details) ? details.find((entry) =>
+            entry?.reason === 'VALIDATION_REQUIRED'
+            && typeof entry.metadata?.validation_url === 'string'
+            && entry.metadata.validation_url.length > 0) : null;
+        if (validation) {
+            throw accountVerificationError(validation.metadata.validation_url, failure.error.message, context.email);
+        }
+        const detail = _scrubTokens(text);
+        throw new Error(`[antigravity-oauth] ${action} failed: ${res.status} ${res.statusText}: ${detail}`);
+    }
+    const payload = await res.json();
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new Error(`[antigravity-oauth] invalid ${action} response`);
+    }
+    return payload;
 }
 
-async function fetchAccountEmail(accessToken, { fetchFn = fetch } = {}) {
+async function fetchAccountEmail(accessToken, { fetchFn = fetch, signal = null } = {}) {
     try {
         const res = await fetchFn(USERINFO_URL, {
             headers: { Authorization: `Bearer ${accessToken}` },
-            signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+            redirect: 'error',
+            signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_TIMEOUT_MS)]) : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
         });
         if (!res.ok) return '';
         const json = await res.json();
         return String(json?.email || '');
-    } catch { return ''; }
+    } catch {
+        signal?.throwIfAborted();
+        return '';
+    }
+}
+
+async function loadProjectState(context) {
+    const body = { metadata: codeAssistMetadata() };
+    let payload = await requestCodeAssist('loadCodeAssist', body, context);
+    const projectId = extractProjectId(payload);
+    if (payload.paidTier == null && projectId) {
+        payload = await requestCodeAssist('loadCodeAssist', {
+            ...body,
+            cloudaicompanionProject: projectId,
+        }, context);
+    }
+    return payload;
+}
+
+function tierIds(list, key) {
+    return Array.isArray(list) ? list.map((tier) => tier?.[key]).filter((id) => typeof id === 'string' && id) : [];
+}
+
+function tierSummary(payload) {
+    return `allowed tiers: [${tierIds(payload.allowedTiers, 'id').join(', ')}]; `
+        + `ineligible tiers: [${tierIds(payload.ineligibleTiers, 'tierId').join(', ')}]`;
 }
 
 /**
- * Resolve the Cloud project backing this account, provisioning one when the
- * account has none. Endpoints are tried in order because only production
- * answers `loadCodeAssist` reliably for managed accounts.
+ * Tier to onboard with. Free tier when Google allows it (or reports no tier
+ * list at all); otherwise the default allowed tier that Google can provision
+ * without a user-supplied Cloud project, e.g. a paid subscription tier.
  */
-async function discoverProject(accessToken, { fetchFn = fetch, onProgress = null } = {}) {
-    let tierId = 'free-tier';
-    let loaded = false;
-    let lastError = '';
-    for (const endpoint of PROJECT_ENDPOINTS) {
-        try {
-            onProgress?.('Checking for an existing project...');
-            const res = await postJson(
-                `${endpoint}/v1internal:loadCodeAssist`,
-                { metadata: codeAssistMetadata() },
-                accessToken,
-                { fetchFn },
-            );
-            if (!res.ok) {
-                lastError = `${res.status} ${_scrubTokens(await res.text().catch(() => '')).slice(0, 200)}`;
-                continue;
-            }
-            loaded = true;
-            const payload = await res.json();
-            const existing = extractProjectId(payload);
-            if (existing) return existing;
-            tierId = defaultTierId(payload?.allowedTiers, payload?.currentTier);
-            break;
-        } catch (err) {
-            lastError = String(err?.message || err).slice(0, 200);
-        }
-    }
-    if (!loaded && lastError) {
-        throw new Error(`[antigravity-oauth] loadCodeAssist failed: ${lastError}`);
-    }
-
-    onProgress?.('Provisioning a project...');
-    for (const endpoint of PROJECT_ENDPOINTS) {
-        for (let attempt = 1; attempt <= ONBOARD_MAX_ATTEMPTS; attempt += 1) {
-            try {
-                const res = await postJson(
-                    `${endpoint}/v1internal:onboardUser`,
-                    { tierId, metadata: codeAssistMetadata() },
-                    accessToken,
-                    { fetchFn },
-                );
-                if (!res.ok) break;
-                const payload = await res.json();
-                const provisioned = extractProjectId(payload?.response) || extractProjectId(payload);
-                if (payload?.done && provisioned) return provisioned;
-                // The operation is long-running: poll the same endpoint.
-                onProgress?.(`Waiting for project provisioning (${attempt}/${ONBOARD_MAX_ATTEMPTS})...`);
-                await new Promise((r) => setTimeout(r, ONBOARD_INTERVAL_MS));
-            } catch {
-                break;
-            }
-        }
-    }
-    throw new Error('[antigravity-oauth] could not resolve a Cloud project for this account');
+function onboardingTier(payload) {
+    const allowed = tierIds(payload.allowedTiers, 'id');
+    const ineligible = new Set(tierIds(payload.ineligibleTiers, 'tierId'));
+    if (allowed.includes('free-tier')) return 'free-tier';
+    if (!Array.isArray(payload.allowedTiers) && !ineligible.has('free-tier')) return 'free-tier';
+    const managed = (payload.allowedTiers ?? []).filter((tier) => typeof tier?.id === 'string' && tier.id
+        && tier.userDefinedCloudaicompanionProject !== true && !ineligible.has(tier.id));
+    return (managed.find((tier) => tier.isDefault) ?? managed[0])?.id ?? '';
 }
 
-export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetch, onProgress = null }) {
+function noTierError(payload, email) {
+    const summary = tierSummary(payload);
+    const blocked = payload.ineligibleTiers?.find((tier) => tier?.tierId === 'free-tier' && tier.reasonMessage)
+        ?? payload.ineligibleTiers?.find((tier) => tier?.reasonMessage);
+    if (blocked) {
+        const reason = `${blocked.reasonMessage}\n(${summary})`;
+        if (typeof blocked.validationUrl === 'string' && blocked.validationUrl) {
+            return accountVerificationError(blocked.validationUrl, reason, email);
+        }
+        return new Error(`[antigravity-oauth] ${_scrubTokens(reason)}`);
+    }
+    return new Error(`[antigravity-oauth] loadCodeAssist allowed no tier to onboard (${summary})`);
+}
+
+async function provisionProject(context, tierId) {
+    const deadline = Date.now() + PROJECT_TIMEOUT_MS;
+    const remaining = () => {
+        const ms = deadline - Date.now();
+        if (ms <= 0) throw new Error(`[antigravity-oauth] onboardUser timed out after ${PROJECT_TIMEOUT_MS}ms`);
+        return ms;
+    };
+    let operation = await requestCodeAssist('onboardUser', {
+        tierId,
+        metadata: codeAssistMetadata(),
+    }, context, remaining());
+    while (operation.done !== true) {
+        await delay(Math.min(ONBOARD_INTERVAL_MS, remaining()), undefined, { signal: context.signal ?? undefined });
+        const timeoutMs = remaining();
+        if (typeof operation.name !== 'string' || !operation.name) {
+            throw new Error('[antigravity-oauth] onboardUser returned an operation without a name');
+        }
+        operation = await requestCodeAssist(operation.name, undefined, context, timeoutMs);
+    }
+    if (operation.error != null) {
+        const { code, message } = operation.error;
+        const detail = message ? `${typeof code === 'number' ? `${code}: ` : ''}${message}` : JSON.stringify(operation.error);
+        throw new Error(`[antigravity-oauth] onboardUser operation failed: ${_scrubTokens(detail)}`);
+    }
+    if (!operation.response || typeof operation.response['@type'] !== 'string') {
+        throw new Error('[antigravity-oauth] invalid onboardUser response');
+    }
+}
+
+/** Resolve account eligibility and return the project from a fresh status load. */
+export async function discoverProject(accessToken, { fetchFn = fetch, onProgress = null, signal = null, email = '' } = {}) {
+    const context = { accessToken, fetchFn, signal, email };
+    onProgress?.('Checking Cloud Code Assist account status...');
+    const initial = await loadProjectState(context);
+    if (initial.currentTier == null) {
+        const tierId = onboardingTier(initial);
+        if (!tierId) throw noTierError(initial, email);
+        onProgress?.(`Provisioning the Antigravity ${tierId}...`);
+        await provisionProject(context, tierId);
+    }
+    onProgress?.('Refreshing Cloud Code Assist project...');
+    const refreshed = await loadProjectState(context);
+    const projectId = extractProjectId(refreshed);
+    if (!projectId) throw new Error('[antigravity-oauth] loadCodeAssist did not return a cloudaicompanionProject');
+    return projectId;
+}
+
+export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetch, onProgress = null, signal = null }) {
+    signal?.throwIfAborted();
     const cleanCode = String(code || '').trim();
     if (!cleanCode) throw new Error('[antigravity-oauth] authorization code is required');
     const res = await fetchFn(TOKEN_URL, {
@@ -169,7 +224,7 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
         // Secret-bearing (code + verifier): refuse redirects so neither can be
         // replayed against an untrusted host.
         redirect: 'error',
-        signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_TIMEOUT_MS)]) : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
     });
     if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -179,8 +234,8 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
     if (!json?.access_token || !json?.refresh_token) {
         throw new Error('[antigravity-oauth] token exchange response missing access_token or refresh_token');
     }
-    const email = await fetchAccountEmail(json.access_token, { fetchFn });
-    const projectId = await discoverProject(json.access_token, { fetchFn, onProgress });
+    const email = await fetchAccountEmail(json.access_token, { fetchFn, signal });
+    const projectId = await discoverProject(json.access_token, { fetchFn, onProgress, signal, email });
     const tokens = {
         access_token: json.access_token,
         refresh_token: json.refresh_token,
@@ -188,11 +243,18 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
         project_id: projectId,
         email,
     };
+    signal?.throwIfAborted();
     saveTokens(tokens);
     return tokens;
 }
 
-export async function beginOAuthLogin({ fetchFn = fetch } = {}) {
+export async function beginOAuthLogin({
+    fetchFn = fetch,
+    onProgress = null,
+    createServerFn = createServer,
+    openBrowserFn = null,
+} = {}) {
+    const controller = new AbortController();
     const pkce = generatePKCE();
     const state = randomBytes(16).toString('hex');
     const url = new URL(AUTH_URL);
@@ -210,53 +272,96 @@ export async function beginOAuthLogin({ fetchFn = fetch } = {}) {
     let server = null;
     let timeout = null;
     let finish = null;
+    let settled = false;
+    let exchangePromise = null;
+    const acceptCode = (code) => {
+        if (exchangePromise) return exchangePromise;
+        controller.signal.throwIfAborted();
+        // The browser deadline ends when a code arrives; network requests have
+        // their own deadlines. Browser and manual callbacks share one exchange.
+        if (timeout) clearTimeout(timeout);
+        timeout = null;
+        exchangePromise = exchangeAuthorizationCode({
+            code, verifier: pkce.verifier, fetchFn, onProgress, signal: controller.signal,
+        });
+        exchangePromise.then(
+            (tokens) => finish(tokens),
+            (error) => finish(null, error instanceof Error ? error : new Error(String(error))),
+        );
+        return exchangePromise;
+    };
     const waitForCallback = new Promise((resolvePromise, reject) => {
-        let settled = false;
         finish = (value, error = null) => {
             if (settled) return;
             settled = true;
+            controller.abort();
             if (timeout) clearTimeout(timeout);
             try { server?.close(); } catch { /* already closed */ }
             if (error) reject(error);
             else resolvePromise(value);
         };
-        server = createServer(async (req, res) => {
+        server = createServerFn(async (req, res) => {
             const requestUrl = new URL(req.url || '/', `http://${CALLBACK_HOST}:${CALLBACK_PORT}`);
             if (requestUrl.pathname !== CALLBACK_PATH) {
                 res.writeHead(404);
                 res.end();
                 return;
             }
-            const code = requestUrl.searchParams.get('code');
-            if (!code || requestUrl.searchParams.get('state') !== state) {
+            if (requestUrl.searchParams.get('state') !== state) {
                 res.writeHead(400);
-                res.end('Invalid');
-                finish(null);
+                res.end('Invalid OAuth state');
                 return;
             }
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end('<html><body><h2>Antigravity login successful! You can close this tab.</h2></body></html>');
+            const authorizationError = requestUrl.searchParams.get('error');
+            if (authorizationError) {
+                const detail = requestUrl.searchParams.get('error_description') || authorizationError;
+                res.writeHead(400, { 'Content-Type': 'text/html' });
+                res.end(CALLBACK_FAILURE_HTML);
+                // A late denial must not cancel an already accepted code.
+                if (!exchangePromise) {
+                    finish(null, new Error(`[antigravity-oauth] authorization failed: ${_scrubTokens(detail)}`));
+                }
+                return;
+            }
+            const code = requestUrl.searchParams.get('code')?.trim();
+            if (!code) {
+                res.writeHead(400);
+                res.end('Missing authorization code');
+                return;
+            }
             try {
-                finish(await exchangeAuthorizationCode({ code, verifier: pkce.verifier, fetchFn }));
-            } catch (err) {
-                finish(null, err instanceof Error ? err : new Error(String(err)));
+                await acceptCode(code);
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end('<html><body><h2>Antigravity connected.</h2><p>You can close this tab.</p></body></html>');
+            } catch {
+                // The shared exchange reports its error through waitForCallback.
+                // Do not interpolate provider-controlled text into browser HTML.
+                res.writeHead(500, { 'Content-Type': 'text/html' });
+                res.end(CALLBACK_FAILURE_HTML);
             }
         });
-        timeout = setTimeout(() => finish(null), LOGIN_TIMEOUT_MS);
+        timeout = setTimeout(() => finish(
+            null,
+            new Error(`[antigravity-oauth] browser authentication timed out after ${LOGIN_TIMEOUT_MS}ms`),
+        ), LOGIN_TIMEOUT_MS);
         if (timeout.unref) timeout.unref();
-        server.listen(CALLBACK_PORT, CALLBACK_HOST, async () => {
-            process.stderr.write(`\n[antigravity-oauth] Open this URL to log in:\n${url.toString()}\n\n`);
-            try {
-                const { openInBrowser } = await import('../../../shared/open-url.mjs');
-                openInBrowser(url.toString());
-            } catch (err) {
-                process.stderr.write(`[antigravity-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
-            }
-        });
         server.on('error', (err) => finish(
             null,
             new Error(`[antigravity-oauth] callback server failed on ${CALLBACK_HOST}:${CALLBACK_PORT}: ${err?.message || err}`),
         ));
+        server.listen(CALLBACK_PORT, CALLBACK_HOST, async () => {
+            if (settled) return;
+            process.stderr.write(`\n[antigravity-oauth] Open this URL to log in:\n${url.toString()}\n\n`);
+            try {
+                if (openBrowserFn) await openBrowserFn(url.toString());
+                else {
+                    const { openInBrowser } = await import('../../../shared/open-url.mjs');
+                    if (!settled) await openInBrowser(url.toString());
+                }
+            } catch (err) {
+                process.stderr.write(`[antigravity-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
+            }
+        });
     });
 
     return {
@@ -264,11 +369,10 @@ export async function beginOAuthLogin({ fetchFn = fetch } = {}) {
         url: url.toString(),
         waitForCallback,
         completeCode: async (input) => {
-            const parsed = parseOAuthCodeInput(input);
+            const parsed = parseOAuthCodeInput(input, { allowHashState: true });
             if (parsed.state && parsed.state !== state) throw new Error('[antigravity-oauth] OAuth state mismatch');
-            const tokens = await exchangeAuthorizationCode({ code: parsed.code, verifier: pkce.verifier, fetchFn });
-            finish?.(tokens);
-            return tokens;
+            if (!parsed.code) throw new Error('[antigravity-oauth] authorization code is required');
+            return await acceptCode(parsed.code);
         },
         cancel: () => { finish?.(null); },
     };

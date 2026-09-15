@@ -3,9 +3,8 @@ import { envPositiveInt } from '../../../shared/env.mjs';
 import { positiveInt } from '../../../shared/numbers.mjs';
 
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
-export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
-// Main/user sessions default to full-window trigger (buffer 0): RFT compact
-// runs at the boundary. Agent sessions keep DEFAULT_COMPACTION_BUFFER_RATIO.
+export const DEFAULT_COMPACTION_BUFFER_RATIO = 0;
+// Main/user and agent sessions share the full-window default (buffer 0).
 // No standing reserve is carved out for the reply: the only hard limit is the
 // provider's own, it arrives as a clean rejection before inference (no token
 // cost), and the reactive overflow path already compacts and replays that
@@ -28,12 +27,14 @@ export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACT
 }
 export function resolveBufferRatioCandidate(percentInputs = [], ratioInputs = []) {
     for (const raw of percentInputs) {
+        if (raw == null || raw === '') continue;
         const n = Number(raw);
-        if (Number.isFinite(n) && n > 0) return Math.min(MAX_BUFFER_INPUT_RATIO, n / 100);
+        if (Number.isFinite(n) && n >= 0) return Math.min(MAX_BUFFER_INPUT_RATIO, n / 100);
     }
     for (const raw of ratioInputs) {
+        if (raw == null || raw === '') continue;
         const n = Number(raw);
-        if (Number.isFinite(n) && n > 0) return Math.min(MAX_BUFFER_INPUT_RATIO, n > 1 ? n / 100 : n);
+        if (Number.isFinite(n) && n >= 0) return Math.min(MAX_BUFFER_INPUT_RATIO, n > 1 ? n / 100 : n);
     }
     return null;
 }

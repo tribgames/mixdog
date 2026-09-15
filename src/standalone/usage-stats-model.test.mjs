@@ -67,7 +67,8 @@ test('usage is grouped by provider with a model drill-down beneath it', () => {
   assert.equal(summed, stats.totals.tokens);
   assert.equal(stats.totals.turns, 3);
   assert.equal(stats.totals.costUsd, 1.1);
-  assert.equal(Math.round(anthropic.share * 100), 68);
+  // 13,200 of 14,400 tokens, cached prompt included.
+  assert.equal(Math.round(anthropic.share * 100), 92);
 });
 
 test('a day held by the rollup ignores the raw events for that same day', () => {
@@ -138,8 +139,8 @@ test('per-session figures follow a session across days and report a median', () 
   const stats = usageStatsSnapshot({ rollup, now: NOW });
   // session-a: 6500 × 2 days, session-b: 100 (cache included on both).
   assert.equal(stats.totals.sessions, 2);
-  // Read and written tokens only; the 10,600 cached tokens sit beside them.
-  assert.equal(stats.totals.tokens, 2500);
+  // Everything that moved, the 10,600 cached tokens included; the cache split is reported beside it.
+  assert.equal(stats.totals.tokens, 13100);
   assert.equal(stats.totals.cacheTokens, 10600);
   assert.equal(stats.totals.tokensPerSession, 6550);
   assert.equal(stats.totals.medianTokensPerSession, 6550);
@@ -291,7 +292,8 @@ test('a provider that reports the cached prompt inside input is not counted twic
   const stats = usageStatsSnapshot({ rollup, now: NOW });
   // 10,000 prompt tokens, 8,000 of them cached: 2,000 were newly read.
   assert.equal(stats.totals.input, 2000);
-  assert.equal(stats.totals.tokens, 2500);
+  // 2,000 fresh + 500 output + 8,000 cached: the cache is counted once, not twice.
+  assert.equal(stats.totals.tokens, 10500);
   assert.equal(stats.totals.cacheTokens, 8000);
 });
 
@@ -307,7 +309,7 @@ test('a daily series is reported in calendar order', () => {
   const stats = usageStatsSnapshot({ rollup, now: NOW, days: 7 });
   assert.equal(stats.daily.length, 7);
   assert.equal(stats.daily[0].day < stats.daily[1].day, true);
-  assert.deepEqual(stats.daily.map((entry) => entry.tokens), [0, 0, 0, 0, 0, 1200, 1200]);
+  assert.deepEqual(stats.daily.map((entry) => entry.tokens), [0, 0, 0, 0, 0, 6500, 6500]);
   assert.deepEqual(stats.daily.map((entry) => entry.cacheTokens), [0, 0, 0, 0, 0, 5300, 5300]);
 });
 
@@ -382,7 +384,7 @@ test('transcript history fills the days no store recorded', () => {
   const stats = usageStatsSnapshot({ rollup: rollupOf([turn()]), history, now: NOW });
   const grok = stats.providers.find((row) => row.provider === 'grok-oauth');
   assert.equal(grok.turns, 4);
-  assert.equal(grok.tokens, 1200);
+  assert.equal(grok.tokens, 1700);
   assert.equal(stats.coverage.historyDays, 1);
   // The recorded day still comes from the rollup alone.
   assert.equal(stats.totals.turns, 5);
@@ -465,7 +467,7 @@ test('a frozen rebuild survives the transcripts it was derived from', () => {
   // The sessions are gone; the day is not.
   const stats = usageStatsSnapshot({ rollup, history: null, now: NOW });
   assert.equal(stats.totals.turns, 4);
-  assert.equal(stats.totals.tokens, 1200);
+  assert.equal(stats.totals.tokens, 1700);
   // And it still reports itself as a rebuild rather than a recording.
   assert.equal(stats.coverage.historyDays, 1);
 });

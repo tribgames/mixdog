@@ -146,8 +146,14 @@ export function createWarmupSchedulers({
         return;
       }
       void warmCatalogsInBackground()
-        .then(() => bootProfile('model-catalog:warm-ready'))
-        .catch((error) => bootProfile('model-catalog:warm-failed', { error: error?.message || String(error) }));
+        .then((result) => {
+          bootProfile('model-catalog:warm-ready');
+          scheduleModelCatalogWarmup(result?.retryAfterMs ?? 6 * 60 * 60 * 1000);
+        })
+        .catch((error) => {
+          bootProfile('model-catalog:warm-failed', { error: error?.message || String(error) });
+          scheduleModelCatalogWarmup(60_000);
+        });
     }, delayMs);
     timers.modelCatalogWarmupTimer.unref?.();
   }

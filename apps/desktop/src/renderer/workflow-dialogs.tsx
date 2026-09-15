@@ -206,14 +206,14 @@ export function AgentEditorDialog({ agent, deletable, models, busy, error = '', 
           <input name="agent-description" data-i18n-skip defaultValue={String(agent?.description || '')}
             placeholder={t('When Mixdog should use this')} disabled={busy} maxLength={160} />
         </label>
-        {enabled && <div className="schedules-field">
+        <div className="schedules-field">
           <span>{t('Model')}</span>
           <small>{t('Model used when this agent runs.')}</small>
           <div className="workflows-dialog-route">
             <RouteControls label={t("Agent model")} route={route} models={models} disabled={busy}
               onChange={(selection) => setRoute(selection as unknown as RecordValue)} />
           </div>
-        </div>}
+        </div>
         <label className="schedules-field workflows-md-field"><span data-i18n-skip>AGENT.md</span>
           <small>{t('Instructions that define how this agent works.')}</small>
           <textarea name="agent-body" defaultValue={String(agent?.body || (editing ? '' : NEW_AGENT_BODY))}
@@ -277,14 +277,14 @@ export function RouteEditorDialog({ target, models, busy, error = '', onCancel, 
           <span>{t('When to use')}</span>
           <p className="workflows-route-usage">{t(target.description)}</p>
         </div>}
-        {(!usageEditable || enabled) && <div className="schedules-field">
+        <div className="schedules-field">
           <span>{t('Model')}</span>
           <small>{t('Model used when this built-in agent runs.')}</small>
           <div className="workflows-dialog-route">
             <RouteControls label={`${target.label} model`} route={route} models={models} disabled={busy}
               onChange={(selection) => setRoute(selection as unknown as RecordValue)} />
           </div>
-        </div>}
+        </div>
         <footer>
           {error && <ErrorNotice error={error} />}
           <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>

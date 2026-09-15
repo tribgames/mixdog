@@ -2,10 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  aggregateResultPatch,
   aggregateToolMembers,
+  assignUiDiffFromMessage,
   failureDetailText,
   shellCommandExitCode,
+  stringUiDiffPatch,
   toolCallOutcome,
+  toolResultDisplay,
+  uiDiffFromMessage,
+  uiDiffPatchFromMessage,
 } from './tool-result-status.mjs';
 import {
   deriveToolOutcomeTone,
@@ -101,6 +107,50 @@ test('shared TUI/desktop tone keeps command failures warning and tool failures r
   assert.equal(deriveToolOutcomeTone({ terminalStatus: 'failed', callFailedCount: 1 }), 'error');
 });
 
+test('message uiDiff copies a present string and blanks a malformed value', () => {
+  assert.equal(uiDiffFromMessage(undefined), undefined);
+  assert.equal(uiDiffFromMessage({ result: 'ok' }), undefined);
+  assert.equal(uiDiffFromMessage({ uiDiff: 'diff --git a b' }), 'diff --git a b');
+  assert.equal(uiDiffFromMessage({ uiDiff: 12 }), '');
+  assert.deepEqual(uiDiffPatchFromMessage({ uiDiff: 'patch' }), { uiDiff: 'patch' });
+  assert.deepEqual(uiDiffPatchFromMessage({}), {});
+  const rec = {};
+  assignUiDiffFromMessage(rec, { uiDiff: 'kept' });
+  assert.equal(rec.uiDiff, 'kept');
+  assert.deepEqual(stringUiDiffPatch('only-strings'), { uiDiff: 'only-strings' });
+  assert.deepEqual(stringUiDiffPatch(1), {});
+});
+
+test('tool result display keeps shell exits as detail and envelope errors as failures', () => {
+  assert.deepEqual(toolResultDisplay({ isError: true }, '[exit code: 2]\nboom', 'shell'), {
+    isCallError: false,
+    isExitError: true,
+    exitCode: 2,
+    isError: false,
+    text: 'boom',
+  });
+  const failed = toolResultDisplay({ isError: true }, 'transport failed', 'grep');
+  assert.equal(failed.isCallError, true);
+  assert.equal(failed.isError, true);
+  assert.match(failed.text, /^Error:/);
+});
+
+test('aggregate result patch shares Ok/Failed/Exited counts across live and restore paths', () => {
+  const calls = [
+    { isError: false, isCallError: false, isExitError: false, summary: '12 lines' },
+    { isError: true, isCallError: true, isExitError: false, summary: null },
+  ];
+  const patch = aggregateResultPatch({ calls }, calls, 2);
+  assert.equal(patch.isError, true);
+  assert.equal(patch.errorCount, 1);
+  assert.equal(patch.callErrorCount, 1);
+  assert.equal(patch.exitErrorCount, 0);
+  assert.equal(patch.count, 2);
+  assert.equal(patch.result, '1 Ok · 1 Failed');
+  assert.equal(patch.text, patch.result);
+  assert.equal(patch.toolMembers.length, 2);
+});
+
 test('aggregate members preserve atomic tool identity, inputs, outputs, and order', () => {
   const members = aggregateToolMembers([
     {
@@ -120,6 +170,7 @@ test('aggregate members preserve atomic tool identity, inputs, outputs, and orde
       resolved: true,
       isError: false,
       isExitError: true,
+      uiDiff: 'diff --git a b',
     },
   ]);
   assert.deepEqual(members.map(({ id, name, args, result, rawResult, exitErrorCount }) => ({
@@ -128,4 +179,6 @@ test('aggregate members preserve atomic tool identity, inputs, outputs, and orde
     { id: 'call-read', name: 'read', args: { file_path: 'a.ts' }, result: 'source', rawResult: 'source', exitErrorCount: 0 },
     { id: 'call-shell', name: 'shell', args: { command: 'exit 2' }, result: 'boom', rawResult: '[exit code: 2]\nboom', exitErrorCount: 1 },
   ]);
+  assert.equal(Object.hasOwn(members[0], 'uiDiff'), false);
+  assert.equal(members[1].uiDiff, 'diff --git a b');
 });

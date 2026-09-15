@@ -4,7 +4,7 @@
  * bounded, session-scoped lifetimes.
  */
 import type { WebContents } from 'electron';
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
 
 import { DESKTOP_IPC } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
@@ -38,7 +38,17 @@ export interface BrowserGuestLifecycleHost {
   bridgeWanted(): boolean;
   /** A background page mid-command must not be reclaimed as idle. */
   isBackgroundBusy(sessionId: string, name: string): boolean;
+  onPopup?(opener: WebContents, popup: WebContents): void;
+  onGuest?(guest: WebContents): void;
   waitForLoadSettle(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<unknown>;
+}
+
+/** Guests always compose offscreen; where Chromium can hand that composited
+ *  frame to the GPU directly, every display read takes the shared texture
+ *  instead of a bitmap. One predicate keeps the window options and the display
+ *  capture path from disagreeing about which frames a guest produces. */
+export function browserSharedTextureRendering(): boolean {
+  return process.platform === 'win32' && app.isHardwareAccelerationEnabled();
 }
 
 export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
@@ -79,7 +89,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       nodeIntegration: false,
       // These page owners are never shown. Offscreen rendering gives Chromium
       // a live compositor without activating a native window.
-      offscreen: true,
+      offscreen: browserSharedTextureRendering() ? { useSharedTexture: true } : true,
       // Keep rendering/timers running while the window is hidden.
       backgroundThrottling: false,
     },
@@ -87,6 +97,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
 
   function initializeGuest(guest: WebContents, deferDebugger = false): void {
     state.for(guest);
+    host.onGuest?.(guest);
     const blockUnsafeNavigation = (event: Electron.Event, url: string) => {
       if (url === 'about:blank') return;
       try {
@@ -148,6 +159,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
         'popup',
         state.pageId(guest),
       );
+      host.onPopup?.(guest, child.webContents);
     });
     guest.on('render-process-gone', (_event, details) => {
       state.markCrashed(

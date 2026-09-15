@@ -27,6 +27,7 @@ import {
   transcriptHarvestInputsEqual,
 } from './transcript-window.mjs';
 import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.mjs';
+import { TUI_DEBUG } from '../session/transcript-spill.mjs';
 
 // ── Harvest circuit breaker ────────────────────────────────────────────────
 // The measured-height harvest is a deps-less layout effect: every
@@ -39,7 +40,6 @@ import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.m
 // the bump (the caches keep the latest heights, the next external render
 // consumes them) and trace the culprits for diagnosis.
 const HARVEST_BUMP_STREAK_LIMIT = 10;
-const TUI_DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_DEBUG || ''));
 let harvestBreakerLogged = false;
 function traceHarvestBreaker(changedKeys) {
   // Always report the FIRST trip per process (one stderr line beats a crash);

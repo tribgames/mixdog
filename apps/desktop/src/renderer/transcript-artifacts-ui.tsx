@@ -2,6 +2,7 @@ import { FileText, FolderOpen, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TranscriptItem } from "./desktop-types";
 import { showDesktopToast } from "./desktop-toasts";
+import { errorMessageText } from "./ErrorNotice";
 import { t } from "./i18n";
 import { MarkdownLink } from "./MarkdownLink";
 import { MxIcon } from "./MxIcon";
@@ -26,9 +27,7 @@ function GeneratedMedia({ artifact }: { artifact: TranscriptArtifact }) {
       if (!action) throw new Error(t("Local file links can only be opened in the desktop app."));
       await action(id);
     } catch (error) {
-      showDesktopToast(t("Unable to open file: {{error}}", {
-        error: error instanceof Error ? error.message : String(error),
-      }), "error");
+      showDesktopToast(t("Unable to open file: {{error}}", { error: errorMessageText(error) }), "error");
     }
   };
   return <figure className="transcript-artifact-media">

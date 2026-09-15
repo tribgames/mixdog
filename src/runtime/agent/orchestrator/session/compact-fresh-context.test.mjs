@@ -32,6 +32,7 @@ test('fresh Compact summarizes the live conversation without calling Memory', as
         sessionRef: {
             id: sessionId,
             cwd: 'C:\\Project\\mixdog',
+            compaction: { conversationThresholdTokens: 1 },
             contextWindow: 100_000,
             compactBoundaryTokens: 100_000,
         },
@@ -69,6 +70,7 @@ test('fresh Compact excludes skill bodies and tool output from the conversation 
         sessionRef: {
             id: 'sess-ingest-barrier',
             cwd: 'C:\\Project\\mixdog',
+            compaction: { conversationThresholdTokens: 1 },
             contextWindow: 100_000,
             compactBoundaryTokens: 100_000,
         },
@@ -155,7 +157,8 @@ test('repeated compact replaces one cumulative summary and does not replay older
         config: {},
         provider,
         model: 'fake-model',
-        sessionRef: { id: sessionId, cwd: 'C:\\Project\\mixdog', contextWindow: 100_000 },
+        sessionRef: { id: sessionId, cwd: 'C:\\Project\\mixdog', contextWindow: 100_000,
+            compaction: { conversationThresholdTokens: 1 } },
         messages: original,
         compactBudgetTokens: 50_000,
         compactPolicy,
@@ -165,7 +168,8 @@ test('repeated compact replaces one cumulative summary and does not replay older
         config: {},
         provider,
         model: 'fake-model',
-        sessionRef: { id: sessionId, cwd: 'C:\\Project\\mixdog', contextWindow: 100_000 },
+        sessionRef: { id: sessionId, cwd: 'C:\\Project\\mixdog', contextWindow: 100_000,
+            compaction: { conversationThresholdTokens: 1 } },
         messages: [
             ...JSON.parse(JSON.stringify(first.messages)),
             { role: 'user', content: 'follow-up request' },
@@ -473,6 +477,7 @@ test('Agent sessions use the same fresh layout with a session-local handoff', as
         config: {},
         sessionRef: {
             id: 'sess-agent-fresh',
+            compaction: { conversationThresholdTokens: 1 },
             owner: 'agent',
             provider: 'fake',
             model: 'fake-model',

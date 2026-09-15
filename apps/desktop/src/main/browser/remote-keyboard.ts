@@ -1,13 +1,8 @@
 import type { WebContents } from 'electron';
 import type { DesktopRemoteBrowserControl } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
-import type { BrowserGuestStateStore } from './guest-state';
+import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
 import { createBrowserInputDriver } from './input';
-
-export function remoteBrowserDocumentId(state: BrowserGuestStateStore, guest: WebContents): string {
-  const record = state.for(guest);
-  return `${record.pageId}:${record.documentGeneration}`;
-}
 
 /** Human typing follows the displayed document, not its blinking caret or
  * changing pixels. Keep the document check at dispatch, including after CDP
@@ -22,7 +17,7 @@ export async function sendRemoteBrowserKeyboard(
 ): Promise<void> {
   const assertCurrent = () => {
     if (guest.isDestroyed() || host.state.for(guest).crashed
-      || control.documentId !== remoteBrowserDocumentId(host.state, guest)) {
+      || control.documentId !== browserDocumentId(host.state, guest)) {
       throw new Error('Remote Browser Use page changed; input was not sent.');
     }
     if (host.state.for(guest).pendingDialog) {

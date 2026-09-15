@@ -54,7 +54,7 @@ export async function runPreSendCompactPass(state) {
                 messages,
                 sessionRef,
             });
-            let shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, {
+            let shouldCompact = state.skipProactiveCompact !== true && shouldCompactForSession(messageTokensEst, compactPolicy, {
                 forceReactive: reactivePending,
                 messages,
                 sessionRef,
@@ -431,10 +431,8 @@ export async function runPreSendCompactPass(state) {
                     handoffSource: freshContextResult?.handoffSource || null,
                     durationMs: compactDurationMs,
                 });
-            }
-            // PostCompact: bridge to the standard hook bus after compaction
-            // completes. session-property hook; { trigger } 'auto'|'manual'.
-            {
+                // PostCompact belongs only to a completed compaction pass,
+                // never the ordinary pre-send threshold check.
                 const _postCompactHook = typeof opts.postCompactHook === 'function'
                     ? opts.postCompactHook
                     : sessionRef?.postCompactHook;

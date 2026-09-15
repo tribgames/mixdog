@@ -165,6 +165,8 @@ export async function sendWithRecovery(ctx) {
                 max: TRANSPORT_RETRY_MAX,
                 classifier: classifier || null,
                 waitMs,
+                wsCloseCode: error?.wsCloseCode ?? null,
+                httpStatus: error?.httpStatus ?? error?.status ?? null,
                 message: providerRetryStatusText(error, {
                     attempt,
                     maxAttempts: TRANSPORT_RETRY_MAX,
@@ -517,8 +519,10 @@ export async function sendWithRecovery(ctx) {
                 const waitMs = transportRetryWaitMs(transportRetriesUsed);
                 try {
                     process.stderr.write(
-                        `[loop] transient send failure with no observed output (sess=${sessionId || 'unknown'} `
-                        + `iter=${nextIteration} code=${sendErr?.code ?? sendErr?.status ?? 'n/a'}); `
+                        `[loop] transient send failure with no dispatched tools (sess=${sessionId || 'unknown'} `
+                        + `iter=${nextIteration} code=${sendErr?.code ?? 'n/a'} `
+                        + `wsCloseCode=${sendErr?.wsCloseCode ?? 'n/a'} `
+                        + `httpStatus=${sendErr?.httpStatus ?? sendErr?.status ?? 'n/a'}); `
                         + `transport retry ${transportRetriesUsed + 1}/${TRANSPORT_RETRY_MAX} after ${waitMs}ms\n`,
                     );
                 } catch { /* best-effort */ }
@@ -530,7 +534,9 @@ export async function sendWithRecovery(ctx) {
                         attempt: transportRetriesUsed + 1,
                         waitMs,
                         code: sendErr?.code ?? null,
-                        status: sendErr?.status ?? null,
+                        status: sendErr?.httpStatus ?? sendErr?.status ?? null,
+                        ws_close_code: sendErr?.wsCloseCode ?? null,
+                        retry_owner: 'loop',
                     });
                 } catch { /* best-effort */ }
                 emitLoopReconnectProgress(

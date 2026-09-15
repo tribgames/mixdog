@@ -5,6 +5,7 @@ import type { KeyedListDeltaEncoder } from '../shared/list-delta';
 import type { SnapshotDeltaEncoder } from './state-delta';
 import { createSnapshotDeltaEncoder } from './state-delta';
 import { synchronizeViewSnapshot } from './view-synchronizer';
+import { isSessionId } from './desktop-state';
 import { remoteTranscriptSnapshot } from './remote-transcript';
 import {
   MAX_VIEW_BASELINE_BYTES, readViewBaselineOffer, VIEW_BASELINE_EVENT,
@@ -32,7 +33,7 @@ export async function registerAndSynchronizeRelayViews(
   send: (frame: unknown) => Promise<void>,
 ): Promise<void> {
   if (!Array.isArray(params) || !Array.isArray(params[0]) || params[0].length > 128
-    || params[0].some((id: unknown) => typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/u.test(id))) {
+    || params[0].some((id: unknown) => !isSessionId(id))) {
     throw new TypeError('View synchronization request is invalid.');
   }
   if (!current()) throw new Error('Remote view was replaced during synchronization.');

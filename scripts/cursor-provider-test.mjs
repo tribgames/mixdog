@@ -905,7 +905,7 @@ test('Cursor wire codec round-trips the Mixdog-facing protocol subset', () => {
     assert.equal(Buffer.from(rewritten).includes(Buffer.from([0x98, 0x06, 0x07])), true);
 });
 
-test('Cursor request context exposes tools without duplicating root prompt instructions', () => {
+test('Cursor request context includes harness rules and MCP routing instructions', () => {
     const writes = [];
     const tools = [{
         name: 'read',
@@ -927,7 +927,8 @@ test('Cursor request context exposes tools without duplicating root prompt instr
     // The Mixdog system prompt must reach Cursor's rules channel; an empty
     // cloudRule leaves the server-side agent governed only by its own harness.
     assert.equal(context.cloudRule, 'mixdog rule');
-    assert.equal(context.mcpInstructions, undefined);
+    assert.equal(context.mcpInstructions[0].serverName, 'mixdog');
+    assert.match(context.mcpInstructions[0].instructions, /Prefer them over Cursor native tools/);
 });
 
 test('Cursor checkpoint occupancy never becomes billable prompt tokens', async () => {
@@ -1657,9 +1658,9 @@ test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () =>
             },
         },
     });
-    assert.ok(prepared.description.length <= 120);
-    assert.equal(prepared.inputSchema.description, undefined);
-    assert.equal(prepared.inputSchema.properties.mode.description, undefined);
+    assert.equal(prepared.description, 'A'.repeat(300));
+    assert.equal(prepared.inputSchema.description, 'schema prose');
+    assert.equal(prepared.inputSchema.properties.mode.description, 'parameter prose');
     assert.deepEqual(prepared.inputSchema.properties.mode.enum, ['safe', 'fast']);
     assert.deepEqual(prepared.inputSchema.required, ['mode']);
 

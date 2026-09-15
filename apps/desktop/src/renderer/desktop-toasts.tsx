@@ -75,11 +75,17 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
   useEffect(() => {
     for (const text of shownErrors.split("\u0000").filter(Boolean)) reportRendererNotice(text);
   }, [shownErrors]);
+  const hasEntries = entries.length > 0;
   useLayoutEffect(() => {
+    // Anchor to the single main panel, below its tab strip. Every open tab
+    // keeps its own `.workspace` sheet mounted (parked ones included), so the
+    // first sheet in the document is not the visible one.
     const measure = () => {
-      const sheet = document.querySelector(".workspace")?.getBoundingClientRect();
+      const panel = document.querySelector(".main-panel");
+      const sheet = panel?.getBoundingClientRect();
       if (!sheet?.width || !sheet.height) return;
-      const top = Math.max(16, sheet.top + 16);
+      const strip = panel?.querySelector(".workspace-tabs-shell")?.getBoundingClientRect();
+      const top = Math.max(16, (strip?.height ? strip.bottom : sheet.top) + 16);
       const next = {
         right: Math.max(16, window.innerWidth - sheet.right + 16), top,
         width: Math.min(320, Math.max(0, sheet.width - 32)), maxHeight: Math.max(0, sheet.bottom - top - 16),
@@ -90,11 +96,11 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
     measure();
     window.addEventListener("resize", measure);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    const sheet = document.querySelector(".workspace");
-    if (observer && sheet) observer.observe(sheet);
+    const panel = document.querySelector(".main-panel");
+    if (observer && panel) observer.observe(panel);
     return () => { window.removeEventListener("resize", measure); observer?.disconnect(); };
-  }, []);
-  if (!entries.length) return null;
+  }, [hasEntries]);
+  if (!hasEntries) return null;
   return createPortal(<section className="mx-toast-region" aria-label={t("Notifications")} aria-live="polite"
     data-count={entries.length} style={placement}>
     {entries.map((entry) => {

@@ -9,6 +9,41 @@ export function isLocalMarkdownLink(value: string): boolean {
   return !/^[a-z][a-z\d+.-]*:/i.test(target);
 }
 
+function decodePath(value: string): string {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+/** A chat link's path relative to the conversation's Project, or null when it
+ *  points outside it. A bare name (no folder) comes back unchanged so the
+ *  caller can look it up in the Project. */
+export function projectRelativeFilePath(projectPath: string, path: string): string | null {
+  let target = String(path || "").trim();
+  if (/^file:/i.test(target)) {
+    target = target.replace(/^file:\/\/(?:localhost)?/i, "").replace(/^\/(?=[a-z]:)/i, "");
+  }
+  target = decodePath(target.split(/[?#]/, 1)[0]).replace(/\\/g, "/");
+  const root = String(projectPath || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const drivePath = (value: string) => /^[a-z]:\//i.test(value);
+  if (drivePath(target) || target.startsWith("/")) {
+    if (!root) return null;
+    const fold = (value: string) => (drivePath(root) || drivePath(target) ? value.toLowerCase() : value);
+    if (fold(target) !== fold(root) && !fold(target).startsWith(`${fold(root)}/`)) return null;
+    target = target.slice(root.length + 1);
+  }
+  const parts: string[] = [];
+  for (const part of target.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!parts.length) return null;
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  // `./` or the Project path itself is the Project folder.
+  return parts.length ? parts.join("/") : ".";
+}
+
 /** Shared by react-markdown and the worker; local URLs are href-only. */
 export function safeMarkdownUrl(value: string, key = "href"): string {
   if (/[\u0000-\u001f\u007f]/.test(value)) return "";

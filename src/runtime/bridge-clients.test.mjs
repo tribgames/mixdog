@@ -178,8 +178,6 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('untrusted data'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('session-local'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('never provide session_id'));
-  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('visible foreground page by default'));
-  assert.ok(propertyFor('background', 'background').description.includes('not the primary user-visible page'));
 });
 
 test('fill sets one checkbox with checked instead of text, alone or as a sequence step', () => {
@@ -1035,14 +1033,14 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
       window_id: 'hwnd:0x123',
       expect: [{ present: 123 }],
     },
-  }), /predicate 1 text must be a string/i);
+  }), /expect\[0\]\.present must be a string/i);
   assert.match(validateComputerToolArgs({
     action: 'verify',
     input: {
       window_id: 'hwnd:0x123',
       expect: [{ window_exists: 'false' }],
     },
-  }), /predicate 1 window_exists must be a boolean/i);
+  }), /expect\[0\]\.window_exists must be a boolean/i);
   assert.match(validateComputerToolArgs({
     action: 'clipboard',
     input: { operation: 'delete' },

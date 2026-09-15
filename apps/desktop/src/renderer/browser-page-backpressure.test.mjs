@@ -69,10 +69,12 @@ async function fixture() {
   const gate = new Promise(resolve => { release = resolve; });
   const sent = [];
   const failures = [];
+  let unconfirmed = '';
   let recoveries = 0;
   const client = createBrowserPageClient({
     sessionId: 's', update() {}, failure: error => failures.push(error),
     recovered: () => { recoveries++; },
+    unconfirmedText: value => { unconfirmed = value; },
     api: {
       browserPageFrame: async () => ({
         documentId: 'p1:1', frameId: 'f1', webContentsId: 1, url: 'https://example.test',
@@ -88,7 +90,7 @@ async function fixture() {
   await client.poll();
   const held = client.control({ type: 'text', text: 'hold' });
   await tick();
-  return { client, sent, failures, release, held, recoveries: () => recoveries };
+  return { client, sent, failures, release, held, recoveries: () => recoveries, unconfirmed: () => unconfirmed };
 }
 
 test('wheel bursts preserve distance within transport limits without overflowing the input queue', async () => {
@@ -160,7 +162,7 @@ test('coalescing never moves drag motion across a press, release, or direct cont
   } finally { f.release(); f.client.dispose(); }
 });
 
-test('expired unstarted edits are not replayed, while an already-sent press is released', async t => {
+test('expired pointer gestures are not replayed, while an already-sent press is released', async t => {
   let now = 0;
   t.mock.method(performance, 'now', () => now);
   const f = await fixture();
@@ -169,15 +171,80 @@ test('expired unstarted edits are not replayed, while an already-sent press is r
     f.release();
     await Promise.all([f.held, press]);
     // Enqueue both before their promise callbacks start.
-    const edit = f.client.control({ type: 'text', text: 'expired' });
+    const edit = f.client.control(pointer('mousePressed', 20, 1));
     const release = f.client.control(pointer('mouseReleased', 10));
     now += BROWSER_INPUT_WAIT_MS + 1;
     await assert.rejects(edit, /input expired; input was not sent/);
     await release;
-    assert.equal(f.sent.some(a => a.text === 'expired'), false);
+    assert.equal(f.sent.some(a => a.phase === 'mousePressed' && a.x === 20), false);
     assert.equal(f.sent.at(-1).phase, 'mouseReleased');
     await f.client.control({ type: 'text', text: 'fresh' });
     assert.equal(f.sent.at(-1).text, 'fresh');
+  } finally { f.release(); f.client.dispose(); }
+});
+
+test('a rejected focus gesture preserves subsequent unsent text without replaying it on the wrong field', async t => {
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const f = await fixture();
+  try {
+    const batch = Promise.allSettled([
+      f.client.control(pointer('mousePressed', 20, 1)),
+      ...Array.from({ length: 8 }, (_, index) => f.client.control({ type: 'text', text: `old-${index}` })),
+    ]);
+    now = BROWSER_INPUT_WAIT_MS + 1;
+    f.release();
+    await Promise.all([f.held, batch]);
+    assert.equal(f.failures.length, 1);
+    assert.match(f.failures[0], /input expired/);
+    assert.equal(f.sent.some(action => action.text?.startsWith('old-')), false);
+    assert.equal(f.unconfirmed(), Array.from({ length: 8 }, (_, index) => `old-${index}`).join(''));
+    await f.client.control({ type: 'text', text: 'fresh' });
+    assert.equal(f.sent.at(-1).text, 'fresh');
+    assert.equal(f.failures.length, 1);
+  } finally { f.release(); f.client.dispose(); }
+});
+
+test('slow preceding input does not expire Korean/English typing or reorder editing keys', async t => {
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const f = await fixture();
+  try {
+    for (const text of ['ㅎ', '하', '한']) f.client.fire({
+      type: 'composition', text, selectionStart: 1, selectionEnd: 1,
+    });
+    f.client.fire({ type: 'composition-end', text: '한' });
+    for (const text of ['ㄱ', '그', '글']) f.client.fire({
+      type: 'composition', text, selectionStart: 1, selectionEnd: 1,
+    });
+    f.client.fire({ type: 'composition-end', text: '글' });
+    for (const text of ' abc') f.client.fire({ type: 'text', text });
+    const end = f.client.control({ type: 'key', key: 'Backspace' });
+    now = BROWSER_INPUT_WAIT_MS + 1000;
+    f.release();
+    await Promise.all([f.held, end]);
+    assert.deepEqual(f.sent.slice(1).map(({ type, text, key }) => [type, text ?? key]), [
+      ['composition', '한'], ['composition-end', '한'],
+      ['composition', '글'], ['composition-end', '글'], ['text', ' abc'], ['key', 'Backspace'],
+    ]);
+    assert.deepEqual(f.failures, []);
+    assert.equal(f.unconfirmed(), '');
+  } finally { f.release(); f.client.dispose(); }
+});
+
+test('unconfirmed text remains recoverable in input order and is never automatically resent', async () => {
+  const f = await fixture();
+  try {
+    const pending = Array.from({ length: 127 }, (_, i) => f.client.control({ type: 'text', text: String(i) }));
+    f.client.fire({ type: 'text', text: '한글 복구' });
+    assert.equal(f.unconfirmed(), '한글 복구');
+    await f.client.control({ type: 'select-tab', tabId: 'p2' });
+    f.release();
+    await Promise.all([f.held, ...pending]);
+    assert.equal(f.unconfirmed(), Array.from({ length: 127 }, (_, i) => String(i)).join('') + '한글 복구');
+    assert.equal(f.sent.some(row => row.text === '한글 복구'), false);
+    f.client.clearUnconfirmedText();
+    assert.equal(f.unconfirmed(), '');
   } finally { f.release(); f.client.dispose(); }
 });
 

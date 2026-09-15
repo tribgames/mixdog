@@ -332,6 +332,84 @@ for (const outcome of ["success", "failure"]) {
   });
 }
 
+test("a typed catalog filter does not survive the picker closing", async () => {
+  const second = { ...model, model: "gpt-typed-filter-test", display: "Typed filter test" };
+  availableModels = [model, second];
+  const oldSetRoute = window.mixdogDesktop.setModelRoute;
+  window.mixdogDesktop.setModelRoute = async (selection) => ({
+    provider: selection.provider,
+    model: selection.model,
+    ...(selection.effort ? { effort: selection.effort } : {}),
+    fast: selection.fast === true,
+    modelParameters: {},
+  });
+  const host = document.createElement("main");
+  document.body.append(host);
+  const root = createRoot(host);
+  const searchInput = () => document.querySelector(".route-sheet-flyout--model .model-search input");
+  const catalogRows = () => [...document.querySelectorAll('.route-sheet-flyout--model [role="option"]')]
+    .map((button) => button.textContent);
+  const openModelPane = async () => {
+    if (document.querySelector(".model-trigger").getAttribute("aria-expanded") !== "true") {
+      await act(async () => document.querySelector(".model-trigger").click());
+    }
+    const modelRow = [...document.querySelectorAll(".route-sheet-row")]
+      .find((button) => button.textContent.includes("Model"));
+    assert.ok(modelRow);
+    await act(async () => modelRow.click());
+  };
+  try {
+    await act(async () => root.render(React.createElement(ModelSelector, {
+      provider: model.provider,
+      model: model.model,
+      effort: "high",
+      fast: false,
+      fastCapable: true,
+      modelParameters: {},
+      contextPercent: 100,
+      modelDisabled: false,
+      tuningDisabled: false,
+      sessionId: "session-typed-filter",
+      invokeResult: async (action) => {
+        try {
+          return await action();
+        } catch {
+          return undefined;
+        }
+      },
+      applySnapshot() {},
+      onOpenSettings() {},
+      onRoutePreferenceApplied() {},
+    })));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    await openModelPane();
+    // The native setter keeps React's value tracker honest, so the dispatched
+    // input event reaches the picker's onInput instead of being deduped.
+    await act(async () => {
+      const input = searchInput();
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")
+        .set.call(input, "Typed filter");
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    assert.deepEqual(catalogRows().map((text) => text.includes("Typed filter test")), [true],
+      "the typed filter trims the catalog to its match");
+
+    await act(async () => document.querySelector('.route-sheet-flyout--model [role="option"]').click());
+    assert.equal(document.querySelector(".route-sheet-flyout--model").hidden, true,
+      "selection closes the catalog");
+
+    await openModelPane();
+    assert.equal(searchInput().value, "", "a closed picker must not keep its typed filter");
+    assert.ok(catalogRows().some((text) => text.includes("Fast handoff test")),
+      "the reopened catalog lists every model again");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    window.mixdogDesktop.setModelRoute = oldSetRoute;
+  }
+});
+
 for (const field of ["model", "effort"]) {
   test(`${field} selection survives busy snapshots and delayed acknowledgement, but rolls back on failure`, async () => {
     const secondModel = { ...model, model: "gpt-second-handoff-test", display: "Second handoff test" };

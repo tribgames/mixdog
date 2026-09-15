@@ -22,21 +22,48 @@ export function useSessionPaneSurfaces() {
   const [sessionDiffs, setSessionDiffs] =
     useState<ReadonlyMap<string, PaneSideDockDiff>>(() => new Map());
   const pendingBrowserAutoReveal = useRef(new Set<string>());
+  const browserAutoRevealSuppressed = useRef(new Set<string>());
+  const surfaceRevisions = useRef(new Map<string, number>());
 
   const setSessionSideSurface = useCallback((
     sessionId: string,
     surface: SessionSideSurface | null,
   ) => {
+    if (surface === "browser") browserAutoRevealSuppressed.current.delete(sessionId);
+    surfaceRevisions.current.set(sessionId, (surfaceRevisions.current.get(sessionId) ?? 0) + 1);
     setSessionSideSurfaces((current) =>
       withSessionSideSurface(current, sessionId, surface));
   }, []);
 
+  const beginTemporaryBrowserSurface = useCallback((sessionId: string) => {
+    const revision = (surfaceRevisions.current.get(sessionId) ?? 0) + 1;
+    surfaceRevisions.current.set(sessionId, revision);
+    let previous: SessionSideSurface | null = null;
+    setSessionSideSurfaces(current => {
+      previous = current.get(sessionId) ?? null;
+      return withSessionSideSurface(current, sessionId, "browser");
+    });
+    return () => {
+      if (surfaceRevisions.current.get(sessionId) !== revision) return;
+      surfaceRevisions.current.set(sessionId, revision + 1);
+      pendingBrowserAutoReveal.current.delete(sessionId);
+      setSessionSideSurfaces(current => current.get(sessionId) === "browser"
+        ? withSessionSideSurface(current, sessionId, previous) : current);
+    };
+  }, []);
+
   const hideBrowserSurface = useCallback((sessionId: string) => {
+    surfaceRevisions.current.set(sessionId, (surfaceRevisions.current.get(sessionId) ?? 0) + 1);
     pendingBrowserAutoReveal.current.delete(sessionId);
     setSessionSideSurfaces((current) => current.get(sessionId) === "browser"
       ? withSessionSideSurface(current, sessionId, null)
       : current);
   }, []);
+
+  const dismissBrowserSurface = useCallback((sessionId: string) => {
+    browserAutoRevealSuppressed.current.add(sessionId);
+    hideBrowserSurface(sessionId);
+  }, [hideBrowserSurface]);
 
   const setSessionPanelView = useCallback((
     sessionId: string,
@@ -54,6 +81,7 @@ export function useSessionPaneSurfaces() {
   }, []);
 
   const releaseDeletedSessionSurfaces = useCallback((sessionId: string) => {
+    browserAutoRevealSuppressed.current.delete(sessionId);
     pendingBrowserAutoReveal.current.delete(sessionId);
     setSessionSideSurfaces((current) =>
       withSessionSideSurface(current, sessionId, null));
@@ -75,6 +103,9 @@ export function useSessionPaneSurfaces() {
 
   return {
     browserSurfaces,
+    beginTemporaryBrowserSurface,
+    browserAutoRevealSuppressed,
+    dismissBrowserSurface,
     hideBrowserSurface,
     pendingBrowserAutoReveal,
     releaseDeletedSessionSurfaces,

@@ -11,11 +11,11 @@ import type {
   DesktopRemoteBrowserFrame,
 } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
-import type { BrowserGuestStateStore } from './guest-state';
+import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 import { browserImagePointToCss, type createBrowserInputDriver } from './input';
 import type { BrowserScreenshotCapture } from './screenshot';
-import { remoteBrowserDocumentId, sendRemoteBrowserKeyboard } from './remote-keyboard';
+import { sendRemoteBrowserKeyboard } from './remote-keyboard';
 
 export interface BrowserRemoteControlHost {
   state: BrowserGuestStateStore;
@@ -23,9 +23,10 @@ export interface BrowserRemoteControlHost {
   input: ReturnType<typeof createBrowserInputDriver>;
   urlPolicy: BrowserUrlPolicy;
   ensureGuest(sessionId: string, options?: { reveal?: boolean }): Promise<WebContents>;
-  /** A phone is viewing this session now; the desktop keeps its guest where
-   *  Chromium still composes frames for it. */
-  noteRemoteViewer?(sessionId: string): void;
+  /** A phone started or stopped viewing this session; the display client keeps
+   *  a watched guest where Chromium still composes frames for it. */
+  viewerChanged?(sessionId: string, active: boolean): void;
+  onUserControl?(guest: WebContents): void;
   captureScreenshot(
     guest: WebContents,
     background: boolean,
@@ -42,19 +43,47 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     input,
     urlPolicy,
     ensureGuest,
-    noteRemoteViewer,
     captureScreenshot,
     assertResolvedUrlAllowed,
   } = host;
+
+  // A phone polls frames every 350–900ms while its Browser Use sheet is open.
+  // The desktop parks an unshown guest OFF-window, where Chromium composes no
+  // frames, so every capture for it timed out (user: 폰에서 브라우저 유즈만
+  // 안 됨). While a phone is viewing, the display client keeps that guest
+  // inside the window under the UI; presence drops after the polling stops.
+  const REMOTE_VIEWER_IDLE_MS = 4_000;
+  const viewerTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function noteViewer(sessionId: string): void {
+    const previous = viewerTimers.get(sessionId);
+    if (previous) clearTimeout(previous);
+    else host.viewerChanged?.(sessionId, true);
+    const idle = setTimeout(() => {
+      viewerTimers.delete(sessionId);
+      host.viewerChanged?.(sessionId, false);
+    }, REMOTE_VIEWER_IDLE_MS);
+    // Presence is a display hint; it must never keep the process awake.
+    idle.unref?.();
+    viewerTimers.set(sessionId, idle);
+  }
+
+  /** The session is gone: nobody is viewing it, and nothing is left to report. */
+  function releaseViewer(sessionId: string): void {
+    const timer = viewerTimers.get(sessionId);
+    if (!timer) return;
+    clearTimeout(timer);
+    viewerTimers.delete(sessionId);
+  }
 
   async function remoteBrowserFrame(
     sessionId: string,
     previousFrameId = '',
   ): Promise<DesktopRemoteBrowserFrame> {
-    noteRemoteViewer?.(sessionId);
+    noteViewer(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
     await cdp.waitForInitialDocument(guest);
-    const documentId = remoteBrowserDocumentId(state, guest);
+    const documentId = browserDocumentId(state, guest);
     const revision = await host.revision?.(guest);
     const capture = await captureScreenshot(guest, false, {
       format: 'jpeg',
@@ -62,7 +91,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     });
     const record = state.for(guest);
     if (revision !== await host.revision?.(guest)
-      || documentId !== remoteBrowserDocumentId(state, guest)) {
+      || documentId !== browserDocumentId(state, guest)) {
       throw new Error('Remote Browser Use page changed during capture; wait for a fresh frame.');
     }
     const previous = record.remoteFrame;
@@ -104,8 +133,9 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     sessionId: string,
     control: DesktopRemoteBrowserControl,
   ): Promise<void> {
-    noteRemoteViewer?.(sessionId);
+    noteViewer(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
+    host.onUserControl?.(guest);
     if ((control.type === 'text' || control.type === 'key') && control.documentId !== undefined) {
       await sendRemoteBrowserKeyboard({ state, cdp }, guest, control);
       return;
@@ -176,5 +206,5 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     }
   }
 
-  return { remoteBrowserFrame, remoteBrowserControl };
+  return { remoteBrowserFrame, remoteBrowserControl, releaseViewer };
 }

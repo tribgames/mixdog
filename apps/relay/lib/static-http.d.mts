@@ -1,8 +1,9 @@
-// Types for the shared static-serving helpers (consumed by the desktop LAN
-// bridge, which is TypeScript; the relay itself runs the .mjs directly).
+// Types for the relay static-serving helpers (the relay runs the .mjs
+// directly; this declaration file is for TypeScript consumers).
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export declare const MIME_TYPES: Record<string, string>;
+export declare const HASHED_ASSET_NAME: RegExp;
 export declare const PAIRING_COOKIE_NAME: string;
 export declare const DEVICE_COOKIE_NAME: string;
 export declare const BROWSER_SECURITY_HEADERS: Readonly<Record<string, string>>;

@@ -175,6 +175,34 @@ test('a Cursor abort retries a reasoning-only continuation after committed tool 
     assert.equal(result.action, 'retry_transport');
 });
 
+test('loop retry diagnostics retain the WebSocket close code and current HTTP status', async (t) => {
+    const writes = [];
+    t.mock.method(process.stderr, 'write', (chunk) => {
+        writes.push(String(chunk));
+        return true;
+    });
+    const details = [];
+    const opts = {
+        onStageChange: (stage, detail) => {
+            if (stage === 'reconnecting') details.push(detail);
+        },
+    };
+    const failure = Object.assign(new Error('transport failure'), {
+        wsCloseCode: 1006,
+        httpStatus: 503,
+    });
+    const result = await sendWithRecovery({
+        ...baseCtx,
+        opts,
+        provider: { send: async () => { throw failure; } },
+    });
+    assert.equal(result.action, 'retry_transport');
+    assert.equal(details.length, 1);
+    assert.equal(details[0].wsCloseCode, 1006);
+    assert.equal(details[0].httpStatus, 503);
+    assert.ok(writes.some((line) => line.includes('wsCloseCode=1006') && line.includes('httpStatus=503')));
+});
+
 test('a Cursor abort retries visible text only after the owner retracts it', async () => {
     const abort = cursorStreamAbort();
     abort.partialContent = 'partial answer';

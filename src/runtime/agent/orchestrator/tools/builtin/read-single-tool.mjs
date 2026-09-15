@@ -76,6 +76,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     const _readMaxOutputBytes = Number(options?.readOutputBudgetBytes) > 0
         ? Math.min(READ_MAX_OUTPUT_BYTES, Math.trunc(Number(options.readOutputBudgetBytes)))
         : READ_MAX_OUTPUT_BYTES;
+    const readOffsetBase = options.readOffsetBase === 1 ? 1 : 0;
     // Normalize path (strip whitespace, expand ~, posix→windows) up front so
     // LLM-injected stray spaces don't trigger an ENOENT retry that pollutes
     // the conversation history and breaks the cache prefix on later turns.
@@ -241,7 +242,8 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     // read otherwise answered "[file unchanged]" forever, with the body never
     // delivered to the model.
     if (
-        (_mutationSource === 'edit' || _mutationSource.startsWith('apply_patch_'))
+        options?.suppressReadUnchangedStub !== true
+        && (_mutationSource === 'edit' || _mutationSource.startsWith('apply_patch_'))
         && _mutationSnapshot?.bodyDelivered === true
         && statMatchesSnapshot(st, _mutationSnapshot)
         && snapshotCoversFullFile(_mutationSnapshot)
@@ -284,9 +286,9 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         }
         return _ipynbOut;
     }
-    const cacheKey = `read|${fullPath}|${st.mtimeMs}|${st.size}|${hasOffsetArg ? offset : 'd'}|${hasLimitArg ? limit : 'd'}|${wantFull ? 'f' : 's'}`;
-    // Race-guard helper: same-mtime same-size rapid rewrite (NTFS / exFAT 1 s
-    // resolution) can pass mtimeMs+size yet differ in content. When the cache
+    const cacheKey = `read|${fullPath}|${st.mtimeMs}|${st.ctimeMs}|${st.size}|${hasOffsetArg ? offset : 'd'}|${hasLimitArg ? limit : 'd'}|${wantFull ? 'f' : 's'}|base:${readOffsetBase}|budget:${_readMaxOutputBytes}`;
+    // Race-guard helper: coarse filesystem timestamps can collide across a
+    // same-size rewrite even with ctime in the key. When the cache
     // entry stores a contentPrefixHash, recompute the current prefix and bail
     // to a fresh read on mismatch. Helper kept local (not hoisted) so it can
     // close over fullPath and st without an extra arg.
@@ -307,8 +309,8 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     if (cachedEntry !== null) {
         let _entryStillValid = true;
         // Single-pass cache-hit guard. The cache key already pins
-        // mtimeMs+size, so a hit means only a same-mtime/same-size rewrite
-        // (NTFS / exFAT 1 s resolution) could differ — caught by re-hashing
+        // mtimeMs+ctimeMs+size, so a hit can differ only when all metadata
+        // collides across a rewrite — caught by re-hashing
         // the on-disk body. Previously this ran as two passes: a 64KiB
         // prefix-hash guard, then a separate full-content guard that
         // re-read the whole file again. For ≤64KiB files contentPrefixHash
@@ -495,6 +497,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             const _streamRes = await streamReadRange(fullPath, offset, limit, st, {
                 displayPath: filePath,
                 maxOutputBytes: _readMaxOutputBytes,
+                readOffsetBase,
                 fileHandle: _readHandle,
                 prefixBuffer: _binaryInspection?.head,
             });
@@ -603,6 +606,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             const _streamRes = await streamReadRange(fullPath, offset, limit, st, {
                 displayPath: filePath,
                 maxOutputBytes: _readMaxOutputBytes,
+                readOffsetBase,
                 fileHandle: _readHandle,
                 prefixBuffer: _binaryInspection?.head,
             });
@@ -734,15 +738,15 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
                 const emittedStart = offset + 1;
                 const emittedEnd = offset + _renderedLineCount;
                 const capKb = Math.round(_readMaxOutputBytes / 1024);
-                const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}; output truncated at ${capKb} KB${emittedEnd < lineCount ? `; pass offset:${emittedEnd + 1} to continue` : ''}]`;
+                const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}; output truncated at ${capKb} KB${emittedEnd < lineCount ? `; pass offset:${emittedEnd + readOffsetBase} to continue` : ''}]`;
                 out += `${out ? '\n' : ''}${footer}`;
             } else if (Buffer.byteLength(rendered, 'utf8') <= _readMaxOutputBytes) {
                 const emittedStart = offset + 1;
                 const emittedEnd = offset + sliced.length;
-                // Continuation uses the public one-based coordinate contract.
+                // Continuation uses the originating caller's coordinate base.
                 // Remaining content is not automatically required evidence.
                 const _cont = emittedEnd < lineCount
-                    ? `; pass offset:${emittedEnd + 1} to continue`
+                    ? `; pass offset:${emittedEnd + readOffsetBase} to continue`
                     : '';
                 const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}${_cont}]`;
                 out += `${out ? '\n' : ''}${footer}`;

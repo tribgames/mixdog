@@ -12,7 +12,16 @@ test('cycle1 packets cap each agent at 50 rows and each cycle at four agents', (
   const packets = packCycle1Windows(rowsBySession, 100, 10)
   assert.equal(packets.length, 4)
   assert.ok(packets.every(packet => packet.length <= 50))
-  assert.equal(packets.reduce((sum, packet) => sum + packet.length, 0), 180)
+  assert.equal(packets.reduce((sum, packet) => sum + packet.length, 0), 200)
+})
+
+test('cycle1 reserves a packet for the oldest selected session and round-robins busy sessions', () => {
+  const sessions = new Map(Array.from({ length: 10 }, (_, s) => [
+    String(s), Array.from({ length: 120 }, (_, i) => ({ id: s * 1000 + 120 - i, session_id: String(s) })),
+  ]))
+  const packets = packCycle1Windows(sessions)
+  assert.deepEqual(packets.map(packet => packet[0].session_id), ['0', '1', '2', '9'])
+  assert.equal(new Set(packets.flat().map(row => row.id)).size, 200)
 })
 
 test('cycle2 counts roots and lineage together inside the 50-material packet cap', () => {

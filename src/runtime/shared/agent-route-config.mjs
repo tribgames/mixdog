@@ -1,3 +1,5 @@
+import { hasOwn, isPlainObject } from './object.mjs';
+
 const REDUNDANT_WORKFLOW_PRESET_IDS = new Set([
   'workflow-agent',
   'workflow-memory',
@@ -13,13 +15,11 @@ export const DEFAULT_DISABLED_AGENT_IDS = Object.freeze([
 ]);
 
 function record(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return isPlainObject(value) ? value : {};
 }
 
 function isCompleteAgentRoute(value) {
-  return !!value
-    && typeof value === 'object'
-    && !Array.isArray(value)
+  return isPlainObject(value)
     && !!String(value.provider || '').trim()
     && !!String(value.model || '').trim();
 }
@@ -113,11 +113,11 @@ export function agentRouteStorageNeedsMigration(config = {}) {
   const agents = record(config?.agents);
   const maintenance = record(config?.maintenance);
   const disabled = disabledAgentIds(config);
-  return Object.prototype.hasOwnProperty.call(config || {}, 'workflowRoutes')
-    || (Object.prototype.hasOwnProperty.call(config || {}, 'disabledAgents')
+  return hasOwn(config, 'workflowRoutes')
+    || (hasOwn(config, 'disabledAgents')
       && JSON.stringify(config.disabledAgents) !== JSON.stringify(disabled.length ? disabled : undefined))
-    || Object.prototype.hasOwnProperty.call(agents, 'maintenance')
-    || Object.prototype.hasOwnProperty.call(maintenance, 'memory')
+    || hasOwn(agents, 'maintenance')
+    || hasOwn(maintenance, 'memory')
     || Object.values(agents).some((route) => !isCompleteAgentRoute(route))
     || (Array.isArray(config?.presets)
       && config.presets.some((preset) => isRedundantGeneratedRoutePreset(preset, config?.default)));

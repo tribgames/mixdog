@@ -8,9 +8,9 @@ import { join } from 'node:path';
 import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 
 import { generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
+import { isSessionId } from './desktop-state';
 
 const FILE_NAME = 'desktop-session-metadata.json';
-const SESSION_ID_RE = /^[A-Za-z0-9_-]+$/;
 
 export interface SessionMetadataMaps {
   titles: Record<string, string>;
@@ -56,7 +56,7 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
     const result = emptyMap<string>();
     if (!source || typeof source !== 'object' || Array.isArray(source)) return result;
     for (const [id, value] of Object.entries(source)) {
-      if (!SESSION_ID_RE.test(id) || typeof value !== 'string') continue;
+      if (!isSessionId(id) || typeof value !== 'string') continue;
       const title = generated ? generatedSessionTitle(value, '') : normalizeSessionTitle(value, '');
       if (generated && title !== value.trim()) {
         rewritten = true;
@@ -71,7 +71,7 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
   const archivedRaw = legacy ? null : parsed.archived;
   if (archivedRaw && typeof archivedRaw === 'object' && !Array.isArray(archivedRaw)) {
     for (const [id, value] of Object.entries(archivedRaw as Record<string, unknown>)) {
-      if (!SESSION_ID_RE.test(id)) continue;
+      if (!isSessionId(id)) continue;
       const at = Number(value);
       if (Number.isFinite(at) && at > 0) archived[id] = at;
     }
@@ -80,7 +80,7 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
   const readsRaw = legacy ? null : parsed.reads;
   if (readsRaw && typeof readsRaw === 'object' && !Array.isArray(readsRaw)) {
     for (const [id, value] of Object.entries(readsRaw as Record<string, unknown>)) {
-      if (!SESSION_ID_RE.test(id) || !value || typeof value !== 'object' || Array.isArray(value)) continue;
+      if (!isSessionId(id) || !value || typeof value !== 'object' || Array.isArray(value)) continue;
       const cursor = value as Record<string, unknown>;
       const messageCount = Number(cursor.messageCount);
       const revision = Number(cursor.revision);

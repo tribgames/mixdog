@@ -105,6 +105,7 @@ export async function init(db, dims, embeddingIdentity = null) {
       element       TEXT,
       category      TEXT,
       summary       TEXT,
+      chunk_quality JSONB,
       core_summary  TEXT,
       status        entry_status,
       score         REAL,
@@ -551,6 +552,7 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
     await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
   }
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_summary text`)
+  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS chunk_quality jsonb`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS time_source text`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS concept_id bigint`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS supersedes_id bigint`)

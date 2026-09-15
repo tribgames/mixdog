@@ -233,7 +233,7 @@ function Do-Key($req) {
 function Do-Type($req) {
   $text = if ($null -eq $req.text) { '' } else { [string]$req.text }
   if ($req.delivery -eq 'foreground' -and $text.Length -gt $script:MaximumForegroundTextCharacters) {
-    throw "input_too_large: foreground text exceeds $script:MaximumForegroundTextCharacters characters; split the text into separate observed acts"
+    throw "input_too_large: foreground text exceeds $script:MaximumForegroundTextCharacters UTF-16 code units"
   }
   if ($req.delivery -ne 'foreground') {
     $target = [IntPtr]::Zero

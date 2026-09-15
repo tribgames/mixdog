@@ -18,16 +18,11 @@ import {
 import { ensureGraphBinary } from '../src/runtime/agent/orchestrator/tools/graph-binary-fetcher.mjs';
 import { ensurePatchBinary } from '../src/runtime/agent/orchestrator/tools/patch-binary-fetcher.mjs';
 import { ensureSpawnBinary } from '../src/runtime/agent/orchestrator/tools/spawn-binary-fetcher.mjs';
+import { NATIVE_TOOL_PLATFORM_KEYS } from './native-tool-download.mjs';
 
 const DEFAULT_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-export const NATIVE_ASSET_PLATFORMS = Object.freeze([
-  'darwin-arm64',
-  'darwin-x64',
-  'linux-arm64',
-  'linux-x64',
-  'win32-x64',
-]);
+export const NATIVE_ASSET_PLATFORMS = NATIVE_TOOL_PLATFORM_KEYS;
 
 export const REQUIRED_NATIVE_INSTALLERS = Object.freeze({
   graph: ensureGraphBinary,

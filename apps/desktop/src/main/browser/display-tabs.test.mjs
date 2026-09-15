@@ -105,7 +105,7 @@ test('new tab reuses only the sole idle initial blank page', () => {
   }
 });
 
-test('foreground targeting selects support pages while explicit background work preserves selection', () => {
+test('explicit foreground targeting selects support pages without taking user ownership', () => {
   for (const kind of ['agent', 'popup', 'user']) {
     for (const tab of ['p2', 'work']) {
       for (const background of [false, true]) {
@@ -128,9 +128,28 @@ test('foreground targeting selects support pages while explicit background work 
         assert.equal(target.guest, guest);
         assert.equal(target.background, background);
         assert.equal(selected, background ? primary : guest);
-        assert.equal(page.keepAlive, background ? undefined : true);
+        assert.equal(page.keepAlive, undefined);
         if (!background || tab === 'p2') assert.ok(page.lastUsedAt > 0);
       }
     }
+  }
+});
+
+test('named and id-targeted support pages stay hidden when background is omitted', () => {
+  for (const kind of ['agent', 'popup', 'user']) for (const tab of ['p2', 'work']) {
+    const primary = { id: 1 };
+    const guest = { id: 2, isDestroyed: () => false };
+    const page = { guest, kind, lastUsedAt: 0, window: { webContents: guest, isDestroyed: () => false } };
+    let selected = primary;
+    const tabs = createBrowserTabs({
+      visibleGuests: () => [primary], backgroundPages: () => new Map([['work', page]]),
+      backgroundEntryByPageId: () => ['work', page], pageId: guest => `p${guest.id}`,
+      selectGuest: (_owner, guest) => { selected = guest; },
+    });
+    const target = tabs.resolveTargetGuest('alpha', undefined, tab);
+    assert.equal(target.background, kind !== 'user');
+    assert.equal(selected, kind === 'user' ? guest : primary);
+    assert.equal(page.keepAlive, undefined);
+    assert.ok(page.lastUsedAt > 0);
   }
 });

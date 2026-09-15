@@ -27,6 +27,7 @@ import type {
   DesktopServiceInbound,
   DesktopServiceOutbound,
 } from './desktop-service-protocol';
+import { filterSessionIds } from './desktop-state';
 import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
@@ -120,6 +121,7 @@ export class DesktopServiceClient implements DesktopService {
   private sessionCacheFresh = false;
   private agentPoolCacheFresh = false;
   private visibleSessionIds: string[] = [];
+  private visibleSessionVersion = 0;
   private nextRequestId = 1;
   private generation = 0;
   private lastExitError: Error | null = null;
@@ -257,7 +259,7 @@ export class DesktopServiceClient implements DesktopService {
   private announceServiceReady(): void {
     this.options.onServiceReady?.({ generation: this.generation });
     if (this.visibleSessionIds.length === 0) return;
-    void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds])
+    void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds, ++this.visibleSessionVersion])
       .catch(() => { /* renderer registration remains cached for the next restart */ });
   }
 
@@ -722,16 +724,14 @@ export class DesktopServiceClient implements DesktopService {
     ]);
   }
   setVisibleSessions(sessionIds: string[]): Promise<boolean> {
-    this.visibleSessionIds = [...new Set(sessionIds
-      .map((value) => String(value || ''))
-      .filter((value) => /^[A-Za-z0-9_-]+$/.test(value)))];
+    this.visibleSessionIds = filterSessionIds(sessionIds);
     const visible = new Set(this.visibleSessionIds);
     releaseHiddenSessionStateEntries(
       visible,
       [this.sessionStateDecoders],
       (sessionId) => this.sessionStateDecoders.get(sessionId)?.reset(),
     );
-    return this.invokeRead('setVisibleSessions', [this.visibleSessionIds]);
+    return this.invokeRead('setVisibleSessions', [this.visibleSessionIds, ++this.visibleSessionVersion]);
   }
   searchProjectFiles(
     projectIdOrWorkspaceId: string,

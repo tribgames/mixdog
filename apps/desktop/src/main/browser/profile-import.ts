@@ -527,26 +527,62 @@ export class BrowserProfileImportService {
       .sort((left, right) => left.label.localeCompare(right.label));
   }
 
+  /** Resolve an agent-supplied account (exact username or its masked label)
+   *  to the stored login for the page origin. Errors list only masked labels,
+   *  so a wrong guess never reveals which usernames the vault holds. */
+  async useCredentialByAccount<T>(
+    url: string,
+    account: string,
+    use: (credential: Readonly<BrowserCredentialValue>) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    signal?.throwIfAborted();
+    const origin = secureOrigin(url);
+    if (!origin) throw new Error('Stored credentials are available only on secure HTTPS pages.');
+    const wanted = account.trim();
+    if (!wanted) throw new Error('savedAccount requires the account name or its masked label.');
+    const candidates = (await this.readCredentialVault(signal))
+      .filter((credential) => secureOrigin(credential.url) === origin);
+    if (!candidates.length) throw new Error(`No stored login for ${origin}.`);
+    const matches = candidates.filter((credential) =>
+      credential.username.trim().toLowerCase() === wanted.toLowerCase()
+      || maskedCredentialLabel(credential.username) === wanted);
+    // Chrome keeps one row per sign-in URL, so the same account can appear
+    // more than once for one origin; identical usernames are one login.
+    const usernames = new Set(matches.map((credential) => credential.username.trim().toLowerCase()));
+    if (usernames.size === 1) return await this.useCredential(url, matches[0].id, use, signal);
+    const labels = [...new Set(candidates.map((credential) => maskedCredentialLabel(credential.username)))]
+      .sort()
+      .join(', ');
+    throw new Error(matches.length
+      ? `savedAccount "${wanted}" matches several stored logins for ${origin}; stored: ${labels}`
+      : `savedAccount "${wanted}" is not a stored login for ${origin}; stored: ${labels}`);
+  }
+
   async useCredential<T>(
     url: string,
     credentialId: string,
     use: (credential: Readonly<BrowserCredentialValue>) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
+    signal?.throwIfAborted();
     const origin = secureOrigin(url);
     if (!origin) throw new Error('Stored credentials are available only on secure HTTPS pages.');
     if (!/^[a-f0-9]{24}$/.test(credentialId)) throw new Error('Stored credential id is invalid.');
-    const credential = (await this.readCredentialVault())
+    const credential = (await this.readCredentialVault(signal))
       .find((candidate) => candidate.id === credentialId);
     if (!credential || secureOrigin(credential.url) !== origin) {
       throw new Error('The stored credential does not match the current page origin.');
     }
+    signal?.throwIfAborted();
     return await use({
       username: credential.username,
       password: credential.password,
     });
   }
 
-  private async readCredentialVault(): Promise<StoredBrowserCredential[]> {
+  private async readCredentialVault(signal?: AbortSignal): Promise<StoredBrowserCredential[]> {
+    signal?.throwIfAborted();
     const vaultPath = join(this.options.userDataDirectory, 'browser-password-vault.bin');
     if (!existsSync(vaultPath)) return [];
     if (!safeStorage.isEncryptionAvailable()) {
@@ -554,8 +590,11 @@ export class BrowserProfileImportService {
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(safeStorage.decryptString(await readFile(vaultPath)));
+      const encrypted = await readFile(vaultPath, { signal });
+      signal?.throwIfAborted();
+      parsed = JSON.parse(safeStorage.decryptString(encrypted));
     } catch {
+      signal?.throwIfAborted();
       throw new Error('The stored browser credential vault could not be opened.');
     }
     const entries = parsed && typeof parsed === 'object'

@@ -184,6 +184,32 @@ test('a daemon replaced behind a live transport counts as a new attachment', asy
   }
 });
 
+test('overlapping desktop registrations carry increasing versions before either reply arrives', async () => {
+  const transport = new ControlledTransport();
+  const client = new DesktopServiceClient({
+    connect: () => transport,
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog', packaged: true,
+      resourcesPath: 'C:/tmp/resources', appPath: 'C:/tmp/resources/app.asar',
+    }),
+  });
+  try {
+    await client.start();
+    const old = client.setVisibleSessions(['old']);
+    const current = client.setVisibleSessions(['current']);
+    await Promise.resolve();
+    await Promise.resolve();
+    const [a, b] = transport.requests;
+    assert.deepEqual(a.args[0], ['old']);
+    assert.deepEqual(b.args[0], ['current']);
+    assert.ok(b.args[1] > a.args[1]);
+    transport.respond(b, true);
+    assert.equal(await current, true);
+    transport.respond(a, true);
+    assert.equal(await old, true);
+  } finally { await client.dispose(); }
+});
+
 test('Local Provider asset installs outlive the ordinary desktop request deadline', async () => {
   const transport = new ControlledTransport();
   const client = new DesktopServiceClient({

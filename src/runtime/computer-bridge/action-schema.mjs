@@ -1,5 +1,6 @@
 import { splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
 import { hasOwn } from '../shared/object.mjs';
+import { schemaValueError } from '../shared/schema-value-error.mjs';
 import {
   COMPUTER_CORE_ACTION_SCHEMA,
   COMPUTER_DEFAULT_DELIVERY,
@@ -185,7 +186,7 @@ export const COMPUTER_INPUT_SCHEMA = {
         items: COMPUTER_CORE_ACTION_SCHEMA,
         minItems: 1,
         maxItems: 6,
-        description: 'Simple actions executed in order. A transition or failure halts the remaining actions.',
+        description: 'First: an input action. Then only type/key/wait, reusing focus without targets. Waits total ≤10s; transition/failure stops the rest.',
       },
       ...delivery,
     }, ['actions'])),
@@ -276,51 +277,6 @@ const WINDOW_TARGET_ACTIONS = new Set([
   'act', 'window', 'menu', 'verify',
 ]);
 
-
-function schemaValueError(value, schema, path) {
-  if (schema.enum && !schema.enum.includes(value)) {
-    return `${path} must be one of: ${schema.enum.join(', ')}`;
-  }
-  if (schema.type === 'string') {
-    if (typeof value !== 'string') return `${path} must be a string`;
-    if (schema.minLength !== undefined && value.length < schema.minLength) {
-      return `${path} requires at least ${schema.minLength} characters`;
-    }
-    if (schema.maxLength !== undefined && value.length > schema.maxLength) {
-      return `${path} accepts at most ${schema.maxLength} characters`;
-    }
-    if (schema.pattern !== undefined && !new RegExp(schema.pattern).test(value)) {
-      return `${path} must match the required format`;
-    }
-  }
-  if (schema.type === 'boolean' && typeof value !== 'boolean') return `${path} must be a boolean`;
-  if (schema.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
-    return `${path} must be a finite number`;
-  }
-  if (schema.type === 'integer' && !Number.isInteger(value)) return `${path} must be an integer`;
-  if (schema.type === 'array') {
-    if (!Array.isArray(value)) return `${path} must be an array`;
-    if (schema.minItems !== undefined && value.length < schema.minItems) {
-      return `${path} requires at least ${schema.minItems} items`;
-    }
-    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
-      return `${path} accepts at most ${schema.maxItems} items`;
-    }
-    for (let index = 0; index < value.length; index += 1) {
-      const itemError = schemaValueError(value[index], schema.items || {}, `${path}[${index}]`);
-      if (itemError) return itemError;
-    }
-  }
-  if (typeof value === 'number') {
-    if (schema.minimum !== undefined && value < schema.minimum) {
-      return `${path} must be at least ${schema.minimum}`;
-    }
-    if (schema.maximum !== undefined && value > schema.maximum) {
-      return `${path} must be at most ${schema.maximum}`;
-    }
-  }
-  return null;
-}
 
 function objectSchemaValueError(value, schema, path) {
   for (const [name, item] of Object.entries(value)) {

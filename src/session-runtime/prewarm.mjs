@@ -194,11 +194,33 @@ export function createPrewarmSchedulers({
     timers.channelStartTimer.unref?.();
   }
 
+  // Boot-time automation autostart. Automation decoupling (user decision):
+  // enabled schedules/webhooks boot the worker on their own — no messaging
+  // provider. The worker runs headless (scheduler/webhooks/voice only).
+  // Unlike scheduleChannelStart this probes once at the boot delay and never
+  // re-arms, so a runtime that boots busy simply leaves the worker to the
+  // next scheduleChannelStart caller.
+  function scheduleAutomationAutostart(delayMs) {
+    timers.channelStartTimer = setTimeout(() => {
+      timers.channelStartTimer = null;
+      if (isCloseRequested()) return;
+      void hasActiveAutomation()
+        .then((active) => {
+          if (!active || isCloseRequested()) return;
+          bootProfile('channels:automation-autostart');
+          void invokeChannelStart();
+        })
+        .catch(() => { /* automation probe is best-effort */ });
+    }, delayMs);
+    timers.channelStartTimer.unref?.();
+  }
+
   return {
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
     scheduleSearchRuntimeWarmup,
     invokeChannelStart,
     scheduleChannelStart,
+    scheduleAutomationAutostart,
   };
 }

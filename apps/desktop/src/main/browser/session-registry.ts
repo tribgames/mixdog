@@ -134,6 +134,15 @@ export class BrowserSessionRegistry {
     return this.backgroundsBySession.get(sessionId) ?? new Map();
   }
 
+  /** The named support page a guest belongs to, so callers ask the owner of
+   *  the tab graph instead of scanning it themselves. */
+  backgroundPageForGuest(sessionId: string, guest: WebContents): BackgroundPage | undefined {
+    for (const page of this.backgroundPages(sessionId).values()) {
+      if (page.guest === guest) return page;
+    }
+    return undefined;
+  }
+
   setBackgroundPage(sessionId: string, name: string, page: BackgroundPage): void {
     const pages = this.backgroundsBySession.get(sessionId) ?? new Map<string, BackgroundPage>();
     pages.set(name, page);

@@ -49,6 +49,43 @@ test('live catalogs admit new compatible ids and exclude unsupported generation 
   assert.equal(gemini.video[0].id, 'gemini-omni-1.1-flash');
   assert.deepEqual(gemini.video[0].controls, { resolution: [], durations: [], maxReferences: 3 });
   assert.equal(gemini.video.length, 3);
+
+  // The gateway catalog lists chat, IDE-internal and image ids side by side
+  // without generation methods; only Nano Banana ids become image options and
+  // video-input support never turns a chat model into a video generator.
+  const antigravity = projectMediaModels('antigravity-oauth', [
+    { id: 'gemini-3.8-flash-high', displayName: 'Gemini 3.8 Flash (High)', maxTokens: 1048576, supportsVideo: true },
+    { id: 'gemini-3.1-flash-image', displayName: 'Gemini 3.1 Flash Image' },
+    { id: 'gemini-3.1-flash-lite-image-preview', displayName: 'Gemini 3.1 Flash Lite Image' },
+    { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6 (Thinking)', maxTokens: 250000 },
+    { id: 'chat_23310', maxTokens: 32768 },
+  ]);
+  assert.deepEqual(antigravity.image.map((row) => row.id), ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image-preview']);
+  assert.equal(antigravity.image[0].label, 'Nano Banana 2 · Gemini 3.1 Flash Image');
+  assert.deepEqual(antigravity.video, []);
+});
+
+test('Antigravity discovery reads the gateway model map with the hub identity', async () => {
+  const requests = [];
+  const rows = await fetchMediaModelRows({
+    lane: 'antigravity-oauth', auth: { token: 'access-token', projectId: 'projects/test' },
+    fetchFn: async (url, init) => {
+      requests.push({ url, init });
+      return { ok: true, json: async () => ({ models: {
+        'gemini-3.1-flash-image': { displayName: 'Gemini 3.1 Flash Image' },
+        'gemini-3.8-flash-high': { displayName: 'Gemini 3.8 Flash (High)', maxTokens: 1048576 },
+      } }) };
+    },
+  });
+  assert.deepEqual(rows, [
+    { id: 'gemini-3.1-flash-image', displayName: 'Gemini 3.1 Flash Image' },
+    { id: 'gemini-3.8-flash-high', displayName: 'Gemini 3.8 Flash (High)', maxTokens: 1048576 },
+  ]);
+  assert.match(requests[0].url, /\/v1internal:fetchAvailableModels$/);
+  assert.equal(requests[0].init.headers.Authorization, 'Bearer access-token');
+  assert.match(requests[0].init.headers['User-Agent'], /^antigravity\/hub\//);
+  assert.equal(requests[0].init.redirect, 'error');
+  assert.deepEqual(JSON.parse(requests[0].init.body), { project: 'projects/test' });
 });
 
 test('discovery keeps raw media rows, follows Gemini pages and refuses credential redirects', async () => {

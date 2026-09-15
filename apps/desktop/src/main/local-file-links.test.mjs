@@ -47,7 +47,7 @@ async function fixture(t) {
 
 test('chat file IPC opens relative, absolute and file URLs with decoded document names', async (t) => {
   const f = await fixture(t);
-  const names = ['제안서 100% #1.pptx', 'preview.pdf', 'verification-summary.md'];
+  const names = ['제안서 100% #1.pptx', 'preview.pdf', 'verification-summary.docx'];
   for (const name of names) {
     const file = join(f.project, 'output', name);
     await writeFile(file, 'sample');
@@ -63,7 +63,7 @@ test('chat file IPC opens relative, absolute and file URLs with decoded document
   }
   await f.invoke('./output/preview.pdf?download=1#page=2');
   assert.equal(f.opened.at(-1), await realpath(join(f.project, 'output', 'preview.pdf')));
-  await f.invoke('output%5Cverification-summary.md');
+  await f.invoke('output%5Cverification-summary.docx');
   assert.equal(f.opened.at(-1), await realpath(join(f.project, 'output', names[2])));
 });
 
@@ -86,17 +86,31 @@ test('chat file IPC rejects traversal, network paths, schemes and malformed path
   assert.equal(f.opened.length, 0);
 });
 
-test('chat file IPC blocks executable, shortcut and macro-enabled types plus missing files', async (t) => {
+test('chat file IPC never launches executables, shortcuts, macro-enabled or text files; it hands them to the editor', async (t) => {
   const f = await fixture(t);
-  for (const extension of ['exe', 'cmd', 'bat', 'ps1', 'js', 'vbs', 'lnk', 'url', 'appref-ms', 'scf', 'pptm']) {
-    const name = `output/payload.${extension}`;
+  for (const name of ['exe', 'cmd', 'bat', 'ps1', 'js', 'vbs', 'lnk', 'url', 'appref-ms', 'scf', 'pptm', 'md', 'json', 'ts']
+    .map((extension) => `output/payload.${extension}`).concat('output/Dockerfile')) {
     await writeFile(join(f.project, name), 'untrusted');
-    await assert.rejects(f.invoke(name), /file type/);
+    assert.equal(await f.invoke(name), 'editor', name);
   }
-  await mkdir(join(f.project, 'output', 'folder.pdf'));
-  await assert.rejects(f.invoke('output/folder.pdf'), /non-executable file/);
-  await assert.rejects(f.invoke('output/missing.pdf'), /ENOENT/);
-  assert.equal(f.opened.length, 0);
+  await assert.rejects(f.invoke('output/preview.pdf'), /^Error: The file no longer exists: output\/preview\.pdf$/);
+  await writeFile(join(f.project, 'output', 'preview.pdf'), 'sample');
+  assert.equal(await f.invoke('output/preview.pdf'), 'file');
+  assert.deepEqual(f.opened, [await realpath(join(f.project, 'output', 'preview.pdf'))]);
+});
+
+test('chat file IPC opens folders in the file manager, with or without a trailing separator', async (t) => {
+  const f = await fixture(t);
+  await mkdir(join(f.project, 'output', 'report 2026'));
+  assert.equal(await f.invoke('output/report%202026/'), 'folder');
+  assert.equal(await f.invoke('output/report 2026'), 'folder');
+  assert.equal(await f.invoke('./'), 'folder');
+  assert.deepEqual(f.opened, [
+    await realpath(join(f.project, 'output', 'report 2026')),
+    await realpath(join(f.project, 'output', 'report 2026')),
+    await realpath(f.project),
+  ]);
+  await assert.rejects(f.invoke('../'), /escapes the project/);
 });
 
 test('chat file IPC cannot escape through a directory junction or symbolic link', async (t) => {

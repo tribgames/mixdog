@@ -161,9 +161,12 @@ function grokOAuthState() {
 // Antigravity needs a resolved Cloud project alongside the tokens: without it
 // every request 400s, so a half-finished login must not enable the provider.
 function antigravityOAuthState() {
+  // Same account/path precedence as the token store: a login lands in the
+  // selected account's pool file, so the probe must read that file first.
   const paths = [
-    process.env.ANTIGRAVITY_OAUTH_CREDENTIALS_PATH,
-    join(resolvePluginData(), 'antigravity-oauth.json'),
+    boundProviderAuthPath('antigravity-oauth')
+      || process.env.ANTIGRAVITY_OAUTH_CREDENTIALS_PATH
+      || join(resolvePluginData(), 'antigravity-oauth.json'),
   ];
   return memoProbe('antigravity-oauth', paths, () => resolveProbeState(
     paths,

@@ -526,12 +526,36 @@ function convertSchema(schema) {
     return result;
 }
 
+// Gemini's legacy Schema requires typed values. An unconstrained JSON value
+// (Office operation values, for example) cannot be replaced with a string or
+// an untyped Schema node. FunctionDeclaration.parametersJsonSchema is the
+// documented, mutually exclusive representation for the original JSON Schema.
+function needsJsonParameters(schema) {
+    if (typeof schema === 'boolean') return true;
+    if (!schema || typeof schema !== 'object') return false;
+    // The legacy dialect has no reference vocabulary; preserve both pointers
+    // and their definitions together, including recursive MCP contracts.
+    if (['$ref', '$defs', 'definitions'].some((key) => Object.hasOwn(schema, key))) return true;
+    const constraints = Object.keys(schema)
+        .filter((key) => !['description', 'title', 'default', 'examples', '$comment'].includes(key));
+    if (!constraints.length || (schema.type === 'array' && !schema.items)) return true;
+    const children = [
+        ...Object.values(schema.properties || {}),
+        ...(schema.items ? [schema.items] : []),
+        ...(typeof schema.additionalProperties === 'object' ? [schema.additionalProperties] : []),
+        ...(schema.anyOf || []), ...(schema.oneOf || []), ...(schema.allOf || []),
+    ];
+    return children.some(needsJsonParameters);
+}
+
 export function toGeminiTools(tools) {
     return {
         functionDeclarations: tools.map((t) => ({
             name: t.name,
             description: t.description,
-            parameters: convertSchema(t.inputSchema),
+            ...(needsJsonParameters(t.inputSchema)
+                ? { parametersJsonSchema: structuredClone(t.inputSchema) }
+                : { parameters: convertSchema(t.inputSchema) }),
         })),
     };
 }
@@ -832,7 +856,9 @@ export function parseToolCalls(parts) {
             // deterministic id only for older responses that omit it.
             id: typeof fc.id === 'string' && fc.id ? fc.id : `gemini_${idHash}`,
             name: fc.name,
-            arguments: (fc.args ?? {}),
+            // Execution may normalize nested arguments in place. Keep native
+            // replay and anonymous ID inputs independent of that working copy.
+            arguments: structuredClone(fc.args ?? {}),
         };
         if (typeof sig === 'string' && sig && sig.length <= 16_384) {
             call.thoughtSignature = sig;

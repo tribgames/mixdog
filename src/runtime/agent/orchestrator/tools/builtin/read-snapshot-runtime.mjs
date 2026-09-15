@@ -130,7 +130,9 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
                 || priorPagedFull);
     } else if (!incomingIsGrep && snapshotCoversFullFile(next)) {
         next.bodyDelivered = true;
-    } else if (priorSnapshot?.bodyDelivered === true) {
+    } else if (priorSnapshot?.bodyDelivered === true
+        && statMatchesSnapshot({ mtimeMs, ctimeMs, size }, priorSnapshot)) {
+        // A partial read cannot carry full-body delivery across file versions.
         next.bodyDelivered = true;
     }
     const rangeHashRows = [];

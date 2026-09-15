@@ -1,14 +1,17 @@
 /**
  * src/ui/statusline-format.mjs — pure formatting primitives for the footer.
  *
- * Extracted verbatim from statusline.mjs: ANSI SGR constants, the context%
- * bar/segment formatters, small numeric helpers, and the TUI-independent
- * formatElapsed() replica. No behavior change — statusline.mjs re-imports these.
+ * Extracted from statusline.mjs: ANSI SGR constants, the context%
+ * bar/segment formatters, and small numeric helpers. Elapsed labels come from
+ * the shared runtime formatter so L2 matches TUI/desktop cards.
  */
 import { colorEnabled, rgb, rgbSgr } from './ansi.mjs';
 import { displayModelName, shortenModelName } from './model-display.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { contextMeasurementLabel } from './context-measurement.mjs';
+import { formatElapsed } from '../runtime/shared/time-format.mjs';
+
+export { formatElapsed };
 
 // Token window used to compute a fallback context% from our own session usage.
 // The live gateway (when up) overrides this with the real route's window. This
@@ -119,27 +122,4 @@ export function fmt(n) {
     return k >= 1000 ? '1M' : `${k}k`;
   }
   return (v / 1_000_000).toFixed(1) + 'M';
-}
-
-// Byte-identical replica of src/tui/time-format.mjs formatDuration() with
-// DEFAULT options (no mostSignificantOnly / hideTrailingZeros), wrapped to drop
-// sub-1s like formatElapsed there. Output shape: '' (<1s), `Xs`, `Xm Ys`,
-// `Xh Ym Zs`, `Xd Yh Zm`. statusline.mjs is a standalone UI module that should
-// not depend on the React/ink TUI tree, so the algorithm is replicated rather
-// than imported. Used for ALL L2 elapsed (Agents/Search/Shell).
-export function formatElapsed(ms) {
-  if (!Number.isFinite(Number(ms))) return '';
-  const value = Math.max(0, Number(ms) || 0);
-  if (value < 60_000) {
-    if (value < 1_000) return '';
-    return `${Math.floor(value / 1000)}s`;
-  }
-  const days = Math.floor(value / 86_400_000);
-  const hours = Math.floor((value % 86_400_000) / 3_600_000);
-  const minutes = Math.floor((value % 3_600_000) / 60_000);
-  const seconds = Math.floor((value % 60_000) / 1000);
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }

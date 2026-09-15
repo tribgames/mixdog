@@ -1,29 +1,14 @@
 import { realpath, stat } from 'node:fs/promises';
-import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requiredRepositoryCwd } from './git-contract.mjs';
 import { requiredString } from './ipc-validation';
-
-// Chat output is untrusted. Only document/media types may launch an associated
-// app; executables, scripts, shortcuts and macro-enabled formats stay excluded.
-const documentExtensions = new Set([
-  '.pptx', '.pdf', '.md', '.markdown', '.txt', '.log',
-  '.docx', '.xlsx', '.csv', '.tsv', '.rtf', '.odt', '.ods', '.odp',
-  '.json', '.yaml', '.yml', '.xml',
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.ico',
-  '.mp3', '.wav', '.ogg', '.flac', '.m4a', '.mp4', '.mov', '.webm', '.mkv',
-]);
+import { localFileOpener, type LocalLinkOpened } from '../shared/local-files';
 
 function assertInsideProject(root: string, target: string): void {
   const rel = relative(root, target);
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new TypeError('The file path escapes the project directory.');
-  }
-}
-
-function assertDocumentType(target: string): void {
-  if (!documentExtensions.has(extname(target).toLowerCase())) {
-    throw new TypeError('This file type cannot be opened from a chat link.');
   }
 }
 
@@ -54,24 +39,43 @@ function localLinkPath(href: unknown): string {
   return target;
 }
 
+// Chat output is untrusted. A folder opens in the file manager and only
+// binary document/media types may launch an associated app; every other
+// file (source, text, data — and executables, scripts, shortcuts or
+// macro-enabled formats) is handed back for Mixdog's editor, which never
+// launches anything.
 export async function openLocalFileLink(
   projectPath: unknown,
   href: unknown,
   openPath: (path: string) => Promise<string>,
-): Promise<void> {
+): Promise<LocalLinkOpened> {
   const root = resolve(requiredRepositoryCwd(projectPath));
   const absolute = resolve(root, localLinkPath(href));
   assertInsideProject(root, absolute);
-  assertDocumentType(absolute);
   // Check real targets too: a directory junction or renamed symlink must not
-  // bypass the Project boundary or the file-type restriction.
-  const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(absolute)]);
+  // bypass the Project boundary.
+  const [realRoot, realTarget] = await Promise.all([
+    realpath(root),
+    realpath(absolute).catch((error: NodeJS.ErrnoException) => {
+      // A chat link outlives its file: working copies get renamed or removed
+      // after the reply is written. Say so instead of leaking ENOENT.
+      if (error?.code !== 'ENOENT') throw error;
+      throw new Error(`The file no longer exists: ${relative(root, absolute).replace(/\\/g, '/')}`);
+    }),
+  ]);
   assertInsideProject(realRoot, realTarget);
-  assertDocumentType(realTarget);
   const info = await stat(realTarget);
-  if (!info.isFile() || (process.platform !== 'win32' && (info.mode & 0o111) !== 0)) {
+  if (info.isDirectory()) {
+    const failure = await openPath(realTarget);
+    if (failure) throw new Error(`Unable to open folder: ${failure}`);
+    return 'folder';
+  }
+  if (!info.isFile()) throw new TypeError('The link must point to a file or folder.');
+  if (localFileOpener(realTarget) !== 'os') return 'editor';
+  if (process.platform !== 'win32' && (info.mode & 0o111) !== 0) {
     throw new TypeError('The link must point to a non-executable file.');
   }
   const failure = await openPath(realTarget);
   if (failure) throw new Error(`Unable to open file: ${failure}`);
+  return 'file';
 }

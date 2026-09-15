@@ -104,39 +104,35 @@ export function isConversationUsageSource(sourceType) {
 }
 
 function emptyRouteTotals() {
-  return { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0 };
+  return { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0,
+    costBilled: 0, costEstimated: 0, costKnownTurns: 0 };
 }
 
 function emptyTurnTotals() {
   return {
     ...emptyRouteTotals(),
-    // Priced by the provider itself vs derived from the model catalog. A
-    // subscription turn is never invoiced per token, so merging the two would
-    // present a guess as a bill.
-    costBilled: 0,
-    costEstimated: 0,
-    costKnownTurns: 0,
     durationMs: 0,
     durationTurns: 0,
   };
 }
 
-function addRouteTotals(target, turn) {
+function addRouteTotals(target, turn, { priced, billed } = {}) {
   target.turns += turn.turns;
   target.input += turn.input;
   target.output += turn.output;
   target.cacheRead += turn.cacheRead;
   target.cacheWrite += turn.cacheWrite;
   target.costUsd = round6(target.costUsd + turn.costUsd);
-}
-
-function addTurnTotals(target, turn, { priced, billed, durationMs }) {
-  addRouteTotals(target, turn);
   if (priced) {
     target.costKnownTurns += 1;
     if (billed) target.costBilled = round6(target.costBilled + turn.costUsd);
     else target.costEstimated = round6(target.costEstimated + turn.costUsd);
   }
+}
+
+function addTurnTotals(target, turn, pricing) {
+  addRouteTotals(target, turn, pricing);
+  const { durationMs } = pricing;
   if (durationMs > 0) {
     target.durationMs += durationMs;
     target.durationTurns += 1;
@@ -181,6 +177,11 @@ function readRouteTotals(raw, target) {
   target.cacheRead = num(raw?.cacheRead);
   target.cacheWrite = num(raw?.cacheWrite);
   target.costUsd = round6(num(raw?.costUsd));
+  target.costBilled = round6(num(raw?.costBilled));
+  target.costEstimated = round6(raw?.costEstimated == null
+    ? Math.max(0, target.costUsd - target.costBilled) : num(raw.costEstimated));
+  target.costKnownTurns = raw?.costKnownTurns == null
+    ? (target.costUsd > 0 ? target.turns : 0) : num(raw.costKnownTurns);
   return target;
 }
 
@@ -311,7 +312,8 @@ export function foldUsageRollup(current, summary, now = Date.now()) {
   // costSource 'none' means neither the provider nor the catalog priced this
   // turn; counting it keeps the surface honest about partial cost coverage.
   const pricing = {
-    priced: Boolean(costSource) && costSource !== 'none',
+    priced: summary?.costUsd != null && Number.isFinite(Number(summary.costUsd))
+      && !['', 'none', 'unpriced'].includes(costSource),
     billed: costSource === 'provider',
     durationMs: num(summary?.durationMs),
   };
@@ -340,10 +342,10 @@ export function foldUsageRollup(current, summary, now = Date.now()) {
   if (known || Object.keys(day.models).length < MAX_MODELS_PER_DAY) {
     const bucket = known ? day.models[modelKey] : emptyModel(provider, model);
     bucket.kind = cleanId(summary?.providerKind) || bucket.kind;
-    addRouteTotals(bucket, turn);
+    addRouteTotals(bucket, turn, pricing);
     if (conversation) {
       if (!bucket.conversation) bucket.conversation = emptyRouteTotals();
-      addRouteTotals(bucket.conversation, turn);
+      addRouteTotals(bucket.conversation, turn, pricing);
     }
     day.models[modelKey] = bucket;
   }

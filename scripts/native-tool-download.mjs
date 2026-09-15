@@ -27,6 +27,13 @@ const RELEASE_ROOT = 'https://github.com/tribgames/mixdog/releases/download'
 const TOOLS_DIR = new URL('../src/runtime/agent/orchestrator/tools/', import.meta.url)
 
 export const NATIVE_TOOL_KINDS = Object.freeze(['graph', 'patch', 'spawn'])
+export const NATIVE_TOOL_PLATFORM_KEYS = Object.freeze([
+  'darwin-arm64',
+  'darwin-x64',
+  'linux-arm64',
+  'linux-x64',
+  'win32-x64',
+])
 
 /** Released asset name. */
 export function nativeToolAssetName(kind, target) {
@@ -41,6 +48,13 @@ export function nativeToolAssetUrl(kind, version, target) {
 /** Installed name inside the app, named for the TARGET rather than the host. */
 export function nativeToolInstalledName(kind, target) {
   return target.platform === 'win32' ? `mixdog-${kind}.exe` : `mixdog-${kind}`
+}
+
+export function nativeToolPlatformAssets(kind) {
+  return Object.fromEntries(NATIVE_TOOL_PLATFORM_KEYS.map((key) => {
+    const [platform, arch] = key.split('-')
+    return [key, nativeToolAssetName(kind, { platform, arch })]
+  }))
 }
 
 async function sha256File(path) {

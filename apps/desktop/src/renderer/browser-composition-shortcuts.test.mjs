@@ -20,13 +20,45 @@ test('composition stays bound to its starting document even after a round trip t
     handlers.onCompositionStart();
     for (const documentId of route) { current = { ...current, documentId }; await client.poll(); }
     const element = { value: '한글' };
-    handlers.onCompositionEnd({ currentTarget: element });
+    handlers.onCompositionEnd({ currentTarget: element, data: '한글' });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(element.value, '');
     assert.equal(sent.length, route.length === 1 && route[0] === 'p1:1' ? 1 : 0);
     if (!sent.length) assert.match(errors[0], /page changed/);
     client.dispose();
   }
+});
+
+test('IME updates reach the page before commit and composing Enter is not submitted', () => {
+  const actions = [];
+  let handlers;
+  function Harness() {
+    handlers = useBrowserPageInput({ inputToken: () => 'owner', fire: (action, token) => {
+      assert.equal(token, 'owner');
+      actions.push(action);
+    } }, { current: null }, { current: null });
+    return null;
+  }
+  renderToString(createElement(Harness));
+  handlers.onCompositionStart();
+  const field = { value: '' };
+  for (const text of ['ㅎ', '하', '한']) {
+    field.value = text;
+    handlers.onCompositionUpdate({ data: text });
+    handlers.onInput({ currentTarget: field, nativeEvent: { isComposing: true } });
+  }
+  handlers.onKeyDown({ key: 'Enter', nativeEvent: { keyCode: 229 }, stopPropagation() {} });
+  handlers.onCompositionEnd({ currentTarget: field, data: '한' });
+  handlers.onInput({ currentTarget: field, nativeEvent: { isComposing: false } });
+  assert.deepEqual(actions, [
+    ...['ㅎ', '하', '한'].map(text => ({ type: 'composition', text, selectionStart: 1, selectionEnd: 1 })),
+    { type: 'composition-end', text: '한' },
+  ]);
+  handlers.onKeyDown({ key: 'Enter', nativeEvent: { keyCode: 229 }, stopPropagation() {} });
+  assert.equal(actions.length, 4);
+  handlers.onCompositionStart();
+  handlers.onCompositionEnd({ currentTarget: field, data: '' });
+  assert.deepEqual(actions.at(-1), { type: 'composition-end', text: '' });
 });
 
 test('browser shortcuts use pane controls rather than sending invalid key strings to Chromium', () => {

@@ -15,6 +15,7 @@
 //     plugins:{ [pluginId]:   [projectRoot, …] } }
 import { resolve, sep } from 'node:path';
 import { clean } from './clean.mjs';
+import { isPlainObject } from './object.mjs';
 
 export const EXTENSION_SCOPE_KINDS = Object.freeze(['skills', 'mcp', 'plugins']);
 
@@ -52,7 +53,7 @@ function normalizeRootList(value) {
 }
 
 function normalizeKindMap(value) {
-  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const raw = isPlainObject(value) ? value : {};
   const out = {};
   for (const [name, roots] of Object.entries(raw)) {
     const key = clean(name);
@@ -66,7 +67,7 @@ function normalizeKindMap(value) {
 
 /** Stable `{ skills, mcp, plugins }` map; unknown kinds and empty lists drop. */
 export function normalizeExtensionScopes(value = {}) {
-  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const raw = isPlainObject(value) ? value : {};
   const out = {};
   for (const kind of EXTENSION_SCOPE_KINDS) out[kind] = normalizeKindMap(raw[kind]);
   return out;

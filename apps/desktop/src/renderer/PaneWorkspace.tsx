@@ -7,6 +7,7 @@
 // while the lanes already deliver concurrent live output.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useVisibleSessions } from "./use-visible-sessions";
 
 import { t } from "./i18n";
 import {
@@ -546,72 +547,8 @@ export function PaneWorkspace({
     : paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
   // The Agents surface observes working background sessions even when none of
   // them owns an editor tab, so include those ids with every pane session.
-  const visibleSessionIds = [...new Set([...observedSessionIds, ...paneSessionIds])];
-  const visibleSessionKey = visibleSessionIds.join("\0");
-  // Registration is BOTH versioned and serialized. A retrying request that the
-  // next selection already replaced must never land after it: the version
-  // check retires it the moment a newer request exists, and the chain keeps
-  // two requests from being in flight at once, so the host's last write is
-  // always the newest set (a stale cancelled request used to resolve last and
-  // leave the visible session without updates).
-  const visibleSessionsVersion = useRef(0);
-  const visibleSessionsChain = useRef<Promise<void>>(Promise.resolve());
-  useLayoutEffect(() => {
-    const setVisibleSessions = window.mixdogDesktop?.setVisibleSessions;
-    if (typeof setVisibleSessions !== "function") return;
-    const version = ++visibleSessionsVersion.current;
-    const sessionIds = visibleSessionIds;
-    let cancelled = false;
-    let retryTimer = 0;
-    let releaseRetry: (() => void) | null = null;
-    const stale = (): boolean => cancelled || visibleSessionsVersion.current !== version;
-    const register = async (): Promise<void> => {
-      let attempt = 0;
-      while (!stale()) {
-        let accepted = false;
-        try {
-          accepted = await setVisibleSessions(sessionIds) === true;
-        } catch {
-          accepted = false;
-        }
-        if (stale() || accepted) return;
-        const delay = Math.min(1_000, 80 * (2 ** Math.min(attempt, 4)));
-        attempt += 1;
-        await new Promise<void>((resolve) => {
-          retryTimer = window.setTimeout(() => {
-            retryTimer = 0;
-            resolve();
-          }, delay);
-          releaseRetry = () => {
-            if (retryTimer) window.clearTimeout(retryTimer);
-            retryTimer = 0;
-            resolve();
-          };
-        });
-      }
-    };
-    visibleSessionsChain.current = visibleSessionsChain.current
-      .catch(() => undefined)
-      .then(register)
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      // Releasing the pending backoff lets the chain advance to the request
-      // that replaced this one instead of waiting out its timer.
-      releaseRetry?.();
-      if (retryTimer) window.clearTimeout(retryTimer);
-    };
-  }, [visibleSessionKey]);
-  useEffect(() => () => {
-    const setVisibleSessions = window.mixdogDesktop?.setVisibleSessions;
-    if (typeof setVisibleSessions !== "function") return;
-    // Unmount retires every queued request before clearing the host.
-    visibleSessionsVersion.current += 1;
-    visibleSessionsChain.current = visibleSessionsChain.current
-      .catch(() => undefined)
-      .then(() => setVisibleSessions([]).then(() => undefined))
-      .catch(() => undefined);
-  }, []);
+  const visibleSessionIds = [...new Set([...paneSessionIds, ...observedSessionIds])];
+  useVisibleSessions(visibleSessionIds);
   // Selection is ONE document-wide range, so a drag that starts in one pane
   // and travels over another painted every row in between (user: 왜 드래그가
   // 패널별로 분리 안 되어 있어). Mark the pane the gesture began in; CSS

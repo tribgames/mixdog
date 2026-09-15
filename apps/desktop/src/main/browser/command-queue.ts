@@ -18,6 +18,8 @@ export interface BrowserCommandQueueHost {
   /** Reads in flight per queue key, which a write must outlast. */
   pendingReads: Map<string, Set<Promise<unknown>>>;
   sessionId?(command: BrowserCommand): string;
+  /** Resolve tab-less work to the selected physical page, including support tabs. */
+  currentPageId?(sessionId: string): string | undefined;
   backgroundEntryByPageId(sessionId: string, pageId: string): [string, unknown] | null;
   run(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult>;
   /** The per-command ceiling, which also cancels the work it was waiting on. */
@@ -70,7 +72,8 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
     const prefix = owner ? `session:${owner}:` : '';
     const action = String(command.action || '').trim().toLowerCase();
     if (action === 'list_tabs' || action === 'downloads') return `${prefix}metadata`;
-    const tab = String(command.tab || '').trim();
+    const tab = String(command.tab || (command.background !== true
+      ? host.currentPageId?.(owner ?? '') : '') || '').trim();
     if (/^p\d+$/i.test(tab)) {
       const found = backgroundEntryByPageId(owner ?? '', tab);
       if (found) return `${prefix}background:${found[0]}`;

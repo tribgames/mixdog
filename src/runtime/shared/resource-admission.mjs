@@ -1,7 +1,7 @@
 import { freemem, totalmem } from 'node:os';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { requestMemoryPressureSnapshot } from './memory-snapshot.mjs';
-import { positiveInt } from './numbers.mjs';
+import { nonNegativeInt, positiveInt } from './numbers.mjs';
 
 const MB = 1024 * 1024;
 
@@ -28,11 +28,6 @@ export function normalizePriority(value) {
   return Object.hasOwn(PRIORITY_RANK, key) ? key : 'user-visible';
 }
 
-
-function nonNegativeInt(value, fallback) {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
 
 function envLimits(env = process.env) {
   return {

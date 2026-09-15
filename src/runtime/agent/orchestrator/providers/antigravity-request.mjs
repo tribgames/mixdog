@@ -10,10 +10,19 @@ export function isAntigravityClaude(model) {
     return /^claude-/i.test(String(model || ''));
 }
 
+// A replay recorded by the other model family (Claude vs Gemini) carries
+// signatures the target model rejects; rebuild it from the plain history
+// with the recovery sentinel instead.
+function replayFamilyMatches(message, model) {
+    const recorded = message?.providerReplay?.requestContext?.model;
+    if (typeof recorded !== 'string' || !recorded) return true;
+    return isAntigravityClaude(recorded) === isAntigravityClaude(model);
+}
+
 function signatureSafeMessages(messages, model) {
     return messages.map(message => {
         if (message?.role !== 'assistant') return message;
-        const ownParts = providerReplayItems(message, 'antigravity');
+        const ownParts = replayFamilyMatches(message, model) ? providerReplayItems(message, 'antigravity') : undefined;
         // Repair tool signatures only after the complete history establishes
         // the active turn, not while normalizing an isolated older message.
         const parts = ownParts || toGeminiContents([message], model, { repairToolSignatures: false })[0]?.parts;
@@ -60,20 +69,12 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
             thinkingConfig.thinkingBudget = value;
         }
     } else {
+        // Tiered wire ids (gemini-3.8-flash-high) already encode the thinking
+        // level; the provider resolves them from the catalog and clears the
+        // effort, so only bare ids reach this field.
         thinkingConfig = geminiThinkingConfig(model, opts, {
             includeThoughts: /^gemini-3/i.test(model) ? true : undefined,
         });
-        // This gateway selects Gemini Pro thinking tiers by model ID; Flash
-        // uses the bare model ID plus the ordinary thinkingLevel field.
-        if (thinkingConfig?.thinkingLevel && /^gemini-3(?:\.\d+)?-pro(?:-|$)/i.test(model)) {
-            const level = thinkingConfig.thinkingLevel;
-            if (!['low', 'high'].includes(level)) {
-                throw new TypeError('Antigravity Gemini Pro supports low/high model tiers.');
-            }
-            model = `${model.replace(/-(?:low|medium|high)$/i, '')}-${level}`;
-        } else if (thinkingConfig?.thinkingLevel && /^gemini-3(?:\.\d+)?-flash(?:-|$)/i.test(model)) {
-            model = model.replace(/-(?:minimal|low|medium|high)$/i, '');
-        }
     }
     const generationConfig = {
         ...(claude ? { maxOutputTokens: CLAUDE_MAX_OUTPUT_TOKENS } : {}),

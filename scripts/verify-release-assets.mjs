@@ -2,29 +2,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-export const PATCH_PLATFORMS = {
-  'darwin-arm64': 'mixdog-patch-darwin-arm64',
-  'darwin-x64': 'mixdog-patch-darwin-x64',
-  'linux-arm64': 'mixdog-patch-linux-arm64',
-  'linux-x64': 'mixdog-patch-linux-x64',
-  'win32-x64': 'mixdog-patch-win32-x64.exe',
-};
+import { nativeToolPlatformAssets } from './native-tool-download.mjs';
 
-export const GRAPH_PLATFORMS = {
-  'darwin-arm64': 'mixdog-graph-darwin-arm64',
-  'darwin-x64': 'mixdog-graph-darwin-x64',
-  'linux-arm64': 'mixdog-graph-linux-arm64',
-  'linux-x64': 'mixdog-graph-linux-x64',
-  'win32-x64': 'mixdog-graph-win32-x64.exe',
-};
-
-export const SPAWN_PLATFORMS = {
-  'darwin-arm64': 'mixdog-spawn-darwin-arm64',
-  'darwin-x64': 'mixdog-spawn-darwin-x64',
-  'linux-arm64': 'mixdog-spawn-linux-arm64',
-  'linux-x64': 'mixdog-spawn-linux-x64',
-  'win32-x64': 'mixdog-spawn-win32-x64.exe',
-};
+export const PATCH_PLATFORMS = nativeToolPlatformAssets('patch');
+export const GRAPH_PLATFORMS = nativeToolPlatformAssets('graph');
+export const SPAWN_PLATFORMS = nativeToolPlatformAssets('spawn');
 
 const RUNTIME_PLATFORMS = [
   'linux-x64',
@@ -59,15 +41,47 @@ function assertExactKeys(value, expected, label) {
   }
 }
 
-export function validatePatchManifest(manifest, cargoToml) {
-  assertPlainObject(manifest, 'Patch manifest');
-  assertExactKeys(manifest, ['version', '_comment', 'assets'], 'Patch manifest');
+function assertToolManifestEnvelope(manifest, label) {
+  assertPlainObject(manifest, `${label} manifest`);
+  assertExactKeys(manifest, ['version', '_comment', 'assets'], `${label} manifest`);
   if (typeof manifest.version !== 'string' || !STRICT_VERSION.test(manifest.version)) {
-    throw new Error(`Patch manifest version is not strict MAJOR.MINOR.PATCH: ${manifest.version}`);
+    throw new Error(`${label} manifest version is not strict MAJOR.MINOR.PATCH: ${manifest.version}`);
   }
   if (typeof manifest._comment !== 'string' || !manifest._comment) {
-    throw new Error('Patch manifest _comment must be a non-empty string');
+    throw new Error(`${label} manifest _comment must be a non-empty string`);
   }
+}
+
+function assertParsedGithubAssetUrl(assetUrl, platform, kind, expectedPath) {
+  if (typeof assetUrl !== 'string') throw new Error(`${platform}: ${kind} asset URL must be a string`);
+  let url;
+  try {
+    url = new URL(assetUrl);
+  } catch {
+    throw new Error(`${platform}: invalid ${kind} asset URL`);
+  }
+  if (
+    url.protocol !== 'https:'
+    || url.hostname !== 'github.com'
+    || url.port
+    || url.username
+    || url.password
+    || url.search
+    || url.hash
+    || url.pathname !== expectedPath
+  ) {
+    throw new Error(`${platform}: ${kind} asset URL must be https://github.com${expectedPath}`);
+  }
+}
+
+function assertAssetSha256(value, platform, kind) {
+  if (typeof value !== 'string' || !SHA256.test(value)) {
+    throw new Error(`${platform}: invalid ${kind} asset sha256`);
+  }
+}
+
+export function validatePatchManifest(manifest, cargoToml) {
+  assertToolManifestEnvelope(manifest, 'Patch');
   assertPlainObject(manifest.assets, 'Patch manifest assets');
   assertExactKeys(manifest.assets, Object.keys(PATCH_PLATFORMS), 'Patch manifest assets');
 
@@ -96,29 +110,9 @@ export function validatePatchManifest(manifest, cargoToml) {
     const asset = manifest.assets[platform];
     assertPlainObject(asset, `Patch asset ${platform}`);
     assertExactKeys(asset, ['url', 'sha256'], `Patch asset ${platform}`);
-    if (typeof asset.url !== 'string') throw new Error(`${platform}: patch asset URL must be a string`);
-    let url;
-    try {
-      url = new URL(asset.url);
-    } catch {
-      throw new Error(`${platform}: invalid patch asset URL`);
-    }
     const expectedPath = `/tribgames/mixdog/releases/download/patch-v${manifest.version}/${filename}`;
-    if (
-      url.protocol !== 'https:'
-      || url.hostname !== 'github.com'
-      || url.port
-      || url.username
-      || url.password
-      || url.search
-      || url.hash
-      || url.pathname !== expectedPath
-    ) {
-      throw new Error(`${platform}: patch asset URL must be https://github.com${expectedPath}`);
-    }
-    if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
-      throw new Error(`${platform}: invalid patch asset sha256`);
-    }
+    assertParsedGithubAssetUrl(asset.url, platform, 'patch', expectedPath);
+    assertAssetSha256(asset.sha256, platform, 'patch');
   }
   return manifest;
 }
@@ -174,14 +168,7 @@ export function validateRuntimeManifest(manifest) {
 }
 
 export function validateGraphManifest(manifest, packageJson) {
-  assertPlainObject(manifest, 'Graph manifest');
-  assertExactKeys(manifest, ['version', '_comment', 'assets'], 'Graph manifest');
-  if (typeof manifest.version !== 'string' || !STRICT_VERSION.test(manifest.version)) {
-    throw new Error(`Graph manifest version is not strict MAJOR.MINOR.PATCH: ${manifest.version}`);
-  }
-  if (typeof manifest._comment !== 'string' || !manifest._comment) {
-    throw new Error('Graph manifest _comment must be a non-empty string');
-  }
+  assertToolManifestEnvelope(manifest, 'Graph');
   assertPlainObject(packageJson, 'package.json');
   if (typeof packageJson.version !== 'string' || !STRICT_VERSION.test(packageJson.version)) {
     throw new Error(`package.json version is not strict MAJOR.MINOR.PATCH: ${packageJson.version}`);
@@ -193,42 +180,15 @@ export function validateGraphManifest(manifest, packageJson) {
     const asset = manifest.assets[platform];
     assertPlainObject(asset, `Graph asset ${platform}`);
     assertExactKeys(asset, ['url', 'sha256'], `Graph asset ${platform}`);
-    if (typeof asset.url !== 'string') throw new Error(`${platform}: graph asset URL must be a string`);
-    let url;
-    try {
-      url = new URL(asset.url);
-    } catch {
-      throw new Error(`${platform}: invalid graph asset URL`);
-    }
     const expectedPath = `/tribgames/mixdog/releases/download/graph-v${manifest.version}/${filename}`;
-    if (
-      url.protocol !== 'https:'
-      || url.hostname !== 'github.com'
-      || url.port
-      || url.username
-      || url.password
-      || url.search
-      || url.hash
-      || url.pathname !== expectedPath
-    ) {
-      throw new Error(`${platform}: graph asset URL must be https://github.com${expectedPath}`);
-    }
-    if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
-      throw new Error(`${platform}: invalid graph asset sha256`);
-    }
+    assertParsedGithubAssetUrl(asset.url, platform, 'graph', expectedPath);
+    assertAssetSha256(asset.sha256, platform, 'graph');
   }
   return manifest;
 }
 
 export function validateSpawnManifest(manifest, cargoToml) {
-  assertPlainObject(manifest, 'Spawn manifest');
-  assertExactKeys(manifest, ['version', '_comment', 'assets'], 'Spawn manifest');
-  if (typeof manifest.version !== 'string' || !STRICT_VERSION.test(manifest.version)) {
-    throw new Error(`Spawn manifest version is not strict MAJOR.MINOR.PATCH: ${manifest.version}`);
-  }
-  if (typeof manifest._comment !== 'string' || !manifest._comment) {
-    throw new Error('Spawn manifest _comment must be a non-empty string');
-  }
+  assertToolManifestEnvelope(manifest, 'Spawn');
   const cargoVersion = String(cargoToml).match(/^\s*version\s*=\s*"([^"]+)"\s*$/m)?.[1];
   if (cargoVersion !== manifest.version) {
     throw new Error(`Spawn Cargo version ${cargoVersion || '(missing)'} does not match manifest version ${manifest.version}`);
@@ -241,9 +201,7 @@ export function validateSpawnManifest(manifest, cargoToml) {
     assertExactKeys(asset, ['url', 'sha256'], `Spawn asset ${platform}`);
     const expected = `https://github.com/tribgames/mixdog/releases/download/spawn-v${manifest.version}/${filename}`;
     if (asset.url !== expected) throw new Error(`${platform}: spawn asset URL must be ${expected}`);
-    if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
-      throw new Error(`${platform}: invalid spawn asset sha256`);
-    }
+    assertAssetSha256(asset.sha256, platform, 'spawn');
   }
   return manifest;
 }

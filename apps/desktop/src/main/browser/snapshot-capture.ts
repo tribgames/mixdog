@@ -18,6 +18,7 @@ import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
 import type { GuestSlot } from './guest-state';
 import { redactBrowserText } from './redaction';
+import { browserRefElementSource } from './ref-access';
 import { createBrowserRefSet, type BrowserRefSet } from './ref-recovery';
 import { browserSnapshotExpression } from './snapshot-scripts';
 import { timedBrowserOperation } from './timing';
@@ -319,13 +320,11 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
     );
     if (accessibility.handled) return accessibility.value;
     return await evaluate<unknown>(guest, `(async () => {
-      const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-      const target = record?.element || record;
-      if (!target || !target.isConnected) throw new Error('stale ref');
+      ${browserRefElementSource(ref)}
       return await (async function(script) {
         const element = this;
         return await eval(script);
-      }).call(target, ${JSON.stringify(script)});
+      }).call(element, ${JSON.stringify(script)});
     })()`, signal, timeoutMs);
   }
 

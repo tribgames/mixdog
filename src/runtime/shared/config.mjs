@@ -6,7 +6,7 @@ import { readFileSync, statSync, mkdirSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { createRequire } from 'module'
 import { resolvePluginData } from './plugin-paths.mjs'
-import { hasOwn } from './object.mjs'
+import { hasOwn, isPlainObject } from './object.mjs'
 import { renameWithRetrySync, writeJsonAtomicSync, writeJsonAtomicAsync, withFileLockSync, withFileLock } from './atomic-file.mjs'
 import {
   backupUserData,
@@ -114,11 +114,6 @@ function readConfigRawCached() {
   return raw
 }
 
-function isPlainObject(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
-
 // Canonical on-disk channel shape. Provider-specific ids are durable. Schedule
 // arrays moved to the scheduler DB and prompt injection moved to runtime hooks,
 // so neither belongs in config anymore.
@@ -185,7 +180,7 @@ export function canonicalizeUnifiedConfig(value = {}) {
 }
 
 function stripGeneratedMarker(data) {
-  if (!isPlainObject(data) || !Object.prototype.hasOwnProperty.call(data, GENERATED_KEY)) return data
+  if (!isPlainObject(data) || !hasOwn(data, GENERATED_KEY)) return data
   const { [GENERATED_KEY]: _generated, ...rest } = data
   return rest
 }

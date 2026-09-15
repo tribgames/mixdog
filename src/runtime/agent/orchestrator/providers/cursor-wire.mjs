@@ -1,5 +1,6 @@
 import crypto, { createHash } from 'node:crypto';
 import http2 from 'node:http2';
+import { isDeepStrictEqual } from 'node:util';
 import {
     AUTO_MODEL,
     FALLBACK_MODELS,
@@ -380,6 +381,7 @@ function buildToolDefinitions(tools = []) {
             description: prepared.description,
             inputSchema: encodeJsonValue(prepared.inputSchema),
             inputSchemaJson: JSON.stringify(prepared.inputSchema),
+            inputSchemaObject: prepared.inputSchema,
             providerIdentifier: 'mixdog',
             toolName: prepared.name,
         };
@@ -403,6 +405,33 @@ function requestModelParameters(body) {
             value: String(entry?.value ?? ''),
         }))
         .filter((entry) => entry.id);
+}
+
+function buildRequestContext(tools, cloudRule) {
+    return {
+        tools,
+        mcpInstructions: tools.length ? [{
+            serverName: 'mixdog',
+            instructions: 'Use the tools provided by the mixdog MCP server for this task. '
+                + 'Follow their descriptions and input schemas. Prefer them over Cursor native tools; '
+                + 'native tools do not directly access the Mixdog environment. '
+                + 'If a needed tool is not available, use the provided tool discovery mechanism rather than inventing a tool.',
+        }] : [],
+        ...(cloudRule ? { cloudRule } : {}),
+        fileContents: {},
+    };
+}
+
+function canReuseRun(active, { tools, cloudRule, modelParameters, maxMode }) {
+    const toolContract = (definitions) => new Map(definitions.map((tool) => [
+        tool.name,
+        { description: tool.description, inputSchema: tool.inputSchemaObject },
+    ]));
+    const parameters = (values) => new Map(values.map(({ id, value }) => [id, value]));
+    return (active.cloudRule || '') === (cloudRule || '')
+        && isDeepStrictEqual(toolContract(active.tools), toolContract(tools))
+        && isDeepStrictEqual(parameters(active.modelParameters || []), parameters(modelParameters))
+        && (active.maxMode === true) === maxMode;
 }
 
 const conversations = new Map();
@@ -522,11 +551,8 @@ function storeBlob(conversation, bytes) {
 
 function buildRunRequest({ model, modelParameters = [], maxMode = false, systems, history, userText, userImages = [], tools, conversation }) {
     assertCursorUserImages(userImages);
-    const prompts = systems.length ? systems : ['You are a helpful assistant.'];
+    const requestContext = buildRequestContext(tools, systems.join('\n\n') || undefined);
     const rootPromptMessagesJson = [];
-    for (const content of prompts) {
-        rootPromptMessagesJson.push(storeBlob(conversation, textEncoder.encode(JSON.stringify({ role: 'system', content }))));
-    }
     for (const entry of history) {
         rootPromptMessagesJson.push(storeBlob(conversation, textEncoder.encode(JSON.stringify(entry))));
     }
@@ -535,6 +561,7 @@ function buildRunRequest({ model, modelParameters = [], maxMode = false, systems
     const action = userText || userImages.length
         ? {
             userMessageAction: {
+                requestContext,
                 userMessage: {
                     text: userText,
                     messageId: crypto.randomUUID(),
@@ -550,7 +577,7 @@ function buildRunRequest({ model, modelParameters = [], maxMode = false, systems
                 },
             },
         }
-        : { resumeAction: {} };
+        : { resumeAction: { requestContext } };
     return encodeMessage('AgentClientMessage', {
         runRequest: {
             conversationState: stateBytes,
@@ -560,13 +587,12 @@ function buildRunRequest({ model, modelParameters = [], maxMode = false, systems
                 maxMode: maxMode === true,
                 parameters: modelParameters,
             },
-            mcpTools: { mcpTools: tools },
             conversationId: conversation.id,
             // NOTE: AgentRunRequest.customSystemPrompt (field 8) is a dead
             // channel on the current cloud endpoint: the server maps it to an
             // internal `--system-prompt` agent flag its binary rejects with
-            // invalid_argument (400). Harness parity is carried by the
-            // requestContext cloudRule instead (see handleExecMessage).
+            // invalid_argument (400). Send the harness once through the
+            // action's requestContext.cloudRule, not through root history too.
         },
     });
 }
@@ -671,15 +697,7 @@ function handleExecMessage(bridge, exec, tools, cloudRule, onToolCall) {
     if (exec.requestContextArgs) {
         sendExecResult(bridge, exec, 'requestContextResult', {
             success: {
-                requestContext: {
-                    tools,
-                    mcpInstructions: [],
-                    // Cursor's rules channel: without it the server-side agent
-                    // treats the client as ruleless and applies only its own
-                    // harness policy (user report: policies ignored vs direct).
-                    ...(cloudRule ? { cloudRule } : {}),
-                    fileContents: {},
-                },
+                requestContext: buildRequestContext(tools, cloudRule),
             },
         });
         return;
@@ -989,6 +1007,8 @@ function createStreamResponse({
     tools,
     cloudRule,
     model,
+    modelParameters = [],
+    maxMode = false,
     key,
     // Owning session, carried into the stored run so a session close can find
     // and tear down the pending batch's bridge/heartbeat.
@@ -1072,6 +1092,8 @@ function createStreamResponse({
                     conversation,
                     tools,
                     cloudRule,
+                    modelParameters,
+                    maxMode,
                     sessionId,
                     pending: state.pending,
                     sawTurnEnded: state.sawTurnEnded,
@@ -1361,8 +1383,12 @@ export async function handleChatCompletion(body, accessToken) {
     const maxMode = body.mixdog_max_mode === true;
     const sessionId = String(body.mixdog_session_id || '');
     const key = runKey(model, body.messages, sessionId);
+    const selectedTools = selectToolsForChoice(body.tools, body.tool_choice);
+    const toolDefinitions = buildToolDefinitions(selectedTools);
+    const cloudRule = parsed.systems.join('\n\n') || undefined;
     const active = activeRuns.get(key);
-    if (active && parsed.toolResults.length && active.bridge.alive) {
+    if (active && parsed.toolResults.length && active.bridge.alive
+        && canReuseRun(active, { tools: toolDefinitions, cloudRule, modelParameters, maxMode })) {
         forgetActiveRun(key, active);
         return resumeRun(active, parsed.toolResults, parsed.userText, model, key);
     }
@@ -1373,8 +1399,6 @@ export async function handleChatCompletion(body, accessToken) {
     }
     const convKey = conversationKey(body.messages, sessionId);
     const conversation = getConversation(convKey);
-    const selectedTools = selectToolsForChoice(body.tools, body.tool_choice);
-    const toolDefinitions = buildToolDefinitions(selectedTools);
     const runInput = {
         model,
         modelParameters,
@@ -1392,12 +1416,11 @@ export async function handleChatCompletion(body, accessToken) {
         bridge,
         heartbeat,
         conversation,
-        tools: toolDefinitions.map((definition, index) => ({
-            ...definition,
-            inputSchemaObject: selectedTools[index]?.function?.parameters || {},
-        })),
-        cloudRule: parsed.systems.join('\n\n') || undefined,
+        tools: toolDefinitions,
+        cloudRule,
         model,
+        modelParameters,
+        maxMode,
         key,
         sessionId,
         restart: ({ fromCheckpoint }) => startRun(

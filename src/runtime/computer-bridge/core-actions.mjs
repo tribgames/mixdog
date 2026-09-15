@@ -1,4 +1,5 @@
 import { hasOwn } from '../shared/object.mjs';
+import { schemaStringLength } from '../shared/schema-value-error.mjs';
 import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from './limits.mjs';
 
 export const COMPUTER_DEFAULT_DELIVERY = 'background';
@@ -16,7 +17,7 @@ const COMPUTER_CORE_ACTION_TYPES = Object.freeze([
 
 export const COMPUTER_CORE_ACTION_SCHEMA = {
   type: 'object',
-  description: 'One simple desktop action. Mixdog executes 1-6 actions in order and returns one fresh observation.',
+  description: 'One action; act.actions defines ordering and target reuse.',
   properties: {
     type: { type: 'string', enum: COMPUTER_CORE_ACTION_TYPES },
     ref: {
@@ -48,7 +49,7 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
     direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
     amount: { type: 'integer', minimum: 1, maximum: 100 },
     text: { type: 'string', maxLength: 30_000,
-      description: `Literal text. Foreground typing accepts at most ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} characters per action; split longer text into separate observed acts.` },
+      description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action.` },
     keys: {
       type: 'string',
       minLength: 1,
@@ -101,10 +102,11 @@ function fieldValueError(field, value, label) {
   }
   if (schema.type === 'string') {
     if (typeof value !== 'string') return `${label}.${field} must be a string`;
-    if (schema.minLength !== undefined && value.length < schema.minLength) {
+    const length = schemaStringLength(value);
+    if (schema.minLength !== undefined && length < schema.minLength) {
       return `${label}.${field} requires at least ${schema.minLength} characters`;
     }
-    if (schema.maxLength !== undefined && value.length > schema.maxLength) {
+    if (schema.maxLength !== undefined && length > schema.maxLength) {
       return `${label}.${field} accepts at most ${schema.maxLength} characters`;
     }
     if (schema.pattern !== undefined && !new RegExp(schema.pattern).test(value)) {
@@ -157,7 +159,7 @@ export function validateComputerCoreActions(
     }
     if (type === 'type' && delivery === 'foreground'
       && typeof action.text === 'string' && action.text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS) {
-      return `${label} foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} characters; split the text into separate observed acts`;
+      return `${label} foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units`;
     }
     for (const field of ['ref', 'to']) {
       if (hasOwn(action, field) && !action[field].trim()) {

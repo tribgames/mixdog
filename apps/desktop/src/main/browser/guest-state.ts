@@ -208,6 +208,16 @@ export class BrowserGuestStateStore {
   }
 }
 
+/** The identity every input, display frame and approval binds itself to:
+ *  which page, and which document generation inside that page. A reload or
+ *  navigation retires it, so nothing observed before can act afterwards. */
+export function browserDocumentId(
+  state: Pick<BrowserGuestStateStore, 'pageId' | 'for'>,
+  guest: WebContents,
+): string {
+  return `${state.pageId(guest)}:${state.for(guest).documentGeneration}`;
+}
+
 /** Append to a capped diagnostic list, redacting and trimming the entry. */
 export function pushBounded(target: string[], value: string, max = 30): void {
   target.push(redactBrowserText(String(value).slice(0, 4_000)));

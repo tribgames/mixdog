@@ -13,9 +13,50 @@ import { shouldMirrorCompletionToPendingQueue } from './runtime-tool-routing.mjs
 import { notifyTrace } from '../runtime/shared/notify-trace.mjs';
 
 const sessionNotificationListeners = new Map();
+// A completion that waits this long between enqueue and wake is reported: the
+// queue is durable, so the delay is a scheduling symptom, not a lost message.
+const WAKE_DELAY_REPORT_MS = 1_000;
 
 function cleanSessionId(value) {
   return String(value || '').trim();
+}
+
+// A queued completion only reaches the model on the next turn, so a session
+// with no user input pending is woken with an empty turn. One wake per session
+// at a time; a completion whose owner is no longer the live session is dropped
+// (the durable queue still carries it into that session's next turn).
+export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi }) {
+  const inFlight = new Set();
+  return function wakeQueuedCompletion({ sessionId, executionId, enqueuedAt } = {}) {
+    const ownerSessionId = cleanSessionId(sessionId);
+    if (!ownerSessionId || inFlight.has(ownerSessionId)) return false;
+    inFlight.add(ownerSessionId);
+    setImmediate(async () => {
+      const queuedAt = Number(enqueuedAt) || Date.now();
+      try {
+        const turnApi = getTurnApi();
+        if (cleanSessionId(getCurrentSessionId()) !== ownerSessionId || !turnApi) return;
+        const delayMs = Math.max(0, Date.now() - queuedAt);
+        if (delayMs >= WAKE_DELAY_REPORT_MS) {
+          process.stderr.write(
+            `[notification] delayed completion wake sessionId=${ownerSessionId}`
+            + ` executionId=${executionId || 'unknown'} queuedMs=${delayMs}\n`,
+          );
+        }
+        await turnApi.ask('', { submittedAt: queuedAt });
+      } catch (err) {
+        try {
+          process.stderr.write(
+            `[notification] completion wake failed sessionId=${ownerSessionId}`
+            + ` executionId=${executionId || 'unknown'} err=${err?.message || err}\n`,
+          );
+        } catch {}
+      } finally {
+        inFlight.delete(ownerSessionId);
+      }
+    });
+    return true;
+  };
 }
 
 function emitToListeners(source, content, meta = {}) {

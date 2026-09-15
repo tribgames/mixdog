@@ -5,8 +5,8 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { ProviderAccountsList } from './ProviderAccountsList.tsx';
 import { OAuthControl, ProvidersPanel } from './settings/provider-panel.tsx';
-import { SidebarUsage } from './SidebarUsage.tsx';
-import { publishUsageDashboard } from './usage-dashboard-store.ts';
+import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
+import { getUsageDashboardSnapshot, publishUsageDashboard } from './usage-dashboard-store.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -172,6 +172,55 @@ test('switching accounts repaints that provider at once and confirms it with a s
   assert.equal(dashboardArgs.length, 1);
   assert.deepEqual(dashboardArgs[0].refreshProviders, ['openai-oauth']);
   assert.equal(dashboardArgs[0].refresh, true);
+});
+
+test('switching to an account without usage clears old meters and reset credits until its live result arrives', async (t) => {
+  const render = harness(t);
+  const other = { id: 'anthropic-oauth', group: 'oauth', authenticated: true,
+    windows: [{ label: '7D', usedPct: 3 }] };
+  publishUsageDashboard({ rows: [
+    { id: 'openai-oauth', group: 'oauth', authenticated: true,
+      windows: [{ label: '7D', usedPct: 39 }],
+      resetCredits: { availableCount: 1, offerRevision: 'account-a:offer', availableCredits: [{ id: 'old-credit' }] } },
+    other,
+  ] });
+  const pool = { selectedId: 'a', auto: true, accounts: [
+    { id: 'a', label: 'Personal', authenticated: true },
+    { id: 'b', label: 'Work', authenticated: true },
+  ] };
+  const dashboardArgs = [];
+  let resolveUsage;
+  const api = { async invokeCapability({ capability, args }) {
+    if (capability === 'getUsageDashboard') {
+      dashboardArgs.push(args[0]);
+      return await new Promise((resolve) => { resolveUsage = resolve; });
+    }
+    if (capability === 'updateProviderAccounts') pool.selectedId = args[1].selectedId;
+    return { value: structuredClone(pool) };
+  } };
+  await render(React.createElement(SidebarUsage, { api }));
+  assert.equal(document.querySelector('[data-usage-provider="codex"] .sidebar-usage-meter b').textContent, '39%');
+  assert.ok(document.querySelector('.sidebar-usage-reset-credit'));
+  await act(async () => document.querySelector('[data-usage-provider="codex"] .provider-account-picker-trigger').click());
+  await act(async () => document.querySelector('[data-account-id="b"] .provider-account-choice').click());
+  const codex = () => document.querySelector('[data-usage-provider="codex"]');
+  assert.equal(codex().querySelector('.sidebar-usage-meter b'), null);
+  assert.match(codex().querySelector('.sidebar-usage-meter-empty').textContent, /Loading usage/);
+  assert.equal(codex().getAttribute('aria-busy'), 'true');
+  assert.equal(document.querySelector('.sidebar-usage-reset-credit'), null);
+  assert.equal(document.querySelector('[data-usage-provider="claude"] .sidebar-usage-meter b').textContent, '3%');
+  assert.deepEqual(usagePinEntries(getUsageDashboardSnapshot().dashboard).map((row) => [row.key, row.percent]), [['claude', 3]]);
+  assert.deepEqual(dashboardArgs, [{ refresh: true, refreshSetup: false, refreshProviders: ['openai-oauth'] }]);
+
+  await act(async () => resolveUsage({ value: { rows: [
+    { id: 'openai-oauth', group: 'oauth', authenticated: true, windows: [{ label: '7D', usedPct: 12 }] },
+    other,
+  ] } }));
+  assert.equal(codex().querySelector('.sidebar-usage-meter b').textContent, '12%');
+  assert.equal(codex().querySelector('.sidebar-usage-meter-empty'), null);
+  assert.equal(codex().getAttribute('aria-busy'), 'false');
+  assert.equal(document.querySelector('.sidebar-usage-reset-credit'), null);
+  assert.deepEqual(usagePinEntries(getUsageDashboardSnapshot().dashboard).map((row) => [row.key, row.percent]), [['codex', 12], ['claude', 3]]);
 });
 
 test('settings isolate OpenCode Go between OAuth and API providers while preserving authentication actions', async (t) => {

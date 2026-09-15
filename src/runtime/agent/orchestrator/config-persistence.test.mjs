@@ -30,6 +30,7 @@ test('sync and async config writes preserve user fields without persisting secre
         modelSettings: { 'openai/test-model': { contextPercent: 70, custom: true } },
         profile: { title: '재영님', language: 'ko', experienceLevel: 'vibe-coder' },
         skills: { disabled: ['alpha'] },
+        disabledAgents: ['reviewer'],
         extensionScopes: {},
         autoClear: { enabled: false, idleMs: 90000, minContextPercent: 25 },
         compaction: { auto: false, summaryModel: 'summary-test', memoryTimeoutMs: 1000 },
@@ -49,6 +50,7 @@ test('sync and async config writes preserve user fields without persisting secre
       assert.deepEqual(persisted.unmanaged, { revision: 7 });
       assert.deepEqual(persisted.modelSettings, config.modelSettings);
       assert.deepEqual(persisted.profile, config.profile);
+      assert.deepEqual(persisted.disabledAgents, ['reviewer']);
       for (const field of ['skills', 'autoClear', 'compaction', 'shell', 'modules']) {
         assert.deepEqual(persisted[field], config[field]);
       }
@@ -56,9 +58,15 @@ test('sync and async config writes preserve user fields without persisting secre
       const loaded = loadConfig({ secrets: false });
       assert.equal(loaded.providers.xai.enabled, false);
       assert.deepEqual(loaded.profile, config.profile);
+      assert.deepEqual(loaded.disabledAgents, ['reviewer']);
       for (const field of ['skills', 'autoClear', 'compaction', 'shell', 'modules']) {
         assert.deepEqual(loaded[field], config[field]);
       }
+
+      // Re-enabling clears disabledAgents from disk
+      await save({ ...config, disabledAgents: [] });
+      assert.equal(Object.hasOwn(read(), 'disabledAgents'), false);
+      assert.equal(Object.hasOwn(loadConfig({ secrets: false }), 'disabledAgents'), false);
     }
 
     for (const patch of [patchSkillsDisabled, patchSkillsDisabledAsync]) {

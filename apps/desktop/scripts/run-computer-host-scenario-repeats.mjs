@@ -3,15 +3,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { optionValue } from './cli-args.mjs';
 import {
   assertRepeatedScenariosPassed,
   repeatRequiresPass,
 } from './computer-host-repeat-policy.mjs';
 
-const argument = (name) => {
-  const prefix = `--${name}=`;
-  return process.argv.find((value) => value.startsWith(prefix))?.slice(prefix.length) || '';
-};
+const argument = optionValue;
 
 const repeatCount = Math.max(1, Number(argument('repeat')) || 10);
 const label = argument('label') || 'baseline';

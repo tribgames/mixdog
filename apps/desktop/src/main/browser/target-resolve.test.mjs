@@ -108,6 +108,40 @@ test('a lone named target narrows the observation with its name and resolves thr
   assert.equal(f.captured[1].query, undefined, 'a batch resolves against one unfiltered observation');
 });
 
+test('a delayed target is resolved from a new observation without weakening its identity', async () => {
+  let captures = 0;
+  const commands = [];
+  const resolver = createBrowserTargetResolver({
+    captureSnapshotPayload: async (_guest, command) => {
+      commands.push(command);
+      captures++;
+      return {
+        elements: captures === 1 ? [] : [element('p1-s2-e1', 'button', 'Continue')],
+        unfilteredElements: captures === 1 ? 0 : 1,
+      };
+    },
+  });
+  const result = await resolver.resolveTargetRefs({}, [{ role: 'button', name: 'Continue', exact: true }]);
+  assert.deepEqual(result, [{ ref: 'p1-s2-e1', description: 'button "Continue" (exact)' }]);
+  assert.equal(captures, 2);
+  assert.deepEqual(commands[0], commands[1], 'waiting must not loosen the supplied target');
+});
+
+test('an ambiguous target is rejected immediately instead of selecting a transient first match', async () => {
+  let captures = 0;
+  const resolver = createBrowserTargetResolver({
+    captureSnapshotPayload: async () => {
+      captures++;
+      return { elements: [
+        element('p1-s1-e1', 'button', 'Continue'),
+        element('p1-s1-e2', 'button', 'Continue'),
+      ] };
+    },
+  });
+  await assert.rejects(resolver.resolveTargetRefs({}, [{ role: 'button', name: 'Continue' }]), /matched 2 elements/);
+  assert.equal(captures, 1);
+});
+
 test('a selector target reuses the AX ref for a known node and mints one for an unknown node', async () => {
   const elements = [element('p1-s2-e1', 'button', 'Cancel'), element('p1-s2-e2', 'checkbox', 'I agree')];
   const f = resolverFixture({ elements });

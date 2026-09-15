@@ -1,6 +1,6 @@
 import { usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
 
-const VIEWS = new Set(['hour', 'day', 'week', 'month', 'all']);
+const VIEWS = new Set(['hour', '7d', 'day', 'week', 'month', 'year', 'all', 'custom']);
 
 function midnight(value) {
   const date = new Date(value);
@@ -20,65 +20,63 @@ function anchorDate(anchor, now) {
   return date;
 }
 
-function periodStart(date, view) {
-  const start = midnight(date);
-  if (view !== 'hour') start.setDate(1);
-  if (view === 'week') start.setMonth(Math.floor(start.getMonth() / 3) * 3);
-  if (view === 'month') start.setMonth(0);
-  return start;
-}
-
-function shiftMonths(date, count) {
+function shiftDays(date, count) {
   const shifted = new Date(date);
-  shifted.setMonth(shifted.getMonth() + count);
+  shifted.setDate(shifted.getDate() + count);
   return shifted;
 }
 
-function calendarCount(from, to) {
-  const cursor = midnight(from);
-  const end = midnight(to);
-  let count = 0;
-  while (cursor <= end) {
-    count++;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return count;
+function calendarBounds(start, end, now, days) {
+  const toMs = Math.min(now, shiftDays(end, 1).getTime() - 1);
+  return { fromMs: start.getTime(), toMs, endMs: toMs,
+    startDay: usageRollupDayKey(start.getTime()), endDay: usageRollupDayKey(end.getTime()), days };
 }
 
 /**
- * One owner for calendar selection and navigation.
- * hour = today, day = a month, week = a calendar quarter, month = a year.
- * Display bounds include future slots; accounting bounds never exceed now.
+ * One owner for trailing ranges and navigation.
+ * hour = 24 elapsed hours; 7d/day/week/month = 7/30/90/365 local calendar dates.
+ * Calendar ranges include today. An anchor is the final included date.
+ * year groups retained history by year; all remains a legacy API alias.
+ * Display and accounting bounds both stop at the end of the selected range.
  */
-export function resolveUsageStatsPeriod({ view = 'hour', anchor, now = Date.now() } = {}) {
+export function resolveUsageStatsPeriod({ view = 'hour', anchor, startDay, endDay, now = Date.now() } = {}) {
   if (!VIEWS.has(view)) throw new TypeError('Unknown usage statistics view');
   if (!Number.isFinite(now) || now <= 0) throw new TypeError('Usage period requires a valid current time');
   const today = usageRollupDayKey(now);
-  if (view === 'all') {
+  if (view === 'year' || view === 'all') {
     return { view, anchor: null, fromMs: 0, toMs: now, startDay: null, endDay: today,
       days: null, previousAnchor: null, nextAnchor: null, isCurrent: true };
   }
-  const current = periodStart(now, view);
-  // Hourly history is deliberately not navigable.
-  const requested = view === 'hour' ? current : periodStart(anchorDate(anchor, now), view);
-  const start = requested > current ? current : requested;
-  const step = view === 'day' ? 1 : view === 'week' ? 3 : 12;
-  const next = view === 'hour' ? new Date(start) : shiftMonths(start, step);
-  if (view === 'hour') next.setDate(next.getDate() + 1);
-  const endMs = next.getTime() - 1;
-  const toMs = Math.min(now, endMs);
-  const previous = view === 'hour' ? null : shiftMonths(start, -step);
+  if (view === 'hour') {
+    const fromMs = now - 24 * 60 * 60 * 1000;
+    return { view, anchor: null, fromMs, toMs: now, endMs: now,
+      startDay: usageRollupDayKey(fromMs), endDay: today,
+      days: 1, previousAnchor: null, nextAnchor: null, isCurrent: true };
+  }
+  if (view === 'custom') {
+    if (startDay == null || endDay == null) throw new TypeError('Usage range requires a start and end date');
+    const start = anchorDate(startDay, now);
+    const end = anchorDate(endDay, now);
+    if (start > end) throw new RangeError('Usage range start must not follow its end');
+    if (end > midnight(now)) throw new RangeError('Usage range cannot include future dates');
+    const days = (Date.UTC(end.getFullYear(), end.getMonth(), end.getDate())
+      - Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000 + 1;
+    return { view, anchor: null, ...calendarBounds(start, end, now, days),
+      previousAnchor: null, nextAnchor: null, isCurrent: endDay === today };
+  }
+  const current = midnight(now);
+  const requested = anchorDate(anchor, now);
+  const end = requested > current ? current : requested;
+  const days = view === '7d' ? 7 : view === 'day' ? 30 : view === 'week' ? 90 : 365;
+  const start = shiftDays(end, 1 - days);
+  const previous = shiftDays(start, -1);
+  const next = shiftDays(end, days);
   return {
     view,
-    anchor: usageRollupDayKey(start.getTime()),
-    fromMs: start.getTime(),
-    toMs,
-    endMs,
-    startDay: usageRollupDayKey(start.getTime()),
-    endDay: usageRollupDayKey(endMs),
-    days: view === 'hour' ? 0 : calendarCount(start, toMs),
-    previousAnchor: previous && previous.getFullYear() >= 1970 ? usageRollupDayKey(previous.getTime()) : null,
-    nextAnchor: view !== 'hour' && next <= current ? usageRollupDayKey(next.getTime()) : null,
-    isCurrent: start.getTime() === current.getTime(),
+    anchor: usageRollupDayKey(end.getTime()),
+    ...calendarBounds(start, end, now, days),
+    previousAnchor: previous.getFullYear() >= 1970 ? usageRollupDayKey(previous.getTime()) : null,
+    nextAnchor: end < current ? usageRollupDayKey(Math.min(next.getTime(), current.getTime())) : null,
+    isCurrent: end.getTime() === current.getTime(),
   };
 }

@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { createBrowserCommandQueue } from './command-queue.ts';
 
-function takeoverFixture(run) {
+function takeoverFixture(run, options = {}) {
   return createBrowserCommandQueue({
     chains: new Map(), pendingReads: new Map(),
     sessionId: command => command.session_id || 'owner',
@@ -19,6 +19,7 @@ function takeoverFixture(run) {
       } finally { signal.removeEventListener('abort', abort); }
     },
     readOnlyActions: new Set(['snapshot']), commandTimeoutMs: 42_000,
+    ...options,
   });
 }
 
@@ -67,6 +68,32 @@ test('takeover retains the real in-flight dispatch fence after its caller is can
     assert.equal(sent, false, 'a cancelled response is not proof the edit stopped');
   } finally { finish(); await local; }
   assert.equal(sent, true);
+});
+
+test('local takeover and tab-less automation share the selected support page queue', async () => {
+  for (const target of [{ tab: 'work' }, { tab: 'p2' }, {}]) {
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    const events = [];
+    const queue = takeoverFixture(async (_command, signal) => {
+      events.push('agent');
+      entered();
+      await new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      return { text: 'unreachable' };
+    }, {
+      currentPageId: () => 'p2',
+      backgroundEntryByPageId: (_owner, id) => id === 'p2' ? ['work', {}] : null,
+    });
+    const agent = queue.executeSerialized({ action: 'wait', ...target });
+    const cancelled = assert.rejects(agent, /interrupted by local user input/);
+    await started;
+    await queue.executeLocal({ action: 'remote_control', tab: 'p2' }, async () => {
+      events.push('human');
+    }, { takeover: true, maxWaitMs: 2_000 });
+    await cancelled;
+    assert.deepEqual(events, ['agent', 'human']);
+    assert.equal(queue.commandQueueKey({ action: 'navigate', background: true }), 'session:owner:background:bg');
+  }
 });
 
 test('hover yields to automation, and a held human pointer excludes agent edits until release and idle', async () => {

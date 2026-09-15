@@ -97,6 +97,26 @@ test('Korean titles and shell-looking bodies remain JSON data', () => {
   assert.equal(JSON.parse(command.input).title, '--help');
 });
 
+test('workflow-filtered run lists execute once without a failed unfiltered request', async () => {
+  for (const workflow of ['build.yml', 'deploy.yml', 'release-projectaa.yml', '42']) {
+    const calls = [];
+    const result = await executeGithubRequest({ action: 'run.list', repo, workflow, page: 2, limit: 3 }, cwd, {
+      run: async (command) => {
+        calls.push(command);
+        return JSON.stringify({ workflow_runs: [{ id: 42 }] });
+      },
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].args[1], `repos/${repo}/actions/workflows/${workflow}/runs?per_page=3&page=2`);
+    assert.equal(calls[0].mutation, false);
+    assert.equal(calls[0].args.at(-1), 'GET');
+    assert.deepEqual(result.data, [{ id: 42 }]);
+    assert.equal(result.page, 2);
+  }
+  assert.equal(buildGithubCommand({ action: 'run.list', repo }).args[1], `repos/${repo}/actions/runs?per_page=30&page=1`);
+  assert.throws(() => validateGithubRequest({ action: 'run.list', repo, state: 'all' }), /Unsupported field/);
+});
+
 test('repo inference binds the write to the resolved Project repository', async () => {
   const commands = [];
   const result = await executeGithubRequest({ action: 'issue.create', title: 'Bound' }, cwd, {

@@ -352,7 +352,7 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
 // deeper. Cloud Code Assist (Antigravity) streams `{ response: { candidates … } }`
 // while the public API streams the candidates directly; everything downstream —
 // aggregation, leak guard, watchdogs — stays shared.
-export async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta, onTextDelta, textLeakGuard, label, unwrapChunk = null }) {
+export async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta, onTextDelta, textLeakGuard, label, unwrapChunk = null, onChunk = null }) {
     const unwrap = typeof unwrapChunk === 'function'
         ? (chunk) => { try { return unwrapChunk(chunk); } catch { return chunk; } }
         : (chunk) => chunk;
@@ -467,6 +467,7 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
                     clearFirstByteTimer();
                 }
                 allChunks.push(parsed);
+                onChunk?.(parsed);
                 try { onStreamDelta?.(geminiChunkProgressKind(parsed)); } catch {}
                 if (!sawFunctionCall && geminiChunkHasFunctionCall(parsed)) sawFunctionCall = true;
                 if (onTextDelta || textLeakGuard) {
@@ -494,6 +495,7 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
                             clearFirstByteTimer();
                         }
                         allChunks.push(parsed);
+                        onChunk?.(parsed);
                         try { onStreamDelta?.(geminiChunkProgressKind(parsed)); } catch {}
                         if (!sawFunctionCall && geminiChunkHasFunctionCall(parsed)) sawFunctionCall = true;
                         if (onTextDelta || textLeakGuard) {

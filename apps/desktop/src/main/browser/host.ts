@@ -19,7 +19,7 @@
 import type { WebContents } from 'electron';
 import { join } from 'node:path';
 import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, sharedTexture } from 'electron';
 
 import {
   DESKTOP_IPC,
@@ -32,6 +32,7 @@ import {
 import { createBrowserActionApproval, type BrowserApprovalRequest } from './action-approval';
 import { requestBrowserApproval } from './approval-dialog';
 import { browserActionHandler, type BrowserActionServices } from './actions';
+import { createBrowserTaskLifecycle } from './task-lifecycle';
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';
 import { BrowserBridgeServer } from './bridge-server';
 import { createBrowserGuestCdp } from './cdp';
@@ -69,8 +70,8 @@ import { createBrowserDialogReport } from './dialog-report';
 import { createBrowserDocuments } from './documents';
 import { createBrowserDownloads } from './downloads';
 import { createBrowserEmulation } from './emulation';
-import { createBrowserGuestLifecycle } from './guest-lifecycle';
-import { BrowserGuestStateStore } from './guest-state';
+import { browserSharedTextureRendering, createBrowserGuestLifecycle } from './guest-lifecycle';
+import { browserDocumentId, BrowserGuestStateStore } from './guest-state';
 import { createBrowserInitScripts } from './init-scripts';
 import { createBrowserInputDriver } from './input';
 import { createBrowserIntercept } from './intercept';
@@ -78,8 +79,9 @@ import { createBrowserNetworkReports } from './network';
 import { createBrowserPageState } from './page-state';
 import { createBrowserPageSurface } from './page-surface';
 import { createBrowserLocalPrompts } from './local-prompts';
-import { BROWSER_INPUT_WAIT_MS, browserInputImmediate } from '../../shared/browser-input-policy';
+import { BROWSER_INPUT_WAIT_MS, browserInputImmediate, browserTypingInput } from '../../shared/browser-input-policy';
 import { createBrowserDisplayCapture } from './display-capture';
+import { createBrowserDisplayTextures } from './display-textures';
 import { createBrowserPartition } from './partition';
 import { createBrowserPerformanceCommands } from './performance';
 import {
@@ -122,7 +124,7 @@ export type {
 } from './command';
 
 export interface BrowserHost {
-  browserPageFrame(sessionId: string, previousFrameId?: string): Promise<DesktopBrowserPageFrame>;
+  browserPageFrame(sessionId: string, previousFrameId?: string, texture?: boolean): Promise<DesktopBrowserPageFrame>;
   browserPageControl(sessionId: string, input: DesktopBrowserPageControl): Promise<void>;
   /** Opt-in agent bridge: on serves the runtime's `browser` tool, off tears
    *  it down (server, discovery file, agent offscreen pages). The browser
@@ -189,6 +191,12 @@ export function createBrowserHost(
   /** Read-only commands observe without changing the page, so they run
    *  together; a write waits for the previous write AND every in-flight read. */
   const pendingReads = new Map<string, Set<Promise<unknown>>>();
+  /** The single edge to the display client: a window already torn down simply
+   *  stops hearing about browser state, and never fails the work reporting it. */
+  const sendToRenderer = (channel: string, ...args: unknown[]): void => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.send(channel, ...args);
+  };
 
   const browserUrlPolicy = browserUrlPolicyFromEnvironment();
   const urls = createBrowserUrlAdmission({ policy: browserUrlPolicy });
@@ -244,6 +252,15 @@ export function createBrowserHost(
     domTimeoutMs: ACTION_SETTLE_DOM_TIMEOUT_MS,
     loadTimeoutMs: ACTION_SETTLE_LOAD_TIMEOUT_MS,
   });
+  const displayTextures = createBrowserDisplayTextures({
+    document: guest => browserDocumentId(state, guest),
+    importTexture: (texture, released) => sharedTexture.importSharedTexture({
+      textureInfo: texture.textureInfo, allReferencesReleased: released,
+    }),
+    send: (texture, sessionId, id) => sharedTexture.sendSharedTexture({
+      frame: window.webContents.mainFrame, importedSharedTexture: texture,
+    }, sessionId, id),
+  });
   const lifecycle = createBrowserGuestLifecycle({
     window,
     partitionSession,
@@ -254,10 +271,27 @@ export function createBrowserHost(
     bridgeWanted: () => bridgeWanted,
     isBackgroundBusy: (sessionId, name) => commandChains.has(`session:${sessionId}:background:${name}`),
     waitForLoadSettle: settle.waitForLoadSettle,
+    onPopup: (opener, popup) => taskLifecycle.inherit(opener, popup),
+    onGuest: guest => displayTextures.attach(guest),
   });
+  const taskLifecycle = createBrowserTaskLifecycle<WebContents>({
+    current: sessionId => browserSessions.currentGuest(sessionId),
+    select: (sessionId, guest) => browserSessions.selectGuest(sessionId, guest),
+    close: guest => BrowserWindow.fromWebContents(guest)?.destroy(),
+    canClose: guest => !state.for(guest).pendingDialog,
+    preserve: guest => {
+      const owner = browserSessions.sessionIdForGuest(guest);
+      const page = owner ? browserSessions.backgroundPageForGuest(owner, guest) : undefined;
+      if (page) page.keepAlive = true;
+    },
+    surface: (sessionId, request) => sendToRenderer(
+      DESKTOP_IPC.browserOpenRequested, { sessionId, ...request },
+    ),
+  });
+  const retainGuest = taskLifecycle.retain;
   const dispatchInput = createBrowserInputDispatch({
     cdp,
-    documentId: guest => `${state.pageId(guest)}:${state.for(guest).documentGeneration}`,
+    documentId: guest => browserDocumentId(state, guest),
     frames: (guest) => state.for(guest).cdpSessions,
     frameOffset: (guest, sessionId, signal) => snapshots.frameOffsetForSession(guest, sessionId, signal),
   });
@@ -353,10 +387,9 @@ export function createBrowserHost(
     // every metrics change and frames the guest at that size.
     onViewportChanged: (guest, viewport) => {
       const sessionId = browserSessions.sessionIdForGuest(guest);
-      if (!sessionId || window.isDestroyed() || window.webContents.isDestroyed()) return;
       // Only the selected page may reframe the pane, including a selected popup.
-      if (browserSessions.currentGuest(sessionId) !== guest) return;
-      window.webContents.send(DESKTOP_IPC.browserGuestViewportChanged, {
+      if (!sessionId || browserSessions.currentGuest(sessionId) !== guest) return;
+      sendToRenderer(DESKTOP_IPC.browserGuestViewportChanged, {
         sessionId, webContentsId: guest.id, viewport,
       });
     },
@@ -375,50 +408,31 @@ export function createBrowserHost(
     forgetSecret: (guest, secret) => state.forgetSecret(guest, secret),
     redactText: (guest, value) => state.redactText(guest, value),
   });
-  // A phone polls frames every 350–900ms while its Browser Use sheet is open.
-  // The desktop parks an unshown guest OFF-window, where Chromium composes no
-  // frames, so every capture for it timed out (user: 폰에서 브라우저 유즈만
-  // 안 됨). While a phone is viewing, the renderer keeps that guest inside
-  // the window under the UI; the flag drops after the polling stops.
-  const REMOTE_VIEWER_IDLE_MS = 4_000;
-  const remoteViewerTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const sendRemoteViewer = (sessionId: string, active: boolean) => {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
-    window.webContents.send(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active });
-  };
-  const noteRemoteViewer = (sessionId: string) => {
-    const timer = remoteViewerTimers.get(sessionId);
-    if (timer) clearTimeout(timer);
-    else sendRemoteViewer(sessionId, true);
-    remoteViewerTimers.set(sessionId, setTimeout(() => {
-      remoteViewerTimers.delete(sessionId);
-      sendRemoteViewer(sessionId, false);
-    }, REMOTE_VIEWER_IDLE_MS));
-  };
-  const dropRemoteViewer = (sessionId: string) => {
-    const timer = remoteViewerTimers.get(sessionId);
-    if (!timer) return;
-    clearTimeout(timer);
-    remoteViewerTimers.delete(sessionId);
-  };
   const remote = createBrowserRemoteControl({
     state,
     cdp,
     input,
     urlPolicy: browserUrlPolicy,
     ensureGuest: lifecycle.ensureGuest,
-    noteRemoteViewer,
+    viewerChanged: (sessionId, active) => sendToRenderer(
+      DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active },
+    ),
+    onUserControl: retainGuest,
     captureScreenshot: screenshots.capture,
     assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
     revision: documents.revision,
   });
-  const displayCapture = createBrowserDisplayCapture();
+  const displayCapture = createBrowserDisplayCapture(browserSharedTextureRendering());
   const pageSurface = createBrowserPageSurface({
     ensureGuest: lifecycle.ensureGuest,
     currentGuest: sessionId => browserSessions.currentGuest(sessionId),
     tabs: {
       list: sessionId => tabs.displayTabs(sessionId),
-      select: (sessionId, tabId) => tabs.selectDisplayTab(sessionId, tabId),
+      select: (sessionId, tabId) => {
+        tabs.selectDisplayTab(sessionId, tabId);
+        const guest = browserSessions.currentGuest(sessionId);
+        if (guest) retainGuest(guest);
+      },
       create: sessionId => tabs.createDisplayTab(sessionId),
       close: (sessionId, tabId) => tabs.closeDisplayTab(sessionId, tabId),
     },
@@ -432,6 +446,8 @@ export function createBrowserHost(
     assertUrl: urls.assertResolvedUrlAllowed,
     capture: (guest, geometryKey, viewport, signal) =>
       cdp.bounded(displayCapture(guest, geometryKey, viewport), 2000, 'Browser display capture', signal),
+    captureTexture: (guest, documentId, viewport) =>
+      displayTextures.acquire(guest, documentId, viewport.width, viewport.height),
     resize: (guest, width, height) => BrowserWindow.fromWebContents(guest)?.setContentSize(width, height),
     viewport: guest => {
       const owner = BrowserWindow.fromWebContents(guest);
@@ -443,7 +459,7 @@ export function createBrowserHost(
     },
   });
   const presentationReads = createBrowserPresentationReads({
-    capture: (owner, signal) => pageSurface.frame(owner, '', signal),
+    capture: (owner, signal, texture) => pageSurface.frame(owner, '', signal, texture),
     bounded: cdp.bounded,
   });
   const targets = createBrowserTargetResolver({
@@ -484,6 +500,19 @@ export function createBrowserHost(
     dialogs,
     urls,
     targets,
+    credentials: {
+      fillStored: (guest, account, signal) => {
+        signal?.throwIfAborted();
+        const url = guest.getURL();
+        return profileImporter.useCredentialByAccount(url, account, (credential) => {
+          signal?.throwIfAborted();
+          if (guest.isDestroyed() || guest.getURL() !== url) {
+            throw new Error('The page changed before stored credential input; input was not sent.');
+          }
+          return credentialFill.fillCredentialInGuest(guest, credential, signal);
+        }, signal);
+      },
+    },
     downloadsForSession: downloadLedger.downloadsForSession,
     runCommand: (command, signal) => runCommand(command, signal),
   };
@@ -509,7 +538,7 @@ export function createBrowserHost(
     }
     // Foreground drives and reveals the visible tab; background drives a
     // hidden offscreen page on the same partition without taking the screen.
-    const background = command.background === true;
+    const background = action === 'open' && command.background !== true ? false : command.background;
     const tab = String(command.tab || '').trim();
     // Tab-less bookkeeping actions never open or create a page.
     if (TABLESS_ACTIONS.has(action)) {
@@ -525,10 +554,25 @@ export function createBrowserHost(
     }
     const handler = browserActionHandler(action);
     if (!handler) throw new Error(`unknown browser action "${action}"`);
+    const turnId = Number(command.turn_id) || 0;
+    taskLifecycle.begin(ownerSessionId, turnId);
+    const previousGuest = browserSessions.liveGuest(ownerSessionId);
     const target = tabs.resolveTargetGuest(ownerSessionId, background, tab);
     const targetIsBackground = target?.background === true;
-    if (target && !targetIsBackground) lifecycle.requestBrowserSurface(ownerSessionId, true);
-    const guest = target?.guest ?? await lifecycle.ensureGuest(ownerSessionId);
+    if (!target && !previousGuest && action !== 'navigate' && action !== 'open') {
+      throw new Error('No browser page is open; navigate or use background:true.');
+    }
+    const guest = target?.guest ?? await lifecycle.ensureGuest(ownerSessionId, { reveal: false });
+    const backgroundPage = browserSessions.backgroundPageForGuest(ownerSessionId, guest);
+    taskLifecycle.use(ownerSessionId, turnId, guest,
+      backgroundPage ? backgroundPage.kind === 'agent' && !backgroundPage.keepAlive : !previousGuest);
+    if (action === 'open' && !targetIsBackground) {
+      retainGuest(guest);
+      lifecycle.requestBrowserSurface(ownerSessionId, true);
+    } else if (!targetIsBackground && (action === 'navigate' || command.background === false)
+      && !taskLifecycle.reveal(ownerSessionId, turnId, guest)) {
+      lifecycle.requestBrowserSurface(ownerSessionId, true);
+    }
     await lifecycle.recoverCrashedGuest(guest, signal);
     if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
     // Explicit navigation and dialog handling can release a blocked execution.
@@ -567,7 +611,7 @@ export function createBrowserHost(
       if (!command.internalStep) {
         await approvals.approve(command, () => ({
           url: guest.getURL(),
-          identity: `${state.pageId(guest)}:${state.for(guest).documentGeneration}`,
+          identity: browserDocumentId(state, guest),
         }), signal);
       }
       const result = await handler({
@@ -595,6 +639,10 @@ export function createBrowserHost(
     chains: commandChains,
     pendingReads,
     sessionId: (command) => browserSessionId(command.session_id),
+    currentPageId: sessionId => {
+      const guest = browserSessions.currentGuest(sessionId);
+      return guest && !guest.isDestroyed() ? state.pageId(guest) : undefined;
+    },
     backgroundEntryByPageId: lifecycle.backgroundEntryByPageId,
     run: runCommand,
     bounded: cdp.bounded,
@@ -611,6 +659,22 @@ export function createBrowserHost(
     execute: (command, signal) => {
       const { session_id, turn_id, internalStep, ...input } = command;
       if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
+      // Runtime-only lifecycle message: deliberately absent from tool schemas.
+      if (command.action === 'finish_turn') {
+        const owner = browserSessionId(session_id);
+        if (!session_id || !Number.isSafeInteger(turn_id) || Number(turn_id) <= 0
+          || Object.keys(input).some(key => key !== 'action')) {
+          throw new Error('Invalid browser task cleanup context.');
+        }
+        const prefix = `session:${owner}:`;
+        const pending = [
+          ...[...commandChains].filter(([key]) => key.startsWith(prefix)).map(([, task]) => task),
+          ...[...pendingReads].filter(([key]) => key.startsWith(prefix)).flatMap(([, tasks]) => [...tasks]),
+        ];
+        return Promise.allSettled(pending).then(() => ({
+          text: `Browser task cleanup complete: ${taskLifecycle.finish(owner, Number(turn_id))} temporary page(s) closed.`,
+        }));
+      }
       const validated = validateBrowserToolArgs(input);
       if (!validated.ok) throw new Error(validated.error);
       return executeSerialized({ ...validated.input, action: validated.action, session_id, turn_id }, signal);
@@ -655,21 +719,25 @@ export function createBrowserHost(
   }
 
   return {
-    browserPageFrame(sessionId, previousFrameId = '') {
+    browserPageFrame(sessionId, previousFrameId = '', texture = false) {
       const owner = browserSessionId(sessionId);
-      return presentationReads.read(owner, previousFrameId);
+      return presentationReads.read(owner, previousFrameId, texture);
     },
     browserPageControl(sessionId, input) {
       const owner = browserSessionId(sessionId);
-      const command = { action: 'remote_control', session_id: owner };
       // Validate ownership before allowing an input to cancel this session's
       // automation. A stale frame must not take over a different document.
       const guest = browserSessions.currentGuest(owner);
       if (!guest || guest.isDestroyed()
         || (!['new-tab', 'select-tab', 'close-tab'].includes(input.type)
-          && input.documentId !== `${state.pageId(guest)}:${state.for(guest).documentGeneration}`)) {
+          && input.documentId !== browserDocumentId(state, guest))) {
         return Promise.reject(new Error('Browser page changed; input was not sent.'));
       }
+      // A selected support tab keeps its own queue. Local takeover must
+      // cancel the agent using that page, not the session's primary page.
+      const command = { action: 'remote_control', session_id: owner, tab: state.pageId(guest) };
+      if (input.type !== 'resize'
+        && !(input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0)) retainGuest(guest);
       if (browserInputImmediate(input)) {
         if (input.type === 'answer-dialog' || input.type === 'choose-files') {
           const release = holdLocal(command);
@@ -683,7 +751,8 @@ export function createBrowserHost(
           COMMAND_TIMEOUT_MS, 'Browser recovery control', signal);
       }
       // Releases must still finish an already-sent press, even after a slow
-      // command. All other unstarted local input has a bounded queue wait.
+      // command. Typing retains its order behind that input; only pointer
+      // gestures expire while queued. Dispatch itself remains bounded.
       const release = input.type === 'pointer' && input.phase === 'mouseReleased';
       const hover = input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0;
       return executeLocal(command, (signal) => pageSurface.control(owner, input, signal), {
@@ -691,7 +760,7 @@ export function createBrowserHost(
         dropIfBusy: hover,
         ...(input.type === 'pointer' && input.phase !== 'mouseMoved'
           ? { held: !release } : {}),
-        maxWaitMs: release ? undefined : BROWSER_INPUT_WAIT_MS,
+        maxWaitMs: release || browserTypingInput(input) ? undefined : BROWSER_INPUT_WAIT_MS,
       });
     },
     setBridgeEnabled(enabled: boolean): void {
@@ -702,16 +771,15 @@ export function createBrowserHost(
     },
     releaseSession(sessionId: string, options: { restore?: boolean } = {}): void {
       const ownerSessionId = browserSessionId(sessionId);
-      dropRemoteViewer(ownerSessionId);
+      remote.releaseViewer(ownerSessionId);
       presentationReads.release(ownerSessionId);
       releaseLocal({ action: 'remote_control', session_id: ownerSessionId });
       pageSurface.release(ownerSessionId);
       lifecycle.releaseSession(ownerSessionId, options.restore === true);
+      taskLifecycle.forget(ownerSessionId);
       downloadLedger.release(ownerSessionId);
-      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.send(DESKTOP_IPC.browserSessionReleased, ownerSessionId,
-          options.restore === true ? 'unloaded' : 'gone');
-      }
+      sendToRenderer(DESKTOP_IPC.browserSessionReleased, ownerSessionId,
+        options.restore === true ? 'unloaded' : 'gone');
     },
     setGuestActive(sessionId: string, webContentsId: number, active: boolean): void {
       const owner = browserSessionId(sessionId);
@@ -753,9 +821,7 @@ export function createBrowserHost(
     },
     async browserImport(request: BrowserImportRequest): Promise<BrowserImportResult> {
       return await profileImporter.importProfile(request, (progress) => {
-        if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-          window.webContents.send(DESKTOP_IPC.browserProfileImportProgress, progress);
-        }
+        sendToRenderer(DESKTOP_IPC.browserProfileImportProgress, progress);
       });
     },
     async browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]> {

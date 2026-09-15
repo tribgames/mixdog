@@ -104,8 +104,13 @@ function normalizeRowCategory(row) {
   let category = storedCategory;
   if (isKnownTestFixture(row)) {
     category = 'expected-test';
-  } else if (rowTool(row) === 'apply_patch') {
-    const derived = classifyToolFailure(rowErrorText(row), 'apply_patch');
+  } else {
+    const derived = classifyToolFailure(rowErrorText(row), rowTool(row));
+    // The shell classifier's generic command-exit fallback cannot recover
+    // execution metadata from a short historical preview such as "SIGKILL".
+    // Keep recorded signals, timeouts and capture failures instead of hiding
+    // them among ordinary command exits.
+    if (derived === 'command-exit' && storedCategory !== 'command-exit') return row;
     // Failure previews are bounded and may end before the nested cause. Never
     // downgrade a stored specific category to the generic fallback merely
     // because the historical preview lacks that tail.

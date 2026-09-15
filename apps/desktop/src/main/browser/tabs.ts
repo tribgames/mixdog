@@ -1,7 +1,7 @@
 /**
  * Which page a command runs against, and what the agent can see of the open
- * ones. Foreground commands select their target regardless of how it was
- * created. Only explicit background commands leave the selection untouched.
+ * ones. Named support pages stay hidden unless explicitly revealed. Merely
+ * targeting an agent page never turns it into a user-owned, persistent tab.
  */
 import type { BrowserWindow, WebContents } from 'electron';
 
@@ -56,7 +56,7 @@ export function createBrowserTabs(host: BrowserTabsHost) {
   /** Resolve the page a command targets; null means the default visible tab. */
   function resolveTargetGuest(
     sessionId: string,
-    background: boolean,
+    background: boolean | undefined,
     tab: string,
   ): { guest: WebContents; background: boolean; tabName?: string } | null {
     if (background) {
@@ -80,8 +80,10 @@ export function createBrowserTabs(host: BrowserTabsHost) {
       }
       const found = backgroundEntryByPageId(sessionId, tab);
       if (!found) throw new Error(`no page "${tab}"; call list_tabs`);
-      selectDisplayTab(sessionId, stablePageId(found[1].guest));
-      return { guest: found[1].guest, background: false, tabName: found[0] };
+      const hidden = background !== false && found[1].kind !== 'user';
+      found[1].lastUsedAt = Date.now();
+      if (!hidden) selectGuest(sessionId, found[1].guest);
+      return { guest: found[1].guest, background: hidden, tabName: found[0] };
     }
     const visibleMatch = /^v(\d+)$/i.exec(tab);
     if (visibleMatch) {
@@ -96,8 +98,10 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     if (!page || page.window.isDestroyed()) {
       throw new Error(`unknown tab "${backgroundName}"; call list_tabs, or pass background:true to create it`);
     }
-    selectDisplayTab(sessionId, stablePageId(page.guest));
-    return { guest: page.guest, background: false, tabName: backgroundName };
+    const hidden = background !== false && page.kind !== 'user';
+    page.lastUsedAt = Date.now();
+    if (!hidden) selectGuest(sessionId, page.guest);
+    return { guest: page.guest, background: hidden, tabName: backgroundName };
   }
 
   function listTabs(sessionId: string): BrowserCommandResult {

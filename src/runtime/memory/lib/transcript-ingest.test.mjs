@@ -35,8 +35,6 @@ test('transcript watcher initialization waits for the first active-session sweep
       persistMeta: async (value) => { offsets = value },
       projectsRoot: () => root,
       resolveProjectId: () => 'project-readiness',
-      firstTextContent: (value) => String(value ?? ''),
-      cleanMemoryText: (value) => String(value ?? '').trim(),
     })
 
     await ingest.loadTranscriptOffsets()

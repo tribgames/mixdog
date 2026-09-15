@@ -1,7 +1,9 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 import { createSemaphore, throwIfAborted } from './memory-cycle2-shared.mjs';
 
-import { cleanMemoryText } from './memory.mjs'
+import {
+  CYCLE1_INPUT_TOKEN_BUDGET, assessChunkQuality, cycle1SourceBudget, generateCycle1Chunks, partitionCycle1Rows,
+} from './memory-chunk-quality.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import {
@@ -9,37 +11,18 @@ import {
 } from './memory-embed.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
-const VALID_CATEGORIES = new Set([
-  'rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue',
-])
-const CYCLE1_OMITTED_RETRY_LIMIT = 2
 const CYCLE1_OMITTED_COOLDOWN_MS = 60 * 60 * 1000
-// LLM/transport outages are transient and must NOT archive healthy raw rows at
-// the tight parse-failure limit. Cooldown reviewed_at (so they sort to the back
-// and stop hot-looping) but bump error_count under a much higher ceiling so a
-// sustained provider outage doesn't shed the backlog.
-const CYCLE1_TRANSIENT_RETRY_LIMIT = 50
-
-// Structural validation only. Conceptual omission belongs to the LLM; code
-// should not encode language-specific phrases such as acknowledgements.
-function _isStructurallyInvalidSummary(text) {
-  if (!text || typeof text !== 'string') return true
-  const t = text.trim()
-  if (!t) return true
-  if (!/[\p{L}\p{N}]/u.test(t)) return true
-  return false
-}
 
 function _isStructurallyUnchunkableInput(row) {
-  const raw = cleanMemoryText(String(row?.content ?? '')).trim()
-  if (!raw) return true
-  return !/[\p{L}\p{N}]/u.test(raw)
+  return !String(row?.content ?? '').trim()
+}
+
+function positiveEntryIds(rowIds) {
+  return uniqueNumbers(rowIds).filter(id => id > 0)
 }
 
 async function markTerminalRows(db, rowIds, label = 'terminal') {
-  const ids = [...new Set((Array.isArray(rowIds) ? rowIds : [])
-    .map(id => Number(id))
-    .filter(id => Number.isFinite(id) && id > 0))]
+  const ids = positiveEntryIds(rowIds)
   if (ids.length === 0) return { attempted: 0, marked: 0, failed: 0 }
   try {
     const result = await db.query(
@@ -61,34 +44,24 @@ async function markTerminalRows(db, rowIds, label = 'terminal') {
   }
 }
 
-async function markOmittedRows(db, rowIds, retryLimit = CYCLE1_OMITTED_RETRY_LIMIT) {
-  const ids = [...new Set((Array.isArray(rowIds) ? rowIds : [])
-    .map(id => Number(id))
-    .filter(id => Number.isFinite(id) && id > 0))]
+async function markOmittedRows(db, rowIds) {
+  const ids = positiveEntryIds(rowIds)
   if (ids.length === 0) return { attempted: 0, deferred: 0, marked: 0, failed: 0 }
   try {
     const result = await db.query(
-      `WITH candidates AS (
-         SELECT id, COALESCE(error_count, 0) + 1 AS next_error_count
-         FROM entries
-         WHERE id = ANY($1::bigint[])
-           AND chunk_root IS NULL
-           AND is_root = 0
-       )
-       UPDATE entries e
+      `UPDATE entries
        SET reviewed_at = $2,
-           error_count = c.next_error_count,
-           chunk_root = CASE WHEN c.next_error_count >= $3 THEN e.id ELSE e.chunk_root END,
-           status = CASE WHEN c.next_error_count >= $3 THEN 'archived'::entry_status ELSE e.status END
-       FROM candidates c
-       WHERE e.id = c.id
-       RETURNING e.id, (c.next_error_count >= $3) AS marked_terminal`,
-      [ids, Date.now(), retryLimit],
+           error_count = COALESCE(error_count, 0) + 1
+       WHERE id = ANY($1::bigint[])
+         AND chunk_root IS NULL
+         AND is_root = 0
+       RETURNING id`,
+      [ids, Date.now()],
     )
     const rows = Array.isArray(result?.rows) ? result.rows : []
-    const marked = rows.filter(r => r.marked_terminal === true).length
-    const deferred = rows.length - marked
-    return { attempted: ids.length, deferred, marked, failed: Math.max(0, ids.length - rows.length) }
+    // A model failure is not permission to retire source data. Keep every
+    // nonempty row available after cooldown, regardless of retry count.
+    return { attempted: ids.length, deferred: rows.length, marked: 0, failed: Math.max(0, ids.length - rows.length) }
   } catch (err) {
     __mixdogMemoryLog(`[cycle1] omitted retry update failed: ${err.message}\n`)
     return { attempted: ids.length, deferred: 0, marked: 0, failed: ids.length }
@@ -108,149 +81,6 @@ function selectRootId(members) {
     }
   }
   return rootId
-}
-
-function buildEntriesText(entries) {
-  // @N is a 1-based prompt-local index; cycle1-agent answers with @N indexes.
-  return entries.map((e, i) => {
-    const content = cleanMemoryText(String(e.content ?? '')).slice(0, 400)
-    const sess = e.session_id ? String(e.session_id).slice(0, 8) : 'null----'
-    return `@${i + 1} ts:${e.ts} role:${e.role} [sess:${sess}] content:${content}`
-  }).join('\n')
-}
-
-// Balanced quality rules: the model decides conceptual memory value; code only
-// validates line grammar and membership.
-const DEFAULT_CYCLE1_RULES = [
-  `Chunk these entries. Emit one chunk per line, NO JSON, NO tool calls, NO prose.`,
-  `Format: idx_csv|element|category|summary.`,
-  `Target ${3}-${8} @N indexes per chunk when entries share topic, goal, or cause→resolution; singleton chunks only when one entry is truly isolated.`,
-  `Every substantive @N must appear in exactly one chunk; omit only entries with zero standalone memory value — excessive omissions are invalid.`,
-  `Group by coherent topic, keep cause and resolution together, and never merge across [sess:] markers.`,
-  `Category must be one of rule / constraint / decision / fact / goal / preference / task / issue; choose the one that best preserves future recall intent.`,
-  `Keep summary compact and source-grounded; preserve decisive identifiers, constraints, causes, and outcomes when present.`,
-  `First character of your response must be a digit. Use bare @N indexes without @ in output.`,
-]
-
-function buildCycle1ChunkPrompt(rows, customRules = null) {
-  const rules = Array.isArray(customRules) && customRules.length > 0
-    ? customRules
-    : DEFAULT_CYCLE1_RULES
-  return [...rules, '', buildEntriesText(rows)].join('\n')
-}
-
-function parseCycle1LineFormat(raw) {
-  if (raw == null) return null
-  const text = String(raw).trim()
-  if (!text) return null
-  const lines = text.split('\n')
-  const chunks = []
-  for (const rawLine of lines) {
-    const line = rawLine.trim()
-    if (!line) continue
-    if (line.startsWith('//') || line.startsWith('#')) continue
-    if (line.startsWith('```')) continue
-    const parts = line.split('|')
-    if (parts.length < 4) continue
-    const idxField = parts[0].trim()
-    const idxList = idxField.split(',')
-      .map(s => Number(String(s).replace(/^@/, '').trim()))
-      .filter(n => Number.isFinite(n) && n > 0)
-    if (idxList.length === 0) continue
-    chunks.push({
-      _idxList: idxList,
-      element: parts[1].trim(),
-      category: parts[2].trim(),
-      summary: parts.slice(3).join('|').trim(),
-    })
-  }
-  return chunks.length > 0 ? { chunks } : null
-}
-
-// Compactness guard thresholds (post-parse); retry LLM once when exceeded on non-trivial windows.
-const CYCLE1_TARGET_CHUNK_MIN = 3
-const CYCLE1_TARGET_CHUNK_MAX = 8
-const CYCLE1_MAX_SINGLETON_RATIO = 0.6
-const CYCLE1_MAX_OMITTED_RATIO = 0.35
-const CYCLE1_MIN_ROWS_FOR_COMPACTNESS_RETRY = 6
-
-// Partition by session_id; MIN_BATCH gates total pending rows, SESSION_CAP bounds per-tick session fan-out.
-function computeCycle1GroupingQuality(chunks, rowCount) {
-  const rows = Math.max(0, Number(rowCount) || 0)
-  const list = Array.isArray(chunks) ? chunks : []
-  const usedIdx = new Set()
-  const referenced = new Set()
-  let singletonCount = 0
-  let chunkCount = 0
-  for (const chunk of list) {
-    const raw = Array.isArray(chunk?._idxList) ? chunk._idxList.map(n => Number(n)) : []
-    if (raw.some(n => !Number.isFinite(n) || n <= 0 || n > rows)) continue
-    if (raw.length !== new Set(raw).size) continue
-    if (raw.some(n => usedIdx.has(n))) continue
-    chunkCount += 1
-    if (raw.length === 1) singletonCount += 1
-    for (const n of raw) {
-      usedIdx.add(n)
-      referenced.add(n)
-    }
-  }
-  const omittedCount = Math.max(0, rows - referenced.size)
-  const singleton_ratio = chunkCount > 0 ? singletonCount / chunkCount : 0
-  const omitted_ratio = rows > 0 ? omittedCount / rows : 0
-  return {
-    chunkCount,
-    singletonCount,
-    omittedCount,
-    referencedCount: referenced.size,
-    singleton_ratio,
-    omitted_ratio,
-  }
-}
-
-function countCycle1CommittableChunks(chunkList, entryByIdx, entryById) {
-  const usedIds = new Set()
-  let count = 0
-  for (const chunk of chunkList) {
-    const idxList = chunk._idxList.map(n => Number(n))
-    const outOfRange = idxList.filter(n => !entryByIdx.has(n))
-    if (outOfRange.length > 0) continue
-    const rawIds = idxList.map(n => Number(entryByIdx.get(n).id))
-    const dupeWithin = rawIds.length !== new Set(rawIds).size
-    const externalIds = rawIds.filter(n => !Number.isFinite(n) || !entryById.has(n))
-    const reusedIds = rawIds.filter(n => usedIds.has(n))
-    const memberIds = rawIds.filter(n => Number.isFinite(n) && entryById.has(n) && !usedIds.has(n))
-    const element = String(chunk?.element ?? '').trim()
-    const category = String(chunk?.category ?? '').trim().toLowerCase()
-    const summary = String(chunk?.summary ?? '').trim()
-    if (dupeWithin || externalIds.length > 0 || reusedIds.length > 0) continue
-    if (memberIds.length === 0 || !element || !summary || !VALID_CATEGORIES.has(category)) continue
-    if (_isStructurallyInvalidSummary(summary)) continue
-    const members = memberIds.map(id => entryById.get(id))
-    if (selectRootId(members) === null) continue
-    for (const mid of memberIds) usedIds.add(mid)
-    count += 1
-  }
-  return count
-}
-
-function cycle1GroupingQualityScore(metrics) {
-  return 1 - (metrics.omitted_ratio * 1.5 + metrics.singleton_ratio * 0.75)
-}
-
-function shouldRetryCycle1Grouping(metrics, rowCount) {
-  if (rowCount < CYCLE1_MIN_ROWS_FOR_COMPACTNESS_RETRY) return false
-  if (!metrics || metrics.chunkCount === 0) return false
-  return metrics.singleton_ratio > CYCLE1_MAX_SINGLETON_RATIO
-    || metrics.omitted_ratio > CYCLE1_MAX_OMITTED_RATIO
-}
-
-function buildCycle1CorrectiveRules(metrics) {
-  return [
-    `CORRECTION: prior grouping was too fragmented (singleton_ratio=${metrics.singleton_ratio.toFixed(2)}, omitted_ratio=${metrics.omitted_ratio.toFixed(2)}).`,
-    `Merge related @N into chunks of about ${CYCLE1_TARGET_CHUNK_MIN}-${CYCLE1_TARGET_CHUNK_MAX} entries when they share topic, goal, or causal chain.`,
-    `Use singleton chunks only when one entry is truly isolated; otherwise combine neighbors.`,
-    `Reference every substantive @N; minimize omissions.`,
-  ]
 }
 
 const CYCLE1_MIN_BATCH = 3
@@ -275,29 +105,41 @@ function logCycle1Throttled(key, message, intervalMs = 60_000) {
   __mixdogMemoryLog(message)
 }
 
-export function packCycle1Windows(rowsBySession, packetSize = CYCLE1_PACKET_MAX_ROWS, maxPackets = CYCLE1_MAX_PACKETS) {
+export function packCycle1Windows(rowsBySession, packetSize = CYCLE1_PACKET_MAX_ROWS, maxPackets = CYCLE1_MAX_PACKETS, inputTokenBudget = CYCLE1_INPUT_TOKEN_BUDGET) {
   const size = Math.min(CYCLE1_PACKET_MAX_ROWS, Math.max(1, Number(packetSize) || CYCLE1_PACKET_MAX_ROWS))
   const cap = Math.min(CYCLE1_MAX_PACKETS, Math.max(1, Number(maxPackets) || CYCLE1_MAX_PACKETS))
+  const sourceBudget = cycle1SourceBudget(inputTokenBudget)
+  let sessions = [...rowsBySession.values()].map(rows => rows.slice().reverse())
+  // Preserve the oldest selected session even when selected sessions outnumber
+  // packet slots. Then round-robin: one busy session cannot consume every slot.
+  if (sessions.length > cap) sessions = cap === 1 ? [sessions.at(-1)] : [...sessions.slice(0, cap - 1), sessions.at(-1)]
+  sessions = sessions.map(rows => partitionCycle1Rows(rows, sourceBudget, size))
   const windows = []
-  for (const sessionRowsDesc of rowsBySession.values()) {
-    const rowsAsc = sessionRowsDesc.slice().reverse()
-    for (let offset = 0; offset < rowsAsc.length && windows.length < cap; offset += size) {
-      windows.push(rowsAsc.slice(offset, offset + size))
+  while (sessions.some(rows => rows.length) && windows.length < cap) {
+    for (const packets of sessions) {
+      if (!packets.length || windows.length >= cap) continue
+      windows.push(packets.shift())
     }
-    if (windows.length >= cap) break
   }
   return windows
 }
 
-async function countPendingRows(db) {
+async function countSessionUnchunkedRows(db, { reviewedBefore = null } = {}) {
+  const where = [
+    'chunk_root IS NULL',
+    `NULLIF(btrim(session_id), '') IS NOT NULL`,
+  ]
+  const params = []
+  if (reviewedBefore != null) {
+    params.push(reviewedBefore)
+    where.push('(reviewed_at IS NULL OR reviewed_at < $1)')
+  }
   try {
     const result = await db.query(
       `SELECT COUNT(*) AS c
        FROM entries
-       WHERE chunk_root IS NULL
-         AND NULLIF(btrim(session_id), '') IS NOT NULL
-         AND (reviewed_at IS NULL OR reviewed_at < $1)`,
-      [Date.now() - CYCLE1_OMITTED_COOLDOWN_MS],
+       WHERE ${where.join('\n         AND ')}`,
+      params,
     )
     return Number(result.rows[0]?.c ?? 0)
   } catch {
@@ -305,18 +147,12 @@ async function countPendingRows(db) {
   }
 }
 
-async function countRawUnchunkedRows(db) {
-  try {
-    const result = await db.query(
-      `SELECT COUNT(*) AS c
-       FROM entries
-       WHERE chunk_root IS NULL
-         AND NULLIF(btrim(session_id), '') IS NOT NULL`,
-    )
-    return Number(result.rows[0]?.c ?? 0)
-  } catch {
-    return null
-  }
+function countPendingRows(db) {
+  return countSessionUnchunkedRows(db, { reviewedBefore: Date.now() - CYCLE1_OMITTED_COOLDOWN_MS })
+}
+
+function countRawUnchunkedRows(db) {
+  return countSessionUnchunkedRows(db)
 }
 
 function uniqueNumbers(values) {
@@ -471,6 +307,7 @@ export async function runCycle1(db, config = {}, options = {}, dataDir = null) {
 }
 
 async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
+  const cycleStartedAt = Date.now()
   const signal = options?.signal
   throwIfAborted(signal)
   const pendingRowsAtStart = await countPendingRows(db)
@@ -525,6 +362,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   // Select closest/recent sessions first, then fetch closest/recent rows per
   // selected session. Memory fill is recency-first; session isolation below
   // keeps unrelated episodes out of the same classifier prompt.
+  const fetchStartedAt = Date.now()
   const fetchResult = await db.query(
     `WITH eligible_sessions AS (
        SELECT session_id, MAX(ts) AS latest_ts, MAX(id) AS latest_id
@@ -537,7 +375,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
      ), recent_sessions AS (
        SELECT session_id, latest_ts, latest_id FROM eligible_sessions
        ORDER BY latest_ts DESC, latest_id DESC
-       LIMIT GREATEST($1::int - ${backfillParam}::int, 1)
+       LIMIT GREATEST($1::int - ${backfillParam}::int, 0)
      ), starved_sessions AS (
        SELECT session_id, latest_ts, latest_id FROM eligible_sessions
        ORDER BY latest_ts ASC, latest_id ASC
@@ -563,6 +401,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   )
   throwIfAborted(signal)
   const rowsDesc = fetchResult.rows
+  const fetchMs = Date.now() - fetchStartedAt
 
   const bypassMinBatchForCooldown = Number.isFinite(rawUnchunkedAtStart)
     && rawUnchunkedAtStart >= minBatch
@@ -610,7 +449,8 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
     }
     rowsBySession.get(sid).push(row)
   }
-  const windows = packCycle1Windows(rowsBySession, windowSize, maxPackets)
+  const inputTokenBudget = config.input_token_budget ?? CYCLE1_INPUT_TOKEN_BUDGET
+  const windows = packCycle1Windows(rowsBySession, windowSize, maxPackets, inputTokenBudget)
 
   async function processWindow(rows, windowIdx) {
     throwIfAborted(signal)
@@ -645,187 +485,34 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
 
     const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callAgentDispatch
 
-    async function callCycle1Grouping(userMessage) {
-      const _tLlm = Date.now()
-      const raw = await llmCall({
+    const generated = await generateCycle1Chunks(rows, {
+      callLlm: llmCall,
+      inputTokenBudget,
+      signal,
+      request: {
         agent: 'cycle1-agent',
         taskType: 'maintenance',
-        mode: 'cycle1',
         preset,
         timeout,
-        // Pin cwd to null so every memory cycle call hits the same agent cache shard.
         cwd: null,
-        signal,
-      }, userMessage)
-      throwIfAborted(signal)
-      __mixdogMemoryLog(`[cycle1-time] window=${windowIdx} llmMs=${Date.now() - _tLlm}\n`)
-      const parsed = parseCycle1LineFormat(raw)
-      const chunks = Array.isArray(parsed?.chunks) ? parsed.chunks : null
-      return { raw, chunks }
+      },
+    })
+    __mixdogMemoryLog(`[cycle1-time] window=${windowIdx} ${JSON.stringify(generated.stats)}\n`)
+    for (const invalid of generated.invalidChunks) {
+      __mixdogMemoryLog(`[cycle1] window=${windowIdx} ${invalid.reason}: ${invalid.error || 'source validation failed'}\n`)
     }
-
-    let groupingAttempt = 1
-    let groupingRetried = false
-    let chosenQuality = null
-    let firstChunkList = null
-    let secondChunkList = null
-    let chunkList
-    try {
-      const first = await callCycle1Grouping(buildCycle1ChunkPrompt(rows))
-      if (!first.chunks) {
-        __mixdogMemoryLog(`[cycle1] unparseable response (window=${windowIdx}) (${String(first.raw).slice(0, 200)})\n`)
-        // Cooldown the rows via the omitted-retry counter so a permanently
-        // unparseable/LLM-erroring window stops hot-looping. markOmittedRows
-        // bumps error_count and archives once CYCLE1_OMITTED_RETRY_LIMIT is hit
-        // (bounded backoff), instead of returning them failed to be re-picked
-        // on the very next tick forever.
-        const cooldown = await markOmittedRows(db, rows.map(r => Number(r.id)))
-        return {
-          committedChunks: 0, committedMembers: 0, skippedChunks: rows.length, rowsConsidered: originalRows.length,
-          invalidChunks: [{ reason: 'unparseable_response', member_ids: rows.map(r => Number(r.id)) }],
-          failedRowIds: rows.map(r => Number(r.id)),
-          omittedRowIds: prefilteredRowIds,
-          prefilteredRowIds,
-          prefilterMarked,
-          prefilterMarkFailed,
-          cooldownMarked: cooldown.marked,
-          cooldownDeferred: cooldown.deferred,
-        }
-      }
-      firstChunkList = first.chunks
-      chunkList = firstChunkList
-      chosenQuality = computeCycle1GroupingQuality(chunkList, rows.length)
-
-      if (shouldRetryCycle1Grouping(chosenQuality, rows.length)) {
-        groupingRetried = true
-        const correctiveRules = [
-          ...DEFAULT_CYCLE1_RULES,
-          '',
-          ...buildCycle1CorrectiveRules(chosenQuality),
-        ]
-        try {
-          const second = await callCycle1Grouping(buildCycle1ChunkPrompt(rows, correctiveRules))
-          if (second.chunks) {
-            secondChunkList = second.chunks
-            const secondQuality = computeCycle1GroupingQuality(second.chunks, rows.length)
-            const scoreFirst = cycle1GroupingQualityScore(chosenQuality)
-            const scoreSecond = cycle1GroupingQualityScore(secondQuality)
-            if (scoreSecond > scoreFirst) {
-              chunkList = second.chunks
-              chosenQuality = secondQuality
-              groupingAttempt = 2
-            }
-          }
-        } catch (retryErr) {
-          if (signal?.aborted) throw retryErr.reason ?? retryErr
-          __mixdogMemoryLog(`[cycle1] compactness retry LLM error (window=${windowIdx}): ${retryErr.message}\n`)
-        }
-      }
-    } catch (err) {
-      if (signal?.aborted) throw err.reason ?? err
-      __mixdogMemoryLog(`[cycle1] LLM error (window=${windowIdx}): ${err.message}\n`)
-      // Transient LLM/transport outage — NOT a data-quality parse failure.
-      // Cooldown reviewed_at so the window stops hot-looping, but under a much
-      // higher retry ceiling so a sustained provider outage does not archive
-      // healthy raw rows at the tight parse-failure limit.
-      const cooldown = await markOmittedRows(db, rows.map(r => Number(r.id)), CYCLE1_TRANSIENT_RETRY_LIMIT)
-      return {
-        committedChunks: 0, committedMembers: 0, skippedChunks: rows.length, rowsConsidered: originalRows.length,
-        invalidChunks: [{ reason: 'llm_error', member_ids: rows.map(r => Number(r.id)) }],
-        failedRowIds: rows.map(r => Number(r.id)),
-        omittedRowIds: prefilteredRowIds,
-        prefilteredRowIds,
-        prefilterMarked,
-        prefilterMarkFailed,
-        cooldownMarked: cooldown.marked,
-        cooldownDeferred: cooldown.deferred,
-      }
-    }
-
-    const entryByIdx = new Map(rows.map((r, i) => [i + 1, r]))
-    const entryById = new Map(rows.map(r => [Number(r.id), r]))
-
-    if (countCycle1CommittableChunks(chunkList, entryByIdx, entryById) === 0) {
-      const fallback = groupingAttempt === 2 ? firstChunkList : secondChunkList
-      if (fallback && countCycle1CommittableChunks(fallback, entryByIdx, entryById) > 0) {
-        chunkList = fallback
-        groupingAttempt = groupingAttempt === 2 ? 1 : 2
-        chosenQuality = computeCycle1GroupingQuality(chunkList, rows.length)
-        __mixdogMemoryLog(
-          `[cycle1] grouping_fallback window=${windowIdx} chosen_attempt=${groupingAttempt}\n`,
-        )
-      }
-    }
-
-    __mixdogMemoryLog(
-      `[cycle1] grouping_quality window=${windowIdx} prompt_entries=${rows.length}` +
-      ` chunks=${chosenQuality.chunkCount} singleton_ratio=${chosenQuality.singleton_ratio.toFixed(3)}` +
-      ` omitted_ratio=${chosenQuality.omitted_ratio.toFixed(3)}` +
-      ` retry=${groupingRetried ? 1 : 0} chosen_attempt=${groupingAttempt}\n`,
-    )
-
-    const usedIds = new Set()
     const committedRowIds = new Set()
     let committedChunks = 0
     let committedMembers = 0
-    let skippedChunks = 0
-    const invalidChunks = []
-    const failedRowIds = []
-    const referencedRowIds = new Set()
-
-    for (const chunk of chunkList) {
+    let skippedChunks = generated.rawRowIds.length
+    const invalidChunks = generated.invalidChunks
+    const invalidRowIds = new Set(invalidChunks.flatMap(chunk => chunk.member_ids || []))
+    const failedRowIds = generated.rawRowIds.filter(id => invalidRowIds.has(id))
+    const commitStartedAt = Date.now()
+    for (const chunk of generated.chunks) {
       throwIfAborted(signal)
-      // Out-of-range @N from the LLM = corrupt grouping. Reject the whole
-      // chunk rather than silently committing the survivors; otherwise a
-      // line like `1,999|...` would commit only @1 and drop @999.
-      const idxList = chunk._idxList.map(n => Number(n))
-      const outOfRange = idxList.filter(n => !entryByIdx.has(n))
-      if (outOfRange.length > 0) {
-        invalidChunks.push({ reason: 'out_of_range_idx', idx_list: idxList })
-        skippedChunks += 1
-        __mixdogMemoryLog(
-          `[cycle1] chunk rejected: out_of_range_idx idx_list=${JSON.stringify(idxList)}\n`,
-        )
-        continue
-      }
-      const rawIds = idxList.map(n => Number(entryByIdx.get(n).id))
-      for (const id of rawIds) {
-        if (Number.isFinite(id)) referencedRowIds.add(id)
-      }
-      const dupeWithin = rawIds.length !== new Set(rawIds).size
-      const externalIds = rawIds.filter(n => !Number.isFinite(n) || !entryById.has(n))
-      const reusedIds = rawIds.filter(n => usedIds.has(n))
-      const memberIds = rawIds.filter(n => Number.isFinite(n) && entryById.has(n) && !usedIds.has(n))
-      const element = String(chunk?.element ?? '').trim()
-      const category = String(chunk?.category ?? '').trim().toLowerCase()
-      const summary = String(chunk?.summary ?? '').trim()
-
-      if (dupeWithin || externalIds.length > 0 || reusedIds.length > 0) {
-        const reason = dupeWithin ? 'duplicate_member_ids'
-          : externalIds.length > 0 ? 'external_member_ids'
-          : 'reused_member_ids'
-        invalidChunks.push({ reason, member_ids: rawIds })
-        skippedChunks += 1
-        __mixdogMemoryLog(
-          `[cycle1] chunk rejected: ${reason} member_ids=${JSON.stringify(rawIds)}\n`,
-        )
-        continue
-      }
-
-      if (memberIds.length === 0 || !element || !summary || !VALID_CATEGORIES.has(category)) {
-        invalidChunks.push({ reason: 'incomplete_fields', member_ids: rawIds })
-        skippedChunks += 1
-        continue
-      }
-
-      if (_isStructurallyInvalidSummary(summary)) {
-        __mixdogMemoryLog(`[cycle1] noise filtered: ${summary.slice(0, 60)}\n`)
-        invalidChunks.push({ reason: 'noise_filtered', member_ids: rawIds })
-        skippedChunks += 1
-        continue
-      }
-
-      const members = memberIds.map(id => entryById.get(id))
+      const { element, category, summary, members, quality } = chunk
+      const memberIds = members.map(member => Number(member.id))
       const rootId = selectRootId(members)
       if (rootId === null) {
         invalidChunks.push({ reason: 'no_root_id', member_ids: memberIds })
@@ -839,14 +526,23 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
         // A chunk commit is one DB transaction; do not split it with an
         // abort checkpoint. Cancellation is honored before the next chunk.
         await db.transaction(async (tx) => {
+          const locked = await tx.query(
+            `SELECT id, ts, role, content, session_id, chunk_root
+             FROM entries WHERE id = ANY($1::bigint[]) FOR UPDATE`,
+            [memberIds],
+          )
+          if (locked.rows.some(row => row.chunk_root != null)
+            || !assessChunkQuality({ summary, chunk_quality: quality }, locked.rows).usable) {
+            throw new Error('cycle1 source changed before commit')
+          }
           // category on root only; recall filters member leaves via parent root.
           await tx.query(
             `UPDATE entries
              SET chunk_root = $1, is_root = 1, element = $2, category = $3, summary = $4,
                  status = 'pending', project_id = $5,
-                 last_seen_at = $7
+                 last_seen_at = $7, chunk_quality = $8::jsonb
              WHERE id = $6`,
-            [rootId, element, category, summary, projectId, rootId, Date.now()],
+            [rootId, element, category, summary, projectId, rootId, Date.now(), JSON.stringify(quality)],
           )
           const nonRootIds = memberIds.filter(mid => mid !== rootId)
           if (nonRootIds.length > 0) {
@@ -859,7 +555,6 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
         committedChunks += 1
         committedMembers += memberIds.length
         for (const mid of memberIds) {
-          usedIds.add(mid)
           committedRowIds.add(mid)
         }
         // Real-time embedding: embed this episode the moment it is committed so
@@ -879,10 +574,9 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
 
     throwIfAborted(signal)
 
-    const llmOmittedRowIds = rows
-      .map(r => Number(r.id))
-      .filter(id => !committedRowIds.has(id) && !failedRowIds.includes(id) && !referencedRowIds.has(id))
-    const omittedMark = await markOmittedRows(db, llmOmittedRowIds)
+    const rawRowIds = rows.map(r => Number(r.id)).filter(id => !committedRowIds.has(id))
+    const llmOmittedRowIds = rawRowIds.filter(id => !failedRowIds.includes(id))
+    const omittedMark = await markOmittedRows(db, rawRowIds)
     const omittedRowIds = llmOmittedRowIds.concat(prefilteredRowIds)
 
     __mixdogMemoryLog(
@@ -904,6 +598,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
       omittedMarked: omittedMark.marked,
       omittedDeferred: omittedMark.deferred,
       omittedMarkFailed: omittedMark.failed,
+      timing: { ...generated.stats, commitMs: Date.now() - commitStartedAt },
     }
   }
 
@@ -938,6 +633,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   let totalOmittedMarked = 0
   let totalOmittedDeferred = 0
   let totalOmittedMarkFailed = 0
+  const timing = { groupingCalls: 0, verificationCalls: 0, llmMs: 0, verificationMs: 0, retries: 0, fragments: 0, commitMs: 0 }
   for (const r of results) {
     totalChunks += r.committedChunks
     totalMembers += r.committedMembers
@@ -952,6 +648,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
     totalOmittedMarked += Number(r.omittedMarked || 0)
     totalOmittedDeferred += Number(r.omittedDeferred || 0)
     totalOmittedMarkFailed += Number(r.omittedMarkFailed || 0)
+    for (const key of Object.keys(timing)) timing[key] += Number(r.timing?.[key] || 0)
   }
 
   __mixdogMemoryLog(
@@ -1001,7 +698,11 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
       omitted_mark_failed_rows: totalOmittedMarkFailed,
       failed_rows: allFailedRowIds.length,
       invalid_chunks: allInvalidChunks.length,
+      grouping_calls: timing.groupingCalls,
+      verification_calls: timing.verificationCalls,
+      raw_fallback_rows: totalRowsConsidered - totalMembers,
     },
+    timing: { ...timing, fetchMs, totalMs: Date.now() - cycleStartedAt },
     embedding_dirty: { deferred: true, attempted: 0, succeeded: 0, failed: 0, failed_ids: [] },
   }
 }

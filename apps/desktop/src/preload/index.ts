@@ -20,6 +20,7 @@ import {
   type DesktopUpdaterState,
 } from '../shared/contract';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
+import { createBrowserTextureBridge } from './browser-texture';
 
 function additionalArgument(name: string): string {
   const prefix = `--${name}=`;
@@ -474,6 +475,7 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.abortSession, sessionId, options),
   resolveToolApprovalForSession: (sessionId, id, decision) =>
     ipcRenderer.invoke(DESKTOP_IPC.resolveToolApprovalForSession, sessionId, id, decision),
+  resyncSessionState: (sessionId) => ipcRenderer.send(DESKTOP_IPC.sessionStateResync, sessionId),
   subscribeSessionState: (listener) => {
     const decoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
     const receive = (
@@ -544,8 +546,7 @@ const api: DesktopApi = {
   },
   browserSetActiveGuest: (sessionId, webContentsId, active) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active),
-  browserPageFrame: (sessionId, previousId) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserPageFrame, sessionId, previousId),
+  ...createBrowserTextureBridge(),
   browserPageControl: (sessionId, input) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserPageControl, sessionId, input),
   browserConfigureGuestViewport: (sessionId, webContentsId, config) =>

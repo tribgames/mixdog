@@ -22,6 +22,7 @@ import { useSharedTick } from '../hooks/useSharedTick.mjs';
 // instant-local L2 can render the Shell segment itself instead of grafting it
 // out of the previous full line.
 import { shellJobsStatus } from '../../ui/statusline-segments.mjs';
+import { formatElapsed, num, terminalColumns } from '../../ui/statusline-format.mjs';
 
 // Loaded at RUNTIME (not bundled) so its vendored statusline-lib relative
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
@@ -138,15 +139,6 @@ function statusColors() {
   };
 }
 
-function terminalColumns() {
-  const cols = Number(process.stdout?.columns);
-  return Number.isFinite(cols) && cols > 0 ? Math.floor(cols) : 120;
-}
-
-function localNum(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
 
 function localContextPct({
   provider = '',
@@ -196,27 +188,6 @@ const LOCAL_L2_SPINNER_FRAME_MS = 120;
 function localL2SpinnerFrame(now = Date.now()) {
   const index = Math.floor(now / LOCAL_L2_SPINNER_FRAME_MS) % LOCAL_WORKER_SPINNER_FRAMES.length;
   return LOCAL_WORKER_SPINNER_FRAMES[index] || LOCAL_WORKER_SPINNER_FRAMES[0];
-}
-
-// Byte-identical replica of src/tui/time-format.mjs formatDuration() with
-// DEFAULT options (no mostSignificantOnly / hideTrailingZeros), wrapped to drop
-// sub-1s. Output shape: '' (<1s), `Xs`, `Xm Ys`, `Xh Ym Zs`, `Xd Yh Zm`. Mirrors
-// statusline.mjs formatElapsed so instant-local L2 elapsed matches full render.
-function localFormatElapsed(ms) {
-  if (!Number.isFinite(Number(ms))) return '';
-  const value = Math.max(0, Number(ms) || 0);
-  if (value < 60_000) {
-    if (value < 1_000) return '';
-    return `${Math.floor(value / 1000)}s`;
-  }
-  const days = Math.floor(value / 86_400_000);
-  const hours = Math.floor((value % 86_400_000) / 3_600_000);
-  const minutes = Math.floor((value % 3_600_000) / 60_000);
-  const seconds = Math.floor((value % 60_000) / 1000);
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }
 
 function localRunningWorkerCount(agentWorkers = [], agentJobs = []) {
@@ -281,7 +252,7 @@ function localStatusLineL2({
   if (runningCount > 0) {
     const label = `Running ${runningCount} Agent${runningCount === 1 ? '' : 's'}`;
     const oldestStart = localOldestWorkerStartMs(agentWorkers, agentJobs);
-    const elapsed = oldestStart > 0 ? localFormatElapsed(now - oldestStart) : '';
+    const elapsed = oldestStart > 0 ? formatElapsed(now - oldestStart) : '';
     l2Parts.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(elapsed)}`);
   }
   // Session-scoped like the full path: one host process owns many sessions'
@@ -298,12 +269,12 @@ function localStatusLineL2({
   const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
   const exploreInfo = tools.explore || null;
   const searchInfo = tools.search || null;
-  if (exploreInfo && localNum(exploreInfo.count) > 0) {
-    const elapsed = localNum(exploreInfo.startedAt) > 0 ? localFormatElapsed(now - localNum(exploreInfo.startedAt)) : '';
+  if (exploreInfo && num(exploreInfo.count) > 0) {
+    const elapsed = num(exploreInfo.startedAt) > 0 ? formatElapsed(now - num(exploreInfo.startedAt)) : '';
     l2Parts.push(`${spin} ${STATUS}Exploring${RESET}${elapsedSuffix(elapsed)}`);
   }
-  if (searchInfo && localNum(searchInfo.count) > 0) {
-    const elapsed = localNum(searchInfo.startedAt) > 0 ? localFormatElapsed(now - localNum(searchInfo.startedAt)) : '';
+  if (searchInfo && num(searchInfo.count) > 0) {
+    const elapsed = num(searchInfo.startedAt) > 0 ? formatElapsed(now - num(searchInfo.startedAt)) : '';
     l2Parts.push(`${spin} ${STATUS}Web Searching${RESET}${elapsedSuffix(elapsed)}`);
   }
   return l2Parts.length ? l2Parts.join(segSep) : '';
@@ -416,13 +387,13 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     : '';
   const statsForSignature = stats && typeof stats === 'object' ? stats : {};
   const statsSignature = [
-    localNum(statsForSignature.currentContextTokens),
-    localNum(statsForSignature.currentEstimatedContextTokens),
-    localNum(statsForSignature.inputTokens),
-    localNum(statsForSignature.latestInputTokens),
-    localNum(statsForSignature.promptTokens),
-    localNum(statsForSignature.turns),
-    localNum(statsForSignature.contextTokens),
+    num(statsForSignature.currentContextTokens),
+    num(statsForSignature.currentEstimatedContextTokens),
+    num(statsForSignature.inputTokens),
+    num(statsForSignature.latestInputTokens),
+    num(statsForSignature.promptTokens),
+    num(statsForSignature.turns),
+    num(statsForSignature.contextTokens),
     String(statsForSignature.currentContextSource || ''),
   ].join('|');
   const refreshMs = hasActiveStatuslineWork(line, agentWorkers, agentJobs, activeTools) ? STATUSLINE_ACTIVE_REFRESH_MS : STATUSLINE_REFRESH_MS;

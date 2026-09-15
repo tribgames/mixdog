@@ -64,7 +64,6 @@ export function cwdFromTranscriptPath(fp) {
 //   persistMeta(json)  -> Promise<void> writes serialized offsets to meta
 //   projectsRoot()     -> string, mixdogHome()/projects
 //   resolveProjectId(cwd) -> project id | null
-//   firstTextContent / cleanMemoryText -> shared ingest text helpers
 //   log(msg)           -> stderr logger
 //
 // Returns the same surface index.mjs previously exposed as module functions,
@@ -75,8 +74,6 @@ export function createTranscriptIngest({
   persistMeta,
   projectsRoot,
   resolveProjectId,
-  firstTextContent,
-  cleanMemoryText,
   log = () => {},
 }) {
   let _transcriptOffsets = new Map()
@@ -194,9 +191,12 @@ export function createTranscriptIngest({
       // background watcher ingested 0 rows forever.
       const role = parsed.message?.role
         ?? ((parsed.type === 'user' || parsed.type === 'assistant') ? parsed.type : undefined)
-      if (role !== 'user' && role !== 'assistant') {
+      const commitSkip = () => {
         lastGoodBytes += consumedBytes
         lastGoodLineIndex = index
+      }
+      if (role !== 'user' && role !== 'assistant') {
+        commitSkip()
         continue
       }
       // Reuse the ingest_session shape/exclude predicates so the transcript
@@ -205,20 +205,12 @@ export function createTranscriptIngest({
       // reference-files/compaction/ack/internal-notification rows).
       const shaped = { role, content: parsed.message?.content }
       if (shouldExcludeIngestMessage(shaped)) {
-        lastGoodBytes += consumedBytes
-        lastGoodLineIndex = index
+        commitSkip()
         continue
       }
       const content = sessionMessageContentForIngest(shaped)
       if (!content || !content.trim()) {
-        lastGoodBytes += consumedBytes
-        lastGoodLineIndex = index
-        continue
-      }
-      const cleaned = cleanMemoryText(content)
-      if (!cleaned) {
-        lastGoodBytes += consumedBytes
-        lastGoodLineIndex = index
+        commitSkip()
         continue
       }
       const { tsMs, timeSource } = parseTsWithSource(parsed.timestamp ?? parsed.ts)
@@ -230,7 +222,7 @@ export function createTranscriptIngest({
           `INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT DO NOTHING`,
-          [tsMs, role, cleaned, sourceRef, sessionUuid, index, projectId, timeSource]
+          [tsMs, role, content, sourceRef, sessionUuid, index, projectId, timeSource]
         )
         if (Number(result.rowCount ?? result.affectedRows ?? 0) > 0) count += 1
         lastGoodBytes += consumedBytes
@@ -274,11 +266,17 @@ export function createTranscriptIngest({
     const intervals = []
     const polledFiles = new Set()
 
+    function isSkippedWatchPath(relOrBase) {
+      return relOrBase.includes('tmp') || relOrBase.includes('cache') || relOrBase.includes('plugins')
+    }
+
+    function isTranscriptJsonlName(name) {
+      const base = path.basename(name)
+      return base.endsWith('.jsonl') && !base.startsWith('agent-')
+    }
+
     function isWatchable(relOrBase) {
-      const base = path.basename(relOrBase)
-      if (!base.endsWith('.jsonl') || base.startsWith('agent-')) return false
-      if (relOrBase.includes('tmp') || relOrBase.includes('cache') || relOrBase.includes('plugins')) return false
-      return true
+      return isTranscriptJsonlName(relOrBase) && !isSkippedWatchPath(relOrBase)
     }
 
     async function ingestOne(fp) {
@@ -324,12 +322,12 @@ export function createTranscriptIngest({
       catch { return [] }
       const files = []
       for (const d of topLevel) {
-        if (d.includes('tmp') || d.includes('cache') || d.includes('plugins')) continue
+        if (isSkippedWatchPath(d)) continue
         const full = path.join(root, d)
         let inner
         try { inner = await fs.promises.readdir(full) } catch { continue }
         for (const f of inner) {
-          if (!f.endsWith('.jsonl') || f.startsWith('agent-')) continue
+          if (!isTranscriptJsonlName(f)) continue
           const fp = path.join(full, f)
           try {
             const stat = await fs.promises.stat(fp)

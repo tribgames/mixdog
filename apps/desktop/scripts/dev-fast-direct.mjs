@@ -77,6 +77,7 @@ const runtimeDependencyInputs = [
   join(repoRoot, 'scripts', 'runtime-dependency-cache-key.mjs'),
   join(desktopDir, 'scripts', 'prepare-runtime.mjs'),
   join(desktopDir, 'scripts', 'prepare-fast-runtime-code.mjs'),
+  join(desktopDir, 'scripts', 'cli-args.mjs'),
   join(desktopDir, 'scripts', 'runtime-package-payload.mjs'),
   join(repoRoot, 'native', 'mixdog-browser-import'),
 ];

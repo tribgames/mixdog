@@ -28,7 +28,7 @@
 // (tool_call, modalities.output), _releaseEpoch (release_date),
 // _stalenessFamily (family). `id`/`name` are NOT kept: both call sites pass
 // the model id explicitly, so the row-level copy would only duplicate the key.
-const MODELSDEV_COST_FIELDS = ['input', 'output', 'cache_read', 'cache_write'];
+const MODELSDEV_COST_FIELDS = ['input', 'output', 'cache_read', 'cache_write', 'tiers', 'context_over_200k'];
 const MODELSDEV_LIMIT_FIELDS = ['context', 'output'];
 const MODELSDEV_MODALITY_FIELDS = ['input', 'output'];
 
@@ -141,6 +141,11 @@ function projectLitellmRow(row) {
     for (const field of LITELLM_NUMBER_FIELDS) {
         const value = row[field];
         if (typeof value === 'number' && Number.isFinite(value)) out[field] = value;
+    }
+    // Preserve the published context-rate columns, not just the base price.
+    for (const [field, value] of Object.entries(row)) {
+        if (/^(?:input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)_above_\d+k_tokens$/.test(field)
+            && typeof value === 'number' && Number.isFinite(value)) out[field] = value;
     }
     for (const field of LITELLM_FLAG_FIELDS) {
         if (row[field] === true) out[field] = true;

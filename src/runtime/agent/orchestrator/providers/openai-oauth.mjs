@@ -3,20 +3,19 @@
  *
  * Dispatches over the WebSocket upgrade of chatgpt.com/backend-api/codex/
  * responses (responses_websockets=2026-02-06 beta). Authenticates via PKCE
- * OAuth using Mixdog-owned token storage. Streaming/framing lives in
- * openai-oauth-ws.mjs; this file owns auth, model catalog, request-body
- * shape, and HTTP/SSE fallback when WebSocket transport is unhealthy.
+ * OAuth using Mixdog-owned token storage.
+ *
+ * Responsibilities are split across modules and this file is the facade that
+ * re-exports them for existing importers:
+ *   - openai-oauth-tokens.mjs   credential store, refresh, login wiring
+ *   - openai-oauth-catalog.mjs  model catalog, its cache and lookups
+ *   - openai-oauth-ws.mjs / openai-oauth-http-sse.mjs  streaming + framing
+ *   - openai-startup-prewarm.mjs  startup prewarm requests + reservations
+ * What stays here is transport selection: WS dispatch, driving the session
+ * startup prewarm, auth/catalog recovery retries, and the HTTP/SSE fallback
+ * taken when WebSocket transport is unhealthy.
  */
 import { createHash } from 'crypto';
-import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
-import { join, resolve } from 'path';
-import { getPluginData } from '../config.mjs';
-import { enrichModels } from './model-catalog.mjs';
-import { sanitizeModelList } from './model-list-sanitize.mjs';
-import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
-import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
-import { makeModelCache } from './model-cache.mjs';
-import { modelSupportsServiceTier } from './model-service-tiers.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
@@ -24,8 +23,20 @@ import {
     acquireWebSocket,
     releaseWebSocket,
     hasPooledWebSocket,
-    WS_IDLE_MS,
 } from './openai-ws-pool.mjs';
+import {
+    armStartupPrewarmReservation,
+    buildStartupPrewarmSendOpts,
+    claimStartupPrewarmReservation,
+    codexStartupPrefixHash,
+    discardStartupPrewarmReservation,
+    hasStartupPrewarmReservation,
+    resolveStartupPrewarmTarget,
+    retireStartupPrewarmRecord,
+    stampStartupPrewarmReservation,
+    startupPromptWarmupEnabled,
+    traceStartupPrewarm,
+} from './openai-startup-prewarm.mjs';
 import { _codexWsCompatibilityHeaders } from './openai-codex-metadata.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import {
@@ -36,27 +47,33 @@ import {
 import {
   appendAgentTrace,
 } from '../agent-trace.mjs';
-import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
+import { preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
     sendViaHttpSse,
     _envFlag,
     _shouldUseOpenAIHttpFallback,
 } from './openai-oauth-http-sse.mjs';
-import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
 import { warmCodexClientVersion } from './codex-client-meta.mjs';
-import { decodeJwtPayload, expiryFromAccessToken } from './lib/oauth-token-utils.mjs';
+import { CODEX_BACKEND_ORIGIN } from './openai-codex-endpoints.mjs';
 import {
-  _displayCodexModel,
-  _normalizeCodexModel,
-  _compareVersion,
-  _isMainCodexFamily,
-  _markLatestCodex,
-} from './openai-codex-model.mjs';
+    loadTokens,
+    refreshStoredTokens,
+    tokensFileMtimeMs,
+    TOKEN_REFRESH_SKEW_MS,
+} from './openai-oauth-tokens.mjs';
+import {
+    codexCatalogHas,
+    codexModelSupportsServiceTier,
+    ensureLatestCodexModel,
+    findCachedCodexModel,
+    listCodexModels,
+    refreshCodexCatalog,
+} from './openai-oauth-catalog.mjs';
+import { _displayCodexModel } from './openai-codex-model.mjs';
 export { _displayCodexModel };
 
 // Public test/integration entry retained alongside the transport module export.
 export { sendViaHttpSse };
-// --- Constants ---
 import {
     buildCodexStartupPrewarmBody,
     buildRequestBody,
@@ -68,269 +85,31 @@ export {
     toOpenAIResponsesTool,
     _convertMessagesToResponsesInputForTest,
 } from './openai-responses-payload.mjs';
-const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-// Exported for openai-oauth-http-sse.mjs (fallback transport headers/URL).
-export const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
-const TOKEN_URL = 'https://auth.openai.com/oauth/token';
-export const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
-// Client version for the models endpoint query and the `version`/User-Agent
-// request headers — the OAuth backend rejects requests without it, gates new
-// model exposures on it (gpt-5.6-* require >= 0.144.0), and rejects turns on
-// gated models when the reported version is below the model's
-// minimal_client_version. Resolution is unified in codex-client-meta.mjs
-// (live npm @openai/codex latest, 24h in-process cache, offline floor) so the
-// catalog query and the transport headers can never disagree.
-const CODEX_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
-const CODEX_MODEL_CACHE_SCHEMA_VERSION = 3;
-const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
-
-const _codexModelCache = makeModelCache({
-    fileName: 'openai-oauth-models.json',
-    ttlMs: CODEX_MODEL_CACHE_TTL_MS,
-    version: CODEX_MODEL_CACHE_SCHEMA_VERSION,
-    onSave: (m) => { _inMemoryCodexCatalog = Array.isArray(m) ? m.slice() : null; },
-});
-
-function _loadCodexModelCacheSync() {
-    return _codexModelCache.loadSync();
-}
-
-async function _loadCodexModelCache() {
-    return _codexModelCache.loadSync();
-}
-
-async function _saveCodexModelCache(models) {
-    _codexModelCache.save(models);
-}
-
-// In-memory mirror of the on-disk catalog, same pattern as anthropic-oauth.
-// Populated on first listModels() and after every _saveCodexModelCache.
-let _inMemoryCodexCatalog = null;
-let _codexRefreshInFlight = null;
-const _oauthRefreshes = new Map();
-let _lastCodexListModelsError = '';
-
-function _codexCatalogHas(id) {
-    if (!id || !Array.isArray(_inMemoryCodexCatalog)) return false;
-    return _inMemoryCodexCatalog.some(m => m.id === id);
-}
-
-export function _findCachedCodexModel(id) {
-    if (!id) return null;
-    if (!Array.isArray(_inMemoryCodexCatalog)) {
-        _inMemoryCodexCatalog = _loadCodexModelCacheSync();
-    }
-    if (!Array.isArray(_inMemoryCodexCatalog)) return null;
-    return _inMemoryCodexCatalog.find(m => m?.id === id) || null;
-}
-
-export function codexModelSupportsServiceTier(id, serviceTier) {
-    return modelSupportsServiceTier(_findCachedCodexModel(id), serviceTier);
-}
-
-// Newest MAIN gpt-5 chat model by version, read from the SYNC in-memory
-// catalog mirror. Returns null until populated; callers warm via
-// ensureLatestCodexModel when null.
-function resolveLatestCodexModel() {
-    if (!Array.isArray(_inMemoryCodexCatalog)) return null;
-    let best = null;
-    for (const m of _inMemoryCodexCatalog) {
-        if (!m?.id || !_isMainCodexFamily(m.family)) continue;
-        if (!best || _compareVersion(m.id, best.id) > 0) best = m;
-    }
-    return best?.id || null;
-}
-
-async function ensureLatestCodexModel(provider) {
-    let m = resolveLatestCodexModel();
-    if (m) return m;
-    await provider._refreshModelCache();
-    m = resolveLatestCodexModel();
-    if (m) return m;
-    throw new Error('[openai-oauth] model catalog unavailable after warmup — cannot resolve default model');
-}
-
-function getOwnTokenPath() {
-    const bound = boundProviderAuthPath('openai-oauth');
-    if (bound) return resolve(bound);
-    const explicit = process.env.OPENAI_OAUTH_CREDENTIALS_PATH;
-    if (explicit) return resolve(explicit);
-    const dir = getPluginData();
-    if (!existsSync(dir))
-        mkdirSync(dir, { recursive: true });
-    return join(dir, 'openai-oauth.json');
-}
-
-// Public predicate used by config.buildDefaultConfig — provider is enabled
-// when own Mixdog tokens exist. Single truth:
-// same loader the runtime uses (loadTokens), no parallel hard-coded path probe.
-export function hasOpenAIOAuthCredentials() {
-    try {
-        const tokens = loadTokens();
-        return !!(tokens?.access_token && tokens?.refresh_token);
-    } catch { return false; }
-}
-
-export function describeOpenAIOAuthCredentials() {
-    try {
-        const tokens = loadTokens();
-        if (!tokens?.access_token) {
-            return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Not Set', detail: 'Mixdog token store' };
-        }
-        const hasRefresh = Boolean(tokens.refresh_token);
-        const expiresAt = _normalizeExpiresAt(tokens.expires_at ?? tokens.expiresAt);
-        const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
-        const expired = expiresAt > 0 && expiresAt <= Date.now();
-        const source = tokens.source || 'oauth';
-        // Account identity for multi-account rosters: the id_token's email
-        // when present, else a short prefix of the ChatGPT account id.
-        const claims = tokens.id_token ? (decodeJwtPayload(tokens.id_token) || {}) : {};
-        const email = typeof claims.email === 'string' ? claims.email : '';
-        const accountId = tokens.account_id ? `${String(tokens.account_id).slice(0, 8)}…` : '';
-        const identity = { ...(email ? { email } : {}), ...(accountId ? { accountId } : {}) };
-        if (!hasRefresh) {
-            return {
-                authenticated: expiresAt === 0 || !expired,
-                usable: expiresAt === 0 || !expired,
-                refreshable: false,
-                reauthRequired: expired,
-                status: expired ? 'Reauth Required' : 'Access Only',
-                detail: `${source}; no refresh token`,
-                expiresAt,
-                ...identity,
-            };
-        }
-        if (expired) return { authenticated: true, usable: false, refreshable: true, reauthRequired: false, status: 'Refresh Required', detail: source, expiresAt, ...identity };
-        if (expiring) return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Refresh Soon', detail: source, expiresAt, ...identity };
-        return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Valid', detail: source, expiresAt, ...identity };
-    } catch (err) {
-        return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
-    }
-}
-function _normalizeExpiresAt(value) {
-    const n = Number(value || 0);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return n < 1e12 ? n * 1000 : n;
-}
-function _tokensMaxMtime() {
-    let max = 0;
-    const paths = [getOwnTokenPath()];
-    for (const p of paths) {
-        try {
-            const s = statSync(p);
-            if (s.mtimeMs > max) max = s.mtimeMs;
-        } catch { /* not present — skip */ }
-    }
-    return max;
-}
-function _loadOwnCodexTokens() {
-    const ownPath = getOwnTokenPath();
-    if (!existsSync(ownPath)) return null;
-    try {
-        const stat = statSync(ownPath);
-        const own = JSON.parse(readFileSync(ownPath, 'utf-8'));
-        if (own.access_token && own.refresh_token) {
-            return {
-                ...own,
-                expires_at: _normalizeExpiresAt(own.expires_at ?? own.expiresAt) || expiryFromAccessToken(own.access_token),
-                account_id: own.account_id || extractAccountId(own.access_token),
-                source: 'Mixdog token store',
-                _mtimeMs: stat.mtimeMs,
-            };
-        }
-    }
-    catch { /* fall through */ }
-    return null;
-}
-function loadTokens() {
-    return _loadOwnCodexTokens();
-}
-function saveTokens(tokens) {
-    const target = getOwnTokenPath();
-    writeJsonAtomicSync(target, tokens, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
-}
-function getRefreshLockPath() {
-    return `${getOwnTokenPath()}.refresh.lock`;
-}
-
-export function forgetOpenAIOAuthCredentials() {
-    let removed = false;
-    const ownPath = getOwnTokenPath();
-    if (existsSync(ownPath)) {
-        unlinkSync(ownPath);
-        removed = true;
-    }
-    return { removed };
-}
-function extractAccountId(token) {
-    return decodeJwtPayload(token)?.['https://api.openai.com/auth']?.chatgpt_account_id;
-}
-// --- Token refresh ---
-async function refreshTokens(refreshToken) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
-    try {
-        const res = await fetch(TOKEN_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                grant_type: 'refresh_token',
-                refresh_token: refreshToken,
-                client_id: CLIENT_ID,
-            }),
-            // Never follow a redirect on a secret-bearing request: a token
-            // endpoint that 307/308-redirects would replay the refresh_token to
-            // the redirect target. Fail loud instead.
-            redirect: 'error',
-            signal: controller.signal,
-            dispatcher: getLlmDispatcher(),
-        });
-        if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            // Distinguish a terminally-dead refresh token (consumed by the official
-            // CLI's single-use lineage) from transient failures, so the caller can
-            // re-read disk and retry once with a newer token instead of
-            // collapsing every failure to a generic null.
-            if (res.status === 400 || res.status === 401 || /invalid_grant|revoked|reused/i.test(text)) {
-                throw Object.assign(new Error(`OpenAI OAuth token refresh ${res.status} (invalid_grant)`), { isInvalidGrant: true });
-            }
-            return null;
-        }
-        const json = await res.json();
-        if (!json.access_token) return null;
-        const expiresAt = _normalizeExpiresAt(json.expires_at ?? json.expiresAt)
-            || (typeof json.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
-        const tokens = {
-            access_token: json.access_token,
-            refresh_token: json.refresh_token || refreshToken,
-            expires_at: expiresAt,
-            account_id: extractAccountId(json.access_token),
-        };
-        saveTokens(tokens);
-        return tokens;
-    } catch (err) {
-        if (err?.name === 'AbortError')
-            throw new Error('OpenAI OAuth token refresh timed out after 30000ms');
-        throw err;
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-// Identity of the STABLE prefix a startup prewarm actually warmed (model +
-// instructions/tools, never the live transcript). A reservation may only be
-// consumed by a request whose own prefix hashes the same: the first turn
-// refreshes environment/tool surface after the prewarm was fired, and adopting
-// a socket anchored on the older prefix costs the whole prewarm and forces the
-// real request back to a full frame.
-function _codexStartupPrefixHash(body) {
-    const prewarm = buildCodexStartupPrewarmBody(body);
-    return createHash('sha256').update(JSON.stringify({
-        model: prewarm?.model ?? null,
-        instructions: prewarm?.instructions ?? null,
-        tools: prewarm?.tools ?? null,
-        input: prewarm?.input ?? [],
-    })).digest('hex').slice(0, 24);
-}
+// Endpoint identity is shared with the transports and the catalog query; the
+// re-export keeps openai-oauth-http-sse.mjs and the media adapters resolving
+// through this facade.
+//
+// Those endpoints are version-gated: the OAuth backend rejects requests
+// without a client version, gates new model exposures on it (gpt-5.6-* require
+// >= 0.144.0), and rejects turns on gated models when the reported version is
+// below the model's minimal_client_version. Resolution is unified in
+// codex-client-meta.mjs (live npm @openai/codex latest, 24h in-process cache,
+// offline floor) so the catalog query and the transport headers can never
+// disagree.
+export { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL } from './openai-codex-endpoints.mjs';
+// Credential + catalog facade: /providers, the media lanes and
+// openai-responses-payload.mjs keep importing these from here.
+export {
+    describeOpenAIOAuthCredentials,
+    forgetOpenAIOAuthCredentials,
+    hasOpenAIOAuthCredentials,
+    beginOAuthLogin,
+    loginOAuth,
+} from './openai-oauth-tokens.mjs';
+export {
+    codexModelSupportsServiceTier,
+    findCachedCodexModel as _findCachedCodexModel,
+} from './openai-oauth-catalog.mjs';
 
 function openAiOAuthHandshakeErrorPolicy({ status }) {
     if (Number(status) === 404) {
@@ -352,7 +131,6 @@ function isOpenAiOAuthHandshakeHttpFallback(err, externalSignal) {
         && err?.wsHttpFallbackEligible === true;
 }
 
-// --- Build Responses API request ---
 export class OpenAIOAuthProvider {
     // OpenAI input_tokens already INCLUDES cached_tokens (cached is a subset),
     // so input alone is the context footprint. See registry.mjs.
@@ -373,10 +151,10 @@ export class OpenAIOAuthProvider {
         this.tokens = loadTokens();
         // Warm a kept-alive socket to the OAuth responses API so the first
         // request skips the cold TLS handshake. Best-effort; never throws.
-        preconnect('https://chatgpt.com');
+        preconnect(CODEX_BACKEND_ORIGIN);
     }
     getCachedModelInfo(model) {
-        return _findCachedCodexModel(model);
+        return findCachedCodexModel(model);
     }
     async ensureAuth({ forceRefresh = false, reason = 'preemptive' } = {}) {
         if (!this.tokens) this.tokens = loadTokens();
@@ -385,7 +163,7 @@ export class OpenAIOAuthProvider {
         // Pick up Mixdog-owned token updates the moment the auth file is
         // rewritten — without this, a fresh login is ignored until the in-memory
         // token hits its expiry skew.
-        const diskMtime = _tokensMaxMtime();
+        const diskMtime = tokensFileMtimeMs();
         // Watermark guards termination: if the rewritten file is temporarily
         // unreadable/partial, record the scanned mtime so this check can't
         // re-fire on every ensureAuth().
@@ -412,88 +190,34 @@ export class OpenAIOAuthProvider {
     }
 
     async _refreshTokens({ force = false, reason = 'preemptive' } = {}) {
-        const currentToken = this.tokens?.access_token || null;
-        const disk = loadTokens();
-        const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
-        if (disk?.access_token && disk.access_token !== currentToken
-            && (!disk.expires_at || disk.expires_at >= validAfter)) {
-            this.tokens = disk;
-            process.stderr.write(`[openai-oauth] Reloaded tokens from disk\n`);
-            return disk;
-        }
-        if (!this.tokens && disk) this.tokens = disk;
-
-        const refreshKey = getOwnTokenPath();
-        if (_oauthRefreshes.has(refreshKey)) {
-            const shared = await _oauthRefreshes.get(refreshKey);
-            this.tokens = shared;
-            if (!force || shared?.access_token !== currentToken) return this.tokens;
-        }
-
-        const startingTokens = this.tokens || disk;
-        const refresh = withFileLock(getRefreshLockPath(), async () => {
-            const latest = loadTokens() || startingTokens;
-            const latestValidAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
-            if (latest?.access_token && latest.access_token !== currentToken
-                && (!latest.expires_at || latest.expires_at >= latestValidAfter)) {
-                process.stderr.write(`[openai-oauth] Reloaded tokens from disk\n`);
-                return latest;
-            }
-
-            if (!latest?.refresh_token) {
-                if (!force && latest?.access_token && (!latest.expires_at || latest.expires_at > Date.now())) {
-                    process.stderr.write(`[openai-oauth] WARNING: token expiring but no refresh token; using current token until expiry\n`);
-                    this._refreshFallbackUntil = Date.now() + TOKEN_REFRESH_SKEW_MS;
-                    return latest;
-                }
-                throw new Error('OpenAI OAuth refresh token not available. Open /providers in mixdog to sign in again.');
-            }
-
-            try {
-                const _refreshT0 = Date.now();
-                const _expiringInMs = (latest?.expires_at ?? 0) - Date.now();
-                if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-refresh-needed expiringInMs=${_expiringInMs}\n`); }
-                process.stderr.write(`[openai-oauth] Token ${reason}, refreshing...\n`);
-                const refreshed = await refreshTokens(latest.refresh_token);
-                if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] auth-refresh-done elapsed=${Date.now() - _refreshT0}ms ok=${!!refreshed}\n`); }
-                if (!refreshed) throw new Error('refresh returned null');
-                process.stderr.write(`[openai-oauth] Token refreshed, expires in ${Math.round(((refreshed.expires_at || Date.now()) - Date.now()) / 1000)}s\n`);
-                return refreshed;
-            }
-            catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                if (!force && latest?.access_token && (!latest.expires_at || latest.expires_at > Date.now())) {
-                    this._refreshFallbackUntil = Date.now() + TOKEN_REFRESH_SKEW_MS;
-                    process.stderr.write(`[openai-oauth] Refresh failed (${msg}); using still-valid current token\n`);
-                    return latest;
-                }
-                throw new Error(`OpenAI OAuth token refresh failed (${msg}). Re-authenticate via provider login.`);
-            }
-        }, {
-            // OAuth refresh includes network exchange plus owner-only atomic
-            // persistence. Match the Anthropic/xAI lease: the generic 2s file
-            // lock timeout is too short under Windows ACL and process contention.
-            timeoutMs: 120_000,
-            staleMs: 120_000,
-            secret: true,
-        }, {
-            // OAuth refresh includes network exchange plus owner-only atomic
-            // persistence. Match the Anthropic/xAI lease: the generic 2s file
-            // lock timeout is too short under Windows ACL and process contention.
-            timeoutMs: 120_000,
-            staleMs: 120_000,
-            secret: true,
-        }).finally(() => { _oauthRefreshes.delete(refreshKey); });
-        _oauthRefreshes.set(refreshKey, refresh);
-
-        this.tokens = await refresh;
+        const { tokens, coastOnCurrent } = await refreshStoredTokens({
+            current: this.tokens,
+            force,
+            reason,
+        });
+        // The store could not refresh and handed back a still-valid token:
+        // hold off re-attempting until the expiry skew so every turn in that
+        // window does not re-run the failing exchange.
+        if (coastOnCurrent) this._refreshFallbackUntil = Date.now() + TOKEN_REFRESH_SKEW_MS;
+        this.tokens = tokens;
         return this.tokens;
     }
+
+    /**
+     * Consume this session's startup prewarm reservation, if it fits the turn.
+     * Reservation lifecycle lives in openai-startup-prewarm.mjs; this stays a
+     * provider method because the turn path and the transport tests address
+     * reservations through the provider that holds the registry.
+     */
+    _claimStartupPrewarmHandle(identity) {
+        return claimStartupPrewarmReservation(this._startupPrewarmReadyByPoolKey, identity);
+    }
+
     async send(messages, model, tools, sendOpts) {
         // Re-warm a kept-alive socket before the turn (TTL-gated no-op while
         // hot). After an idle gap it re-opens one in parallel with auth/body
         // build so the HTTP/SSE path skips the cold TLS handshake.
-        preconnect('https://chatgpt.com');
+        preconnect(CODEX_BACKEND_ORIGIN);
         const opts = sendOpts || {};
         const onStageChange = typeof opts.onStageChange === 'function' ? opts.onStageChange : null;
         const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
@@ -506,7 +230,7 @@ export class OpenAIOAuthProvider {
         // Build request body in parallel with auth resolution. ensureAuth is
         // a no-op fast-path on cached tokens, but a refresh round-trip can
         // take 300ms+; the body build (message serialisation) overlaps cleanly.
-        const useModel = model || await ensureLatestCodexModel(this);
+        const useModel = model || await ensureLatestCodexModel(() => this._refreshModelCache());
         // Escape hatch for callers (e.g. the web-search backend) that ship a
         // fully-formed request body with a server-side tool shape buildRequestBody
         // can't express. Routing through send() still gives them the 401/403
@@ -535,26 +259,10 @@ export class OpenAIOAuthProvider {
         // independent so a future cache-lane policy cannot merge conversations.
         const poolKey  = opts.sessionId || null;
         const cacheKey = body.prompt_cache_key || resolveProviderCacheKey(opts, 'openai-oauth');
-        const startupPrefixHash = _codexStartupPrefixHash(body);
-        let startupPrewarmHandle = null;
-        if (poolKey && opts._startupPrewarmOnly !== true) {
-            const candidate = this._startupPrewarmReadyByPoolKey.get(poolKey) || null;
-            if (candidate) {
-                this._startupPrewarmReadyByPoolKey.delete(poolKey);
-                if (candidate._reservationTimer) {
-                    clearTimeout(candidate._reservationTimer);
-                    candidate._reservationTimer = null;
-                }
-                if (candidate.poolKey === poolKey
-                    && candidate.cacheKey === cacheKey
-                    && candidate.prefixHash === startupPrefixHash
-                    && candidate.entry) {
-                    startupPrewarmHandle = candidate;
-                } else if (candidate.entry) {
-                    releaseWebSocket({ entry: candidate.entry, poolKey, keep: false });
-                }
-            }
-        }
+        const startupPrefixHash = codexStartupPrefixHash(body);
+        let startupPrewarmHandle = opts._startupPrewarmOnly === true
+            ? null
+            : this._claimStartupPrewarmHandle({ poolKey, cacheKey, prefixHash: startupPrefixHash });
         const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
         const sendWs = typeof opts._sendViaWebSocketFn === 'function' ? opts._sendViaWebSocketFn : sendViaWebSocket;
         const sendHttp = typeof opts._sendViaHttpSseFn === 'function' ? opts._sendViaHttpSseFn : sendViaHttpSse;
@@ -573,7 +281,7 @@ export class OpenAIOAuthProvider {
         };
         const _t1 = Date.now();
         const recordLiveModel = (result) => {
-            if (result?.model && !_codexCatalogHas(result.model)) {
+            if (result?.model && !codexCatalogHas(result.model)) {
                 void this._refreshModelCache();
             }
             if (result && opts.providerState !== undefined && result.providerState === undefined) {
@@ -595,7 +303,7 @@ export class OpenAIOAuthProvider {
             // stream retry exhaustion or a typed unsupported upgrade (404/426).
             this._httpFallbackUntilByPoolKey.set(poolKey, Number.POSITIVE_INFINITY);
         };
-        const traceWsError = (err, stage = 'primary') => {
+        const traceTransportError = (err, stage = 'primary', transport = 'websocket') => {
             try {
                 appendAgentTrace({
                     sessionId: poolKey,
@@ -603,12 +311,14 @@ export class OpenAIOAuthProvider {
                     kind: 'transport_error',
                     provider: 'openai-oauth',
                     model: useModel,
-                    transport: 'websocket',
+                    transport,
                     payload: {
                         stage,
                         error_code: err?.code || null,
                         error_http_status: Number(err?.httpStatus || 0) || null,
+                        error_ws_close_code: err?.wsCloseCode ?? null,
                         error_classifier: err?.retryClassifier || err?.midstreamClassifier || null,
+                        ws_retries: err?.midstreamRetries ?? null,
                         live_text_emitted: err?.liveTextEmitted === true || err?.unsafeToRetry === true,
                         message: String(err?.message || err || '').slice(0, 500),
                     },
@@ -642,21 +352,34 @@ export class OpenAIOAuthProvider {
             } else {
                 if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[openai-oauth] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
             }
-            const result = await sendHttp({
-                auth,
-                body,
-                opts,
-                onStreamDelta,
-                onToolCall,
-                onTextDelta,
-                onStageChange,
-                externalSignal,
-                poolKey,
-                cacheKey,
-                iteration,
-                useModel,
-                fetchFn: opts._fetchFn,
-            });
+            let result;
+            try {
+                result = await sendHttp({
+                    auth,
+                    body,
+                    opts,
+                    onStreamDelta,
+                    onToolCall,
+                    onTextDelta,
+                    onStageChange,
+                    externalSignal,
+                    poolKey,
+                    cacheKey,
+                    iteration,
+                    useModel,
+                    fetchFn: opts._fetchFn,
+                });
+            } catch (httpErr) {
+                // The current transport owns the terminal decision, including
+                // auth, rate limits, cancellation and output-safety markers.
+                // Keep WS history outside `cause`: retry classifiers walk that
+                // chain and must not revive a stale transport failure.
+                if (originalErr && originalErr !== httpErr) {
+                    try { httpErr.previousTransportError = originalErr; } catch {}
+                }
+                traceTransportError(httpErr, reason === 'forced' ? 'primary' : 'fallback', 'http');
+                throw httpErr;
+            }
             if (originalErr?.__warmup?.usage) {
                 result.usage = _combineUsageWithWarmup(result.usage, originalErr.__warmup.usage, {
                     separateMainContext: true,
@@ -693,49 +416,30 @@ export class OpenAIOAuthProvider {
             // the hot WS/cache path for temporary blips while still preventing
             // TUI-level hangs. Sticky HTTP fallback is only armed after this
             // bounded reconnect budget is exhausted.
-            // Startup prewarm, matching the reference client: build from the
+            // Per-send warmup, matching the reference client: build from the
             // stable request properties (instructions/tools/etc.) but never
             // send the live transcript/user input. The completed
             // generate:false response is retained by the WS transport and
-            // anchors the first real request.
-            //
-            // OFF by default: the prewarm cannot win on tokens. It pays the
-            // FULL input price for the stable prefix in order to save at most
-            // 90% of that same prefix on the first real call — and the first
-            // real call would have created the identical cache entry anyway.
-            // The trade only pays off if the prewarm itself hits a warm node,
-            // which measured 0 of 445 sessions (full TB run 2026-08-26): our
-            // prefix is Mixdog-specific, so unlike the reference client's
-            // globally-shared one it is never warm on arrival.
-            // A/B on the 8-task suite (2026-08-31, 3 runs on / 3 off): 8/8
-            // pass either way, input spend $0.748 -> $0.630 (-15.8%), wall
-            // 198s -> 195s. Chain continuity is not lost — the first real
-            // request simply anchors on its own full frame.
-            // MIXDOG_OPENAI_OAUTH_WS_WARMUP=1 re-enables it.
-            warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', false)
+            // anchors the first real request. Gated by
+            // startupPromptWarmupEnabled() — see openai-startup-prewarm.mjs
+            // for why it is off by default.
+            warmupBody: startupPromptWarmupEnabled()
                 ? buildCodexStartupPrewarmBody(body)
                 : null,
                 _carriedWarmup: carriedWarmup,
                 _prewarmedHandle: prewarmedHandle,
             });
         };
-        const mustSurfaceFallbackError = (fallbackErr) => externalSignal?.aborted
-            || fallbackErr?.name === 'AbortError'
-            || fallbackErr?.code === 'ABORT_ERR'
-            || fallbackErr?.liveTextEmitted === true
-            || fallbackErr?.emittedToolCall === true
-            || fallbackErr?.toolCallEmitted === true
-            || fallbackErr?.unsafeToRetry === true;
         if (transportPolicy.transport === 'http'
             || (transportPolicy.allowHttpFallback && (
                 opts.forceHttpFallback === true
                 || httpFallbackActive()
                 || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)
             ))) {
-            if (startupPrewarmHandle?.entry) {
-                releaseWebSocket({ entry: startupPrewarmHandle.entry, poolKey, keep: false });
-                startupPrewarmHandle = null;
-            }
+            // HTTP cannot adopt a reserved socket; give it back before the
+            // turn leaves the WS path for good.
+            discardStartupPrewarmReservation(startupPrewarmHandle, poolKey);
+            startupPrewarmHandle = null;
             if (opts._startupPrewarmOnly === true) {
                 return { startupPrewarm: false };
             }
@@ -751,12 +455,11 @@ export class OpenAIOAuthProvider {
             // Stamp the reservation with the prefix it warmed so the first real
             // request can tell a matching anchor from a stale one.
             if (opts._startupPrewarmOnly === true && result?.startupPrewarmHandle) {
-                result.startupPrewarmHandle.prefixHash = startupPrefixHash;
-                result.startupPrewarmHandle.promptWarmup = true;
+                stampStartupPrewarmReservation(result.startupPrewarmHandle, startupPrefixHash);
             }
             return recordLiveModel(result);
         } catch (err) {
-            traceWsError(err, 'primary');
+            traceTransportError(err, 'primary');
             if (opts._startupPrewarmOnly === true) throw err;
             const status = err?.httpStatus;
             // Live-text invariant: if the WS attempt already relayed a
@@ -776,22 +479,13 @@ export class OpenAIOAuthProvider {
                     if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
                     return recordLiveModel(result);
                 } catch (retryErr) {
-                    traceWsError(retryErr, 'auth_retry');
+                    traceTransportError(retryErr, 'auth_retry');
                     if (shouldUseHttpFallback(retryErr)) {
-                        try {
-                            return await dispatchHttp(
-                                retryErr?.retryClassifier || retryErr?.code || retryErr?.message || 'ws_auth_retry_failed',
-                                retryErr,
-                                { sticky: true },
-                            );
-                        } catch (fallbackErr) {
-                            // Cancellation and post-output failures are the
-                            // current terminal outcome; replacing either with
-                            // stale WS history could permit upstream replay.
-                            if (mustSurfaceFallbackError(fallbackErr)) throw fallbackErr;
-                            try { retryErr.fallbackError = fallbackErr; } catch {}
-                            throw retryErr;
-                        }
+                        return dispatchHttp(
+                            retryErr?.retryClassifier || retryErr?.code || retryErr?.message || 'ws_auth_retry_failed',
+                            retryErr,
+                            { sticky: true },
+                        );
                     }
                     throw retryErr;
                 }
@@ -816,17 +510,11 @@ export class OpenAIOAuthProvider {
                 return this.send(messages, model, tools, { ...opts, _modelRetry: true });
             }
             if (shouldUseHttpFallback(err)) {
-                try {
-                    return await dispatchHttp(
-                        err?.retryClassifier || err?.midstreamClassifier || err?.code || err?.message || 'ws_failed',
-                        err,
-                        { sticky: true },
-                    );
-                } catch (fallbackErr) {
-                    if (mustSurfaceFallbackError(fallbackErr)) throw fallbackErr;
-                    try { err.fallbackError = fallbackErr; } catch {}
-                    throw err;
-                }
+                return dispatchHttp(
+                    err?.retryClassifier || err?.midstreamClassifier || err?.code || err?.message || 'ws_failed',
+                    err,
+                    { sticky: true },
+                );
             }
             throw err;
         }
@@ -842,265 +530,118 @@ export class OpenAIOAuthProvider {
      * lazy per-send warmup untouched.
      */
     async prewarmWsTransportForSession(opts = {}, seams = {}) {
-        const poolKey = opts.sessionId || null;
+        const target = resolveStartupPrewarmTarget(opts);
+        const { poolKey, promptWarmup } = target;
         if (!poolKey) return false;
-        const session = opts.session && typeof opts.session === 'object' ? opts.session : null;
-        const messages = Array.isArray(opts.messages)
-            ? opts.messages
-            : (Array.isArray(session?.messages) ? session.messages : null);
-        const tools = Array.isArray(opts.tools)
-            ? opts.tools
-            : (Array.isArray(session?.tools) ? session.tools : []);
-        const model = opts.model || session?.model || null;
-        // Same default as the per-send gate: no billed prompt prewarm unless
-        // explicitly enabled. The connection-only reservation below still
-        // runs, so the socket handshake stays off the first turn's critical
-        // path (measured 371ms connection-only vs 1869ms with the prompt).
-        const promptWarmup = !!(messages
-            && model
-            && _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', false));
-        // A connection-only reservation (session create, before the prompt is
-        // materialized) must not satisfy the first turn's prompt prewarm.
-        const readyHandle = this._startupPrewarmReadyByPoolKey.get(poolKey) || null;
-        if (readyHandle && (!promptWarmup || readyHandle.promptWarmup === true)) return true;
-        const existing = this._startupPrewarmByPoolKey.get(poolKey);
-        if (existing) {
-            if (!promptWarmup || existing.promptWarmup) return existing.task;
-            try { await existing.task; } catch {}
-            if (this._startupPrewarmByPoolKey.get(poolKey) === existing) {
-                this._startupPrewarmByPoolKey.delete(poolKey);
-            }
+        if (hasStartupPrewarmReservation(this._startupPrewarmReadyByPoolKey, poolKey, { promptWarmup })) {
+            return true;
+        }
+        const running = this._startupPrewarmByPoolKey.get(poolKey) || null;
+        if (running && (!promptWarmup || running.promptWarmup)) return running.task;
+        if (running) {
+            // A connection-only prewarm is in flight and cannot satisfy this
+            // prompt prewarm: let it settle, retire it, then run the prompt one.
+            try { await running.task; } catch {}
+            retireStartupPrewarmRecord(this._startupPrewarmByPoolKey, poolKey, running);
             return this.prewarmWsTransportForSession(opts, seams);
         }
-        const record = { promptWarmup, task: null };
-        const task = (async () => {
-            const _acquire = seams._acquire || acquireWebSocket;
-            const _release = seams._release || releaseWebSocket;
-            const _hasPooled = seams._hasPooled || hasPooledWebSocket;
-            const _warmVersion = seams._warmVersion || warmCodexClientVersion;
-            const _send = seams._send || ((messages, model, tools, sendOpts) =>
-                this.send(messages, model, tools, sendOpts));
-            const transportPolicy = resolveOpenAiTransportPolicy();
-            if (transportPolicy.transport === 'http'
-                || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) return false;
-            if (promptWarmup) {
-                const {
-                    messages: _messages,
-                    tools: _tools,
-                    model: _model,
-                    ...baseSendOpts
-                } = opts;
-                const codexSessionId = baseSendOpts.codexSessionId
-                    || session?.codexWireSessionId
-                    || null;
-                const sendOpts = {
-                    ...baseSendOpts,
-                    sessionId: poolKey,
-                    session,
-                    effort: baseSendOpts.effort ?? session?.effort ?? null,
-                    fast: baseSendOpts.fast === true || session?.fast === true,
-                    modelParameters: baseSendOpts.modelParameters || session?.modelParameters || {},
-                    promptCacheKey: baseSendOpts.promptCacheKey || session?.promptCacheKey || null,
-                    ...(codexSessionId ? {
-                        codexSessionId,
-                        codexThreadId: baseSendOpts.codexThreadId || codexSessionId,
-                        threadId: baseSendOpts.threadId || codexSessionId,
-                    } : {}),
-                    requestKind: 'prewarm',
-                    codexRequestKind: 'prewarm',
-                    _startupPrewarmOnly: true,
-                };
-                const _t0 = Date.now();
-                const result = await _send(messages, model, tools, sendOpts);
-                const handle = result?.startupPrewarmHandle || null;
-                const ready = result?.startupPrewarm === true && !!handle?.entry;
-                if (ready) {
-                    const previous = this._startupPrewarmReadyByPoolKey.get(poolKey);
-                    if (previous?.entry && previous !== handle) {
-                        if (previous._reservationTimer) clearTimeout(previous._reservationTimer);
-                        releaseWebSocket({ entry: previous.entry, poolKey, keep: false });
-                    }
-                    this._startupPrewarmReadyByPoolKey.set(poolKey, handle);
-                    handle._reservationTimer = setTimeout(() => {
-                        if (this._startupPrewarmReadyByPoolKey.get(poolKey) !== handle) return;
-                        this._startupPrewarmReadyByPoolKey.delete(poolKey);
-                        handle._reservationTimer = null;
-                        releaseWebSocket({ entry: handle.entry, poolKey, keep: false });
-                    }, WS_IDLE_MS);
-                    try { handle._reservationTimer.unref?.(); } catch {}
-                    try {
-                        handle.entry.socket?.once?.('close', () => {
-                            if (handle._reservationTimer) {
-                                clearTimeout(handle._reservationTimer);
-                                handle._reservationTimer = null;
-                            }
-                            if (this._startupPrewarmReadyByPoolKey.get(poolKey) === handle) {
-                                this._startupPrewarmReadyByPoolKey.delete(poolKey);
-                            }
-                        });
-                    } catch {}
-                }
-                try {
-                    appendAgentTrace({
-                        sessionId: poolKey,
-                        kind: 'spawn_ws_prewarm',
-                        provider: 'openai-oauth',
-                        transport: 'websocket',
-                        payload: {
-                            elapsed_ms: Date.now() - _t0,
-                            prompt_warmup: true,
-                            ready,
-                        },
-                    });
-                } catch {}
-                return ready;
-            }
-            const threadKeyGate = String(process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY || '').toLowerCase();
-            if (threadKeyGate === '0' || threadKeyGate === 'false') return false;
-            if (_hasPooled(poolKey)) return true;
-            const cacheKey = buildStableProviderPromptCacheKey('openai-oauth', opts);
-            const [auth] = await Promise.all([this.ensureAuth(), _warmVersion()]);
-            const codexHeaders = _codexWsCompatibilityHeaders({
-                poolKey,
-                cacheKey,
-                sendOpts: opts,
-                model: opts.model,
-                serviceTier: opts.fast === true && codexModelSupportsServiceTier(opts.model, 'priority')
-                    ? 'priority'
-                    : '',
-                handshake: true,
-            });
-            const _t0 = Date.now();
-            const acquired = await _acquire({
-                auth,
-                poolKey,
-                cacheKey,
-                codexHeaders,
-                externalSignal: opts.signal || null,
-            });
-            _release({ entry: acquired.entry, poolKey, keep: true });
-            try {
-                appendAgentTrace({
-                    sessionId: poolKey,
-                    kind: 'spawn_ws_prewarm',
-                    provider: 'openai-oauth',
-                    transport: 'websocket',
-                    payload: {
-                        elapsed_ms: Date.now() - _t0,
-                        reused: acquired.reused === true,
-                        prompt_warmup: false,
-                    },
-                });
-            } catch {}
-            return true;
-        })();
-        record.task = task;
+        const record = { promptWarmup, task: this._runStartupPrewarm(target, opts, seams) };
         this._startupPrewarmByPoolKey.set(poolKey, record);
         try {
-            return await task;
+            return await record.task;
         } catch (err) {
             if (process.env.MIXDOG_DEBUG_AGENT) {
                 process.stderr.write(`[agent-trace] spawn-ws-prewarm failed err=${String(err?.message || err).slice(0, 160)}\n`);
             }
             return false;
         } finally {
-            if (this._startupPrewarmByPoolKey.get(poolKey) === record) {
-                this._startupPrewarmByPoolKey.delete(poolKey);
-            }
+            retireStartupPrewarmRecord(this._startupPrewarmByPoolKey, poolKey, record);
         }
+    }
+
+    /** Transport gate shared by both prewarm shapes: never prewarm WS off it. */
+    async _runStartupPrewarm(target, opts, seams) {
+        const transportPolicy = resolveOpenAiTransportPolicy();
+        if (transportPolicy.transport === 'http'
+            || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) return false;
+        return target.promptWarmup
+            ? this._runStartupPromptPrewarm(target, opts, seams)
+            : this._runStartupConnectionPrewarm(target, opts, seams);
+    }
+
+    /**
+     * Billed generate:false turn over the session's own dispatch identity. A
+     * completed one is published as this session's reservation for the first
+     * real turn; anything else leaves the lazy per-send warmup untouched.
+     */
+    async _runStartupPromptPrewarm(target, opts, seams) {
+        const { poolKey, messages, model, tools } = target;
+        const send = seams._send || ((sendMessages, sendModel, sendTools, sendOpts) =>
+            this.send(sendMessages, sendModel, sendTools, sendOpts));
+        const startedAt = Date.now();
+        const result = await send(messages, model, tools, buildStartupPrewarmSendOpts(target, opts));
+        const handle = result?.startupPrewarmHandle || null;
+        const ready = result?.startupPrewarm === true && !!handle?.entry;
+        if (ready) armStartupPrewarmReservation(this._startupPrewarmReadyByPoolKey, poolKey, handle);
+        traceStartupPrewarm(poolKey, {
+            elapsed_ms: Date.now() - startedAt,
+            prompt_warmup: true,
+            ready,
+        });
+        return ready;
+    }
+
+    /**
+     * Unbilled path: open (or confirm) a pooled socket for the session so the
+     * first turn skips the handshake. Nothing is reserved — the socket is
+     * released back to the pool, where any turn on this key can pick it up.
+     */
+    async _runStartupConnectionPrewarm(target, opts, seams) {
+        const { poolKey } = target;
+        const threadKeyGate = String(process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY || '').toLowerCase();
+        if (threadKeyGate === '0' || threadKeyGate === 'false') return false;
+        const hasPooled = seams._hasPooled || hasPooledWebSocket;
+        if (hasPooled(poolKey)) return true;
+        const acquire = seams._acquire || acquireWebSocket;
+        const release = seams._release || releaseWebSocket;
+        const warmVersion = seams._warmVersion || warmCodexClientVersion;
+        const cacheKey = buildStableProviderPromptCacheKey('openai-oauth', opts);
+        const [auth] = await Promise.all([this.ensureAuth(), warmVersion()]);
+        const codexHeaders = _codexWsCompatibilityHeaders({
+            poolKey,
+            cacheKey,
+            sendOpts: opts,
+            model: opts.model,
+            serviceTier: opts.fast === true && codexModelSupportsServiceTier(opts.model, 'priority')
+                ? 'priority'
+                : '',
+            handshake: true,
+        });
+        const startedAt = Date.now();
+        const acquired = await acquire({
+            auth,
+            poolKey,
+            cacheKey,
+            codexHeaders,
+            externalSignal: opts.signal || null,
+        });
+        release({ entry: acquired.entry, poolKey, keep: true });
+        traceStartupPrewarm(poolKey, {
+            elapsed_ms: Date.now() - startedAt,
+            reused: acquired.reused === true,
+            prompt_warmup: false,
+        });
+        return true;
     }
     async listModels() {
-        // Dynamic lookup via /backend-api/codex/models. Cached 24h.
-        // Endpoint returns rich metadata (context_window, reasoning levels,
-        // visibility) that is more detailed than /v1/models.
-        const cached = await _loadCodexModelCache();
-        if (cached) {
-            _lastCodexListModelsError = '';
-            _inMemoryCodexCatalog = cached.slice();
-            return cached;
-        }
-        try {
-            const auth = await this.ensureAuth();
-            const clientVersion = await warmCodexClientVersion();
-            const url = `https://chatgpt.com/backend-api/codex/models?client_version=${clientVersion}`;
-            const res = await fetch(url, {
-                signal: AbortSignal.timeout(10_000),
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${auth.access_token}`,
-                    'OpenAI-Beta': 'responses=experimental',
-                    'originator': 'codex_cli_rs',
-                    'chatgpt-account-id': auth.account_id || '',
-                },
-                dispatcher: getLlmDispatcher(),
-            });
-            if (!res.ok) throw new Error(`openai-oauth list_models ${res.status}`);
-            const data = await res.json();
-            const items = Array.isArray(data?.models) ? data.models : [];
-            const normalized = items.map(m => _normalizeCodexModel(m));
-            _markLatestCodex(normalized);
-            const enriched = sanitizeModelList((await enrichModels(normalized)).filter(Boolean), { provider: 'openai-oauth' });
-            await _saveCodexModelCache(enriched);
-            _lastCodexListModelsError = '';
-            return enriched;
-        } catch (err) {
-            _lastCodexListModelsError = err?.message || String(err);
-            process.stderr.write(`[openai-oauth] listModels fetch failed (${_lastCodexListModelsError})\n`);
-            // No fallback catalog — empty list signals the UI to show a
-            // "catalog unavailable, retry" state. openai-oauth has no equivalent to
-            // Anthropic's family tokens so there's no meaningful minimal list.
-            return [];
-        }
+        return listCodexModels(() => this.ensureAuth());
     }
-    // Force a catalog refresh (ignores 24h TTL). De-duped via
-    // _codexRefreshInFlight so concurrent callers share one HTTP round-trip.
+    /** Force a catalog refresh (ignores the 24h TTL). */
     async _refreshModelCache() {
-        if (_codexRefreshInFlight) return _codexRefreshInFlight;
-        _codexRefreshInFlight = (async () => {
-            try {
-                const auth = await this.ensureAuth();
-                const clientVersion = await warmCodexClientVersion();
-                const url = `https://chatgpt.com/backend-api/codex/models?client_version=${clientVersion}`;
-                const res = await fetch(url, {
-                    signal: AbortSignal.timeout(10_000),
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${auth.access_token}`,
-                        'OpenAI-Beta': 'responses=experimental',
-                        'originator': 'codex_cli_rs',
-                        'chatgpt-account-id': auth.account_id || '',
-                    },
-                    dispatcher: getLlmDispatcher(),
-                });
-                if (!res.ok) throw new Error(`codex list_models ${res.status}`);
-                const data = await res.json();
-                const items = Array.isArray(data?.models) ? data.models : [];
-                const normalized = items.map(m => _normalizeCodexModel(m));
-                _markLatestCodex(normalized);
-                const enriched = sanitizeModelList((await enrichModels(normalized)).filter(Boolean), { provider: 'openai-oauth' });
-                await _saveCodexModelCache(enriched);
-                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[openai-oauth] catalog refreshed (${enriched.length} models)\n`);
-                return enriched;
-            } catch (err) {
-                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[openai-oauth] catalog refresh failed (${err.message})\n`);
-                return null;
-            } finally {
-                _codexRefreshInFlight = null;
-            }
-        })();
-        return _codexRefreshInFlight;
+        return refreshCodexCatalog(() => this.ensureAuth());
     }
 
     async isAvailable() {
         return this.tokens !== null;
     }
 }
-
-const { beginOAuthLogin, loginOAuth } = createOpenAIOAuthLogin({
-    clientId: CLIENT_ID,
-    originator: CODEX_OAUTH_ORIGINATOR,
-    extractAccountId,
-    expiryFromAccessToken,
-    saveTokens,
-});
-export { beginOAuthLogin, loginOAuth };

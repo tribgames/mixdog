@@ -3,6 +3,7 @@ import test from 'node:test';
 import { requestSessionRead } from './session-read-request.ts';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { reportSessionRead } from './session-read-diagnostics.ts';
+import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy.ts';
 
 function fixture(t, prefetchSession) {
   const prior = Object.getOwnPropertyDescriptor(globalThis, 'window');
@@ -69,7 +70,10 @@ test('a held IPC read records its wait, joins and later frame without changing r
 test('read failures are recorded as failures and keep the existing bounded attempt count', async (t) => {
   let calls = 0;
   const records = fixture(t, async () => { calls++; throw new Error('private provider error'); });
-  window.setTimeout = (callback) => { queueMicrotask(callback); return 1; };
+  window.setTimeout = (callback, ms) => {
+    if (ms === 120) { queueMicrotask(callback); return 0; }
+    return setTimeout(callback, ms);
+  };
   assert.equal(await requestSessionRead('trace_failed'), false);
   assert.equal(calls, 3);
   assert.deepEqual(records.filter(r => r.stage === 'request-failed').map(r => r.attempt), [1, 2, 3]);
@@ -81,4 +85,45 @@ test('a throwing renderer diagnostic sink does not change a successful read', as
   fixture(t, async () => true);
   window.mixdogDesktop.rendererDiagnostic = () => { throw new Error('bridge unavailable'); };
   assert.equal(await requestSessionRead('trace_sink_failure'), true);
+});
+
+test('an expired read releases Retry and its late completion cannot retire the replacement', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const old = Promise.withResolvers();
+  const replacement = Promise.withResolvers();
+  let calls = 0;
+  const records = fixture(t, () => (++calls === 1 ? old : replacement).promise);
+  const first = requestSessionRead('trace_expired');
+  assert.equal(requestSessionRead('trace_expired'), first);
+  t.mock.timers.tick(TRANSCRIPT_READ_TIMEOUT_MS);
+  assert.equal(await first, false);
+  const next = requestSessionRead('trace_expired');
+  assert.notEqual(next, first);
+  assert.equal(calls, 2);
+  old.resolve(false);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(requestSessionRead('trace_expired'), next);
+  assert.equal(calls, 2, 'an expired operation must not start another attempt');
+  replacement.resolve(true);
+  assert.equal(await next, true);
+  assert.equal(records.filter(r => r.stage === 'wait-expired').length, 1);
+});
+
+test('an accepted read with no baseline requests a targeted replay, not another storage read', async (t) => {
+  let calls = 0;
+  fixture(t, async () => { calls++; return true; });
+  const replays = [];
+  window.mixdogDesktop.resyncSessionState = (sessionId) => {
+    replays.push(sessionId);
+    defaultSessionLaneStore.apply({
+      sessionId, frameSource: 'replay',
+      snapshot: { sessionId, items: [{ id: 'answer', kind: 'assistant', text: 'restored' }] },
+    });
+  };
+  assert.equal(await requestSessionRead('trace_missing_baseline'), true);
+  assert.equal(await requestSessionRead('trace_missing_baseline'), true);
+  assert.equal(calls, 1);
+  assert.deepEqual(replays, ['trace_missing_baseline']);
+  assert.equal(defaultSessionLaneStore.get('trace_missing_baseline').items[0].text, 'restored');
 });

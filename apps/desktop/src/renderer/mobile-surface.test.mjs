@@ -384,7 +384,7 @@ test("PC and phone usage flyouts share one widened width", () => {
   );
   assert.match(
     activityRailSource,
-    /className="rail-usage-popup"[\s\S]*?width:\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH \+ 36,/u,
+    /className="rail-usage-popup"[\s\S]*?width:\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH \+ 88,/u,
   );
   assert.doesNotMatch(
     sidebarUsageSource,

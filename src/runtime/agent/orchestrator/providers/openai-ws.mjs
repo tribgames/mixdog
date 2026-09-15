@@ -13,7 +13,7 @@
  * across the two providers — only the transport endpoint and auth header change.
  */
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
-import { buildRequestBody } from './openai-oauth.mjs';
+import { buildRequestBody } from './openai-responses-payload.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';

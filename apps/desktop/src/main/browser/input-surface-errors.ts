@@ -24,11 +24,14 @@ export async function exerciseBrowserErrorNotice(
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) throw new Error('Missing error notice control');
       const r = el.getBoundingClientRect();
-      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      const x = r.x + r.width / 2, y = r.y + r.height / 2;
+      return { x, y, reachable: el.contains(document.elementFromPoint(x, y)),
+        rect: r.toJSON(), width: innerWidth, height: innerHeight };
     })()`);
+    assert.ok(point.reachable, `Notice control is not reachable: ${selector} ${JSON.stringify(point)}`);
     for (const type of ['mousePressed', 'mouseReleased']) {
       await shell.debugger.sendCommand('Input.dispatchMouseEvent', {
-        type, ...point, button: 'left', clickCount: 1,
+        type, x: point.x, y: point.y, button: 'left', clickCount: 1,
       });
     }
   };
@@ -41,6 +44,9 @@ export async function exerciseBrowserErrorNotice(
     await shell.executeJavaScript('window.setSurfaceActive(true)');
     await type('must-not-arrive');
     await eventually(visibleNotice, Boolean);
+    assert.equal(await shell.executeJavaScript(`Boolean(document.querySelector('.browser-input-recovery'))`), true);
+    assert.equal(await shell.executeJavaScript(`document.body.textContent.includes('must-not-arrive')`), false,
+      'potentially sensitive recovery text is never exposed in the page UI');
     const beforeOverlay = forwarded.length;
     await click('.browser-isolated-view .error-notice-actions button');
     await eventually(() => shell.executeJavaScript(
@@ -61,6 +67,23 @@ export async function exerciseBrowserErrorNotice(
       value => value === `${before} recovered`);
     await eventually(visibleNotice, value => !value);
     assert.equal(forwarded.filter(type => type === 'text').length, 3, 'failed input is never replayed');
+    await shell.executeJavaScript(`(() => {
+      window.clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      Object.defineProperty(navigator, 'clipboard', { configurable: true,
+        value: { writeText: async text => { window.recoveredInputText = text; } } });
+    })()`);
+    try {
+      await click('.browser-input-recovery button:first-of-type');
+      await eventually(() => shell.executeJavaScript('window.recoveredInputText'),
+        value => value === 'must-not-arriveanother-rejected-input');
+      await click('.browser-input-recovery button:last-of-type');
+      await eventually(() => shell.executeJavaScript(`Boolean(document.querySelector('.browser-input-recovery'))`), value => !value);
+    } finally {
+      await shell.executeJavaScript(`(() => {
+        if (window.clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', window.clipboardDescriptor);
+        else delete navigator.clipboard;
+      })()`);
+    }
     log('error details/dismiss remain local; new successful input clears the notice without replaying failures');
   } finally {
     host.browserPageControl = original;

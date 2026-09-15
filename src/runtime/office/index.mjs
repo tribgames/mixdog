@@ -1,19 +1,19 @@
 import { appendFileSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { closeMicrosoftOfficeSession, detectMicrosoftOffice, resetMicrosoftOfficeSessionsForTest } from './com/com-adapter.mjs';
-import { extractPdfImages, extractPdfTextLayout, findPdfText, inferPdfTables, pdfOcrReadiness } from './pdf/pdf-analysis.mjs';
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { detectMicrosoftOffice, resetMicrosoftOfficeSessionsForTest } from './com/com-adapter.mjs';
+import { pdfOcrReadiness } from './pdf/pdf-analysis.mjs';
 import { describeOfficeCapabilities } from './capabilities.mjs';
 import { qpdfAvailable, securePdf } from './pdf/pdf-security.mjs';
 import { unicodeFontPath } from './pdf/pdf-fonts.mjs';
 import { defaultOfficeDataDir } from './core/journal.mjs';
-import { resolveOfficeDesign } from './design/design-system.mjs';
-import { nativeOfficeDesign, usesNativeOfficeDesign } from './design/native-design.mjs';
-import { inspectOfficeDesignLibrary, persistOfficeDesignBinding } from './design/library/design-library.mjs';
+import { inspectOfficeDesignLibrary } from './design/library/design-library.mjs';
 import { applyBatch, closeSession, finalize, issues, qa, render, save, validate } from './core/office-actions.mjs';
+import { openCreateOrAttachOffice } from './core/office-actions-open.mjs';
+import { getOfficeElement, queryOfficeDocument } from './core/office-actions-read.mjs';
 import { authorPptx } from './authoring/pptx-author-action.mjs';
-import { FILE_KIND_TO_FORMAT, OfficeConflictError, documentFormat, documentSessionKey, documentSessions, finalizeOfficeResult, isMicrosoftOfficeSession, mergeOfficeDesignRequest, normalizeOfficeFormat, resolveOfficeDesignContext, sessions, toolResult } from './core/office-core.mjs';
-import { createSession, findByDocumentPath, fullPath, openSession, queryObject, resolveSession, selectMode, snapshot, snapshotSelectionForTarget } from './core/office-sessions.mjs';
+import { FILE_KIND_TO_FORMAT, OfficeConflictError, documentFormat, documentSessionKey, documentSessions, ensureOfficeSessionDesign, finalizeOfficeResult, isMicrosoftOfficeSession, normalizeOfficeFormat, sessions, toolResult } from './core/office-core.mjs';
+import { fullPath, resolveSession, selectMode, snapshot } from './core/office-sessions.mjs';
 import { assertTransactionUnchanged, beginTransaction, commitTransaction, pendingOfficeTransactions, recoverOfficeTransaction, rollbackTransaction, transactionDocumentDiff, transactionView } from './core/office-transactions.mjs';
 
 export { initializeOfficeTransactions } from './core/office-transactions.mjs';
@@ -114,124 +114,7 @@ async function runOfficeTool(args = {}, {
       return toolResult(finalizeOfficeResult(authored, { action, session, startedAt }), false, images);
     }
     if (action === 'open' || action === 'attach' || action === 'create') {
-      if (action === 'attach' && args.finalize === true) {
-        throw new Error('attach does not support finalize:true; attach first, then use batch with finalize:true when closing the document is intended');
-      }
-      const operationArgs = signal ? { ...args, __signal: signal } : args;
-      const session = action === 'create'
-        ? await createSession(operationArgs, cwd, dataDir)
-        : await openSession(action === 'attach' ? { ...operationArgs, mode: 'attach' } : operationArgs, cwd, dataDir);
-      if (!session.design) {
-        const designContext = await resolveOfficeDesignContext({
-          args,
-          dataDir,
-          target: session.target,
-          source: session.source,
-          format: session.format,
-          created: session.created === true,
-        });
-        Object.assign(session, designContext);
-        session.designState = {
-          renderedVersion: null,
-          semanticCount: 0,
-          requiresVisualReview: false,
-          slidePlans: [],
-          compositions: [],
-        };
-      } else if (args.design) {
-        session.designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
-        session.design = resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
-      }
-      session.activeSignal = signal;
-      let initialEditSettled = false;
-      // `design` carries the authoring intent and content, so operations named
-      // there are the edits this call was asked to make, not an unknown key to
-      // drop on the floor with an empty document as the answer.
-      const initialOperations = Array.isArray(args.operations) && args.operations.length
-        ? args.operations
-        : (Array.isArray(args.design?.operations) ? args.design.operations : []);
-      try {
-        const initialEdit = initialOperations.length
-          ? await applyBatch(session, {
-              ...args,
-              operations: initialOperations,
-              __cwd: cwd,
-              ...(args.finalize === true ? { save: true } : {}),
-            })
-          : null;
-        initialEditSettled = true;
-        if (args.finalize === true) {
-          const completed = await finalize(session, {
-            ...args,
-            __alreadySaved: initialEdit?.saved === true,
-          }, cwd, signal);
-          const images = Array.isArray(completed?._images) ? completed._images : [];
-          if (completed && typeof completed === 'object') delete completed._images;
-          delete session.activeSignal;
-          return toolResult(finalizeOfficeResult(
-            {
-              ...completed,
-              opened: true,
-              created: action === 'create',
-              reused: session.reused === true,
-              ...(session.createReceipt || {}),
-              ...(initialEdit ? { batch: initialEdit } : {}),
-            },
-            { action, session, startedAt },
-          ), false, images);
-        }
-        const initial = args.snapshotAfter === false || (initialEdit && args.snapshotAfter !== true)
-          ? {
-              session: session.id,
-              mode: session.mode,
-              backend: session.backend,
-              fileKind: session.fileKind,
-              source: session.source,
-              output: session.target,
-              ownership: session.ownership,
-              visible: session.visible,
-              appPid: session.appPid,
-              windowHwnd: session.windowHwnd,
-              foregroundActivated: session.foregroundActivated === true,
-              backgroundIsolation: session.backgroundIsolation || null,
-              documentId: session.documentId,
-              batch: initialEdit,
-            }
-          : {
-              ...await snapshot(session, args),
-              ...(initialEdit ? { batch: initialEdit } : {}),
-            };
-        delete session.activeSignal;
-        return toolResult(finalizeOfficeResult(
-          {
-            ...initial,
-            opened: true,
-            created: action === 'create',
-            reused: session.reused === true,
-            ...(session.createReceipt || {}),
-            foregroundActivated: session.foregroundActivated === true,
-            backgroundIsolation: initialEdit?.backgroundIsolation || session.backgroundIsolation || null,
-          },
-          { action, session, startedAt },
-        ));
-      } catch (error) {
-        delete session.activeSignal;
-        if (!session.reused) {
-          if (isMicrosoftOfficeSession(session)) await closeMicrosoftOfficeSession(session.id).catch(() => {});
-          sessions.delete(session.id);
-          if (documentSessions.get(documentSessionKey(session.target)) === session.id) {
-            documentSessions.delete(documentSessionKey(session.target));
-          }
-          // A create whose own operations failed must not leave the empty file
-          // it just wrote: the obvious retry would hit "target already exists"
-          // and the caller would be stuck choosing between overwrite and delete.
-          // Only a file this call brought into being is removed.
-          if (action === 'create' && session.createdNewFile === true && !initialEditSettled) {
-            await rm(session.target, { force: true }).catch(() => {});
-          }
-        }
-        throw error;
-      }
+      return await openCreateOrAttachOffice({ action, args, cwd, dataDir, signal, startedAt });
     }
     const { session, implicit } = await resolveSession(
       signal ? { ...args, __signal: signal } : args,
@@ -239,46 +122,11 @@ async function runOfficeTool(args = {}, {
       dataDir,
       { readOnly: READ_ONLY_ACTIONS.has(action) && args.autoFix !== true },
     );
-    if (!session.design) {
-      const designContext = await resolveOfficeDesignContext({
-        args,
-        dataDir,
-        target: session.target,
-        source: session.source,
-        format: session.format,
-        created: session.created === true,
-      });
-      Object.assign(session, designContext);
-      session.designState = {
-        renderedVersion: null,
-        semanticCount: 0,
-        requiresVisualReview: false,
-        slidePlans: [],
-        compositions: [],
-      };
-    } else if (args.design) {
-      if (args.design.upgradeLibrary === true) {
-        const upgraded = await resolveOfficeDesignContext({
-          args,
-          dataDir,
-          target: session.target,
-          source: session.source,
-          format: session.format,
-          created: false,
-        });
-        session.designLibrary = upgraded.designLibrary;
-        await persistOfficeDesignBinding(dataDir, session.target, session.designLibrary.binding);
-      }
-      session.designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
-      // A native document stays native: the `design` a later call carries is the
-      // page review (reviewed, reviewToken, critique) or content, not a request
-      // for a preset. Resolving it as one used to hand a Word or Excel file the
-      // default profile's palette and art direction it never asked for, and put
-      // the preset review's gates in front of finalize.
-      session.design = session.design?.authoring === 'native' && usesNativeOfficeDesign(session.format, session.designRequest)
-        ? nativeOfficeDesign(session.format, session.designRequest)
-        : resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
-    }
+    await ensureOfficeSessionDesign(session, args, dataDir, {
+      created: session.created === true,
+      allowLibraryUpgrade: true,
+      preserveNativeDesign: true,
+    });
     activeSession = session;
     session.activeSignal = signal;
     let value;
@@ -304,110 +152,9 @@ async function runOfficeTool(args = {}, {
     } else if (action === 'commit') value = await commitTransaction(session);
     else if (action === 'rollback') value = await rollbackTransaction(session);
     else if (action === 'snapshot') value = await snapshot(session, args);
-    else if (action === 'get') {
-      const target = String(args.target || '').trim();
-      if (!target) throw new Error('get requires target');
-      const selection = snapshotSelectionForTarget(session.format, target);
-      // One leaf is read as one item; a container (a sheet, a slide, a table)
-      // is read with its own contents, because asking for the element and
-      // getting one of its twelve cells back under truncated:true answers a
-      // question the caller did not ask.
-      const leafTarget = /\/(?:cell|run|note|comment|comment-thread|revision|footnote|endnote|content-control)\[[^\]]+]$/i.test(target);
-      const current = await snapshot(session, {
-        ...args,
-        ...selection,
-        target,
-        ...(leafTarget ? { limit: 1 } : {}),
-        maxChars: 100_000,
-      });
-      const element = findByDocumentPath(current.document, target);
-      if (!element) throw new Error(`Document element not found: ${target}`);
-      const pagination = current.document?.pagination;
-      value = {
-        session: session.id,
-        target,
-        element,
-        // A container too large for one read says how to continue rather than
-        // leaving truncated:true as the whole answer.
-        ...(pagination?.hasMore ? { pagination } : {}),
-      };
-    } else if (action === 'query') {
-      const queryKind = String(args.queryKind || 'text').toLowerCase();
-      if (queryKind !== 'text') {
-        if (session.format !== 'pdf') throw new Error(`${queryKind} query is supported for PDF sessions only`);
-        if (queryKind === 'pdf-layout') {
-          const needle = String(args.query || '').trim();
-          const layout = await extractPdfTextLayout(session.target, {
-            pages: args.pages,
-            maxItems: needle ? 20_000 : (args.limit || 10_000),
-            shapes: !needle,
-            signal,
-          });
-          // A search answers with the boxes alone: the caller wants where a
-          // phrase sits, not every run on the page.
-          value = needle
-            ? {
-              session: session.id,
-              queryKind,
-              pageCount: layout.pageCount,
-              ...findPdfText(layout, needle, { limit: args.limit || 200 }),
-              pages: layout.pages.map(({ page, width, height }) => ({ page, width, height })),
-            }
-            : { session: session.id, queryKind, ...layout };
-        } else if (queryKind === 'pdf-tables') {
-          const layout = await extractPdfTextLayout(session.target, {
-            pages: args.pages,
-            maxItems: args.limit || 10_000,
-            signal,
-          });
-          const inferred = inferPdfTables(layout);
-          if (args.output) {
-            // One CSV per table, UTF-8, RFC 4180 quoting: the shape the xlsx and tabular sessions read back.
-            const directory = fullPath(args.output, cwd);
-            await mkdir(directory, { recursive: true });
-            const csvCell = (text) => (/[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
-            const counters = new Map();
-            for (const table of inferred.tables) {
-              const ordinal = (counters.get(table.page) || 0) + 1;
-              counters.set(table.page, ordinal);
-              const file = join(directory, `page-${table.page}-table-${ordinal}.csv`);
-              await writeFile(file, `${table.rows.map((row) => row.map((cell) => csvCell(String(cell ?? ''))).join(',')).join('\r\n')}\r\n`, 'utf8');
-              table.path = file;
-            }
-            inferred.output = directory;
-          }
-          value = { session: session.id, queryKind, ...inferred };
-        } else if (queryKind === 'pdf-images') {
-          const extracted = await extractPdfImages(session.target, { pages: args.pages, signal });
-          if (args.output) {
-            // Files instead of inline pictures: a directory of PNGs the caller can reuse.
-            const directory = fullPath(args.output, cwd);
-            await mkdir(directory, { recursive: true });
-            const written = [];
-            for (const image of extracted._images) {
-              const file = join(directory, `page-${image.page}-image-${image.index}.png`);
-              await writeFile(file, Buffer.from(image.data, 'base64'));
-              written.push(file);
-            }
-            extracted.images = extracted.images.map((image, index) => ({ ...image, path: written[index] }));
-            extracted.output = directory;
-            delete extracted._images;
-          }
-          value = { session: session.id, queryKind, ...extracted };
-        } else {
-          throw new Error(`Unsupported Office queryKind: ${queryKind}`);
-        }
-      } else {
-      const needle = String(args.query || '').trim().toLowerCase();
-      if (!needle) throw new Error('query requires non-empty query text');
-      const current = await snapshot(session, { ...args, maxChars: 100_000 }, { full: true });
-      value = {
-        session: session.id,
-        query: args.query,
-        matches: queryObject(current.document, needle),
-      };
-      }
-    } else if (action === 'batch') {
+    else if (action === 'get') value = await getOfficeElement(session, args);
+    else if (action === 'query') value = await queryOfficeDocument(session, args, cwd, signal);
+    else if (action === 'batch') {
       if (args.finalize === true && session.transaction) {
         throw new Error('Commit or roll back the active Office transaction before using batch with finalize:true');
       }

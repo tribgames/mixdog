@@ -1,9 +1,9 @@
-import { X, Plus } from 'lucide-react';
+import { ExternalLink, X, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
-import { ErrorNotice } from '../ErrorNotice';
+import { ErrorNotice, verificationUrlOf } from '../ErrorNotice';
 import { registerMobileBack } from '../mobile-back';
 import { record } from '../record-utils';
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
@@ -192,6 +192,9 @@ export function OAuthControl({ api, provider, disabled, run, onComplete, addAcco
       void run('cancelOAuthProviderLogin', [currentFlowId], `oauth-cancel-${providerId}`, false);
     }
   };
+  // Google can end the sign-in with an account check of its own: a one-time
+  // verification link, after which the login has to be started over.
+  const verificationUrl = flow ? verificationUrlOf(flow.error) : '';
   const closeRef = useRef(close);
   closeRef.current = close;
   useEffect(() => {
@@ -233,6 +236,17 @@ export function OAuthControl({ api, provider, disabled, run, onComplete, addAcco
           }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
       }}><input name="code" placeholder={t('Authorization code or code#state')} aria-label={t('Anthropic authorization code')} required />
           <button type="submit" className="primary" disabled={disabled}>{t('Complete')}</button></form>}
+        {verificationUrl && <section className="settings-oauth-verify" role="alert">
+          <b>{t('Additional verification required')}</b>
+          <p>{t('Google asks for an extra check on this account before Antigravity can be used. Open the verification page, finish the steps there, then sign in again.')}</p>
+          <div className="settings-oauth-verify-actions">
+            <button type="button" className="primary"
+              onClick={() => void window.mixdogDesktop?.openExternal?.(verificationUrl).catch(() => undefined)}>
+              <ExternalLink size={14} aria-hidden="true" />{t('Open verification page')}
+            </button>
+            <button type="button" disabled={disabled} onClick={() => void start()}>{t('Sign in again')}</button>
+          </div>
+        </section>}
         <ErrorNotice errors={[flow.error, error]} />
       </div>
       <footer><button type="button" disabled={disabled} onClick={close}>

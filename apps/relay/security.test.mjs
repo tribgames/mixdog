@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -50,7 +51,9 @@ import {
   uplinkCeilings,
 } from './server.mjs';
 import {
+  deviceCookieHeaders,
   encodingAccepted,
+  pairingCookieHeaders,
   resolveStaticTarget,
   selectPrecompressed,
   sendStaticFile,
@@ -59,6 +62,7 @@ import {
   decodeRelayBinaryFrame,
   encodeRelayBinaryFrame,
 } from './lib/relay-binary-frame.mjs';
+import { isRoutingId } from './lib/ids.mjs';
 
 // Desktops and hook workers mint UUID device ids; fixtures use real random
 // ones so nothing here passes because the value was guessable.
@@ -264,6 +268,22 @@ test('static responses apply browser security headers without changing HEAD beha
   );
   assert.equal(headers['Cache-Control'], 'public, max-age=31536000, immutable');
 
+  const plain = join(dir, 'style.css');
+  writeFileSync(plain, 'body{color:red}');
+  sendStaticFile(
+    { method: 'HEAD', headers: {} },
+    {
+      writeHead(nextStatus, nextHeaders) {
+        status = nextStatus;
+        headers = nextHeaders;
+      },
+      end() { ended = true; },
+      destroy() {},
+    },
+    plain,
+  );
+  assert.equal(headers['Cache-Control'], 'public, max-age=86400');
+
   // These unhashed bootstrap files are version-locked to the document/worker.
   for (const name of ['boot.js', 'ui-language.js', 'sw-shell.js']) {
     const boot = join(dir, name);
@@ -282,6 +302,26 @@ test('static responses apply browser security headers without changing HEAD beha
     );
     assert.equal(headers['Cache-Control'], 'no-cache', name);
   }
+});
+
+test('pairing and device cookies keep Max-Age HttpOnly SameSite forms', () => {
+  const token = 'abcd';
+  assert.equal(
+    pairingCookieHeaders(token)['Set-Cookie'],
+    `mixdog_token=${token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax`,
+  );
+  assert.equal(
+    pairingCookieHeaders(token, { socket: { encrypted: true } })['Set-Cookie'],
+    `mixdog_token=${token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure`,
+  );
+  assert.equal(
+    deviceCookieHeaders(DEVICE_ID)['Set-Cookie'],
+    `mixdog_device=${DEVICE_ID}; Path=/; Max-Age=31536000; SameSite=Lax`,
+  );
+  assert.equal(
+    deviceCookieHeaders(DEVICE_ID, { socket: { encrypted: true } })['Set-Cookie'],
+    `mixdog_device=${DEVICE_ID}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`,
+  );
 });
 
 test('inlined renderer boot script receives only its exact CSP hash', () => {
@@ -305,6 +345,43 @@ test('inlined renderer boot script receives only its exact CSP hash', () => {
     headers['Content-Security-Policy'].match(/script-src[^;]*/)?.[0],
     `script-src 'self' 'sha256-${hash}'`,
   );
+});
+
+test('routing ids share one predicate across store, HTTP, and binary frames', (t) => {
+  assert.equal(isRoutingId('12345678-abcd-4321-abcd-1234567890ab'), true);
+  assert.equal(isRoutingId(randomUUID()), true);
+  assert.equal(isRoutingId(12345678), true);
+  assert.equal(isRoutingId('00000001'), true);
+  assert.equal(isRoutingId('0000001'), false);
+  assert.equal(isRoutingId(''), false);
+  assert.equal(isRoutingId(null), false);
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-numeric-id-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = new DeviceStore(dir);
+  assert.equal(store.authenticate(DEVICE_ID, '0123456789abcdef'), true);
+  const registered = store.registerClient(DEVICE_ID, 12345678);
+  assert.ok(registered);
+  assert.equal(store.clientAccessForToken(registered.token)?.clientId, 12345678);
+  const encoded = encodeRelayBinaryFrame({
+    clientId: 'not-a-routing-id',
+    data: Buffer.from([1]),
+  });
+  assert.equal(decodeRelayBinaryFrame(encoded), null);
+  assert.equal(routedClientId(Buffer.from(JSON.stringify({
+    type: 'frame',
+    clientId: '12345678-abcd-4321-abcd-1234567890ab',
+    data: '',
+  }))), '12345678-abcd-4321-abcd-1234567890ab');
+  assert.equal(routedClientId(Buffer.from(JSON.stringify({
+    type: 'frame',
+    clientId: '00000001',
+    data: '',
+  }))), '00000001');
+  assert.equal(routedClientId(Buffer.from(JSON.stringify({
+    type: 'frame',
+    clientId: '0000001',
+    data: '',
+  }))), '');
 });
 
 test('binary relay envelopes preserve routing metadata without base64', () => {

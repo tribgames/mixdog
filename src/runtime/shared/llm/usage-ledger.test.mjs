@@ -32,7 +32,7 @@ test('tokens, list value, price snapshot and day totals commit exactly once', (t
     assert.equal(event.rates.inputCostPerM, 5);
     assert.equal(ledger.record([event, { ...event }]), 1);
     const stats = usageStatsSnapshot({ rollup: ledger.rollup(), now, source: 'all' });
-    assert.equal(stats.totals.tokens, 1200);
+    assert.equal(stats.totals.tokens, 6500);
     assert.equal(stats.totals.cacheTokens, 5300);
     assert.equal(stats.totals.costUsd, 0.014375);
     assert.equal(stats.totals.costBilled, 0);
@@ -76,7 +76,7 @@ test('years of history survive reopen with no TTL or session deletion dependency
     const reopened = new UsageLedger(path);
     try {
         const stats = usageStatsSnapshot({ rollup: reopened.rollup(), now });
-        assert.equal(stats.totals.tokens, 1200);
+        assert.equal(stats.totals.tokens, 6500);
         assert.equal(stats.totals.costUsd, 0.014375);
         assert.equal(stats.range.firstDay, '2022-01-01');
     } finally { reopened.close(); }
@@ -201,7 +201,7 @@ test('API uses the ledger and reports a failed historical import instead of zero
         ledger: () => ledger,
         importHistory: async () => { imports++; ledger.set('importedThrough', Number.MAX_SAFE_INTEGER); },
     });
-    assert.equal((await api.getUsageStats()).totals.tokens, 1200);
+    assert.equal((await api.getUsageStats()).totals.tokens, 6500);
     assert.equal((await api.getUsageStats()).coverage.ledger, true);
     assert.equal(imports, 1);
     const failure = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => { throw new Error('offline'); } });

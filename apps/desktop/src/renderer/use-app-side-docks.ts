@@ -44,6 +44,7 @@ export function useAppSideDocks({
     setSessionDiff,
     setSessionPanelView,
     setSessionSideSurface,
+    dismissBrowserSurface,
   } = sessionSurfaces;
   const browserFeatureInstalled = useBrowserFeatureInstalled();
   const availableSideViews = useMemo<WorkbenchSideViewId[]>(() => [
@@ -102,7 +103,8 @@ export function useAppSideDocks({
     if (displayedEntry.open) {
       if ((displayedEntry.surface === "browser"
         || displayedEntry.surface === "terminal") && sessionId) {
-        setSessionSideSurface(sessionId, null);
+        if (displayedEntry.surface === "browser") dismissBrowserSurface(sessionId);
+        else setSessionSideSurface(sessionId, null);
       }
       if (displayedEntry.diff?.source === "session" && sessionId) {
         setSessionDiff(sessionId, null);
@@ -143,7 +145,8 @@ export function useAppSideDocks({
       sessionPanelViews.get(sessionId) ?? null,
     );
     if ((entry.surface === "browser" || entry.surface === "terminal") && sessionId) {
-      setSessionSideSurface(sessionId, null);
+      if (entry.surface === "browser") dismissBrowserSurface(sessionId);
+      else setSessionSideSurface(sessionId, null);
     }
     if (entry.diff?.source === "session" && sessionId) {
       setSessionDiff(sessionId, null);

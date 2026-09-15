@@ -149,6 +149,80 @@ test('agent pool drops reaped Leads and does not revive historical Lead sessions
   }
 });
 
+test('an expired Lead takes its idle children out of the pool, and a live lease brings them back', () => {
+  withAgentPoolRoot('mixdog-lead-orphan-', (root) => {
+    // The Lead conversation is still open, but its pool row was reaped: the
+    // Agent window has no Lead row left to hang these children under.
+    writeFileSync(join(root, 'sessions', 'lead-open.json'), JSON.stringify({
+      id: 'lead-open',
+      owner: 'cli',
+      agent: 'lead',
+      sourceType: 'lead',
+      status: 'idle',
+    }));
+    writeAgentChild(root, 'child-idle', { ownerSessionId: 'lead-open' });
+    writeAgentWorkerIndex(root, {
+      idle: {
+        tag: 'review',
+        sessionId: 'child-idle',
+        ownerSessionId: 'lead-open',
+        agent: 'reviewer',
+        status: 'idle',
+        stage: 'idle',
+      },
+    });
+    assert.deepEqual(listStoredAgentWorkers().map((row) => row.sessionId), []);
+
+    writeFileSync(join(root, 'lead-workers.json'), JSON.stringify({
+      workers: {
+        'lead-open': {
+          tag: 'lead:lead-open',
+          sessionId: 'lead-open',
+          ownerSessionId: 'lead-open',
+          agent: 'lead',
+          status: 'idle',
+          stage: 'idle',
+          updatedAt: new Date().toISOString(),
+          reapAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      },
+    }));
+    assert.deepEqual(
+      listStoredAgentWorkers().map((row) => row.sessionId).sort(),
+      ['child-idle', 'lead-open'],
+    );
+  });
+});
+
+test('a working child outlives its Lead row so live work stays visible', () => {
+  withAgentPoolRoot('mixdog-lead-orphan-working-', (root) => {
+    writeFileSync(join(root, 'sessions', 'lead-open.json'), JSON.stringify({
+      id: 'lead-open',
+      owner: 'cli',
+      agent: 'lead',
+      status: 'idle',
+    }));
+    writeAgentChild(root, 'child-working', {
+      ownerSessionId: 'lead-open',
+      status: 'running',
+      stage: 'running',
+    });
+    writeAgentWorkerIndex(root, {
+      working: {
+        tag: 'review',
+        sessionId: 'child-working',
+        ownerSessionId: 'lead-open',
+        agent: 'reviewer',
+        status: 'running',
+        stage: 'running',
+      },
+    });
+    writeFreshHeartbeat(root, 'child-working');
+    const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-working');
+    assert.equal(row?.status, 'running');
+  });
+});
+
 test('child terminal leases persist provider deadlines across registry recreation', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-child-reap-persist-'));
   const sessions = new Map([

@@ -620,7 +620,37 @@ function normalizeCodexRateLimits(rateLimits, source = 'openai-codex-local') {
   };
 }
 
-function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
+// Model- and surface-scoped weekly windows. A scoped refusal arrives as a
+// 429 while the all-model windows stay far below 100%, so the account counts
+// as exhausted when ANY of these windows is closed.
+const SCOPED_WEEKLY_KEY = /^seven_day_(.+)$/;
+
+function scopedWindowLabel(name) {
+  const text = String(name || '').replace(/_/g, ' ').trim();
+  return text ? `7D ${text.charAt(0).toUpperCase()}${text.slice(1)}` : '';
+}
+
+function scopedAnthropicWindows(data, source) {
+  const byLabel = new Map();
+  for (const [key, value] of Object.entries(data)) {
+    const match = SCOPED_WEEKLY_KEY.exec(key);
+    if (!match) continue;
+    const label = scopedWindowLabel(match[1]);
+    const window = label ? windowFromPercent(label, value, source) : null;
+    if (window) byLabel.set(label, window);
+  }
+  for (const entry of Array.isArray(data.limits) ? data.limits : []) {
+    if (!entry || entry.is_active === false) continue;
+    const scope = entry.scope?.model || entry.scope?.surface;
+    const label = scopedWindowLabel(scope?.display_name || scope?.id);
+    if (!label) continue;
+    const window = windowFromPercent(label, { percent: entry.percent, resets_at: entry.resets_at }, source);
+    if (window) byLabel.set(label, window);
+  }
+  return [...byLabel.values()];
+}
+
+export function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
   if (!data || typeof data !== 'object') return null;
   let windows = [
     windowFromPercent('5H', data.five_hour, source),
@@ -629,7 +659,7 @@ function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
 
   if (!windows.length && Array.isArray(data.limits)) {
     windows = data.limits
-      .filter(x => x && x.is_active !== false)
+      .filter(x => x && x.is_active !== false && !x.scope?.model && !x.scope?.surface)
       .map((x) => {
         const label = x.kind === 'session' || x.group === 'session'
           ? '5H'
@@ -643,6 +673,7 @@ function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
       })
       .filter(Boolean);
   }
+  windows.push(...scopedAnthropicWindows(data, source));
 
   const extra = data.extra_usage && data.extra_usage.is_enabled === true
     ? windowFromPercent('EXTRA', {
@@ -812,7 +843,7 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
         snapshot = await fetchAnthropicUsage(providerObj);
       } else if (provider === 'grok-oauth') {
         snapshot = await fetchGrokUsage(providerObj, routeInfo);
-      } else if ((provider === 'cursor-oauth' || provider === 'cursor-api')
+      } else if ((provider === 'cursor-oauth' || provider === 'cursor-api' || provider === 'antigravity-oauth')
         && typeof providerObj?.getUsageSnapshot === 'function') {
         snapshot = await providerObj.getUsageSnapshot();
       }

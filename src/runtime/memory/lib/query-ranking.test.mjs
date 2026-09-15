@@ -6,6 +6,8 @@ import {
   boundRecallRowsToTemporal,
   mergeHistoricalRecallRows,
   rankLatestRecallRows,
+  topicTermCoverage,
+  uniqueRowsById,
 } from './query-ranking.mjs'
 
 test('latest recall ranks the newest topic-covered evidence and demotes query echo', () => {
@@ -84,4 +86,18 @@ test('core memory interleave preserves the leading hybrid result', () => {
     interleaveRawRows(hybrid, core).map((row) => row.id),
     [1, 2, 'core:1', 3, 4],
   )
+})
+
+test('uniqueRowsById keeps first-seen order and topicTermCoverage counts member text', () => {
+  const rows = [
+    { id: 2, content: 'second' },
+    { id: 1, content: 'first' },
+    { id: 2, content: 'duplicate' },
+    { id: '', content: 'dropped' },
+  ]
+  assert.deepEqual(uniqueRowsById(rows).map((row) => row.id), [2, 1])
+  assert.equal(topicTermCoverage({
+    content: 'alpha',
+    members: [{ summary: 'beta gamma' }],
+  }, ['alpha', 'gamma', 'missing']), 2)
 })

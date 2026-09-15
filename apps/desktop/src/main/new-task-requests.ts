@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { writeSecretFile } from './secret-file';
+import { isSessionId } from './desktop-state';
 
 type Phase = 'reserved' | 'configured' | 'accepted';
 interface Receipt { signature: string; sessionId: string; phase: Phase }
@@ -41,7 +42,7 @@ export class NewTaskRequests {
           receipt = JSON.parse(await file.readFile('utf8')) as Receipt;
         } finally { await file.close(); }
         if (receipt.signature !== signature) throw new Error('Submission id was reused for different content.');
-        if (!/^[A-Za-z0-9_-]+$/.test(receipt.sessionId)
+        if (!isSessionId(receipt.sessionId)
           || !['reserved', 'configured', 'accepted'].includes(receipt.phase)) {
           throw new Error('New task receipt is invalid.');
         }

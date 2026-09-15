@@ -18,7 +18,41 @@
 const CONFIG_SAVE_DEBOUNCE_MS = 150;
 
 import { withGrandfatheredBuiltins } from './builtin-features.mjs';
+import { webSearchRouteOrDefault } from './workflow.mjs';
 import { createDebouncedWriter } from '../runtime/shared/debounced-writer.mjs';
+
+/**
+ * Boot-time config/route state for one runtime. Caller overrides are applied
+ * ONLY when supplied, so an option left out keeps the persisted route value
+ * (`effort: undefined` must not erase a stored effort, and `fast` is a tri-state
+ * where only an explicit boolean overrides).
+ */
+export function resolveInitialConfigState({
+  initialConfig,
+  loadConfig,
+  resolveRoute,
+  provider,
+  model,
+  effort,
+  fast,
+  modelParameters,
+}) {
+  const config = withGrandfatheredBuiltins(
+    initialConfig && typeof initialConfig === 'object' ? initialConfig : loadConfig(),
+  );
+  return {
+    config,
+    route: {
+      ...resolveRoute(config, { provider, model }),
+      ...(effort === undefined ? {} : { effort: effort || null }),
+      ...(fast === true || fast === false ? { fast } : {}),
+      ...(modelParameters && typeof modelParameters === 'object'
+        ? { modelParameters: { ...modelParameters } }
+        : {}),
+    },
+    webSearchRoute: webSearchRouteOrDefault(config.webSearchRoute),
+  };
+}
 
 export function createConfigLifecycle({
   // config mutable-state injection

@@ -8,6 +8,7 @@ import { app, BrowserWindow, crashReporter, dialog, ipcMain, powerMonitor, power
 
 import type { DesktopService } from './desktop-service-contract';
 import { DesktopServiceClient } from './desktop-service-client';
+import { isSessionId } from './desktop-state';
 import { SessionTransport } from './session-transport';
 import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
@@ -462,7 +463,7 @@ function applyComputerObserveOnlySetting(enabled: boolean): void {
 unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'session-runtime-released') {
     const event = value as { sessionId?: unknown; restore?: unknown } | null;
-    if (typeof event?.sessionId === 'string' && /^[A-Za-z0-9_-]+$/.test(event.sessionId)) {
+    if (isSessionId(event?.sessionId)) {
       browserHost?.releaseSession(event.sessionId, { restore: event.restore === true });
     }
     return;

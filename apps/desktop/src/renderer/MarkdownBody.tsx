@@ -13,6 +13,7 @@ import { markdownComponents, type MarkdownCopyControl } from "./markdown-compone
 import { safeMarkdownUrl } from "./markdown-url";
 import {
   htmlLineBreaksToBreaks,
+  linkifyLocalPaths,
   repairAdjacentStrongPunctuation,
   stripHtmlComments,
   trimTrailingCodeNewline,
@@ -35,7 +36,7 @@ export default function MarkdownBody({ text, copyControl }: {
       [remarkGfm, { singleTilde: false }],
       [remarkMath, { singleDollarTextMath: false }],
     ]}
-    rehypePlugins={[rehypeKatex, rehypeHighlight, trimTrailingCodeNewline]}
+    rehypePlugins={[rehypeKatex, rehypeHighlight, trimTrailingCodeNewline, linkifyLocalPaths]}
     components={markdownComponents(copyControl) as Components}
   >{text}</ReactMarkdown>;
 }

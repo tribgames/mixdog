@@ -186,6 +186,23 @@ export function cwdRelativePath(fullPath, workDir) {
     } catch { return fullPath; }
 }
 
+// Render an absolute path relative to `cwd` for display. Falls back to the
+// original absolute path when `cwd` is missing or does not prefix the input.
+// Case-insensitive prefix match so Windows drive-letter casing does not leak
+// into tool results. Kept next to the other normalize* helpers.
+export function toDisplayPath(absPath, cwd) {
+    if (!absPath) return '';
+    if (cwd) {
+        const a = String(absPath).replace(/\\/g, '/');
+        const c = String(cwd).replace(/\\/g, '/').replace(/\/+$/, '');
+        if (a.toLowerCase().startsWith(c.toLowerCase() + '/')) {
+            return a.slice(c.length + 1);
+        }
+        if (a.toLowerCase() === c.toLowerCase()) return '';
+    }
+    return absPath;
+}
+
 export function extractGlobBaseDirectory(pattern) {
     const wildcardIdx = pattern.search(/[\*\?\[\{]/);
     const staticPrefix = wildcardIdx === -1 ? pattern : pattern.slice(0, wildcardIdx);

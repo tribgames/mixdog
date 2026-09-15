@@ -11,6 +11,7 @@ import { BROWSER_ACTIONS } from '../../../../../src/runtime/browser-bridge/brows
 import { createBrowserHost, type BrowserHost } from './host';
 import type { BrowserCommandTiming } from './timing';
 import { runBrowserLatencyScenarios } from './latency-scenarios';
+import { runBrowserActionabilityScenarios } from './actionability.integration';
 import { measureScreenshotReuse } from './screenshot-image.integration';
 import { probeMouseFocus } from './mouse-focus-probe';
 import { probeMouseDispatch } from './mouse-dispatch-probe';
@@ -343,7 +344,16 @@ async function run(): Promise<void> {
       <!doctype html>
       <textarea id="composer">Independent shell input</textarea>
     `)}`);
-    const primaryFrame = await host.browserPageFrame('browser-integration-session');
+    // The first compositor paint can still have the pre-resize geometry.
+    // Re-sample this read-only readiness condition, just as the pane does.
+    const primaryFrame = await eventually(
+      () => host!.browserPageFrame('browser-integration-session').catch(error => {
+        if (error?.message === 'Browser page changed during capture.') return null;
+        throw error;
+      }),
+      frame => frame !== null,
+    );
+    assert.ok(primaryFrame);
     const visibleGuest = webContents.fromId(primaryFrame.webContentsId)!;
     await visibleGuest.loadURL(`${origin}/root`);
     host.setGuestActive('browser-integration-session', visibleGuest.id, true);
@@ -406,6 +416,36 @@ async function run(): Promise<void> {
         commandDurationDetails.set(action, details);
       }
     };
+
+    const taskSession = 'browser-task-lifecycle';
+    const hiddenStart = browserSurfaceRequests.length;
+    await command({ action: 'navigate', url: `${origin}/root?task=hidden`, background: true,
+      tab: 'scratch', session_id: taskSession, turn_id: 1 });
+    await command({ action: 'click', target: { role: 'button', name: 'Update SPA' },
+      tab: 'scratch', session_id: taskSession, turn_id: 1 });
+    await command({ action: 'read', tab: 'scratch', session_id: taskSession, turn_id: 1 });
+    assert.equal(browserSurfaceRequests.length, hiddenStart, 'follow-up background work never reveals the dock');
+    await command({ action: 'finish_turn', session_id: taskSession, turn_id: 1 });
+    assert.equal((await command({ action: 'list_tabs', session_id: taskSession })).text, 
+      'No tabs are open. navigate opens the visible tab; background:true opens a hidden page.');
+    assert.equal(browserSurfaceRequests.length, hiddenStart, 'cleanup never creates an empty foreground page');
+
+    await command({ action: 'navigate', url: `${origin}/root?task=temporary`, background: true,
+      tab: 'scratch', session_id: taskSession, turn_id: 2 });
+    await command({ action: 'read', background: false, tab: 'scratch', session_id: taskSession, turn_id: 2 });
+    await command({ action: 'finish_turn', session_id: taskSession, turn_id: 2 });
+    assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [
+      { sessionId: taskSession, temporaryTurnId: 2 }, { sessionId: taskSession, restoreTurnId: 2 },
+    ]);
+    await command({ action: 'navigate', url: `${origin}/root?task=handoff`, background: true,
+      tab: 'result', session_id: taskSession, turn_id: 3 });
+    await command({ action: 'open', tab: 'result', session_id: taskSession, turn_id: 3 });
+    await command({ action: 'finish_turn', session_id: taskSession, turn_id: 3 });
+    assert.match((await command({ action: 'list_tabs', session_id: taskSession })).text, /task=handoff/);
+    assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [{ sessionId: taskSession, reveal: true }]);
+    assert.equal(visibleGuest.isDestroyed(), false, 'pre-existing user page remains alive');
+    await command({ action: 'close_tab', tab: 'result', session_id: taskSession });
+    progress('task background isolation, cleanup, panel restoration and user handoff complete');
 
     if (process.env.MIXDOG_BROWSER_CONTINUATION_ONLY === '1') {
       for (let index = 0; index < 101; index += 1) {
@@ -1230,8 +1270,8 @@ async function run(): Promise<void> {
     await command({ action: 'emulate', width: 1024, height: 768 });
     await command({ action: 'emulate', reset: true });
     assert.deepEqual(viewportChanges.splice(0), [
-      { sessionId: 'browser-integration-session', viewport: { width: 1024, height: 768 } },
-      { sessionId: 'browser-integration-session', viewport: null },
+      { sessionId: 'browser-integration-session', webContentsId: visibleGuest.id, viewport: { width: 1024, height: 768 } },
+      { sessionId: 'browser-integration-session', webContentsId: visibleGuest.id, viewport: null },
     ]);
     browserSurfaceRequests.splice(0);
     const touchObserved = await command({ action: 'snapshot', mode: 'both', tab: 'beta' });
@@ -1495,6 +1535,8 @@ async function run(): Promise<void> {
         );
       }
     }
+    await runBrowserActionabilityScenarios(host, origin, command);
+    progress('delayed targets, temporary blockers, editable fields and selected-page takeover complete');
     assert.deepEqual(
       BROWSER_ACTIONS.filter((action) => !completedActions.has(action)),
       [],

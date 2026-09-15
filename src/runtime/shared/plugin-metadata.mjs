@@ -1,3 +1,5 @@
+import { isPlainObject } from './object.mjs';
+
 // Display-only manifest metadata, shared by registry and session status.
 // Keep malformed values empty instead of leaking "[object Object]" into UI.
 function text(value) {
@@ -5,7 +7,7 @@ function text(value) {
 }
 
 function object(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return isPlainObject(value) ? value : {};
 }
 
 function authorText(value) {

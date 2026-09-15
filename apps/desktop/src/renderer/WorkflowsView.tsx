@@ -45,7 +45,15 @@ type AgentRouteSummary = {
   effortLabel: string;
 };
 
-function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): AgentRouteSummary {
+function agentRouteSummary(route: RecordValue, models: DesktopModelOption[], disabled = false): AgentRouteSummary {
+  if (disabled) {
+    return {
+      model: t('(not used)'),
+      effort: '',
+      fast: false,
+      effortLabel: '',
+    };
+  }
   const provider = String(route.provider || '');
   const model = String(route.model || '');
   const selected = models.find((entry) => entry.provider === provider && entry.model === model);
@@ -292,6 +300,7 @@ export function WorkflowsPane({
   const renderAgentRow = (agent: AgentSummary) => {
     const row = agents.find((entry) => String(entry.id) === agent.id);
     const route = record(row?.route);
+    const disabled = row?.disabled === true;
     return <button type="button" key={agent.id}
       className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row"
       title={agent.description || agent.label} disabled={busy}
@@ -300,7 +309,7 @@ export function WorkflowsPane({
       {...agentOrder.getReorderProps(agent.id)}>
       <span className="schedules-row-copy utilities-row-copy">
         <SidebarResourceTitle label={agent.label} />
-        <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
+        <AgentRouteSummaryView summary={agentRouteSummary(route, models, disabled)} />
       </span>
       <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
     </button>;
@@ -417,7 +426,7 @@ export function WorkflowsPane({
             {...defaultAgentOrder.getReorderProps(exploreAgent.id)}>
             <span className="schedules-row-copy utilities-row-copy">
               <SidebarResourceTitle label={exploreAgent.label} />
-              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
+              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models, exploreRow?.disabled === true)} />
             </span>
             <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
           </button>}
@@ -439,7 +448,7 @@ export function WorkflowsPane({
             {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}>
             <span className="schedules-row-copy utilities-row-copy">
               <SidebarResourceTitle label={maintainerAgent.label} />
-              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
+              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models, maintainerRow?.disabled === true)} />
             </span>
             <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
           </button>}

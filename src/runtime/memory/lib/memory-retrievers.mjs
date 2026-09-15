@@ -1,11 +1,12 @@
 import { recallReadQuery } from './memory-recall-read-query.mjs'
 
-import { buildPromotedExclusionClauses } from './memory-recall-scope-filter.mjs'
+import {
+  VALID_CATEGORY,
+  appendProjectScopeClause,
+  buildPromotedExclusionClauses,
+} from './memory-recall-scope-filter.mjs'
 import { compareRecallNewestFirst } from './recall-order.mjs'
 
-const VALID_CATEGORIES_SET = new Set([
-  'rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue',
-])
 const VALID_STATUS_SET = new Set(['pending', 'active', 'archived'])
 
 export async function retrieveEntries(db, filters = {}) {
@@ -25,13 +26,9 @@ export async function retrieveEntries(db, filters = {}) {
   // projectScope filter: 'common' → project_id IS NULL only;
   // specific slug → project_id IS NULL OR project_id = slug;
   // 'all' or undefined → no filter (full pool).
-  if (filters.projectScope === 'common') {
-    where.push(`project_id IS NULL`)
-  } else if (typeof filters.projectScope === 'string' && filters.projectScope && filters.projectScope !== 'all') {
-    where.push(`(project_id IS NULL OR project_id = $${params.length + 1})`)
-    params.push(filters.projectScope)
+  if (typeof filters.projectScope === 'string') {
+    appendProjectScopeClause(where, params, filters.projectScope)
   }
-  // projectScope === 'all' or undefined → no filter
 
   const tsFrom = Number(filters.ts_from)
   if (Number.isFinite(tsFrom)) { where.push(`ts >= $${params.length + 1}`); params.push(tsFrom) }
@@ -41,7 +38,7 @@ export async function retrieveEntries(db, filters = {}) {
   if (filters.category != null) {
     const cats = (Array.isArray(filters.category) ? filters.category : [filters.category])
       .map(c => String(c).trim().toLowerCase())
-      .filter(c => VALID_CATEGORIES_SET.has(c))
+      .filter(c => VALID_CATEGORY.has(c))
     if (cats.length > 0) {
       const ph = cats.map((_, i) => `$${params.length + 1 + i}`).join(',')
       where.push(`category IN (${ph})`)

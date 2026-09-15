@@ -222,6 +222,9 @@ export function createSessionApiA(bag) {
         return true;
       } finally {
         set({ commandBusy: false });
+        // RPC replies read the published snapshot, not the mutable draft.
+        // Commit before the caller can acknowledge an older route.
+        flushEmitImmediate();
       }
     },
     setEffort: async (value) => {
@@ -233,6 +236,7 @@ export function createSessionApiA(bag) {
         return runtime.effort || 'auto';
       } finally {
         set({ commandBusy: false });
+        flushEmitImmediate();
       }
     },
     setFast: async (value) => {

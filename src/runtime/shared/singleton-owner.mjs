@@ -1,27 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { readJsonSafe } from './json-file.mjs';
 import { isPidAlive } from './pid-liveness.mjs';
-
-function readJson(path) {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return null;
-  }
-}
+import { sleepSync } from './sleep.mjs';
 
 function writeJsonAtomic(path, value) {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
   renameSync(tmp, path);
-}
-
-function waitSync(ms) {
-  try {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-  } catch {}
 }
 
 function acquireClaimLock(path) {
@@ -39,14 +26,14 @@ function acquireClaimLock(path) {
           continue;
         }
       } catch {}
-      waitSync(25);
+      sleepSync(25);
     }
   }
   return null;
 }
 
 export function readSingletonOwner(path) {
-  const owner = readJson(path);
+  const owner = readJsonSafe(path);
   if (!owner || typeof owner !== 'object') return { owner: null, alive: false };
   return { owner, alive: isPidAlive(owner.pid) };
 }
@@ -63,15 +50,15 @@ export function claimSingletonOwner(path, {
     ...meta,
   };
 
-  const current = readJson(path);
+  const current = readJsonSafe(path);
   if (current?.pid && Number(current.pid) !== Number(pid) && isPidAlive(current.pid)) {
     return { owned: false, owner: current };
   }
 
   const lockPath = acquireClaimLock(path);
-  if (!lockPath) return { owned: false, owner: readJson(path) };
+  if (!lockPath) return { owned: false, owner: readJsonSafe(path) };
   try {
-    const lockedCurrent = readJson(path);
+    const lockedCurrent = readJsonSafe(path);
     if (lockedCurrent?.pid && Number(lockedCurrent.pid) !== Number(pid) && isPidAlive(lockedCurrent.pid)) {
       return { owned: false, owner: lockedCurrent };
     }
@@ -83,7 +70,7 @@ export function claimSingletonOwner(path, {
 }
 
 export function releaseSingletonOwner(path, pid = process.pid) {
-  const current = readJson(path);
+  const current = readJsonSafe(path);
   if (!current?.pid || Number(current.pid) !== Number(pid)) return false;
   try {
     rmSync(path, { force: true });
@@ -101,9 +88,9 @@ export function releaseSingletonOwner(path, pid = process.pid) {
 // should fall back to the winner rather than overwrite it.
 export function handoffSingletonOwner(path, fromPid, toOwner = {}) {
   const lockPath = acquireClaimLock(path);
-  if (!lockPath) return { owned: false, owner: readJson(path) };
+  if (!lockPath) return { owned: false, owner: readJsonSafe(path) };
   try {
-    const current = readJson(path);
+    const current = readJsonSafe(path);
     if (current?.pid && Number(current.pid) !== Number(fromPid)) {
       return { owned: false, owner: current };
     }

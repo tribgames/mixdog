@@ -393,3 +393,22 @@ export function createContextStatus({
 
   return { contextStatus, invalidateContextStatusCache };
 }
+
+// One-shot gauge for a session that is NOT the runtime's current session (a
+// listed/foreign session). The route is read off the session itself and the
+// calculator is thrown away with its cache, so a foreign read can never poison
+// the live gauge's memoization.
+export function contextStatusForSession(session, { getMode, fallbackCwd = '' } = {}) {
+  if (!session || typeof session !== 'object') return null;
+  const { contextStatus } = createContextStatus({
+    getSession: () => session,
+    getRoute: () => ({
+      provider: session.provider || '',
+      model: session.model || '',
+      contextWindow: session.contextWindow || null,
+    }),
+    getCurrentCwd: () => session.cwd || fallbackCwd,
+    getMode,
+  });
+  return contextStatus();
+}

@@ -1,10 +1,16 @@
-import type { DesktopApi, DesktopCapability } from '../shared/contract';
+import {
+  DESKTOP_READ_CAPABILITIES,
+  type DesktopApi,
+  type DesktopCapability,
+  type DesktopReadCapability,
+} from '../shared/contract';
+import { readGlobalCapabilities } from './global-capability-reads';
 
 export type MediaKind = 'image' | 'video';
 export const MEDIA_KINDS: MediaKind[] = ['image', 'video'];
 export type StudioApi = Partial<Pick<
   DesktopApi,
-  'invokeCapability' | 'mediaUrl' | 'openAttachmentImage' | 'openMediaAsset' | 'openMediaFolder'
+  'invokeCapability' | 'readCapabilities' | 'mediaUrl' | 'openAttachmentImage' | 'openMediaAsset' | 'openMediaFolder'
 >>;
 export type RecordValue = Record<string, unknown>;
 
@@ -223,12 +229,21 @@ export function assetLabel(asset: MediaAsset): string {
   return parts.filter(Boolean).join(' · ');
 }
 
-/** Capability call helper: unwraps { value } and normalizes errors to strings. */
+const STUDIO_READ_CAPABILITIES = new Set<DesktopCapability>(DESKTOP_READ_CAPABILITIES);
+
+/** Studio requests are global. Read-only calls need the value, not the
+ * accompanying control snapshot; commands retain their original transport. */
 export async function callCapability(
   api: StudioApi | undefined,
   capability: DesktopCapability,
   args: unknown[] = [],
 ): Promise<unknown> {
+  if (STUDIO_READ_CAPABILITIES.has(capability)) {
+    return (await readGlobalCapabilities(api, [{
+      capability: capability as DesktopReadCapability,
+      args,
+    }]))[0];
+  }
   if (!api?.invokeCapability) return undefined;
   const result = await api.invokeCapability({ capability, args });
   return result?.value;

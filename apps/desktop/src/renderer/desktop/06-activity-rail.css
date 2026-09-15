@@ -37,7 +37,9 @@
   width: 24px;
   height: 24px;
 }
-.activity-rail .codicon { font-size: 24px; }
+/* Outrank Monaco's global codicon font shorthand even when its lazy CSS loads
+   after the rail, so Settings keeps the same 24px tier as the SVG destinations. */
+.activity-rail .codicon[class*="codicon-"] { font-size: 24px; }
 /* Direct rail controls only: the usage popup nests its own buttons (rows,
    detail actions) that must keep their list styling. */
 .activity-rail > nav > button,

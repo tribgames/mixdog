@@ -1,7 +1,7 @@
 import { estimateMessagesTokens } from '../context-utils.mjs';
 import { estimateTokens } from '../token-estimate.mjs';
 import { persistToolResultArtifactSync } from '../tool-result-offload.mjs';
-import { isActualUserInstructionMessage, latestActualUserInstructionIndex } from './messages.mjs';
+import { isActualUserInstructionMessage, isProtectedContextAckMessage, latestActualUserInstructionIndex } from './messages.mjs';
 
 export const EXECUTION_RECOVERY_SOURCE = 'compact-execution-recovery';
 export const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
@@ -29,7 +29,7 @@ function requestStart(messages, index) {
     return latestActualUserInstructionIndex(messages.slice(0, index + 1));
 }
 
-export function buildExecutionTail(messages, { contextWindow, sessionId } = {}) {
+export function buildExecutionTail(messages, { contextWindow, sessionId, preserveConversation = false } = {}) {
     const budget = toolHistoryBudget(contextWindow);
     const groups = [];
     for (let i = 0; i < messages.length; i += 1) {
@@ -91,7 +91,9 @@ export function buildExecutionTail(messages, { contextWindow, sessionId } = {}) 
     }
     const latest = latestActualUserInstructionIndex(messages);
     const firstKept = kept.size ? Math.min(...kept.keys()) : messages.length;
-    const anchor = requestStart(messages, Math.min(firstKept, latest < 0 ? firstKept : latest));
+    const anchor = preserveConversation
+        ? 0
+        : requestStart(messages, Math.min(firstKept, latest < 0 ? firstKept : latest));
     const tail = [];
     for (let i = Math.max(0, anchor); i < messages.length; i += 1) {
         const group = kept.get(i);
@@ -101,13 +103,24 @@ export function buildExecutionTail(messages, { contextWindow, sessionId } = {}) 
             continue;
         }
         const message = messages[i];
+        if (preserveConversation && message?.role === 'assistant'
+            && !isProtectedContextAckMessage(message)) {
+            // Omitted execution stays in the archive; its conversational text
+            // remains verbatim without replaying an orphaned call or reasoning.
+            if (message.toolCalls?.length) {
+                if (message.content) tail.push({ role: 'assistant', content: message.content });
+            } else {
+                tail.push(message);
+            }
+            continue;
+        }
         if (isActualUserInstructionMessage(message)
             || (i >= firstKept && message?.role === 'assistant' && !message.toolCalls?.length)) {
             tail.push(message);
         }
     }
     // With no execution to retain, keep the existing latest-request contract.
-    if (!groups.length && !previousRecovery.length) {
+    if (!preserveConversation && !groups.length && !previousRecovery.length) {
         return { messages: latest < 0 ? [] : [messages[latest]], toolTokens: 0, toolBudget: budget, retainedGroups: 0 };
     }
     return {

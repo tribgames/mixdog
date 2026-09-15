@@ -1,6 +1,9 @@
 // Shared stat-tuple helpers used by all cache modules.
 import { statSync } from 'node:fs';
 import { resolve as resolvePath, isAbsolute, normalize } from 'node:path';
+import {
+    isBlockedDevicePath, isUncPath, isWindowsDevicePath, hasUnsafeWin32Component,
+} from '../../tools/builtin/device-paths.mjs';
 
 export function _normalizeAbs(path, cwd) {
     if (typeof path !== 'string' || path.length === 0) return null;
@@ -27,10 +30,15 @@ export function _normalizeCacheKey(p) {
 }
 
 export function _statTuple(absPath) {
+    // Cache probes run before tool execution; they must not touch paths that
+    // the read tool would reject before IO (notably credential-leaking UNC).
+    if (isUncPath(absPath) || isWindowsDevicePath(absPath)
+        || hasUnsafeWin32Component(absPath) || isBlockedDevicePath(absPath)) return null;
     try {
         const st = statSync(absPath);
         return {
             mtimeMs: st.mtimeMs,
+            ctimeMs: st.ctimeMs,
             size: st.size,
             ino: typeof st.ino === 'number' ? st.ino : Number(st.ino) || 0,
             dev: typeof st.dev === 'number' ? st.dev : Number(st.dev) || 0,
@@ -43,6 +51,7 @@ export function _statTuple(absPath) {
 export function _statEqual(a, b) {
     return !!a && !!b
         && a.mtimeMs === b.mtimeMs
+        && a.ctimeMs === b.ctimeMs
         && a.size === b.size
         && a.ino === b.ino
         && a.dev === b.dev;

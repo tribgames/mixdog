@@ -1,13 +1,14 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
+import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createBrowserPageClient, type BrowserPageElement } from './browser-page-client';
 import { useBrowserPageInput } from './use-browser-page-input';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
+import { copyTextToClipboard } from './text-format';
 import type { DesktopBrowserPageFrame } from '../shared/contract';
 import { browserPageTransition } from './browser-page-recovery';
 import { createBrowserDisplayHealth } from './browser-display-health';
 import { createBrowserPresentationLoop } from './browser-presentation-loop';
+import { createBrowserPixelPresentation } from './browser-pixel-presentation';
 import { BrowserPagePrompts } from './BrowserPagePrompts';
 import './desktop/browser-isolated-view.css';
 
@@ -18,42 +19,41 @@ export const IsolatedBrowserView = forwardRef<BrowserPageElement, {
   className?: string;
 }>(function IsolatedBrowserView({ sessionId, active, className }, ref) {
   const element = useRef<HTMLDivElement | null>(null);
-  const image = useRef<HTMLImageElement | null>(null);
+  const image = useRef<HTMLElement | null>(null);
+  const pixels = useRef<HTMLDivElement | null>(null);
+  const canvasId = useId();
   const keyboard = useRef<HTMLTextAreaElement | null>(null);
   const [frame, setFrame] = useState<DesktopBrowserPageFrame | null>(null);
-  const [imageUrl, setImageUrl] = useState('');
   const [failure, setFailure] = useState('');
   const [actionFailure, setActionFailure] = useState('');
-  const [surfaceSize, setSurfaceSize] = useState<{ width: number; height: number } | null>(null);
-  const displayedDocument = useRef('');
+  const [unconfirmedText, setUnconfirmedText] = useState('');
+  const presentation = useMemo(() => createBrowserPixelPresentation({
+    container: () => pixels.current, image, canvasId,
+    texture: (id, canvas) => {
+      const present = window.mixdogDesktop?.browserPresentTexture;
+      if (!present) throw new Error('Browser GPU display is unavailable.');
+      present(sessionId, id, canvas);
+    },
+    metadata: setFrame,
+  }), [sessionId, canvasId]);
   const client = useMemo(() => createBrowserPageClient({
     api: window.mixdogDesktop!, sessionId,
-    async prepare(next) {
-      if (!next.image) return;
-      const decoded = new Image();
-      decoded.src = `data:${next.image.mimeType};base64,${next.image.data}`;
-      await decoded.decode();
-    },
-    update(next) {
-      // Commit decoded pixels and their coordinate metadata in the same task
-      // before a new pointer event can observe the client frame.
-      flushSync(() => {
-        setFrame(next);
-        if (next.image) setImageUrl(`data:${next.image.mimeType};base64,${next.image.data}`);
-        else if (displayedDocument.current !== next.documentId) setImageUrl('');
-      });
-      displayedDocument.current = next.documentId;
-    },
+    prepare: presentation.prepare,
+    update: presentation.update,
     failure: setActionFailure,
+    unconfirmedText: setUnconfirmedText,
     // Only a new deliberate input, begun after the failure, proves recovery.
     recovered: () => setActionFailure(''),
-  }), [sessionId]);
+  }), [sessionId, presentation]);
   useImperativeHandle(ref, () => {
     const node = element.current as BrowserPageElement;
     client.bind(node, () => keyboard.current?.focus({ preventScroll: true }));
     return node;
   }, [client]);
-  useEffect(() => { client.activate(); return () => client.dispose(); }, [client]);
+  useEffect(() => {
+    client.activate();
+    return () => { client.dispose(); window.mixdogDesktop?.browserDiscardTexture?.(sessionId); };
+  }, [client, sessionId]);
   const input = useBrowserPageInput(client, image, keyboard);
 
   useEffect(() => {
@@ -94,42 +94,46 @@ export const IsolatedBrowserView = forwardRef<BrowserPageElement, {
     const resize = () => {
       const width = Math.min(3840, Math.max(1, Math.round(node.clientWidth)));
       const height = Math.min(3840, Math.max(1, Math.round(node.clientHeight)));
-      setSurfaceSize(previous => previous?.width === width && previous.height === height
-        ? previous : { width, height });
+      presentation.resize(width, height);
       const key = `${width}:${height}`;
       if (width < 2 || height < 2 || key === last) return;
       last = key;
       client.fire({ type: 'resize', width, height });
     };
     const observer = new ResizeObserver(() => {
-      setSurfaceSize({ width: Math.round(node.clientWidth), height: Math.round(node.clientHeight) });
+      presentation.resize(Math.round(node.clientWidth), Math.round(node.clientHeight));
       window.cancelAnimationFrame(timer);
       timer = window.requestAnimationFrame(resize);
     });
     observer.observe(node);
     resize();
     return () => { observer.disconnect(); window.cancelAnimationFrame(timer); };
-  }, [active, client, frame?.documentId]);
-
-  const geometryReady = frame?.surfaceWidth === undefined || (surfaceSize
-    && frame.surfaceWidth === surfaceSize.width && frame.surfaceHeight === surfaceSize.height);
+  }, [active, client, presentation, frame?.documentId]);
   return <div ref={element} className={`${className || ''} browser-isolated-view`}>
     <div className="browser-isolated-surface"
       onPointerDown={input.onPointerDown} onPointerMove={input.onPointerMove}
       onPointerUp={input.onPointerUp} onPointerCancel={input.onPointerCancel}
       onLostPointerCapture={input.onPointerCancel} onWheel={input.onWheel}
       onContextMenu={event => event.preventDefault()}>
-      {imageUrl && <img ref={image} src={imageUrl} hidden={!geometryReady}
-        draggable={false} alt={frame?.title || 'Browser Use'} />}
+      <div className="browser-isolated-pixels" ref={pixels} />
       <textarea ref={keyboard} className="browser-isolated-input" aria-label={t("Type on page")}
         autoComplete="off" autoCapitalize="none" spellCheck={false}
         onKeyDown={input.onKeyDown} onInput={input.onInput} onPaste={input.onPaste} onBlur={input.onBlur}
-        onCompositionStart={input.onCompositionStart} onCompositionEnd={input.onCompositionEnd} />
+        onCompositionStart={input.onCompositionStart} onCompositionUpdate={input.onCompositionUpdate}
+        onCompositionEnd={input.onCompositionEnd} />
     </div>
     {frame && <BrowserPagePrompts key={`${frame.documentId}:${frame.dialog?.id ?? frame.fileChooser?.id ?? ''}`}
       frame={frame} control={client.control} />}
-    {(failure || actionFailure) && <div className="browser-remote-status"><ErrorNotice
-      errors={[failure, actionFailure]} role="status"
-      onDismiss={() => { setFailure(''); setActionFailure(''); }} /></div>}
+    {(failure || actionFailure || unconfirmedText) && <div className="browser-remote-status">
+      <ErrorNotice errors={[failure, actionFailure]} role="status"
+        onDismiss={() => { setFailure(''); setActionFailure(''); }} />
+      {unconfirmedText && <div className="browser-input-recovery" role="status">
+        <span>{t('Some typed text could not be confirmed. Copy it before retrying.')}</span>
+        <button type="button" onClick={() => {
+          void copyTextToClipboard(unconfirmedText).catch(error => setActionFailure(String(error?.message || error)));
+        }}>{t('Copy')}</button>
+        <button type="button" onClick={() => client.clearUnconfirmedText()}>{t('Clear')}</button>
+      </div>}
+    </div>}
   </div>;
 });

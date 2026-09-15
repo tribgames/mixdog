@@ -1,7 +1,6 @@
-// One Compact implementation:
-//   1) optionally generate a bounded cumulative handoff;
-//   2) rebuild a fresh provider context from protected session injection,
-//      the handoff, retained requests, and budgeted execution records.
+// Rule-based Compact preserves conversation verbatim by default. A bounded
+// cumulative handoff replaces only the conversation part when requested by
+// its independent threshold policy.
 import {
     estimateMessagesTokens,
     reconcileDedupStubs,
@@ -18,6 +17,7 @@ import {
 } from './text-utils.mjs';
 import {
     isSummaryMessage,
+    latestActualUserInstructionIndex,
     latestActualUserInstructionMessage,
     splitProtectedContext,
 } from './messages.mjs';
@@ -57,16 +57,17 @@ function splitFreshSource(messages) {
         reconcileDedupStubs(sanitizeToolPairs(messages)),
     );
     const { protectedPrefix, conversation } = splitProtectedContext(sanitized);
-    let previousSummary = null;
+    let previousSummaryMessage = null;
     for (let index = conversation.length - 1; index >= 0; index -= 1) {
         if (isSummaryMessage(conversation[index])) {
-            previousSummary = conversation[index].content;
+            previousSummaryMessage = conversation[index];
             break;
         }
     }
     return {
         protectedPrefix,
-        previousSummary,
+        previousSummary: previousSummaryMessage?.content || null,
+        previousSummaryMessage,
         live: conversation.filter((message) => !isSummaryMessage(message)),
         sanitized,
     };
@@ -100,6 +101,18 @@ function pureConversationForHandoff(messages) {
         out.push(...chunkConversationMessage(role, content, message));
     }
     return out;
+}
+
+export function conversationCompactionInput(messages) {
+    const source = splitFreshSource(messages);
+    const latest = latestActualUserInstructionIndex(source.live);
+    return [
+        ...(source.previousSummaryMessage ? [source.previousSummaryMessage] : []),
+        // The latest actual request is mandatory and must never be replaced by
+        // a summary. Tool outputs, skills and runtime injections are excluded
+        // by the same conversation projection used by summary generation.
+        ...pureConversationForHandoff(source.live.filter((_, index) => index !== latest)),
+    ];
 }
 
 export async function generateFreshHandoffSummary(provider, messages, model, budgetTokens, opts = {}) {
@@ -320,12 +333,14 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
 
     const source = splitFreshSource(baseSanitized);
     const handoffText = String(opts.handoffText || '').trim();
-    if (source.live.length === 0 && !(handoffText || opts.allowEmptyHandoff === true)) {
-        throw new Error('freshContextCompactMessages: no compactable session history');
-    }
+    const preserveConversation = !handoffText;
+    const completeSummary = handoffText
+        ? fitFreshContextSummaryMessage(source.live, handoffText, Number.MAX_SAFE_INTEGER)
+        : source.previousSummaryMessage;
     const execution = buildExecutionTail(source.live, {
         contextWindow: opts.contextWindow || budgetTokens,
         sessionId: opts.sessionId,
+        preserveConversation,
     });
     const latestUser = latestActualUserInstructionMessage(source.live);
     const latestIndex = execution.messages.findLastIndex(message => (
@@ -337,7 +352,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     const activeTurnContinuation = latestUser && opts.activeTurn === true
         ? activeTurnContinuationMessage(source.live)
         : null;
-    const stableAck = latestUser ? { role: 'assistant', content: '.' } : null;
+    const stableAck = latestUser && completeSummary ? { role: 'assistant', content: '.' } : null;
     // Older compacted sessions may have only synthetic Goal turns left.
     // Preserve the current snapshot without inventing a human instruction
     // to attach it to or resurrecting every historical Goal reminder.
@@ -359,9 +374,8 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         ...volatileTail,
     ];
     const mandatoryCost = estimateMessagesTokens(mandatory);
-    if (opts.maxBudgetTokens > budgetTokens && handoffText) {
-        const complete = fitFreshContextSummaryMessage(source.live, handoffText, Number.MAX_SAFE_INTEGER);
-        const required = mandatoryCost + estimateMessagesTokens([complete]);
+    if (opts.maxBudgetTokens > budgetTokens) {
+        const required = mandatoryCost + estimateMessagesTokens(completeSummary ? [completeSummary] : []);
         // The target is soft, the model window is not. Never trim the latest
         // instruction or an execution record just to claim a 25% result.
         budget = Math.min(
@@ -369,30 +383,20 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
             Math.max(targetBudget, required),
         );
     }
-    if (mandatoryCost >= budget) {
+    if (mandatoryCost > budget || (completeSummary && mandatoryCost === budget)) {
         throw new Error(
             `freshContextCompactMessages: mandatory session context/latest instruction exceeds compact budget=${budget} ` +
             `(mandatory=${mandatoryCost})`,
         );
-    }
-    if (!handoffText && opts.allowEmptyHandoff !== true) {
-        throw new Error('freshContextCompactMessages: handoff text is empty');
     }
     const handoffRoomUncapped = budget - mandatoryCost;
     const handoffTokenCap = Number(opts.handoffTokenCap);
     const handoffRoom = Number.isFinite(handoffTokenCap) && handoffTokenCap > 0
         ? Math.min(handoffRoomUncapped, handoffTokenCap)
         : handoffRoomUncapped;
-    const summaryMessage = fitFreshContextSummaryMessage(
-        source.live,
-        handoffText,
-        handoffRoom,
-    );
-    if (!summaryMessage) {
-        throw new Error(`freshContextCompactMessages: summary cannot fit remaining budget=${handoffRoom}`);
-    }
-    const summaryContent = String(summaryMessage.content || '');
-    if (handoffText && !summaryContent.includes(handoffText)) {
+    const summaryMessage = completeSummary;
+    const summaryContent = String(summaryMessage?.content || '');
+    if (summaryMessage && estimateMessagesTokens([summaryMessage]) > handoffRoom) {
         throw new Error(
             `freshContextCompactMessages: complete handoff exceeds the compact budget=${handoffRoom}; ` +
             'refusing to drop older context',
@@ -400,7 +404,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     }
     const baseResult = [
         ...source.protectedPrefix,
-        summaryMessage,
+        ...(summaryMessage ? [summaryMessage] : []),
         ...(stableAck ? [stableAck] : []),
         ...volatileTail,
     ];
@@ -422,7 +426,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     }
     const result = rebaseCompactedEffortConfiguration(baseSanitized, reconcileDedupStubs(sanitizeToolPairs([
         ...source.protectedPrefix,
-        summaryMessage,
+        ...(summaryMessage ? [summaryMessage] : []),
         ...(stableAck ? [stableAck] : []),
         ...restoredSkills,
         ...volatileTail,
@@ -435,7 +439,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     }
     const stablePrefixMessages = [
         ...source.protectedPrefix,
-        summaryMessage,
+        ...(summaryMessage ? [summaryMessage] : []),
         ...(stableAck ? [stableAck] : []),
         ...restoredSkills,
     ];
@@ -481,6 +485,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         summaryMessageChars: summaryContent.length,
         summaryMessageBytes: textByteLength(summaryContent),
         handoffEmpty: !handoffText,
+        conversationPreserved: preserveConversation,
         handoffTruncatedInSummary: !!handoffText && !summaryContent.includes(handoffText),
         fileReattached: false,
         tailOptions: {

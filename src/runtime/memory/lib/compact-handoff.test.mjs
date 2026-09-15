@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { compactHandoffRows } from './compact-handoff.mjs'
 import { renderEntryLines } from './recall-format.mjs'
+import { makeChunkQuality } from './memory-chunk-quality.mjs'
 
 const member = (id, sourceTurn, role, content) => ({
   id,
@@ -44,6 +45,7 @@ test('compact handoff uses one summary per completed episode and every RAW row f
     member(7, 7, 'user', 'repeat'),
   ]
 
+  rows[0].chunk_quality = makeChunkQuality(rows[0].summary, rows[0].members)
   const projected = compactHandoffRows(rows)
   assert.deepEqual(
     projected.map((row) => row.id).sort((a, b) => a - b),
@@ -91,8 +93,12 @@ test('compact handoff renders oldest-first and drops ingest-time stamps from col
   const rows = [
     { ...member(3, 3, 'assistant', 'latest answer'), is_root: 0, time_source: 'collected' },
     { ...member(2, 2, 'user', 'latest request'), is_root: 0, time_source: 'collected' },
-    { id: 100, ts: 1000, session_id: 'session', is_root: 1, element: 'earlier', summary: 'episode', members: [] },
+    {
+      id: 100, ts: 1000, session_id: 'session', is_root: 1, element: 'internal search key', summary: 'episode',
+      members: [member(100, 1, 'user', 'earlier episode request and repeated details')],
+    },
   ]
+  rows[2].chunk_quality = makeChunkQuality(rows[2].summary, rows[2].members)
   const rendered = renderEntryLines(compactHandoffRows(rows), {
     pendingMarks: false,
     chronologicalOrder: true,
@@ -100,7 +106,7 @@ test('compact handoff renders oldest-first and drops ingest-time stamps from col
     maxBodyChars: null,
   })
   const lines = rendered.split('\n')
-  assert.match(lines[0], /^\[.*\] earlier — episode #100$/)
+  assert.equal(lines[0], 'episode')
   assert.equal(lines[1], 'u: latest request #2')
   assert.equal(lines[2], 'a: latest answer #3')
   assert.doesNotMatch(rendered, /time=collected/)

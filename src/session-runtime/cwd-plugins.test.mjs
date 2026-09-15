@@ -14,7 +14,7 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
   mkdirSync(after);
   let currentCwd = before;
   let desktopSession = { classification: 'project', projectPath: before };
-  const session = {
+  let session = {
     id: 'sess-cwd-persist',
     cwd: before,
     desktopSession,
@@ -58,6 +58,14 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
       STANDALONE_DATA_DIR: root,
     });
 
+    // A reserved desktop session can change cwd before materialization.
+    // Its subsequent session must inherit the new Project, not the old one.
+    const pending = session;
+    session = null;
+    applyResolvedCwd(after, { persistProjectSelection: true });
+    assert.deepEqual(desktopSession, { classification: 'project', projectPath: after });
+    assert.equal(persisted.length, 0);
+    session = pending;
     applyResolvedCwd(after, { persistProjectSelection: true });
 
     assert.equal(currentCwd, after);
@@ -67,8 +75,8 @@ test('explicit cwd selection persists execution cwd and desktop project metadata
     assert.equal(persisted.length, 1);
     assert.equal(persisted[0].cwd, after);
     assert.deepEqual(persisted[0].desktopSession, desktopSession);
-    assert.deepEqual(sentinels, [{ cwd: after, pid: 4321 }]);
-    assert.deepEqual(overrides, [after]);
+    assert.deepEqual(sentinels, [{ cwd: after, pid: undefined }, { cwd: after, pid: 4321 }]);
+    assert.deepEqual(overrides, [after, after]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

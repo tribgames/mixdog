@@ -2,6 +2,7 @@ import {
   TOOL_SYNC_EXECUTION_CONTRACT,
 } from '../shared/tool-execution-contract.mjs';
 import { OFFICE_ACTIONS } from './capabilities.mjs';
+import { MAX_PDF_ANALYSIS_PAGES } from './pdf/pdf-limits.mjs';
 
 /** Format-specific workflows and design guides live in the built-in skills
  *  (pptx, docx, xlsx, pdf); the description only routes to them and states the
@@ -40,7 +41,7 @@ export const TOOL_DEFS = [
         mode: {
           type: 'string',
           enum: ['auto', 'attach', 'visible', 'background', 'portable', 'live'],
-          description: 'auto defaults to background with Office, otherwise portable. Only explicit attach co-edits an open document (live aliases it); visible opens a window; background edits an output copy; portable needs no Office.',
+          description: 'auto defaults to background with Office, otherwise portable. Only explicit attach (alias live) co-edits an open file; visible opens a window; background edits a copy.',
         },
         output: { type: 'string', description: 'Output copy or render destination; defaults beside source.' },
         target: { type: 'string', description: 'Stable path from snapshot/query, e.g. /body/p[2].' },
@@ -52,7 +53,7 @@ export const TOOL_DEFS = [
         fields: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'PDF form fields; linted before writing.' },
         operations: {
           type: 'array',
-          description: 'Ordered edits applied atomically; op names and fields per the format skill (describe lists them).',
+          description: 'Atomic ordered edits; op names and fields per the format skill.',
           items: {
             type: 'object',
             additionalProperties: true,
@@ -62,7 +63,7 @@ export const TOOL_DEFS = [
               replace: { type: 'string' },
               text: { type: 'string' },
               value: {},
-              values: { type: 'array' },
+              values: { description: 'set_range/tables: row matrix. append_row/charts: flat array. fill_form: field map.' },
               tokens: { type: 'object', additionalProperties: true },
               source: { type: 'object', additionalProperties: true },
               strict: { type: 'boolean' },
@@ -101,7 +102,7 @@ export const TOOL_DEFS = [
         range: { type: 'string', description: 'Spreadsheet range selector, e.g. A1:H5000.' },
         includeStyles: { type: 'boolean', description: 'Include cell styles when the page is small enough.' },
         includeSelection: { type: 'boolean', description: 'Include active selection; defaults true for attach/visible.' },
-        pages: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Page/slide numbers; render defaults to all pages.' },
+        pages: { type: 'array', items: { type: 'integer', minimum: 1 }, description: `Page/slide numbers. PDF analysis: select at most ${MAX_PDF_ANALYSIS_PAGES}; render defaults to all pages.` },
         maxWidth: { type: 'integer', minimum: 256, maximum: 2400, description: 'Render width; default 1400.' },
         autoFix: { type: 'boolean', description: 'qa: apply deterministic fit/autofit repairs.' },
         auditProfile: { type: 'string', enum: ['financial-model', 'model-backed-deck', 'redlining'], description: 'Optional stricter QA profile.' },

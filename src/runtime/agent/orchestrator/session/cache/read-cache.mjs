@@ -56,7 +56,8 @@ function _normalizeArrayElemWithDefaults(elem, cwd, topOff, topLim, topMode, top
 
 // Build cache key and statsByAbs map for array-form path args.
 function _arrayKeyAndStats(args, cwd) {
-    const elems = args.path;
+    const elems = args.path ?? args.file_path;
+    const offsetBase = Array.isArray(args.file_path) && !args.path ? 1 : 0;
     const pages = args?.pages ?? '';
     const full = args?.full ?? '';
     // Top-level options applied as per-element defaults (C: array-form parity).
@@ -75,7 +76,7 @@ function _arrayKeyAndStats(args, cwd) {
         parts.push(`${n.abs}|o=${n.off}|l=${n.lim}|m=${n.mode}|n=${n.n}|line=${n.line}|ctx=${n.context}|f=${n.full}`);
         if (!statsByAbs[n.abs]) statsByAbs[n.abs] = _statTuple(n.abs);
     }
-    const key = `[ARR]${parts.join('||')}|p=${pages}|f=${full}|to=${topOff}|tl=${topLim}|tm=${topMode}|tn=${topN}|tline=${topLine}|tctx=${topContext}|tf=${topFull}`;
+    const key = `[ARR]${parts.join('||')}|p=${pages}|f=${full}|to=${topOff}|tl=${topLim}|tm=${topMode}|tn=${topN}|tline=${topLine}|tctx=${topContext}|tf=${topFull}|base=${offsetBase}`;
     return { key, statsByAbs };
 }
 
@@ -99,7 +100,9 @@ function _keyFor(args, cwd) {
     const full = args?.full ?? '';
     const line = args?.line ?? '';
     const context = args?.context ?? '';
-    return `${abs}|o=${off}|l=${lim}|m=${mode}|n=${n}|p=${pages}|f=${full}|line=${line}|ctx=${context}`;
+    // The body may be identical across aliases, but continuation coordinates
+    // are not. A cached result must retain its caller's coordinate contract.
+    return `${abs}|o=${off}|l=${lim}|m=${mode}|n=${n}|p=${pages}|f=${full}|line=${line}|ctx=${context}|base=${usedFilePathAlias ? 1 : 0}`;
 }
 
 // Re-stat every path in statsByAbs; return true only if ALL match stored tuples.
@@ -138,6 +141,21 @@ function _absFromKey(key) {
     return idx === -1 ? key : key.slice(0, idx);
 }
 
+// Capture immediately before execution, after any mutation/approval barriers.
+// Deferred cache insertion must not label an old body with a newer file stat.
+export function captureReadCacheState({ args, cwd }) {
+    const key = _keyFor(args, cwd);
+    if (key === null && Array.isArray(args?.path ?? args?.file_path)) {
+        const parsed = _arrayKeyAndStats(args, cwd);
+        if (!parsed || Object.values(parsed.statsByAbs).some((stat) => !stat)) return null;
+        return { ...parsed, kind: 'array' };
+    }
+    if (!key) return null;
+    const abs = _absFromKey(key);
+    const stat = _statTuple(abs);
+    return stat ? { key, statsByAbs: { [abs]: stat }, kind: 'scalar' } : null;
+}
+
 /**
  * Look up a cached read result for this session+args. Stats the file at
  * lookup time and only returns when the stat tuple still matches. Returns
@@ -147,7 +165,7 @@ function _absFromKey(key) {
 export function tryReadCached({ sessionId, args, cwd }) {
     if (!sessionId) return null;
     const key = _keyFor(args, cwd);
-    if (key === null && Array.isArray(args?.path)) {
+    if (key === null && Array.isArray(args?.path ?? args?.file_path)) {
         const parsed = _arrayKeyAndStats(args, cwd);
         if (!parsed) return null;
         const map = _bySession.get(sessionId);
@@ -180,17 +198,22 @@ export function tryReadCached({ sessionId, args, cwd }) {
 /**
  * Cache a successful read result. Skip caching if the file no longer exists.
  * `toolUseId` is the tool_use id of the FIRST call that populated the entry.
+ * Async executors pass their pre-execution `readState`; null disables caching
+ * when the source version could not be established. Omission retains direct
+ * synchronous insertion for callers already holding the current body.
  */
-export function setReadCached({ sessionId, args, cwd, content, toolUseId }) {
+export function setReadCached({ sessionId, args, cwd, content, toolUseId, readState }) {
     if (!sessionId) return;
     if (typeof content !== 'string' || content.length === 0) return;
-    const key = _keyFor(args, cwd);
-    if (key === null && Array.isArray(args?.path)) {
-        const parsed = _arrayKeyAndStats(args, cwd);
-        if (!parsed) return;
-        for (const st of Object.values(parsed.statsByAbs)) {
-            if (!st) return;
-        }
+    const parsed = captureReadCacheState({ args, cwd });
+    if (!parsed) return;
+    if (readState !== undefined && (
+        !readState
+        || readState.key !== parsed.key
+        || Object.entries(readState.statsByAbs).some(([abs, stat]) => !_statEqual(stat, parsed.statsByAbs[abs]))
+    )) return;
+    const key = parsed.key;
+    if (parsed.kind === 'array') {
         const map = _getOrCreate(sessionId);
         if (map.size >= MAX_PER_SESSION) {
             const firstKey = map.keys().next().value;
@@ -209,9 +232,7 @@ export function setReadCached({ sessionId, args, cwd, content, toolUseId }) {
         }
         return;
     }
-    if (!key) return;
-    const fresh = _statTuple(_absFromKey(key));
-    if (!fresh) return;
+    const fresh = parsed.statsByAbs[_absFromKey(key)];
     const map = _getOrCreate(sessionId);
     if (map.size >= MAX_PER_SESSION) {
         const firstKey = map.keys().next().value;

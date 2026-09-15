@@ -1,7 +1,7 @@
 ---
 name: computer-use
 description: Drive the built-in computer tool (Mixdog Computer Use) on the local Windows desktop.
-when_to_use: 'Native app UI, launch, or desktop capture; not web pages (browser-use) or shell work.'
+when_to_use: 'External browser windows, native app UI, OS dialogs, launch, or desktop capture; not Mixdog browser pages (browser-use), URL research (web_fetch/web_search), or shell work.'
 metadata:
   requires: computer
 dependencies:
@@ -20,13 +20,21 @@ observed target, and leave windows where they were.
 > authority for every field; when this file and the schema disagree, the
 > schema wins.
 
-## When NOT to use it
+## Choose the target route
 
-- Anything on a web page → Browser Use (`browser`). A page action `browser`
-  refused or could not finish (blocked gesture, CAPTCHA, dialog, no match) is
-  handed off or reported, never re-tried by clicking the browser window here.
+- User-designated external Chrome/Edge/Firefox windows, including their page
+  content, use `computer`. `browser` controls only Mixdog's in-app Chromium;
+  no trial Browser Use call is needed for an external window. Keep the user's
+  selected window and login session rather than opening an in-app substitute.
+- Mixdog browser pages → Browser Use (`browser`). A refused or unfinished
+  page action stays on that route for recovery or user handoff; never retry
+  it through `computer` or move it to another browser.
+- On either route, permission denials, CAPTCHA/2FA, identity checks, and user
+  stops are not fallback signals: report or hand off, never bypass them.
 - A service with an MCP tool or a CLI → that tool or `shell`; the screen is
-  reserved for native apps and GUI-only tools nothing else reaches.
+  reserved for the selected external browser window or native/GUI-only work
+  those tools cannot satisfy. URL reading and research still use
+  `web_fetch`/`web_search` when no particular window is required.
 - File, process, or config work a shell command does deterministically → `shell`.
 - Never drive the desktop through PowerShell input hosts, `SendKeys`, or
   direct bridge calls from `shell`. If the built-in tool cannot do it, stop
@@ -51,7 +59,7 @@ observed target, and leave windows where they were.
   Select foreground directly when it is within scope. A strict no-focus request
   requires approval before foreground escalation.
 - Read-only capture, inspection, and verification do not need an input mode.
-  Web content still belongs to Browser Use, regardless of delivery.
+  Target routing above is independent of foreground/background delivery.
 - Choose once for the operation. Never silently fall back from foreground to
   background or the reverse. A known unsupported route with no input sent
   permits reconsidering the mode within the user's scope. An uncertain result

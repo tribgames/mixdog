@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
+import { ANTIGRAVITY_MODELS, normalizeGrokModelId } from './provider-model-identities.mjs';
 
 const PROVIDER_CACHE_FILES = Object.freeze({
   'openai-oauth': ['openai-oauth-models.json'],
@@ -8,6 +9,7 @@ const PROVIDER_CACHE_FILES = Object.freeze({
   anthropic: ['anthropic-oauth-models.json'],
   gemini: ['gemini-models.json'],
   'grok-oauth': ['grok-oauth-models.json'],
+  'antigravity-oauth': ['antigravity-oauth-models.json'],
 });
 
 export function providerUsesEndpointScopedLimits(provider) {
@@ -45,6 +47,23 @@ export function providerCachedModelsSync(provider) {
     }
   }
   return rows;
+}
+
+export function cachedProviderModelListsSync() {
+  return Object.fromEntries(Object.keys(PROVIDER_CACHE_FILES)
+    .filter((provider) => provider !== 'anthropic')
+    .map((provider) => [provider, providerCachedModelsSync(provider)]));
+}
+
+/** Only explicit catalog wire mappings establish an alias. Never strip an
+ * effort/date/preview suffix: gateway labels can point to a different version. */
+export function providerPricingModelSync(provider, model) {
+  if (provider === 'grok-oauth') return normalizeGrokModelId(model);
+  if (provider !== 'antigravity-oauth') return model;
+  const row = [...providerCachedModelsSync(provider), ...ANTIGRAVITY_MODELS].find((entry) =>
+    entry.id === model || entry.wire === model
+    || (entry.wire && typeof entry.wire === 'object' && Object.values(entry.wire).includes(model)));
+  return row?.pricingModel || row?.id || model;
 }
 
 function modelAliases(id) {

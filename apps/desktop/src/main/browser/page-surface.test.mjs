@@ -3,6 +3,43 @@ import test from 'node:test';
 import { createBrowserPageSurface } from './page-surface.ts';
 import { normalizeBrowserPageControl } from '../../shared/browser-page-control.ts';
 
+test('GPU reads transfer exact frame identities, including a newly attached client facing a dialog', async () => {
+  const record = { documentGeneration: 1 };
+  const guest = {
+    id: 7, isDestroyed: () => false, getURL: () => 'https://a', getTitle: () => 'A',
+    isLoadingMainFrame: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+  };
+  let transfers = 0;
+  let releases = 0;
+  const surface = createBrowserPageSurface({
+    ensureGuest: async () => guest,
+    state: { pageId: () => 'p1', for: () => record },
+    cdp: {
+      guestDebugger: async () => ({ sendCommand: async () => {
+        assert.equal(record.pendingDialog, undefined);
+        return { cssVisualViewport: { scale: 1 } };
+      } }),
+      bounded: async work => work,
+    },
+    viewport: () => ({ width: 800, height: 600, zoom: 1 }),
+    capture: async () => { throw new Error('GPU display must not encode a screenshot'); },
+    captureTexture: () => ({
+      id: 'gpu1', width: 800, height: 600,
+      send: async session => { assert.equal(session, 'owner'); transfers++; },
+      release: () => { releases++; },
+    }),
+  });
+  const frame = await surface.frame('owner', '', undefined, true);
+  assert.equal(frame.textureId, 'gpu1');
+  assert.equal(frame.frameId, 'gpu1');
+  assert.equal(frame.image, undefined);
+  record.pendingDialog = {};
+  assert.equal((await surface.frame('owner', '', undefined, true)).textureId, 'gpu1');
+  assert.equal(transfers, 2);
+  assert.equal(releases, 2);
+});
+
 test('viewport changes discard old captures and cached images instead of stretching them into new geometry', async () => {
   const record = { documentGeneration: 1 };
   const guest = {
@@ -278,4 +315,38 @@ test('display metadata remains available while page execution is fenced and neve
   await assert.rejects(surface.frame('owner'), /Browser page changed during capture/);
   targetReplaced = false;
   assert.equal((await surface.frame('owner')).documentId, 'p1:1');
+});
+
+test('a GPU frame that lands after the session moved on is refused and released', async () => {
+  for (const change of ['selection', 'document']) {
+    const record = { documentGeneration: 1 };
+    const guest = {
+      id: 7, isDestroyed: () => false, getURL: () => 'https://a', getTitle: () => 'A',
+      isLoadingMainFrame: () => false,
+      navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+    };
+    let selected = guest;
+    let releases = 0;
+    const surface = createBrowserPageSurface({
+      ensureGuest: async () => guest,
+      currentGuest: () => selected,
+      state: { pageId: () => 'p1', for: () => record },
+      cdp: {
+        guestDebugger: async () => ({ sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) }),
+        bounded: async work => work,
+      },
+      viewport: () => ({ width: 800, height: 600, zoom: 1 }),
+      capture: async () => { throw new Error('GPU display must not encode a screenshot'); },
+      captureTexture: () => ({
+        id: 'gpu1', width: 800, height: 600,
+        send: async () => {
+          if (change === 'selection') selected = {};
+          else record.documentGeneration += 1;
+        },
+        release: () => { releases++; },
+      }),
+    });
+    await assert.rejects(surface.frame('owner', '', undefined, true), /Browser page changed during capture/);
+    assert.equal(releases, 1, 'a refused transfer still releases its lease');
+  }
 });

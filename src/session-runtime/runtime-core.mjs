@@ -7,7 +7,6 @@ import { performance } from 'node:perf_hooks';
 import { randomUUID } from 'node:crypto';
 import keychain from '../lib/keychain-cjs.cjs';
 import './hitch-profile.mjs';
-import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
 import { createStandaloneAgent } from '../standalone/agent-tool.mjs';
 import { createStandaloneChannelWorker } from '../standalone/channel-worker.mjs';
 import { createStandaloneHookBus } from '../standalone/hook-bus.mjs';
@@ -20,6 +19,7 @@ import {
   channelNotificationModelContent,
   channelNotificationSessionId,
 } from '../runtime/shared/channel-notification-routing.mjs';
+import { CHANNEL_NOTIFICATION_METHOD } from '../standalone/channel-session-router.mjs';
 import {
   normalizeAgentPermissionOrNone,
   readMarkdownDocument,
@@ -31,7 +31,6 @@ import {
   consumeOpenAICodexResetCredit,
   fetchOAuthUsageSnapshot,
 } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
-import { hasActiveAutomation } from '../standalone/channel-admin.mjs';
 import { listRegisteredPlugins, pluginAdminStatus } from '../standalone/plugin-admin.mjs';
 import { clean, hasOwn } from './session-text.mjs';
 import { normalizeToolMode } from './effort.mjs';
@@ -47,16 +46,13 @@ import {
   autoClearIdleMsForProvider,
   autoClearProviderDefaults,
   normalizeCompactionConfig,
-  moduleEnabled,
   setModuleEnabledInConfig,
-  recapEnabled,
   setRecapEnabledInConfig,
-  memoryToolsEnabled,
   setMemoryToolsEnabledInConfig,
   formatDurationMs,
   parseDurationMs,
 } from './config-helpers.mjs';
-import { builtinFeatureActive, featureDisallowedToolsFor, localGitToolsActive, withGrandfatheredBuiltins } from './builtin-features.mjs';
+import { createRuntimeFeatureGates } from './runtime-feature-gates.mjs';
 import { outputStyleStatus as outputStyleStatusRaw } from './output-styles.mjs';
 import {
   countSkillFiles,
@@ -65,8 +61,6 @@ import {
   pluginMcpServerName,
 } from './plugin-mcp.mjs';
 import {
-  WEB_SEARCH_DEFAULT_PROVIDER,
-  WEB_SEARCH_DEFAULT_MODEL,
   workflowPresetId,
   createWorkflowHelpers,
   normalizeWebSearchProviderId,
@@ -76,13 +70,10 @@ import {
   normalizeWorkflowRoute,
   upsertWorkflowPreset,
   createWorkflowRouteHelpers,
+  webSearchRouteOrDefault,
 } from './workflow.mjs';
 import { applyDeferredToolSurface } from './tool-catalog.mjs';
-import {
-  TOOL_SEARCH_TOOL,
-  CWD_TOOL,
-  SKILL_TOOL,
-} from './tool-defs.mjs';
+import { collectStandaloneToolDefs } from './tool-defs.mjs';
 import {
   modelToolSchemaAllowlist,
   normalizeToolProfile,
@@ -93,17 +84,16 @@ import {
   providerModelCacheRow as providerModelCacheRowRaw,
 } from './model-recency.mjs';
 import { createNativeWebSearch } from './native-web-search.mjs';
-import { createConfigLifecycle } from './config-lifecycle.mjs';
+import { createConfigLifecycle, resolveInitialConfigState } from './config-lifecycle.mjs';
 import { createQuickModelRows } from './quick-model-rows.mjs';
-import { createWarmupSchedulers } from './warmup-schedulers.mjs';
-import { createPrewarmSchedulers } from './prewarm.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createCwdPlugins } from './cwd-plugins.mjs';
 import { createSettingsApi } from './settings-api.mjs';
 import { createProviderModels } from './provider-models.mjs';
 import { createProviderUsage } from './provider-usage.mjs';
 import { envFlag } from '../runtime/shared/env.mjs';
-import { bootProfile, profiledImport } from './boot-profile.mjs';
+import { bootProfile } from './boot-profile.mjs';
+import { loadRuntimeModules, prepareStandaloneEnvironment } from './runtime-bootstrap.mjs';
 import { createProviderReadiness } from './provider-readiness.mjs';
 import { createLazyRuntimeModules } from './runtime-modules.mjs';
 import { closeNativeToolTransports, closePatchRuntimeIfLoaded, withTeardownDeadline } from './native-teardown.mjs';
@@ -111,14 +101,14 @@ import { createChannelConfigApi } from './channel-config-api.mjs';
 import { createMediaApi } from './media-api.mjs';
 import { createProviderAuthApi } from './provider-auth-api.mjs';
 import { createUsageStatsApi } from './usage-stats-api.mjs';
-import { createContextStatus } from './context-status.mjs';
+import { contextStatusForSession, createContextStatus } from './context-status.mjs';
 import { createLifecycleApi } from './lifecycle-api.mjs';
 import { createResourceApi } from './resource-api.mjs';
 import { createModelRouteApi } from './model-route-api.mjs';
 import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
 import { createSelfUpdateController } from './self-update.mjs';
 import { createSkillsApi } from './skills-api.mjs';
-import { createNotificationBus } from './notification-bus.mjs';
+import { createCompletionWakeScheduler, createNotificationBus } from './notification-bus.mjs';
 import { createToolSurface } from './tool-surface.mjs';
 import {
   LOCAL_PROVIDER_ID,
@@ -141,28 +131,19 @@ import { createHookPayload } from './hook-payload.mjs';
 import { createRoutedAgentTool } from './agent-tool-routing.mjs';
 import { createInternalToolExecutor } from './internal-tool-executor.mjs';
 import {
-  RUNTIME,
-  WEB_SEARCH_TOOL_DEFS,
-  MEMORY_TOOL_DEFS,
-  CHANNEL_TOOL_DEFS,
-  CODE_GRAPH_TOOL_DEFS,
-  STATUSLINE_SESSION_ROUTES,
   STANDALONE_ROOT,
   STANDALONE_DATA_DIR,
 } from './runtime-paths.mjs';
 // Desktop-app bridges: tiny fs/fetch clients, so a static import adds no
 // meaningful boot cost. The tools themselves are gated per session by the
-// sync bridge-availability probes (headless runs never see them); execution
-// lives in internal-tool-executor.mjs.
-import { browserBridgeAvailableSync } from '../runtime/browser-bridge/client.mjs';
+// sync bridge-availability probes in runtime-feature-gates.mjs (headless runs
+// never see them); execution lives in internal-tool-executor.mjs.
 import { TOOL_DEFS as BROWSER_BRIDGE_TOOL_DEFS } from '../runtime/browser-bridge/tool-defs.mjs';
 import {
-  computerBridgeAvailableSync,
   deferComputerSessionRelease,
   endComputerExecution,
 } from '../runtime/computer-bridge/client.mjs';
 import { TOOL_DEFS as COMPUTER_BRIDGE_TOOL_DEFS } from '../runtime/computer-bridge/tool-defs.mjs';
-import { initializeOfficeTransactions } from '../runtime/office/index.mjs';
 import { TOOL_DEFS as OFFICE_TOOL_DEFS } from '../runtime/office/tool-defs.mjs';
 import { TOOL_DEFS as MEDIA_TOOL_DEFS } from '../runtime/media/tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from './setup-tool/tool-defs.mjs';
@@ -228,19 +209,7 @@ export async function createMixdogSessionRuntime({
   // Last assistant text handed to the transcript writer (via onAssistantText),
   // so the post-turn final-content append can skip an exact duplicate.
   rt._lastAppendedAssistant = '';
-  process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
-  const standaloneStartedAt = performance.now();
-  ensureStandaloneEnvironment({
-    rootDir: STANDALONE_ROOT,
-    dataDir: STANDALONE_DATA_DIR,
-  });
-  // Office journals exist only for cross-process crash recovery, so startup just
-  // prunes expired ones in the background. Surfacing them as session context made
-  // every new session (agents included) re-announce unrelated leftovers for the
-  // full 30-day retention window; recovery stays reachable on demand through
-  // office action=transactions / action=recover.
-  initializeOfficeTransactions(STANDALONE_DATA_DIR).catch(() => {});
-  bootProfile('standalone-env:ready', { ms: (performance.now() - standaloneStartedAt).toFixed(1) });
+  prepareStandaloneEnvironment();
   const {
     awaitKeychainPrewarm,
     invalidateProviderCaches,
@@ -248,7 +217,6 @@ export async function createMixdogSessionRuntime({
     modelMetaByRoute,
     providerModelCaches,
     providerUsageCaches,
-    providerInitPromises,
   } = createProviderReadiness({
     rt,
     keychain,
@@ -261,8 +229,7 @@ export async function createMixdogSessionRuntime({
     }),
   });
 
-  const importsStartedAt = performance.now();
-  const [
+  const {
     cfgMod,
     sharedCfgMod,
     reg,
@@ -275,45 +242,21 @@ export async function createMixdogSessionRuntime({
     memoryToolDefs,
     channelToolDefs,
     codeGraphToolDefs,
-  ] = await Promise.all([
-    profiledImport('config', `${RUNTIME}/config.mjs`),
-    profiledImport('shared-config', `${RUNTIME}/../../shared/config.mjs`),
-    profiledImport('providers-registry', `${RUNTIME}/providers/registry.mjs`),
-    profiledImport('mcp-client', `${RUNTIME}/mcp/client.mjs`),
-    profiledImport('session-manager', `${RUNTIME}/session/manager.mjs`),
-    profiledImport('context-collect', `${RUNTIME}/context/collect.mjs`),
-    profiledImport('internal-tools', `${RUNTIME}/internal-tools.mjs`),
-    profiledImport('status-routes', STATUSLINE_SESSION_ROUTES, { optional: true }),
-    profiledImport('web-search-tool-defs', WEB_SEARCH_TOOL_DEFS, { optional: true }),
-    profiledImport('memory-tool-defs', MEMORY_TOOL_DEFS, { optional: true }),
-    profiledImport('channel-tool-defs', CHANNEL_TOOL_DEFS, { optional: true }),
-    profiledImport('code-graph-tool-defs', CODE_GRAPH_TOOL_DEFS, { optional: true }),
-  ]);
-  bootProfile('imports:ready', { ms: (performance.now() - importsStartedAt).toFixed(1) });
-  const pluginDataDir = cfgMod.getPluginData();
-  // Re-wire the idle/tombstone sweep. startIdleCleanup() lost its caller in a
-  // refactor, so closed-session tombstones were never deleted after their 24h
-  // grace — the store grew unbounded (observed: 1.8k files / 114MB), which
-  // made summary-index rebuilds and per-save index rewrites stall boot for
-  // seconds. Timer is unref'd and first fires after CLEANUP_INITIAL_DELAY_MS
-  // (5min), so this adds zero boot-path cost.
-  try { mgr.startIdleCleanup?.(); } catch { /* cleanup is best-effort */ }
+  } = await loadRuntimeModules();
 
-  // Memory ingest is always-on. `recap` gates only the background cycles;
-  // `memoryTools` gates the model-facing memory/recall tool surface. Headless
-  // runs override any toggle per process via MIXDOG_FEATURE_* env values.
-  const recapEnabledFn = () => recapEnabled(rt.config, true);
-  const memoryToolsEnabledFn = () => builtinFeatureActive(rt.config, 'memory');
-  const webSearchEnabled = () => builtinFeatureActive(rt.config, 'webSearch');
-  const gitToolsEnabledFn = () => localGitToolsActive(rt.config, rt.toolProfile);
-  const officeToolsEnabledFn = () => builtinFeatureActive(rt.config, 'office');
-  const localProviderEnabledFn = () => builtinFeatureActive(rt.config, 'localProvider');
-  const mediaToolEnabledFn = () => builtinFeatureActive(rt.config, 'media');
-  const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
-  const featureDisallowedTools = () => featureDisallowedToolsFor(rt.config, {
-    browserAvailable: browserBridgeAvailableSync(),
-    computerAvailable: computerBridgeAvailableSync(),
-    toolProfile: rt.toolProfile,
+  const {
+    recapEnabledFn,
+    memoryToolsEnabledFn,
+    webSearchEnabled,
+    gitToolsEnabledFn,
+    officeToolsEnabledFn,
+    localProviderEnabledFn,
+    mediaToolEnabledFn,
+    channelsEnabled,
+    featureDisallowedTools,
+  } = createRuntimeFeatureGates({
+    getConfig: () => rt.config,
+    getToolProfile: () => rt.toolProfile,
   });
 
   const { getMemoryModule, getWebSearchModule, getCodeGraphModule } = createLazyRuntimeModules({ rt, cfgMod });
@@ -331,24 +274,23 @@ export async function createMixdogSessionRuntime({
   }
 
   const configStartedAt = performance.now();
-  rt.config = withGrandfatheredBuiltins(initialConfig && typeof initialConfig === 'object'
-    ? initialConfig
-    : cfgMod.loadConfig({ secrets: false }));
+  ({
+    config: rt.config,
+    route: rt.route,
+    webSearchRoute: rt.webSearchRoute,
+  } = resolveInitialConfigState({
+    initialConfig,
+    loadConfig: () => cfgMod.loadConfig({ secrets: false }),
+    resolveRoute,
+    provider,
+    model,
+    effort,
+    fast,
+    modelParameters,
+  }));
   configureLocalProviderIdleTtl(rt.config.providers?.[LOCAL_PROVIDER_ID]?.idleTtlSeconds);
   setConfiguredShell(normalizeSystemShellConfig(rt.config.shell).command);
   rt.configHasSecrets = false;
-  rt.route = resolveRoute(rt.config, { provider, model });
-  if (effort !== undefined) rt.route = { ...rt.route, effort: effort || null };
-  if (fast === true || fast === false) rt.route = { ...rt.route, fast };
-  if (modelParameters && typeof modelParameters === 'object') {
-    rt.route = { ...rt.route, modelParameters: { ...modelParameters } };
-  }
-  // Unset means the default "follow the Main Model" route, not "unconfigured".
-  rt.webSearchRoute = normalizeWebSearchRouteConfig(rt.config.webSearchRoute)
-    || normalizeWebSearchRouteConfig({
-      provider: WEB_SEARCH_DEFAULT_PROVIDER,
-      model: WEB_SEARCH_DEFAULT_MODEL,
-    });
   bootProfile('config:ready', { ms: (performance.now() - configStartedAt).toFixed(1) });
   rt.mode = normalizeToolMode(toolMode);
   rt.session = null;
@@ -358,7 +300,6 @@ export async function createMixdogSessionRuntime({
   rt.reservedSessionId = null;
   rt.sessionCreatePromise = null;
   rt.currentCwd = cwd;
-  rt.sessionNeedsCwdRefresh = false;
   rt.closeRequested = false;
   const warmupTimers = {
     providerSetupWarmupTimer: null,
@@ -482,46 +423,18 @@ export async function createMixdogSessionRuntime({
     getDataDir: () => cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
     emitNotification: (...a) => emitRuntimeNotification(...a),
   });
-  const autoUpdateEnabled = () => selfUpdate.autoUpdateEnabled();
-  const checkForUpdateInternal = (...a) => selfUpdate.checkForUpdate(...a);
-  const runUpdateNowInternal = (...a) => selfUpdate.runUpdateNow();
   selfUpdate.startBootCheck();
 
   // Notification fan-out (listener broadcast + pending-queue mirroring of
   // terminal completions) lives in notification-bus.mjs.
   let sessionTurnApi = null;
   let goalRuntime = null;
-  const completionWakeups = new Set();
-  const wakeQueuedCompletion = ({ sessionId, executionId, enqueuedAt } = {}) => {
-    const ownerSessionId = String(sessionId || '').trim();
-    if (!ownerSessionId || completionWakeups.has(ownerSessionId)) return false;
-    completionWakeups.add(ownerSessionId);
-    setImmediate(async () => {
-      const queuedAt = Number(enqueuedAt) || Date.now();
-      try {
-        const currentSessionId = String(rt.session?.id || rt.reservedSessionId || '').trim();
-        if (currentSessionId !== ownerSessionId || !sessionTurnApi) return;
-        const delayMs = Math.max(0, Date.now() - queuedAt);
-        if (delayMs >= 1_000) {
-          process.stderr.write(
-            `[notification] delayed completion wake sessionId=${ownerSessionId}`
-            + ` executionId=${executionId || 'unknown'} queuedMs=${delayMs}\n`,
-          );
-        }
-        await sessionTurnApi.ask('', { submittedAt: queuedAt });
-      } catch (err) {
-        try {
-          process.stderr.write(
-            `[notification] completion wake failed sessionId=${ownerSessionId}`
-            + ` executionId=${executionId || 'unknown'} err=${err?.message || err}\n`,
-          );
-        } catch {}
-      } finally {
-        completionWakeups.delete(ownerSessionId);
-      }
-    });
-    return true;
-  };
+  // Late-bound: the turn api is built near the end of this factory, while the
+  // notification bus must exist before it.
+  const wakeQueuedCompletion = createCompletionWakeScheduler({
+    getCurrentSessionId: () => rt.session?.id || rt.reservedSessionId || null,
+    getTurnApi: () => sessionTurnApi,
+  });
   const {
     emitRuntimeNotification,
     notifySession,
@@ -548,6 +461,19 @@ export async function createMixdogSessionRuntime({
   const adoptSession = (v) => {
     rt.session = v;
     if (v?.id) {
+      rt.desktopSession = v.desktopSession || null;
+      // Bind every adopted session, including a cold resume and a session
+      // materialized before ask(). The shared tool executor must never fall
+      // back to changing only a detached session object's cwd.
+      Object.defineProperty(v, '_applyResolvedCwdForCaller', {
+        value: (nextCwd) => {
+          if (rt.session?.id !== v.id) throw new Error('cwd: the calling session is no longer active');
+          return applyResolvedCwd(nextCwd, { persistProjectSelection: true });
+        },
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
       rt.reservedSessionId = null;
       bindRuntimeNotificationSession(v.id);
       goalRuntime?.watchSession(v.id);
@@ -581,7 +507,6 @@ export async function createMixdogSessionRuntime({
   const {
     resolveCwdPath,
     applyResolvedCwd,
-    refreshSessionForCwdIfNeeded,
     pluginsStatus,
     loadCoreMemoryContext,
   } = createCwdPlugins({
@@ -595,7 +520,6 @@ export async function createMixdogSessionRuntime({
     isCodeGraphPrewarmLazy: () => codeGraphPrewarmLazy,
     isCodeGraphFirstTurnPrewarmDone: () => rt.codeGraphFirstTurnPrewarmDone,
     getCodeGraphPrewarmDelayMs: () => codeGraphPrewarmDelayMs,
-    setSessionNeedsCwdRefresh: (next) => { rt.sessionNeedsCwdRefresh = next; },
     connectConfiguredMcp,
     invalidatePreSessionToolSurface: (...a) => invalidatePreSessionToolSurface(...a),
     scheduleCodeGraphPrewarm: (...a) => scheduleCodeGraphPrewarm(...a),
@@ -671,7 +595,7 @@ export async function createMixdogSessionRuntime({
     // session-pinned channel-link restore for exactly the session that owns it.
     getSessionId: () => rt.session?.id || rt.reservedSessionId || null,
     onNotify: (msg) => {
-      if (msg?.method !== 'notifications/claude/channel') return;
+      if (msg?.method !== CHANNEL_NOTIFICATION_METHOD) return;
       const params = msg?.params && typeof msg.params === 'object' ? msg.params : {};
       const meta = params.meta && typeof params.meta === 'object' ? params.meta : {};
       const content = channelNotificationModelContent(params);
@@ -682,31 +606,23 @@ export async function createMixdogSessionRuntime({
   });
   bootProfile('channels:worker-ready', { ms: (performance.now() - channelsStartedAt).toFixed(1) });
   const toolsStartedAt = performance.now();
-  const webSearchRuntimeTools = (webSearchToolDefs?.TOOL_DEFS || [])
-    .filter((tool) => ['web_search', 'web_fetch', 'local_fetch', 'image_fetch'].includes(tool?.name));
-  const standaloneTools = [
-    TOOL_SEARCH_TOOL,
-    ...(envFlag('MIXDOG_DISABLE_SKILLS') ? [] : [SKILL_TOOL]),
-    CWD_TOOL,
-    ...webSearchRuntimeTools.filter((tool) => tool?.public !== false),
-    ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
-    ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
-    ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
-    ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser' || tool?.name === 'browser_devtools'),
-    ...COMPUTER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'computer'),
-    ...OFFICE_TOOL_DEFS.filter((tool) => tool?.name === 'office'),
-    ...MEDIA_TOOL_DEFS.filter((tool) => tool?.name === 'media'),
-    ...SETUP_TOOL_DEFS,
-    ...goalRuntime.tools,
-    ...agentTool.tools,
-  ];
+  const { standaloneTools, internalToolDefs, agentToolNames } = collectStandaloneToolDefs({
+    webSearchToolDefs,
+    memoryToolDefs,
+    channelToolDefs,
+    codeGraphToolDefs,
+    browserToolDefs: BROWSER_BRIDGE_TOOL_DEFS,
+    computerToolDefs: COMPUTER_BRIDGE_TOOL_DEFS,
+    officeToolDefs: OFFICE_TOOL_DEFS,
+    mediaToolDefs: MEDIA_TOOL_DEFS,
+    setupToolDefs: SETUP_TOOL_DEFS,
+    goalTools: goalRuntime.tools,
+    agentTools: agentTool.tools,
+    isChannelTool: (name) => channels.isChannelTool(name),
+    skillToolEnabled: !envFlag('MIXDOG_DISABLE_SKILLS'),
+  });
   bootProfile('tools:ready', { ms: (performance.now() - toolsStartedAt).toFixed(1), count: standaloneTools.length });
 
-  // Workflow-aware model surface: a pack that declares an EMPTY agents list
-  // (Solo) must not advertise the agent tool at all — the model calling a
-  // schema-visible tool that policy always rejects is a guaranteed error turn
-  // (user-reported in Solo). Names derive from the live agent tool defs.
-  const agentToolNames = new Set(agentTool.tools.map((tool) => String(tool?.name || '')).filter(Boolean));
   // Lead tool surface (workflow-gated agent tool, pre-session preview, deferred
   // replay) lives in tool-surface.mjs.
   const {
@@ -739,20 +655,10 @@ export async function createMixdogSessionRuntime({
     getMcpScopeId: () => rt.mcpScopeId,
     getMode: () => rt.mode,
   });
-  const computeContextStatusForSession = (session) => {
-    if (!session || typeof session !== 'object') return null;
-    const { contextStatus } = createContextStatus({
-      getSession: () => session,
-      getRoute: () => ({
-        provider: session.provider || '',
-        model: session.model || '',
-        contextWindow: session.contextWindow || null,
-      }),
-      getCurrentCwd: () => session.cwd || rt.currentCwd,
-      getMode: () => rt.mode,
-    });
-    return contextStatus();
-  };
+  const computeContextStatusForSession = (session) => contextStatusForSession(session, {
+    getMode: () => rt.mode,
+    fallbackCwd: rt.currentCwd,
+  });
   // The setup tool drives the same facade the settings UIs use. The facade is
   // the object this factory returns, so it is handed over by reference below
   // and read lazily on each call.
@@ -764,7 +670,7 @@ export async function createMixdogSessionRuntime({
     getSessionId: () => rt.session?.id || rt.reservedSessionId || null,
   });
   internalTools.setInternalToolsProvider({
-    tools: [...standaloneTools, ...webSearchRuntimeTools.filter((tool) => tool?.public === false)],
+    tools: internalToolDefs,
     executor: createInternalToolExecutor({
       rt,
       channels,
@@ -966,7 +872,7 @@ export async function createMixdogSessionRuntime({
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
     scheduleSearchRuntimeWarmup,
-    invokeChannelStart,
+    scheduleAutomationAutostart,
     scheduleChannelStart,
     refreshRouteEffort,
     routeHasModel,
@@ -976,6 +882,7 @@ export async function createMixdogSessionRuntime({
     remoteTranscript,
   } = createSessionLifecycle({
     rt,
+    adoptSession,
     collectProviderModels,
     ensureProvidersReady,
     lookupModelMeta,
@@ -1035,21 +942,7 @@ export async function createMixdogSessionRuntime({
   scheduleProviderSetupWarmup();
   scheduleModelCatalogWarmup();
   scheduleStatuslineUsageWarmup();
-  // Automation decoupling (user decision): enabled schedules/webhooks boot
-  // the worker on their own — no messaging provider. The worker runs
-  // headless (scheduler/webhooks/voice only).
-  prewarmTimers.channelStartTimer = setTimeout(() => {
-    prewarmTimers.channelStartTimer = null;
-    if (rt.closeRequested) return;
-    void hasActiveAutomation()
-      .then((active) => {
-        if (!active || rt.closeRequested) return;
-        bootProfile('channels:automation-autostart');
-        void invokeChannelStart();
-      })
-      .catch(() => { /* automation probe is best-effort */ });
-  }, remoteAutoStartDelayMs);
-  prewarmTimers.channelStartTimer.unref?.();
+  scheduleAutomationAutostart(remoteAutoStartDelayMs);
 
   // Pure settings-delegate methods (onboarding status/skip, autoClear, profile,
   // compaction, recap/memory, channels, systemShell, update settings).
@@ -1132,7 +1025,7 @@ export async function createMixdogSessionRuntime({
     localProviderEnabledFn,
     webSearchEnabled,
     channelsEnabled,
-    autoUpdateEnabled,
+    autoUpdateEnabled: selfUpdate.autoUpdateEnabled,
     getUpdateCheckState: () => selfUpdate.getCheckState(),
     getUpdateProcessState: () => selfUpdate.getProcessState(),
     invalidateContextStatusCache: (...a) => invalidateContextStatusCache(...a),
@@ -1146,8 +1039,8 @@ export async function createMixdogSessionRuntime({
         prewarmTimers.channelStartTimer = null;
       }
     },
-    checkForUpdateInternal: (...a) => checkForUpdateInternal(...a),
-    runUpdateNowInternal: (...a) => runUpdateNowInternal(...a),
+    checkForUpdateInternal: selfUpdate.checkForUpdate,
+    runUpdateNowInternal: selfUpdate.runUpdateNow,
     reloadChannelsSoon: (...a) => reloadChannelsSoon(...a),
     ONBOARDING_VERSION,
   });
@@ -1203,7 +1096,6 @@ export async function createMixdogSessionRuntime({
     setCloseRequested: (v) => { rt.closeRequested = v; },
     getMemoryModPromise: () => rt.memoryModPromise,
     setMemoryModPromise: (v) => { rt.memoryModPromise = v; },
-    setSessionNeedsCwdRefresh: (v) => { rt.sessionNeedsCwdRefresh = v; },
     getReservedSessionId: () => rt.reservedSessionId,
     abortActiveTurns,
     hooks,
@@ -1344,7 +1236,6 @@ export async function createMixdogSessionRuntime({
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
     scheduleSearchRuntimeWarmup,
-    refreshSessionForCwdIfNeeded,
     createCurrentSession,
     ensureSessionTranscriptWriter,
     channels,
@@ -1426,12 +1317,7 @@ export async function createMixdogSessionRuntime({
     getAutoClear: () => settingsApi.getAutoClear(),
     getSystemShell: () => normalizeSystemShellConfig(rt.config.shell),
     getWebSearchRoute: () => {
-      rt.webSearchRoute = normalizeWebSearchRouteConfig(rt.config.webSearchRoute)
-        || normalizeWebSearchRouteConfig(rt.webSearchRoute)
-        || normalizeWebSearchRouteConfig({
-          provider: WEB_SEARCH_DEFAULT_PROVIDER,
-          model: WEB_SEARCH_DEFAULT_MODEL,
-        });
+      rt.webSearchRoute = webSearchRouteOrDefault(rt.config.webSearchRoute, rt.webSearchRoute);
       return rt.webSearchRoute;
     },
     getWorkflow: () => {

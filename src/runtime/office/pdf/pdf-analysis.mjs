@@ -20,9 +20,9 @@ import sharp from 'sharp';
 import { resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
 import { embedDocumentFont, fontCovers } from './pdf-fonts.mjs';
 import { renderPdfPages } from './pdf-render.mjs';
+import { MAX_PDF_ANALYSIS_PAGES } from './pdf-limits.mjs';
 
 const require = createRequire(import.meta.url);
-const MAX_QUERY_PAGES = 100;
 
 function installPdfGlobals() {
   globalThis.DOMMatrix ??= DOMMatrix;
@@ -34,7 +34,7 @@ function selectedPages(total, pages) {
   const values = Array.isArray(pages) && pages.length
     ? [...new Set(pages.map(Number))]
     : Array.from({ length: total }, (_, index) => index + 1);
-  if (values.length > MAX_QUERY_PAGES) throw new Error(`PDF analysis accepts at most ${MAX_QUERY_PAGES} pages per call`);
+  if (values.length > MAX_PDF_ANALYSIS_PAGES) throw new Error(`PDF analysis accepts at most ${MAX_PDF_ANALYSIS_PAGES} pages per call`);
   for (const page of values) {
     if (!Number.isInteger(page) || page < 1 || page > total) throw new Error(`PDF page out of range: ${page}`);
   }

@@ -130,13 +130,13 @@ export function createSessionIngestRuntime({
     _ingestedMessageOrdinal.set(m, ord)
     return ord
   }
-  // Cache of (role, cleaned content) per session message OBJECT, keyed by
+  // Cache of legacy identity fields and full source content per message OBJECT, keyed by
   // identity (WeakMap — entries vanish once the message is GC'd, e.g. after
   // compaction or JSON reload replaces the array). Live-array steady-state calls
   // reuse the cache; cloned replays recompute once and then reconcile against the
   // ordered snapshot.
   const _ingestIdentityFieldsCache = new WeakMap()
-  // Return { role, content } for a session message's dedup identity, or null if
+  // Return { role, content, rawContent } for dedup identity and storage, or null if
   // the message would be skipped by ingest (no role / excluded / empty content
   // after cleaning). Cached per message object so repeated calls over the same
   // (unchanged) transcript prefix never re-run the expensive clean/normalize
@@ -146,8 +146,14 @@ export function createSessionIngestRuntime({
     let fields = null
     const role = normalizeIngestRole(m.role)
     if (role && !shouldExcludeIngestMessage(m)) {
-      const content = cleanMemoryText(sessionMessageContentForIngest(m))
-      if (content && content.trim()) fields = { role, content }
+      const rawContent = sessionMessageContentForIngest(m)
+      if (rawContent && rawContent.trim()) {
+        // Preserve existing replay identities without persisting their lossy
+        // search projection. Previously skipped code/URL-only rows get their
+        // full content as identity; there is no legacy row to collide with.
+        const content = cleanMemoryText(rawContent) || rawContent
+        fields = { role, content, rawContent }
+      }
     }
     _ingestIdentityFieldsCache.set(m, fields)
     return fields
@@ -303,7 +309,7 @@ export function createSessionIngestRuntime({
       if (!m || typeof m !== 'object') continue
       const fields = _ingestIdentityFields(m)
       if (!fields) continue
-      const { role, content } = fields
+      const { role, content, rawContent } = fields
       const occKey = `${role}\u0000${content}`
       const rawTs = m.ts ?? m.timestamp
       const untimestamped = !((typeof rawTs === 'number' && Number.isFinite(rawTs))
@@ -336,12 +342,12 @@ export function createSessionIngestRuntime({
       currentSnapshot.push({ key: snapshotKey, occurrence })
       if (i >= start) {
         considered += 1
-        prepared.push({ m, role, content, occurrence, index: i, untimestamped })
+        prepared.push({ m, role, content, rawContent, occurrence, index: i, untimestamped })
       }
     }
     ordinalState.snapshot = currentSnapshot
     ordinalState.seeded = true
-    for (const { m, role, content, occurrence, index, untimestamped } of prepared) {
+    for (const { m, role, content, rawContent, occurrence, index, untimestamped } of prepared) {
       const fallbackTs = Date.now() - (messages.length - index)
       const rawTimestamp = m.ts ?? m.timestamp
       const timeSource = untimestamped ? 'collected' : 'recorded'
@@ -363,7 +369,7 @@ export function createSessionIngestRuntime({
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT DO NOTHING
         RETURNING id
-      `, [tsMs, role, content, sourceRef, sessionId, assignedTurn, projectId, timeSource])
+      `, [tsMs, role, rawContent, sourceRef, sessionId, assignedTurn, projectId, timeSource])
       const rowInserted = Number(result.rowCount ?? result.affectedRows ?? 0) || 0
       if (rowInserted > 0) {
         inserted += rowInserted

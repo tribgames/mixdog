@@ -106,20 +106,23 @@ export function collectUiKeys(root, {
   return results;
 }
 
+function interpolationTokenList(text) {
+  return [...String(text).matchAll(/\{\{[^}]+\}\}/g)].map(([token]) => token);
+}
+
 export function interpolationTokens(text) {
-  return [...String(text).matchAll(/\{\{[^}]+\}\}/g)].map(([token]) => token).sort();
+  return interpolationTokenList(text).sort();
 }
 
 /** Only an identical phrase with renamed interpolation slots can be reused. */
 export function reusableTranslation(key, catalog) {
-  const tokens = (text) => [...text.matchAll(/\{\{[^}]+\}\}/g)].map(([token]) => token);
-  const targetTokens = tokens(key);
+  const targetTokens = interpolationTokenList(key);
   if (!targetTokens.length) return undefined;
   const shape = (text) => text.replace(/\{\{[^}]+\}\}/g, "{{}}");
   const candidates = new Set();
   for (const [source, value] of Object.entries(catalog)) {
     if (source === key || typeof value !== "string" || !value.trim() || value === source || shape(source) !== shape(key)) continue;
-    const sourceTokens = tokens(source);
+    const sourceTokens = interpolationTokenList(source);
     if (new Set(sourceTokens).size !== sourceTokens.length) continue;
     if (JSON.stringify(interpolationTokens(source)) !== JSON.stringify(interpolationTokens(value))) continue;
     const slots = new Map(sourceTokens.map((token, index) => [token, targetTokens[index]]));

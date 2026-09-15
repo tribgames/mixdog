@@ -77,7 +77,9 @@ test('collapsed activity exposes image, playable video and a document that opens
     assert.equal(video.preload, 'none');
     const link = dom.window.document.querySelector('a.transcript-artifact-file');
     await act(async () => link.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true })));
-    assert.deepEqual(opened, [['C:/work', 'C:/work/report%20%231.docx']]);
+    // The renderer resolves the artifact inside its conversation Project and
+    // re-encodes the name so main's URL-style parsing keeps the `#`.
+    assert.deepEqual(opened, [['C:/work', 'report%20%231.docx']]);
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

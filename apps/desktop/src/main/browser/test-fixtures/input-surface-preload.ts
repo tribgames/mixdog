@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { DESKTOP_IPC } from '../../../shared/contract';
+import { createBrowserTextureBridge } from '../../../preload/browser-texture';
 
 contextBridge.exposeInMainWorld('mixdogDesktop', {
-  browserPageFrame: (sessionId: string, previousId?: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserPageFrame, sessionId, previousId),
+  ...createBrowserTextureBridge(),
   browserPageControl: (sessionId: string, input: unknown) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserPageControl, sessionId, input),
   browserSetActiveGuest: (sessionId: string, id: number, active: boolean) =>

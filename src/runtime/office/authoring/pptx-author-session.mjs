@@ -3,7 +3,7 @@ import { constants as fsConstants } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { callMicrosoftOffice } from '../com/com-adapter.mjs';
 import { closeSession } from '../core/office-actions.mjs';
-import { documentSessionKey, documentSessions, sessions } from '../core/office-core.mjs';
+import { documentSessionKey, documentSessions, emptyOfficeDesignState, sessions } from '../core/office-core.mjs';
 
 export async function exists(path) {
   try {
@@ -85,13 +85,9 @@ export async function swapAuthoredDocument(session, source, signal, {
   session.snapshotVersion = Number(session.snapshotVersion || 0) + 1;
   session.snapshotCache = null;
   session.renderCache = null;
-  session.designState = {
-    renderedVersion: null,
-    semanticCount: 0,
+  session.designState = emptyOfficeDesignState({
     requiresVisualReview: session.designState?.requiresVisualReview === true,
-    slidePlans: [],
-    compositions: [],
-  };
+  });
   for (const key of ['appPid', 'windowHwnd', 'documentId', 'backgroundIsolation']) {
     if (result[key] !== undefined) session[key] = result[key];
   }

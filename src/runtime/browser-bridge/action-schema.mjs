@@ -1,4 +1,6 @@
 import { splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
+import { schemaStringLength, schemaValueError } from '../shared/schema-value-error.mjs';
+import { BROWSER_INPUT_FIELDS } from './input-fields.mjs';
 import {
   BROWSER_ACTIONS,
   BROWSER_DEVTOOLS_ACTIONS,
@@ -68,11 +70,13 @@ const CONTRACT_ROWS = [
     ],
     [['ref'], ['target'], ['snapshotId', 'x', 'y']],
   ),
-  // One control takes text or a checked state; a batch takes fields.
+  // One control takes text or a checked state; a batch takes fields; a
+  // stored login fills the sign-in form without the password ever leaving
+  // the host.
   contract(
     'fill',
-    [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'text', 'checked', 'fields', 'submit'],
-    [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked'], ['fields']],
+    [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'text', 'checked', 'fields', 'submit', 'savedAccount'],
+    [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked'], ['fields'], ['savedAccount']],
   ),
   contract(
     'type',
@@ -137,7 +141,7 @@ const CONTRACT_ROWS = [
  *  is always inspected before the next decision. */
 const SEQUENCE_STEP_FIELDS = Object.freeze({
   click: ['ref', 'target'],
-  fill: ['ref', 'target', 'text', 'checked', 'submit'],
+  fill: ['ref', 'target', 'text', 'checked', 'submit', 'savedAccount'],
   type: ['ref', 'target', 'text', 'submit'],
   select: ['ref', 'target', 'values'],
   hover: ['ref', 'target'],
@@ -147,7 +151,7 @@ const SEQUENCE_STEP_FIELDS = Object.freeze({
 });
 const SEQUENCE_STEP_REQUIRED = Object.freeze({
   click: [['ref'], ['target']],
-  fill: [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked']],
+  fill: [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked'], ['savedAccount']],
   type: [['ref', 'text'], ['target', 'text']],
   select: [['ref', 'values'], ['target', 'values']],
   hover: [['ref'], ['target']],
@@ -166,7 +170,7 @@ function validateTargetSpec(spec, at) {
   const unsupported = Object.keys(spec).filter((name) => !TARGET_FIELDS.has(name));
   if (unsupported.length) return `${at} does not accept field(s): ${unsupported.join(', ')}`;
   for (const [name, limit] of [['role', 60], ['name', 500], ['selector', 4_096]]) {
-    if (Object.hasOwn(spec, name) && (typeof spec[name] !== 'string' || spec[name].length > limit)) {
+    if (Object.hasOwn(spec, name) && (typeof spec[name] !== 'string' || schemaStringLength(spec[name]) > limit)) {
       return `${at}.${name} must be a string of at most ${limit} characters`;
     }
   }
@@ -225,6 +229,9 @@ function validateSequenceSteps(steps) {
       return `${at} requires ${requirements.map((names) => names.join('+')).join(' or ')}`;
     }
     if (present('ref') && present('target')) return `${at} accepts ref or target, not both`;
+    if (present('savedAccount') && ['ref', 'target', 'text', 'checked'].some(present)) {
+      return `${at} savedAccount fills the whole sign-in form; it takes no ref, target, text, or checked`;
+    }
     if (Object.hasOwn(step, 'target')) {
       const targetError = validateTargetSpec(step.target, `${at}.target`);
       if (targetError) return targetError;
@@ -241,14 +248,15 @@ function validateSequenceSteps(steps) {
       ['textGone', 10_000],
       ['url', 8_192],
       ['key', 100],
+      ['savedAccount', 320],
     ]) {
       if (Object.hasOwn(step, name)
-        && (typeof step[name] !== 'string' || step[name].length > limit)) {
+        && (typeof step[name] !== 'string' || schemaStringLength(step[name]) > limit)) {
         return `${at}.${name} must be a string of at most ${limit} characters`;
       }
     }
     if (Array.isArray(step.values)
-      && step.values.some((value) => value.length > 4_096)) {
+      && step.values.some((value) => schemaStringLength(value) > 4_096)) {
       return `${at}.values entries are limited to 4096 characters`;
     }
   }
@@ -290,6 +298,12 @@ export function buildBrowserInputSchema(flatSchema, actions = BROWSER_ACTIONS) {
   const scoped = Object.fromEntries(
     Object.entries(inputProperties).filter(([name]) => fieldNames.has(name)),
   );
+  if (scoped.script && actions.includes('init_script') && !actions.includes('evaluate')) {
+    scoped.script = { ...scoped.script, maxLength: 20_000 };
+  }
+  if (scoped.format && !actions.includes('snapshot')) {
+    scoped.format = { ...scoped.format, enum: ['jpeg', 'png'], description: 'Post-action screenshot format.' };
+  }
   return {
     type: 'object',
     description: 'Choose one Browser Use action and pass only its fields in input.',
@@ -350,36 +364,12 @@ export function validateBrowserToolArgs(args, options = {}) {
       error: `browser action "${action}" does not accept input field(s): ${unsupported.join(', ')}`,
     };
   }
-  const stringLimits = {
-    url: 8_192,
-    ref: 128,
-    targetRef: 128,
-    snapshotId: 128,
-    tab: 64,
-    query: 4_096,
-    selector: 4_096,
-    script: action === 'init_script' ? 20_000 : 100_000,
-    text: 100_000,
-    textGone: 10_000,
-    key: 100,
-    promptText: 10_000,
-    name: 4_096,
-    value: 100_000,
-    domain: 4_096,
-    path: 4_096,
-    userAgent: 2_048,
-    locale: 100,
-    timezone: 100,
-    body: 65_536,
-    operation: 32,
-    requestId: 100,
-    ruleId: 100,
-    scriptId: 100,
-    downloadId: 100,
-  };
+  const stringLimits = Object.fromEntries(Object.entries(BROWSER_INPUT_FIELDS.properties)
+    .filter(([, field]) => field.type === 'string' && field.maxLength !== undefined)
+    .map(([name, field]) => [name, name === 'script' && action === 'init_script' ? 20_000 : field.maxLength]));
   for (const [name, limit] of Object.entries(stringLimits)) {
     if (!Object.hasOwn(input, name)) continue;
-    if (typeof input[name] !== 'string' || input[name].length > limit) {
+    if (typeof input[name] !== 'string' || schemaStringLength(input[name]) > limit) {
       return {
         ok: false,
         error: `browser action "${action}" input.${name} must be a string of at most ${limit} characters`,
@@ -390,7 +380,7 @@ export function validateBrowserToolArgs(args, options = {}) {
     if (!Object.hasOwn(input, name)) return '';
     const values = input[name];
     if (!Array.isArray(values) || values.length > limit
-      || !values.every((value) => typeof value === 'string' && value.length <= itemLimit)) {
+      || !values.every((value) => typeof value === 'string' && schemaStringLength(value) <= itemLimit)) {
       return `browser action "${action}" input.${name} requires at most ${limit} strings of at most ${itemLimit} characters`;
     }
     return '';
@@ -481,10 +471,10 @@ export function validateBrowserToolArgs(args, options = {}) {
           error: `browser action "fill" input.fields[${index}] requires exactly one of text/value, values, or checked`,
         };
       }
-      if ((hasRef && field.ref.length > 128)
-        || (hasText && field.text.length > 100_000)
-        || (hasValue && field.value.length > 100_000)
-        || (hasValues && field.values.some((value) => value.length > 4_096))) {
+      if ((hasRef && schemaStringLength(field.ref) > 128)
+        || (hasText && schemaStringLength(field.text) > 100_000)
+        || (hasValue && schemaStringLength(field.value) > 100_000)
+        || (hasValues && field.values.some((value) => schemaStringLength(value) > 4_096))) {
         return { ok: false, error: `browser action "fill" input.fields[${index}] is too large` };
       }
     }
@@ -556,7 +546,7 @@ export function validateBrowserToolArgs(args, options = {}) {
     if (Object.hasOwn(input, 'attributes')) {
       const names = input.attributes;
       if (!Array.isArray(names) || !names.length || names.length > 12
-        || !names.every((name) => typeof name === 'string' && name.trim() && name.length <= 60)) {
+        || !names.every((name) => typeof name === 'string' && name.trim() && schemaStringLength(name) <= 60)) {
         return {
           ok: false,
           error: 'browser action "extract" input.attributes requires 1 to 12 attribute names',
@@ -595,7 +585,7 @@ export function validateBrowserToolArgs(args, options = {}) {
       || Object.keys(expected).some((name) => !allowedExpected.has(name))
       || ['text', 'textGone', 'url'].some((name) => (
         Object.hasOwn(expected, name)
-        && (typeof expected[name] !== 'string' || expected[name].length > 10_000)
+        && (typeof expected[name] !== 'string' || schemaStringLength(expected[name]) > 10_000)
       ))) {
       return { ok: false, error: `browser action "${action}" input.expect is invalid or too large` };
     }
@@ -658,6 +648,10 @@ export function validateBrowserToolArgs(args, options = {}) {
         }
       }
     }
+  }
+  for (const [name, value] of Object.entries(input)) {
+    const error = schemaValueError(value, BROWSER_INPUT_FIELDS.properties[name] || {}, `browser action "${action}" input.${name}`);
+    if (error) return { ok: false, error };
   }
   return { ok: true, action, input };
 }

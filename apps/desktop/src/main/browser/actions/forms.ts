@@ -13,6 +13,7 @@ async function afterEdit(
   { guest, signal, refRecovery, actionSnapshot, services }: BrowserActionContext,
   submit: boolean,
 ) {
+  signal?.throwIfAborted();
   services.state.invalidateInteraction(guest);
   if (submit) await services.input.pressKey(guest, 'enter', signal);
   return services.reply.decorateRecovery(await actionSnapshot(), refRecovery);
@@ -22,6 +23,20 @@ export const formActions = defineBrowserActions({
   async fill(context) {
     const { guest, command, signal, services } = context;
     const { refActions, state } = services;
+    if (typeof command.savedAccount === 'string') {
+      // A stored login: the host matches the account to the page origin and
+      // writes the password itself; the handler only learns whether the
+      // form took it.
+      signal?.throwIfAborted();
+      const filled = await services.credentials.fillStored(guest, command.savedAccount, signal);
+      signal?.throwIfAborted();
+      if (!filled.passwordFilled) {
+        throw new Error(filled.reason === 'no-password-field'
+          ? 'no visible password field on this page; open the sign-in form (or its password step) first'
+          : 'the password field did not accept the stored login');
+      }
+      return afterEdit(context, Boolean(command.submit));
+    }
     const fields = Array.isArray(command.fields) ? command.fields : [];
     if (!fields.length) {
       const ref = await actionRef(context);
@@ -34,7 +49,7 @@ export const formActions = defineBrowserActions({
       await mutateRef(context, ref, async (recovered) => {
         if (hasChecked) await refActions.setCheckedRef(guest, recovered, command.checked as boolean, signal);
         else await refActions.fillRef(guest, recovered, command.text as string, signal);
-      });
+      }, hasText);
       return afterEdit(context, Boolean(command.submit));
     }
     if (fields.length > 30) throw new Error('fill requires at most 30 fields');
@@ -74,7 +89,7 @@ export const formActions = defineBrowserActions({
           : hasChecked
             ? (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal)
             : (ref) => refActions.fillRef(guest, ref, String(field.text ?? field.value), signal);
-        await mutateRef(context, fieldRef, operation);
+        await mutateRef(context, fieldRef, operation, !hasValues && !hasChecked);
         changed = true;
       }
     } catch (error) {
@@ -93,6 +108,7 @@ export const formActions = defineBrowserActions({
       context,
       ref,
       (recovered) => services.refActions.typeRef(guest, recovered, command.text as string, signal),
+      true,
     );
     return afterEdit(context, Boolean(command.submit));
   },

@@ -9,11 +9,21 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { prepareRequiredNativeAssets } from './prepare-native-assets.mjs';
+import { NATIVE_ASSET_PLATFORMS, prepareRequiredNativeAssets } from './prepare-native-assets.mjs';
 import {
   NATIVE_TOOL_FILENAMES,
   packageNativeToolsDir,
 } from '../src/runtime/shared/native-tool-paths.mjs';
+
+test('native asset host platforms share the published native-tool keys', () => {
+  assert.deepEqual([...NATIVE_ASSET_PLATFORMS], [
+    'darwin-arm64',
+    'darwin-x64',
+    'linux-arm64',
+    'linux-x64',
+    'win32-x64',
+  ]);
+});
 
 test('npm postinstall prepares every required release-native asset', async () => {
   const pkg = JSON.parse(await readFile(resolve('package.json'), 'utf8'));

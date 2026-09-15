@@ -352,7 +352,7 @@ export async function runSessionCompaction(session, opts = {}) {
             ]);
         } catch { /* best-effort */ }
     }
-    session.providerState = undefined;
+    if (changed) session.providerState = undefined;
     session.compaction = {
         ...withoutLegacyCompactFields(session.compaction),
         auto: mode === 'auto' ? true : session.compaction?.auto !== false,
@@ -377,8 +377,8 @@ export async function runSessionCompaction(session, opts = {}) {
         lastFreshContextError: null,
         lastError: null,
         lastHandoffSource: freshContextResult?.handoffSource || 'session-local',
-        lastSummaryProvider: freshContextResult?.summaryProvider || session.provider,
-        lastSummaryModel: freshContextResult?.summaryModel || session.model,
+        lastSummaryProvider: freshContextResult?.summaryProvider || null,
+        lastSummaryModel: freshContextResult?.summaryModel || null,
         lastSummaryUsage: freshContextResult?.usage ? {
             inputTokens: freshContextResult.usage.inputTokens || 0,
             outputTokens: freshContextResult.usage.outputTokens || 0,

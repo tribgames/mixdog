@@ -4,7 +4,8 @@
  *  they do for a UI click. The facade is read lazily because runtime-core
  *  registers the tool executor before it finishes assembling the API object. */
 import { builtinFeatureActive } from '../builtin-features.mjs';
-import { SETUP_ACTIONS, SETUP_OPEN_TARGETS, SETUP_STATUS_DOMAINS } from './tool-defs.mjs';
+import { SETUP_ACTIONS, SETUP_ACTION_FIELDS, SETUP_OPEN_TARGETS, SETUP_STATUS_DOMAINS, SETUP_TOOL_DEFS, SETUP_BUILTIN_TOGGLE_FEATURES } from './tool-defs.mjs';
+import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 
 const clean = (value) => String(value ?? '').trim();
 
@@ -48,8 +49,7 @@ function requireText(value, label) {
   return text;
 }
 
-function routeInput(route) {
-  const source = route && typeof route === 'object' ? route : {};
+function routeInput(source) {
   const next = {};
   if (clean(source.provider) || Object.prototype.hasOwnProperty.call(source, 'provider')) next.provider = clean(source.provider);
   if (clean(source.model)) next.model = clean(source.model);
@@ -192,6 +192,14 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
 
   async function execute(args = {}) {
     const action = requireEnum(args?.action, SETUP_ACTIONS, 'action');
+    const validationError = schemaValueError({ ...args, action }, SETUP_TOOL_DEFS[0].inputSchema, 'setup');
+    if (validationError) throw new Error(`[tool-input-validation] ${validationError}`);
+    const fields = SETUP_ACTION_FIELDS[action].split(' ').filter(Boolean);
+    const allowed = fields.map((field) => field.replace(/\?$/, ''));
+    const extras = Object.keys(args).filter((field) => field !== 'action' && !allowed.includes(field));
+    if (extras.length) throw new Error(`[tool-input-validation] setup.${action} does not accept field(s): ${extras.join(', ')}`);
+    const missing = fields.find((field) => !field.endsWith('?') && !Object.hasOwn(args, field));
+    if (missing) throw new Error(`[tool-input-validation] ${missing} is required for setup.${action}`);
     const rt = action === 'status' || action === 'open' ? null : api();
     switch (action) {
       case 'status': {
@@ -235,7 +243,7 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       case 'set_recap_enabled': return rt.setRecapEnabled(requireBoolean(args.enabled));
       case 'set_web_search_enabled': return await rt.setWebSearchEnabled(requireBoolean(args.enabled));
       case 'set_builtin_enabled': {
-        const name = requireEnum(args.name, ['git', 'office', 'localProvider'], 'name');
+        const name = requireEnum(args.name, SETUP_BUILTIN_TOGGLE_FEATURES, 'name');
         return await rt.setBuiltinToolEnabled(name, requireBoolean(args.enabled));
       }
       case 'set_first_use_approval': {
@@ -298,7 +306,7 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       }
       case 'set_extension_scope': {
         const kind = requireEnum(args.kind, ['skills', 'mcp', 'plugins'], 'kind');
-        const projects = Array.isArray(args.projects) ? args.projects.map(clean).filter(Boolean) : [];
+        const projects = args.projects.map(clean);
         const status = await rt.setExtensionScope(kind, requireText(args.name, 'name'), projects);
         if (kind === 'mcp') return { mcp: mcpRows(status) };
         return status || {};

@@ -9,6 +9,7 @@ import {
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { rendererDependencyFiles } from './renderer-dependencies.mjs';
+import { mapPool } from './map-pool.mjs';
 
 const relayDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktopDir = resolve(relayDir, '../desktop');
@@ -70,18 +71,6 @@ async function walkFiles(input, files = [], knownType = '') {
     else await walkFiles(path, files);
   }
   return files;
-}
-
-async function mapPool(items, limit, run) {
-  let cursor = 0;
-  const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      await run(items[index], index);
-    }
-  });
-  await Promise.all(lanes);
 }
 
 export function rendererManifestForFingerprint(manifest) {

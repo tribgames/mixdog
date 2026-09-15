@@ -23,7 +23,7 @@ import { classifyResultKind } from './result-classification.mjs';
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { isOffloadedToolResultText, maybeOffloadToolResultBatch } from './tool-result-offload.mjs';
 import {
-    tryReadCached, setReadCached, invalidatePathForSession,
+    captureReadCacheState, tryReadCached, setReadCached, invalidatePathForSession,
     clearReadDedupSession, extractTouchedPathsFromPatch,
     tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession,
     clearScopedToolsForSessionPaths, invalidatePrefetchCache,
@@ -174,6 +174,15 @@ export async function processToolBatch(ctx) {
             if (isBuiltinTool(call.name)) {
                 call.name = canonicalizeBuiltinToolName(call.name);
             }
+            // A cached or deduplicated result cannot bypass the current
+            // session's tool surface, including after a profile change.
+            const denied = preDispatchDenyForSession(sessionRef, call, getToolKind(call.name));
+            if (denied !== null) {
+                _stageToolResultMessage({
+                    role: 'tool', content: denied, toolCallId: call.id, toolKind: 'error',
+                });
+                continue;
+            }
             if (_singleCallBlockedIds.has(call.id)) {
                 const _firstId = _singleCallFirstIdByName.get(call.name);
                 _stageToolResultMessage({
@@ -292,13 +301,14 @@ export async function processToolBatch(ctx) {
             const executionIntervals = [];
             let eagerExecution = null;
             let serialExecutionStartedAt = null;
+            let readCacheState = null;
             let result;
             let toolStartedAt;
             let toolEndedAt;
             let _localSearchTelemetry = null;
             let _resultTelemetry = {};
             const toolKind = getToolKind(call.name);
-            // Cross-turn read dedup: if the path's stat tuple (mtime/size/ino/dev)
+            // Cross-turn read dedup: if the path's stat tuple (mtime/ctime/size/ino/dev)
             // is unchanged since a prior read in THIS session, return the cached
             // body instead of executing. Both scalar and array/object-array path
             // forms are cached — keyed by (abs, offset, limit, mode, n) per entry.
@@ -383,6 +393,7 @@ export async function processToolBatch(ctx) {
                     _resultTelemetry = eager.resultTelemetry || {};
                     const settled = await eager.promise;
                     if (!settled.ok) throw settled.error;
+                    readCacheState = eager.readCacheState ?? null;
                     result = settled.value;
                     toolEndedAt = eager.endedAt ?? Date.now();
                     if (settled.skipped) {
@@ -415,6 +426,9 @@ export async function processToolBatch(ctx) {
                         _resultKind = 'error';
                     } else {
                         await opts.beforeToolExecution?.();
+                        if (sessionId && _isReadTool(call.name)) {
+                            readCacheState = captureReadCacheState({ args: call.arguments, cwd });
+                        }
                         executionStartedAt = Date.now();
                         serialExecutionStartedAt = executionStartedAt;
                         _localSearchTelemetry = {};
@@ -682,6 +696,7 @@ export async function processToolBatch(ctx) {
                 resultKind: _resultKind,
                 executeOk: _executeOk,
                 readCacheHit: _readCacheHit,
+                readCacheState,
                 scopedCacheHit: _scopedCacheHit,
                 scopedGeneration: _scopedGeneration,
                 localSearchTelemetry: _localSearchTelemetry,
@@ -808,7 +823,10 @@ export async function processToolBatch(ctx) {
                         });
                     }
                     if (_readCacheHit === null && _isReadTool(call.name)) {
-                        setReadCached({ sessionId, args: call.arguments, cwd, content: result, toolUseId: call.id });
+                        setReadCached({
+                            sessionId, args: call.arguments, cwd, content: result,
+                            toolUseId: call.id, readState: completed.readCacheState,
+                        });
                     }
                 }
                 // A successful scoped lookup from before a later mutation is

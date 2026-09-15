@@ -14,15 +14,20 @@
 // `rendererHeapMb` in apps/desktop/src/main/index.ts, which reached this
 // conclusion first and named forced collection as the path that does NOT work.
 //
-// Every cap sits well above its role's measured peak, so the ceiling shapes GC
-// pacing and never becomes an allocation failure. `<ROLE>_HEAP_MB=0` restores
-// V8's own sizing, mirroring the MIXDOG_RENDERER_HEAP_MB escape hatch.
+// Memory and session-runtime keep caps well above their measured peaks so the
+// ceiling shapes GC pacing. The daemon is left to V8's own sizing by default:
+// a fixed 768MB ceiling was tight enough to risk avoidable exits. An explicit
+// `<ROLE>_HEAP_MB` still applies; `0` restores V8's own sizing, mirroring the
+// MIXDOG_RENDERER_HEAP_MB escape hatch.
+
+import { nonNegativeInt } from './numbers.mjs';
 
 const OLD_SPACE_FLAG = '--max-old-space-size';
 
 const ROLES = {
   // Peak heapUsed measured on a daemon hosting six live sessions: 268MB.
-  daemon: { env: 'MIXDOG_DAEMON_HEAP_MB', defaultMb: 768 },
+  // Default 0 leaves V8's own sizing; MIXDOG_DAEMON_HEAP_MB still applies.
+  daemon: { env: 'MIXDOG_DAEMON_HEAP_MB', defaultMb: 0 },
   // Memory runtime observed resident at 259MB with the embedding model cold.
   memory: { env: 'MIXDOG_MEMORY_HEAP_MB', defaultMb: 512 },
   // Shard-mode session runtime holds the same transcripts the daemon would.
@@ -35,8 +40,7 @@ export function heapCapMb(role, env = process.env) {
   if (!spec) return 0;
   const raw = env[spec.env];
   if (raw != null && String(raw).trim() !== '') {
-    const parsed = Number(raw);
-    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed);
+    return nonNegativeInt(raw, spec.defaultMb);
   }
   return spec.defaultMb;
 }

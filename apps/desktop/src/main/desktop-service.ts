@@ -42,6 +42,10 @@ import {
 } from './remote-relay';
 import { rotateRelayE2EEIdentity } from './remote-e2ee';
 import { synchronizeViewSnapshot } from './view-synchronizer';
+import {
+  filterSessionIds,
+  requiredVisibleSessionVersion,
+} from './desktop-state';
 
 // Slightly under the relay's own claim TTL: a dialog left open must never
 // outlive the request it answers.
@@ -299,6 +303,7 @@ export async function createDesktopService(
   const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
   let viewsSyncing = false;
   let viewVersion = 0;
+  let visibleSessionVersion = 0;
   let serviceClosed = false;
   let viewSyncQueue: Promise<void> = Promise.resolve();
   const visibleSessionIds = new Set<string>();
@@ -399,6 +404,74 @@ export async function createDesktopService(
     viewSyncQueue = run;
     return run;
   };
+  const invokeServiceOperation = async (
+    operation: string,
+    operationArgs: unknown[],
+  ): Promise<unknown> => {
+    switch (operation) {
+      case 'remoteAccessStart':
+      case 'remoteAccessInfo':
+        await startRemoteServices();
+        return remoteDescriptor();
+      case 'remoteAccessRotate':
+        return rotateRemoteAccess();
+      case 'remoteAccessListClaims': {
+        const now = Date.now();
+        return [...pendingClaims.values()]
+          .map((pending) => pending.claim)
+          .filter((claim) => claim.expiresAt > now);
+      }
+      case 'remoteAccessResolveClaim': {
+        const pending = pendingClaims.get(String(operationArgs[0] || ''));
+        if (!pending) return false;
+        pending.settle(operationArgs[1] === true);
+        return true;
+      }
+      case 'remoteAccessRevokeClient': {
+        await startRemoteServices();
+        const clientId = String(operationArgs[0] || '');
+        if (!remoteRelay) return null;
+        await remoteRelay.revokeClient(clientId);
+        return remoteDescriptor();
+      }
+      case 'remoteAccessResume':
+        if (remoteRelay) remoteRelay.resume();
+        else await startRemoteServices();
+        return null;
+      case 'browserRemoteResolve': {
+        const id = String(operationArgs[0] || '');
+        const pending = pendingBrowserRemoteRequests.get(id);
+        if (!pending) return false;
+        pendingBrowserRemoteRequests.delete(id);
+        clearTimeout(pending.timer);
+        if (operationArgs[1] === true) pending.resolve(operationArgs[2]);
+        else pending.reject(new Error(String(operationArgs[3] || 'Desktop Browser Use failed.')));
+        return true;
+      }
+      default:
+        return operations.invoke(operation, operationArgs);
+    }
+  };
+  const setDeliveryFilter = async (args: unknown[]): Promise<boolean> => {
+    const version = args[1];
+    if (version !== undefined) {
+      const nextVersion = requiredVisibleSessionVersion(version);
+      // HTTP requests can arrive out of order even when IPC sent them in
+      // order. An old tab must not restore its filter or subscription set.
+      if (nextVersion <= visibleSessionVersion) return true;
+      visibleSessionVersion = nextVersion;
+    }
+    viewVersion += 1;
+    const requested = filterSessionIds(args[0]);
+    visibleSessionIds.clear();
+    for (const sessionId of requested) visibleSessionIds.add(sessionId);
+    releaseHiddenSessionStateEntries(
+      visibleSessionIds,
+      [sessionStateEncoders, latestSessionStates, latestSessionProvenance],
+      (sessionId) => sessionStateEncoders.get(sessionId)?.reset(),
+    );
+    return host.setVisibleSessions(args[0] as string[]);
+  };
 
   return {
     get clientCount() {
@@ -409,64 +482,13 @@ export async function createDesktopService(
         throw new TypeError('Mixdog desktop service method is unavailable.');
       }
       if (method === 'invokeDesktopOperation') {
-        const operation = String(args[0] || '');
-        const operationArgs = Array.isArray(args[1]) ? args[1] : [];
-        if (operation === 'remoteAccessStart' || operation === 'remoteAccessInfo') {
-          await startRemoteServices();
-          return remoteDescriptor();
-        }
-        if (operation === 'remoteAccessRotate') return rotateRemoteAccess();
-        if (operation === 'remoteAccessListClaims') {
-          const now = Date.now();
-          return [...pendingClaims.values()]
-            .map((pending) => pending.claim)
-            .filter((claim) => claim.expiresAt > now);
-        }
-        if (operation === 'remoteAccessResolveClaim') {
-          const pending = pendingClaims.get(String(operationArgs[0] || ''));
-          if (!pending) return false;
-          pending.settle(operationArgs[1] === true);
-          return true;
-        }
-        if (operation === 'remoteAccessRevokeClient') {
-          await startRemoteServices();
-          const clientId = String(operationArgs[0] || '');
-          if (!remoteRelay) return null;
-          await remoteRelay.revokeClient(clientId);
-          return remoteDescriptor();
-        }
-        if (operation === 'remoteAccessResume') {
-          if (remoteRelay) remoteRelay.resume();
-          else await startRemoteServices();
-          return null;
-        }
-        if (operation === 'browserRemoteResolve') {
-          const id = String(operationArgs[0] || '');
-          const pending = pendingBrowserRemoteRequests.get(id);
-          if (!pending) return false;
-          pendingBrowserRemoteRequests.delete(id);
-          clearTimeout(pending.timer);
-          if (operationArgs[1] === true) pending.resolve(operationArgs[2]);
-          else pending.reject(new Error(String(operationArgs[3] || 'Desktop Browser Use failed.')));
-          return true;
-        }
-        return operations.invoke(operation, operationArgs);
+        return invokeServiceOperation(
+          String(args[0] || ''),
+          Array.isArray(args[1]) ? args[1] : [],
+        );
       }
       if (method === 'setVisibleSessions') {
-        viewVersion += 1;
-        visibleSessionIds.clear();
-        const requested = args[0];
-        if (Array.isArray(requested)) {
-          for (const value of requested) {
-            const sessionId = String(value || '');
-            if (/^[A-Za-z0-9_-]+$/.test(sessionId)) visibleSessionIds.add(sessionId);
-          }
-        }
-        releaseHiddenSessionStateEntries(
-          visibleSessionIds,
-          [sessionStateEncoders, latestSessionStates, latestSessionProvenance],
-          (sessionId) => sessionStateEncoders.get(sessionId)?.reset(),
-        );
+        return setDeliveryFilter(args);
       }
       const target = (host as unknown as Record<
         DesktopServiceMethod,

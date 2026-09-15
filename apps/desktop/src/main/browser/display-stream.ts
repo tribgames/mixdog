@@ -4,7 +4,7 @@ import type { NativeImage, WebContents } from 'electron';
 import type { BrowserScreenshotCapture } from './screenshot';
 
 export function createBrowserDisplayStream(
-  encode: (image: NativeImage) => BrowserScreenshotCapture,
+  encode: (image: NativeImage) => BrowserScreenshotCapture | Promise<BrowserScreenshotCapture>,
 ) {
   type Stream = {
     key: string;
@@ -37,7 +37,14 @@ export function createBrowserDisplayStream(
       };
       const paint = (_event: unknown, _dirty: unknown, image: NativeImage) => {
         const size = image.getSize();
-        if (entry.viewport && (size.width !== entry.viewport.width || size.height !== entry.viewport.height)) return;
+        if (entry.viewport && (size.width !== entry.viewport.width || size.height !== entry.viewport.height)) {
+          // The compositor now paints another geometry (pane resize). A caller
+          // waiting for the old size would otherwise wait until its deadline;
+          // release it so the pane re-samples with the current geometry.
+          entry.waiting?.reject(new Error('Browser page changed during capture.'));
+          entry.waiting = undefined;
+          return;
+        }
         entry.latest = image;
         entry.encoded = undefined;
         entry.waiting?.resolve(image);
@@ -83,7 +90,10 @@ export function createBrowserDisplayStream(
     if (viewport && (size.width !== viewport.width || size.height !== viewport.height)) {
       throw new Error('Browser page changed during capture.');
     }
-    const result = encode(image);
+    const result = await encode(image);
+    if (streams.get(guest) !== stream || stream.key !== key) {
+      throw new Error('Browser page changed during capture.');
+    }
     // A newer paint may have arrived while the first one was being awaited.
     if (stream.latest === image) stream.encoded = result;
     return result;

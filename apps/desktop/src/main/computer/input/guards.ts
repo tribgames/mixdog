@@ -6,6 +6,7 @@
 import type { ComputerCommand } from '../shared/types';
 import { normalizeComputerKeySequence } from './keyboard';
 import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
+import { schemaStringLength } from '../../../../../../src/runtime/shared/schema-value-error.mjs';
 
 export const MAX_COMPUTER_TYPE_TEXT_LENGTH = 30_000;
 export const MAX_COMPUTER_KEY_SEQUENCE_LENGTH = 512;
@@ -82,7 +83,7 @@ export function assertSafeComputerTargetTokens(command: ComputerCommand): void {
     if (value !== undefined && value !== null && typeof value !== 'string') {
       throw new Error(`invalid_input: ${field} must be a string`);
     }
-    if (typeof value === 'string' && value.length > MAX_COMPUTER_TARGET_TOKEN_LENGTH) {
+    if (typeof value === 'string' && schemaStringLength(value) > MAX_COMPUTER_TARGET_TOKEN_LENGTH) {
       throw new Error(
         `input_too_large: ${field} exceeds ${MAX_COMPUTER_TARGET_TOKEN_LENGTH} characters`,
       );
@@ -97,7 +98,7 @@ export function assertSafeComputerTargetTokens(command: ComputerCommand): void {
         `invalid_menu_path: path must contain 1..${MAX_COMPUTER_STRUCTURED_ITEMS} labels`,
       );
     }
-    if (command.path.some((label) => label.length > MAX_COMPUTER_MENU_LABEL_LENGTH)) {
+    if (command.path.some((label) => schemaStringLength(label) > MAX_COMPUTER_MENU_LABEL_LENGTH)) {
       throw new Error(
         `input_too_large: menu label exceeds ${MAX_COMPUTER_MENU_LABEL_LENGTH} characters`,
       );
@@ -138,7 +139,7 @@ export function assertSafeComputerTargetTokens(command: ComputerCommand): void {
         if (typeof value === 'string' && !value.trim()) {
           throw new Error(`invalid_verify: ${field} must not be empty`);
         }
-        if (typeof value === 'string' && value.length > MAX_COMPUTER_TARGET_TOKEN_LENGTH) {
+        if (typeof value === 'string' && schemaStringLength(value) > MAX_COMPUTER_TARGET_TOKEN_LENGTH) {
           throw new Error(
             `input_too_large: verify text exceeds ${MAX_COMPUTER_TARGET_TOKEN_LENGTH} characters`,
           );
@@ -164,7 +165,7 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error('invalid_modifiers: modifiers must be a string');
     }
     const modifiers = command.modifiers;
-    if (modifiers.length > MAX_COMPUTER_POINTER_MODIFIERS_LENGTH) {
+    if (schemaStringLength(modifiers) > MAX_COMPUTER_POINTER_MODIFIERS_LENGTH) {
       throw new Error(
         `input_too_large: pointer modifiers exceed ${MAX_COMPUTER_POINTER_MODIFIERS_LENGTH} characters`,
       );
@@ -218,7 +219,7 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error('invalid_key_chord: keys must be a string');
     }
     const rawKeys = command.keys;
-    if (rawKeys.length > MAX_COMPUTER_KEY_SEQUENCE_LENGTH) {
+    if (schemaStringLength(rawKeys) > MAX_COMPUTER_KEY_SEQUENCE_LENGTH) {
       throw new Error(`input_too_large: key sequence exceeds ${MAX_COMPUTER_KEY_SEQUENCE_LENGTH} characters`);
     }
     const keys = normalizeComputerKeySequence(rawKeys);
@@ -231,12 +232,12 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error(`invalid_input: ${command.action} text must be a string`);
     }
     const text = command.text;
-    if (text.length > MAX_COMPUTER_TYPE_TEXT_LENGTH) {
+    if (schemaStringLength(text) > MAX_COMPUTER_TYPE_TEXT_LENGTH) {
       throw new Error(`input_too_large: type text exceeds ${MAX_COMPUTER_TYPE_TEXT_LENGTH} characters`);
     }
     if (command.action === 'type' && command.delivery === 'foreground'
       && text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS) {
-      throw new Error(`input_too_large: foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} characters; split the text into separate observed acts`);
+      throw new Error(`input_too_large: foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units`);
     }
     if (BLOCKED_COMPUTER_TYPE_PATTERNS.some((pattern) => pattern.test(text))) {
       throw new Error('blocked_input: dangerous shell payload in type text');
@@ -246,7 +247,7 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
     if (typeof command.text !== 'string') {
       throw new Error('invalid_input: clipboard text must be a string');
     }
-    if (command.text.length > MAX_COMPUTER_CLIPBOARD_TEXT_LENGTH) {
+    if (schemaStringLength(command.text) > MAX_COMPUTER_CLIPBOARD_TEXT_LENGTH) {
       throw new Error(
         `input_too_large: clipboard text exceeds ${MAX_COMPUTER_CLIPBOARD_TEXT_LENGTH} characters`,
       );

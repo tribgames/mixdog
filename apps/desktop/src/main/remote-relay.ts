@@ -69,6 +69,7 @@ import { createPushSubscriptionStore } from './push-subscription-store';
 import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee';
 import { readSecretFile, writeSecretFile } from './secret-file';
 import { createSnapshotDeltaEncoder, isNoDelta, isStateResyncFrame } from './state-delta';
+import { filterSessionIds } from './desktop-state';
 import { TerminalDataBufferer } from './terminal-data-buffer';
 import type { LatestStateMailbox } from './desktop-service-protocol';
 // @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
@@ -1407,11 +1408,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           }
           if (call?.method === 'setVisibleSessions' && Array.isArray(call.params)) {
             await client.viewRecovery;
-            const requested = Array.isArray(call.params[0])
-              ? [...new Set(call.params[0]
-                .map((value) => String(value || ''))
-                .filter((value) => /^[A-Za-z0-9_-]+$/u.test(value)))]
-              : [];
+            const requested = filterSessionIds(call.params[0]);
             const nextVisible = new Set(requested);
             for (const sessionId of client.sessionStateEncoders.keys()) {
               if (!nextVisible.has(sessionId)) client.sessionStateEncoders.delete(sessionId);

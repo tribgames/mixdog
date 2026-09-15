@@ -9,6 +9,7 @@ import { safeMarkdownUrl } from "./markdown-url";
 
 import {
   htmlLineBreaksToBreaks,
+  linkifyLocalPaths,
   repairAdjacentStrongPunctuation,
   stripHtmlComments,
   trimTrailingCodeNewline,
@@ -102,7 +103,8 @@ const markdownProcessor = unified()
   // Explicit-language fences only (no auto-detection); unknown languages
   // simply stay unhighlighted, matching the previous plain rendering.
   .use(rehypeHighlight)
-  .use(trimTrailingCodeNewline);
+  .use(trimTrailingCodeNewline)
+  .use(linkifyLocalPaths);
 
 export function parseMarkdownToHast(text: string): MarkdownAstRoot {
   const parsed = markdownProcessor.parse(String(text ?? ""));

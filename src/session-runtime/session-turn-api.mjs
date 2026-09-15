@@ -47,7 +47,7 @@ export function createSessionTurnApi(deps) {
     getCodeGraphFirstTurnPrewarmDone, setCodeGraphFirstTurnPrewarmDone,
     getCloseRequested,
     getTranscriptWriter, getLastAppendedAssistant, setLastAppendedAssistant,
-    scheduleCodeGraphPrewarm, scheduleToolRuntimeWarmup, scheduleSearchRuntimeWarmup, refreshSessionForCwdIfNeeded, createCurrentSession,
+    scheduleCodeGraphPrewarm, scheduleToolRuntimeWarmup, scheduleSearchRuntimeWarmup, createCurrentSession,
     ensureSessionTranscriptWriter, channels,
     hooks, hookCommonPayload, mgr, notifyFnForSession, subscribeRuntimeNotification, bootProfile,
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
@@ -206,7 +206,6 @@ export function createSessionTurnApi(deps) {
       try {
         await awaitTurn(() => awaitRoutePreparation?.());
         routeWaitMs = performance.now() - routeStartedAt;
-        await awaitTurn(() => refreshSessionForCwdIfNeeded('cwd-change'));
         if (!getSession()?.id) {
           await awaitTurn(() => createCurrentSession('turn', { signal: turnSignal }));
         }
@@ -220,16 +219,6 @@ export function createSessionTurnApi(deps) {
           catch (error) { process.stderr.write(`mixdog: transcript-writer: appendUser failed: ${error?.message || error}\n`); }
         }
         session0 = getSession();
-        // Internal tools are process-global, while each live session owns its
-        // own Project. Give tool dispatch an owning-runtime callback so `cwd`
-        // can update the caller instead of whichever runtime registered the
-        // shared internal-tool executor most recently.
-        Object.defineProperty(session0, '_applyResolvedCwdForCaller', {
-          value: (nextCwd) => applyResolvedCwd(nextCwd, { persistProjectSelection: true }),
-          enumerable: false,
-          configurable: true,
-          writable: true,
-        });
         startTurnSnapshot(session0?.id);
         const firstTitleAfter = new Promise((resolve) => {
           releaseFirstTitle = () => {

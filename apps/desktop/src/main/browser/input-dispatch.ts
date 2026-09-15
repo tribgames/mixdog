@@ -58,10 +58,11 @@ export function createBrowserInputDispatch(host: InputDispatchHost) {
       if (route && route.documentId !== host.documentId(guest)) {
         gestures.delete(guest);
         route = undefined;
-        if (params.type !== 'mousePressed' && Number(params.buttons)) {
+        // A press opens a new gesture on the new document, but a held move or
+        // a release belongs to the gesture the old document took with it.
+        if (release || (params.type !== 'mousePressed' && Number(params.buttons))) {
           throw new Error('Browser page changed; input was not sent.');
         }
-        if (release) throw new Error('Browser page changed; input was not sent.');
       }
       route ??= await hitRoute(guest, params, signal);
       sessionId = route.sessionId;

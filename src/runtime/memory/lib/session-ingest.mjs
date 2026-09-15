@@ -14,11 +14,10 @@ const INGEST_SESSION_ROLES = new Set(['user', 'assistant'])
 export function normalizeIngestRole(role) {
   const raw = String(role || '').trim().toLowerCase()
   if (!raw) return null
-  let canonical = raw
-  if (raw === 'tool_result' || raw === 'function' || raw === 'tool-result') canonical = 'tool'
-  else if (raw === 'human') canonical = 'user'
-  else if (raw === 'ai' || raw === 'model') canonical = 'assistant'
-  return INGEST_SESSION_ROLES.has(canonical) ? canonical : null
+  if (raw === 'human') return 'user'
+  if (raw === 'ai' || raw === 'model') return 'assistant'
+  if (raw === 'tool_result' || raw === 'function' || raw === 'tool-result') return null
+  return INGEST_SESSION_ROLES.has(raw) ? raw : null
 }
 
 // Extract the first textual content block from a message content field.
@@ -238,9 +237,17 @@ const SUMMARY_PREFIX_INGEST = 'A previous model worked on this task and produced
 // removes the EXACT shapes manager.mjs produces. A `# Task` / `# Session` etc.
 // appearing mid-message in the human's own text is never touched. When in
 // doubt the rules UNDER-strip (leave content) rather than delete human text.
+const LEADING_NAMED_SECTIONS = ['Project Instructions', 'Additional context', 'Prefetch']
+
+function stripLeadingNamedSection(text, heading) {
+  return text
+    .replace(new RegExp(`^# ${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n[\\s\\S]*?(?=\\n# |$)`), '')
+    .replace(/^\n+/, '')
+}
+
 function stripUserTurnPrefixEnvelopes(text) {
   let out = String(text ?? '')
-  // 1) Leading `# Session` block (buildSessionStartBlock: `# Session\nCwd: ...
+  // Leading `# Session` block (buildSessionStartBlock: `# Session\nCwd: ...
   //    \nModel: ...\nWorkflow: ...`, joined by prefixSessionStartContent with a
   //    trailing `\n\n`). FIELD-ANCHORED: only strip when the line(s) right after
   //    `# Session\n` are EXACTLY the fixed fields buildSessionStartBlock emits
@@ -250,24 +257,11 @@ function stripUserTurnPrefixEnvelopes(text) {
   //    — its next line is not a `Cwd:/Model:/Workflow:` field — so it is
   //    preserved verbatim (zero-loss). Anchored ^.
   out = out.replace(/^# Session\n(?:(?:Cwd|Model|Workflow): [^\n]*\n)+(?:\n|$)/, '')
-  // 1b) Leading `# Project Instructions\n<body>` (buildProjectInstructionsBlock,
-  //     emitted right after the `# Session` block). Anchored to start; body runs
-  //     to the next `# ` section boundary or end — the human prompt follows a
-  //     `# Task` marker, so real user text is never inside this span.
-  out = out.replace(/^# Project Instructions\n[\s\S]*?(?=\n# |$)/, '')
-  out = out.replace(/^\n+/, '')
-  // 2) Leading `# Additional context\n<body>\n\n` (manager.mjs:3168). Anchored
-  //    to start; body runs up to the next `# ` section boundary or end. The
-  //    `\n\n` separator manager.mjs emits is included.
-  out = out.replace(/^# Additional context\n[\s\S]*?(?=\n# |$)/, '')
-  out = out.replace(/^\n+/, '')
-  // 3) Leading `# Prefetch\n<body>\n\n` (manager.mjs:3171). Same anchoring.
-  out = out.replace(/^# Prefetch\n[\s\S]*?(?=\n# |$)/, '')
-  out = out.replace(/^\n+/, '')
-  // 4) Leading `# Task\n` marker (prefixUserTurnContent: `${contextBlock}# Task\n${content}`).
-  //    Remove ONLY the marker line; everything after it is the human prompt and
-  //    is preserved verbatim. Anchored ^ so a `# Task` in the human's own prose
-  //    (after real text precedes it) is never removed.
+  // Named manager.mjs sections are the same start-anchored shape: heading, body
+  // to the next `# ` boundary, then the blank-line separator. Project
+  // Instructions / Additional context / Prefetch share that grammar; `# Task`
+  // is only the marker line.
+  for (const heading of LEADING_NAMED_SECTIONS) out = stripLeadingNamedSection(out, heading)
   out = out.replace(/^# Task\n/, '')
   return out
 }
@@ -306,77 +300,44 @@ export function isUnquotedToolCompletionHead(text) {
 // `.` acks, internal runtime nudges) are dropped ENTIRELY — they are noise,
 // not conversation. Mirrors the predicates in manager.mjs / compact.mjs but is
 // reimplemented locally to avoid a memory→orchestrator layering dependency.
+function isExcludedUserIngestText(m, text) {
+  const trimmedStart = text.trimStart()
+  const metaSource = String(m?.meta?.source || '')
+  // `Reference files:` synthetic user rows (manager.mjs isReferenceFilesMessage).
+  if (/^Reference files:\s*/i.test(trimmedStart)) return true
+  // Attachment-only placeholder rows (e.g. Discord provider discord.mjs:724
+  // `"(attachment)"` fallback when a message carries no text, only files).
+  if (text.trim() === '(attachment)') return true
+  // Compaction summary user rows (compact.mjs isSummaryMessage / SUMMARY_PREFIX).
+  if (metaSource === 'compact-summary') return true
+  if (text.startsWith(SUMMARY_PREFIX_INGEST) && /\nmessages=\d+\s+(?:sha256=|compact_type=)/.test(text)) return true
+  // Injected Skill-body user rows (context/collect.mjs buildSkillToolEnvelope).
+  // The full SKILL.md body is delivered as ONE role:'user' message flagged
+  // `meta:'skill'` inside a `<skill>` envelope. Mirrors compact/messages.mjs
+  // isInjectedSkillBodyMessage; the meta marker and the content prefix are
+  // both honoured so a tail rebuild that drops meta still excludes the body.
+  if (m?.meta === 'skill' || trimmedStart.startsWith('<skill>')) return true
+  if (['compact-active-turn-continuation', 'compact-execution-recovery'].includes(metaSource)) return true
+  if (text.includes('<active-turn-continuation>')) return true
+  // Internal runtime nudge `[mixdog-runtime] ...` user rows and other
+  // internal runtime notifications (tool-execution-contract), including both
+  // quoted and unquoted tool-completion wrappers.
+  if (/^\[mixdog-runtime\]/.test(trimmedStart)) return true
+  if (isInternalRuntimeNotificationText(text)) return true
+  if (isModelVisibleToolCompletionWrapper(text)) return true
+  if (isUnquotedToolCompletionHead(text)) return true
+  return false
+}
+
 export function shouldExcludeIngestMessage(m) {
   if (!m || typeof m !== 'object') return true
   const role = normalizeIngestRole(m?.role)
-  const raw = firstTextContent(m?.content)
-  // `Reference files:` synthetic user rows (manager.mjs isReferenceFilesMessage).
-  if (role === 'user' && typeof raw === 'string' && /^Reference files:\s*/i.test(raw.trimStart())) {
-    return true
-  }
-  // Attachment-only placeholder rows (e.g. Discord provider discord.mjs:724
-  // `"(attachment)"` fallback when a message carries no text, only files).
-  // Carries zero retrievable content — excluded so recall isn't polluted
-  // with bare "(attachment)" memory rows.
-  if (role === 'user' && typeof raw === 'string' && raw.trim() === '(attachment)') {
-    return true
-  }
-  // Compaction summary user rows (compact.mjs isSummaryMessage / SUMMARY_PREFIX).
-  if (role === 'user' && (
-    String(m?.meta?.source || '') === 'compact-summary'
-    || (
-      typeof raw === 'string'
-      && raw.startsWith(SUMMARY_PREFIX_INGEST)
-      && /\nmessages=\d+\s+(?:sha256=|compact_type=)/.test(raw)
-    )
-  )) {
-    return true
-  }
-  // Injected Skill-body user rows (context/collect.mjs buildSkillToolEnvelope).
-  // The full SKILL.md body is delivered as ONE role:'user' message flagged
-  // `meta:'skill'` inside a `<skill>` envelope. It is runtime instruction
-  // material that is re-injected on demand, not conversation, and the SAME
-  // document repeats verbatim on every Skill() call — so ingesting it stored
-  // one copy per invocation and the compact handoff replayed every copy
-  // (measured: 7 identical goal-management bodies plus pptx in a single
-  // handoff, 18.5k tokens). Mirrors compact/messages.mjs
-  // isInjectedSkillBodyMessage; the meta marker and the content prefix are
-  // both honoured so a tail rebuild that drops meta still excludes the body.
-  if (role === 'user' && (
-    m?.meta === 'skill'
-    || (typeof raw === 'string' && raw.trimStart().startsWith('<skill>'))
-  )) {
-    return true
-  }
-  if (role === 'user' && (
-    ['compact-active-turn-continuation', 'compact-execution-recovery'].includes(String(m?.meta?.source || ''))
-    || (
-      typeof raw === 'string'
-      && raw.includes('<active-turn-continuation>')
-    )
-  )) {
-    return true
-  }
+  const text = firstTextContent(m?.content)
+  if (role === 'user') return isExcludedUserIngestText(m, text)
   // Protected-context `.` ack assistant rows (compact.mjs isProtectedContextAckMessage):
   // a bare `.` with no tool calls. cleanMemoryText leaves a lone `.` non-empty
   // (no \p{L}\p{N}), so it would otherwise survive the empty-skip — exclude it.
-  if (role === 'assistant' && typeof raw === 'string' && raw.trim() === '.' && !Array.isArray(m?.toolCalls)) {
-    return true
-  }
-  // Internal runtime nudge `[mixdog-runtime] ...` user rows (loop.mjs:2014-2020)
-  // and other internal runtime notifications (tool-execution-contract).
-  if (role === 'user') {
-    const text = typeof raw === 'string' ? raw : ''
-    if (/^\[mixdog-runtime\]/.test(text.trimStart())) return true
-    if (isInternalRuntimeNotificationText(text)) return true
-    // Model-visible tool-completion mirror rows from
-    // modelVisibleToolCompletionMessage ("Async ... finished.\n\nResult:\n> ...").
-    // These are runtime notifications, not conversation, on both ingest paths.
-    if (isModelVisibleToolCompletionWrapper(text)) return true
-    // Unquoted persisted form of the same wrapper (see comment above).
-    if (isUnquotedToolCompletionHead(text)) return true
-  }
-  return false
+  return role === 'assistant' && text.trim() === '.' && !Array.isArray(m?.toolCalls)
 }
 
 // Project a live session transcript to the exact fields ingest_session can

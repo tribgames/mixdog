@@ -111,14 +111,7 @@ export function resolveGrokOAuthResponsesTransport() {
 // catalog surfaces the coding model as grok-build-0.1; map the legacy ids to
 // it so a stale config selection doesn't hit a model-not-found. Exact table,
 // not a heuristic.
-const RETIRED_MODEL_ALIASES = Object.freeze({
-    'grok-code-fast-1': 'grok-build-0.1',
-    'grok-code-fast': 'grok-build-0.1',
-    'grok-code-fast-1-0825': 'grok-build-0.1',
-});
-export function normalizeGrokModelId(id) {
-    return (id && RETIRED_MODEL_ALIASES[id]) || id;
-}
+export { normalizeGrokModelId } from './provider-model-identities.mjs';
 export const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // Bump when the on-disk cache shape changes so stale-shape entries are
 // discarded instead of misread.

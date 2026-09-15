@@ -9,8 +9,16 @@ import { completionCardFromExecution, parseModelVisibleCompletionWrapper, parseS
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
-import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, isTaskWaitToolCall, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
-import { aggregateBucketForCategory, aggregateRawResult, aggregateToolMembers, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
+import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, isTaskWaitToolCall, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
+import {
+  aggregateBucketForCategory,
+  aggregateLoadingTargets,
+  aggregateRawResult,
+  aggregateResultPatch,
+  assignUiDiffFromMessage,
+  stringUiDiffPatch,
+  toolCallOutcome,
+} from './tool-result-status.mjs';
 import {
   isInternalTranscriptDisplayText,
   isTranscriptHiddenControlToolName,
@@ -67,9 +75,14 @@ export function restoredAssistantTranscriptItems(message, nextId) {
 // tool_calls and the follow-up role:'tool' results, but resume used to drop
 // both — a reopened session lost every tool marker (user bug). Rebuild one
 // transcript tool item per call and attach its result by tool_call_id.
+function restoredMessageToolCalls(message) {
+  if (Array.isArray(message?.tool_calls)) return message.tool_calls;
+  if (Array.isArray(message?.toolCalls)) return message.toolCalls;
+  return [];
+}
+
 function restoredToolCallItems(message, nextId, pendingByCallId) {
-  const calls = Array.isArray(message?.tool_calls) ? message.tool_calls
-    : Array.isArray(message?.toolCalls) ? message.toolCalls : [];
+  const calls = restoredMessageToolCalls(message);
   const at = Number(message?.meta?.transcript?.at);
   const items = [];
   for (const call of calls) {
@@ -97,31 +110,33 @@ function restoredToolCallItems(message, nextId, pendingByCallId) {
   return items;
 }
 
+function restoredResultCallId(message) {
+  if (typeof message?.tool_call_id === 'string' && message.tool_call_id) return message.tool_call_id;
+  if (typeof message?.toolCallId === 'string') return message.toolCallId;
+  return '';
+}
+
 function attachRestoredToolResult(message, pendingByCallId) {
-  const callId = typeof message?.tool_call_id === 'string' && message.tool_call_id
-    ? message.tool_call_id
-    : typeof message?.toolCallId === 'string' ? message.toolCallId : '';
+  const callId = restoredResultCallId(message);
   const target = callId ? pendingByCallId.get(callId) : null;
   if (!target) return;
   pendingByCallId.delete(callId);
   const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)) || '';
   target.result = text;
-  if (Object.hasOwn(message || {}, 'uiDiff')) {
-    target.uiDiff = typeof message.uiDiff === 'string' ? message.uiDiff : '';
-  }
+  assignUiDiffFromMessage(target, message);
   // Cancel/crash control bodies are not red failures — show Cancelled tone.
   if (toolResultTerminalStatus(text) === 'cancelled') {
     target.isError = false;
     target.errorCount = 0;
     target.callErrorCount = 0;
     target.exitErrorCount = 0;
-  } else {
-    const { isCallError, isExitError } = toolCallOutcome({ ...message, toolName: target.name }, text);
-    target.isError = isCallError;
-    target.errorCount = isCallError ? 1 : 0;
-    target.callErrorCount = isCallError ? 1 : 0;
-    target.exitErrorCount = isExitError ? 1 : 0;
+    return;
   }
+  const { isCallError, isExitError } = toolCallOutcome({ ...message, toolName: target.name }, text);
+  target.isError = isCallError;
+  target.errorCount = isCallError ? 1 : 0;
+  target.callErrorCount = isCallError ? 1 : 0;
+  target.exitErrorCount = isExitError ? 1 : 0;
 }
 
 // Collapse a consecutive run (≥2) of restored per-call tool items into ONE
@@ -157,6 +172,7 @@ function buildRestoredAggregateItem(members) {
       exitCode,
       resultText,
       rawResultText: String(item.rawResult ?? item.result ?? ''),
+      ...stringUiDiffPatch(item.uiDiff),
       resolved: true,
       startedAt: item.startedAt,
       completedAt: item.completedAt,
@@ -165,24 +181,13 @@ function buildRestoredAggregateItem(members) {
         : null,
     });
   }
-  const errors = calls.filter((r) => r.isError).length;
-  const callErrors = calls.filter((r) => r.isCallError).length;
-  const exitErrors = calls.filter((r) => r.isExitError).length;
-  const succeeded = Math.max(0, calls.length - errors - exitErrors);
-  const displayDetail = errors > 0 || exitErrors > 0
-    ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: calls.find((r) => r.isExitError)?.exitCode })
-    : formatAggregateDetail(calls.filter((r) => r.summary).map((r) => r.summary));
-  const rawResult = aggregateRawResult(calls);
+  const outcomePatch = aggregateResultPatch({ calls }, calls, calls.length);
   const latestUiDiff = [...members].reverse()
     .map(({ item }) => item)
     .find((item) => Object.hasOwn(item || {}, 'uiDiff'));
   const first = members[0].item;
   const last = members[members.length - 1].item;
-  const loadingTargetGroups = calls.map((call) => toolLoadingTargets(call.name, call.args));
-  const loadingTargets = loadingTargetGroups.length > 0
-    && loadingTargetGroups.every((targets) => targets.length > 0)
-    ? [...new Set(loadingTargetGroups.flat())]
-    : [];
+  const loadingTargets = aggregateLoadingTargets(calls);
   return {
     kind: 'tool',
     id: first.id,
@@ -194,16 +199,9 @@ function buildRestoredAggregateItem(members) {
     aggregate: true,
     categories: Object.fromEntries(categories),
     doneCategories: aggregateDoneCategories(calls),
-    count: calls.length,
     completedCount: calls.length,
-    isError: errors > 0,
-    errorCount: errors,
-    callErrorCount: callErrors,
-    exitErrorCount: exitErrors,
-    result: displayDetail,
-    text: displayDetail,
-    rawResult: rawResult || null,
-    toolMembers: aggregateToolMembers(calls),
+    ...outcomePatch,
+    rawResult: aggregateRawResult(calls) || null,
     ...(latestUiDiff ? { uiDiff: latestUiDiff.uiDiff } : {}),
     expanded: false,
     headerFinalized: true,
@@ -253,8 +251,7 @@ function restoredMessageItemUpperBound(message) {
     ? message.meta.sessionInheritances.length : 0;
   if (message?.role === 'user') return 1 + boundaries;
   if (message?.role !== 'assistant') return boundaries;
-  const calls = Array.isArray(message?.tool_calls) ? message.tool_calls
-    : Array.isArray(message?.toolCalls) ? message.toolCalls : [];
+  const calls = restoredMessageToolCalls(message);
   const content = message?.content;
   const hasContent = typeof content === 'string'
     ? content.length > 0
@@ -895,6 +892,7 @@ export function createSessionApiB(bag) {
       // Preview immediately, serialize persistence without dropping a later
       // click. Earlier completions cannot replace the newest visible choice.
       set({ commandBusy: true, ...(preview || {}) });
+      flushEmitImmediate();
       const write = (async () => {
         if (previousWrite) await previousWrite.catch(() => {});
         const previousRoute = routeState();
@@ -915,7 +913,12 @@ export function createSessionApiB(bag) {
           }
           throw error;
         } finally {
-          if (token === routeSequence) set({ commandBusy: false });
+          if (token === routeSequence) {
+            set({ commandBusy: false });
+            // Publish the resolved route (or rollback) before an RPC reply
+            // reads getState(), even while the display-frame clock is busy.
+            flushEmitImmediate();
+          }
         }
       })();
       routeWrite = write;

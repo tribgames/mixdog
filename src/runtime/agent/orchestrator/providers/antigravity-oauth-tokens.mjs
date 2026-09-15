@@ -19,6 +19,8 @@ import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
+import { ANTIGRAVITY_MODELS } from './provider-model-identities.mjs';
+export { ANTIGRAVITY_MODELS } from './provider-model-identities.mjs';
 
 // The Antigravity IDE's installed-app OAuth client, which every copy of that
 // IDE ships (a native-app client is not a confidential credential). It is
@@ -35,7 +37,7 @@ export const CLIENT_SECRET = decode('R09DU1BYLUs1', 'OEZXUjQ4NkxkTEoxbUxCOHNYQzR
 
 export const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-export const USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
+export const USERINFO_URL = 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json';
 export const SCOPES = [
     'https://www.googleapis.com/auth/cloud-platform',
     'https://www.googleapis.com/auth/userinfo.email',
@@ -47,74 +49,102 @@ export const SCOPES = [
 export const CALLBACK_HOST = '127.0.0.1';
 export const CALLBACK_PORT = 51121;
 export const CALLBACK_PATH = '/oauth-callback';
-// Google matches the redirect URI string exactly, and the registered client is
-// bound to `localhost` — the loopback server binds 127.0.0.1 all the same.
-export const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
+// Use the same literal loopback address in authorization and token exchange.
+export const REDIRECT_URI = `http://${CALLBACK_HOST}:${CALLBACK_PORT}${CALLBACK_PATH}`;
 
-// Content requests ride the IDE's daily sandbox channel first. Production is
-// kept last as a fallback: it answers, but not for every Antigravity-only model.
-const ENDPOINT_DAILY = 'https://daily-cloudcode-pa.sandbox.googleapis.com';
+// Content requests ride the IDE's own daily channel first (the host the
+// shipped client is launched with). The sandbox daily host is an older
+// channel that has answered with version-gating stubs; autopush is the
+// fastest alternate when daily is saturated. Production is kept last: it
+// answers, but not for every Antigravity-only model.
+const ENDPOINT_DAILY = 'https://daily-cloudcode-pa.googleapis.com';
+const ENDPOINT_DAILY_SANDBOX = 'https://daily-cloudcode-pa.sandbox.googleapis.com';
 const ENDPOINT_AUTOPUSH = 'https://autopush-cloudcode-pa.sandbox.googleapis.com';
 const ENDPOINT_PROD = 'https://cloudcode-pa.googleapis.com';
-export const CONTENT_ENDPOINTS = Object.freeze([ENDPOINT_DAILY, ENDPOINT_AUTOPUSH, ENDPOINT_PROD]);
-// Project discovery is best supported on production, so it leads there.
-export const PROJECT_ENDPOINTS = Object.freeze([ENDPOINT_PROD, ENDPOINT_DAILY, ENDPOINT_AUTOPUSH]);
+export const CONTENT_ENDPOINTS = Object.freeze([ENDPOINT_DAILY, ENDPOINT_AUTOPUSH, ENDPOINT_DAILY_SANDBOX, ENDPOINT_PROD]);
+// Account provisioning uses the hub control plane, not the content sandboxes.
+export const PROJECT_ENDPOINT = ENDPOINT_DAILY;
 
-// The gateway exposes no public catalog endpoint, so the model list is curated.
-// Wire ids are the ones the backend accepts verbatim; Gemini 3 Pro and the
-// Claude family carry their effort tier in the id rather than a parameter.
-export const ANTIGRAVITY_MODELS = Object.freeze([
-    { id: 'gemini-3-pro-high', name: 'Gemini 3 Pro High', provider: 'antigravity-oauth', contextWindow: 1048576 },
-    { id: 'gemini-3-pro-low', name: 'Gemini 3 Pro Low', provider: 'antigravity-oauth', contextWindow: 1048576 },
-    { id: 'gemini-3-flash-agent', name: 'Gemini 3 Flash', provider: 'antigravity-oauth', contextWindow: 1048576 },
-    { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 Thinking', provider: 'antigravity-oauth', contextWindow: 250000 },
-    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'antigravity-oauth', contextWindow: 250000 },
-    { id: 'claude-opus-4-5-thinking', name: 'Claude Opus 4.5 Thinking', provider: 'antigravity-oauth', contextWindow: 200000 },
-    { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', provider: 'antigravity-oauth', contextWindow: 1000000 },
-]);
 export const DEFAULT_ANTIGRAVITY_MODEL = ANTIGRAVITY_MODELS[0].id;
 
-const ANTIGRAVITY_VERSION_FALLBACK = '1.18.3';
+const ANTIGRAVITY_VERSION_FALLBACK = '2.8.0';
 export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 export const TOKEN_TIMEOUT_MS = 30_000;
 export const PROJECT_TIMEOUT_MS = 30_000;
 // Refresh ahead of expiry so an in-flight turn never posts a stale token.
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
+// The backend gates models on the client version in the User-Agent, so the
+// version tracks the latest Antigravity release via its update manifest.
+// The pinned value is the offline fallback; the env override always wins.
+const VERSION_MANIFEST_URL = 'https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml';
+const VERSION_FETCH_TIMEOUT_MS = 5_000;
+const VERSION_RETRY_AFTER_MS = 10 * 60 * 1000;
+let _discoveredVersion = null;
+let _versionFetch = null;
+let _versionFailedAt = 0;
+
 function antigravityVersion() {
-    return String(process.env.MIXDOG_ANTIGRAVITY_VERSION || '').trim() || ANTIGRAVITY_VERSION_FALLBACK;
+    return String(process.env.MIXDOG_ANTIGRAVITY_VERSION || '').trim() || _discoveredVersion || ANTIGRAVITY_VERSION_FALLBACK;
 }
 
-function osPlatformTag() {
-    return process.platform === 'win32' ? 'WINDOWS' : process.platform === 'darwin' ? 'MACOS' : 'LINUX';
+/** Version from an electron-builder update manifest, or null when absent. */
+export function parseAntigravityManifestVersion(text) {
+    for (const line of String(text || '').split(/\r?\n/)) {
+        const match = /^\s*version\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))\s*(?:#.*)?$/.exec(line);
+        if (!match) continue;
+        const version = (match[1] ?? match[2] ?? match[3] ?? '').trim();
+        return /^\d+\.\d+\.\d+$/.test(version) ? version : null;
+    }
+    return null;
 }
 
 /**
- * Headers the Antigravity IDE sends. The backend gates newer models on the
- * client version, so this tracks the shipped release.
+ * Resolve the current client version once per process. A failed lookup keeps
+ * the pinned fallback and is not retried for a while, so an unreachable
+ * manifest host never delays every request.
+ */
+export function ensureAntigravityVersion({ fetchFn = fetch } = {}) {
+    if (process.env.MIXDOG_ANTIGRAVITY_VERSION || _discoveredVersion) return Promise.resolve(antigravityVersion());
+    if (_versionFetch) return _versionFetch;
+    if (Date.now() - _versionFailedAt < VERSION_RETRY_AFTER_MS) return Promise.resolve(antigravityVersion());
+    _versionFetch = (async () => {
+        try {
+            const res = await fetchFn(VERSION_MANIFEST_URL, {
+                headers: { 'Cache-Control': 'no-cache', 'User-Agent': 'electron-builder' },
+                signal: AbortSignal.timeout(VERSION_FETCH_TIMEOUT_MS),
+            });
+            if (res.ok) _discoveredVersion = parseAntigravityManifestVersion(await res.text());
+        } catch {
+            // The pinned fallback stays valid when discovery fails.
+        } finally {
+            if (!_discoveredVersion) _versionFailedAt = Date.now();
+            _versionFetch = null;
+        }
+        return antigravityVersion();
+    })();
+    return _versionFetch;
+}
+
+export function _resetAntigravityVersionForTest() {
+    _discoveredVersion = null;
+    _versionFetch = null;
+    _versionFailedAt = 0;
+}
+
+/**
+ * Cloud Code Assist expects the hub client identity rather than Electron's
+ * browser headers. Keep the captured client platform independent of the host.
  */
 export function antigravityHeaders() {
     return {
-        'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) `
-            + `Antigravity/${antigravityVersion()} Chrome/138.0.7204.235 Electron/37.3.1 Safari/537.36`,
-        'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
-        'Client-Metadata': JSON.stringify({
-            ideType: 'ANTIGRAVITY',
-            platform: osPlatformTag(),
-            pluginType: 'GEMINI',
-        }),
+        'User-Agent': `antigravity/hub/${antigravityVersion()} (aidev_client; os_type=darwin; arch=arm64; cl=963137146)`,
     };
 }
 
 /** `loadCodeAssist` / `onboardUser` metadata block. */
-export function codeAssistMetadata(projectId = '') {
-    const metadata = {
-        ideType: 'ANTIGRAVITY',
-        platform: osPlatformTag(),
-        pluginType: 'GEMINI',
-    };
-    if (projectId) metadata.duetProject = projectId;
-    return metadata;
+export function codeAssistMetadata() {
+    return { ideType: 'ANTIGRAVITY' };
 }
 
 // --- Token store ---

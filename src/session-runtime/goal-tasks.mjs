@@ -1,4 +1,4 @@
-import { GOAL_TASK_SETTLED, GOAL_TASK_STATUSES, MAX_GOAL_TASKS } from './goal-tool-defs.mjs';
+import { GOAL_TASK_SETTLED, GOAL_TASK_STATUSES, MAX_GOAL_TASKS, MAX_GOAL_TASK_TEXT_LENGTH } from './goal-tool-defs.mjs';
 import { clean } from '../runtime/shared/clean.mjs';
 
 // Dropped rows remain in the record but are no longer requested work.
@@ -42,7 +42,7 @@ export function normalizeGoalTasks(input, previous = [], { strict = false } = {}
     if (!source || typeof source !== 'object') throw new Error(`goal task ${index + 1} is invalid`);
     const text = clean(source.text);
     if (!text) throw new Error('goal task text is required');
-    if ([...text].length > 500) throw new Error('goal task exceeds 500 characters');
+    if ([...text].length > MAX_GOAL_TASK_TEXT_LENGTH) throw new Error(`goal task exceeds ${MAX_GOAL_TASK_TEXT_LENGTH} characters`);
     if (seenText.has(text)) throw new Error(`duplicate goal task: ${text}`);
     seenText.add(text);
     const id = clean(source.id) || clean(previousByText.get(text)?.id) || `task_${nextId++}`;

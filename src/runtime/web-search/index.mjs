@@ -203,16 +203,35 @@ function buildAgentWebSearchPrompt(args) {
   return lines.join('\n')
 }
 
+// Native providers disagree on citation field names. These lists are the
+// accepted shapes, not a guess: the first present string wins.
+const NATIVE_SOURCE_URL_FIELDS = ['url', 'uri', 'href', 'source_url']
+const NATIVE_SOURCE_TITLE_FIELDS = ['title', 'query', 'name']
+const NATIVE_SOURCE_SNIPPET_FIELDS = ['snippet', 'text', 'description']
+
+function firstSourceField(source, names, fallback = '') {
+  let raw = fallback
+  if (source && typeof source === 'object') {
+    for (const name of names) {
+      if (source[name]) {
+        raw = source[name]
+        break
+      }
+    }
+  }
+  return String(raw || '').trim()
+}
+
 function sourceUrl(source) {
-  return String(source?.url || source?.uri || source?.href || source?.source_url || '').trim()
+  return firstSourceField(source, NATIVE_SOURCE_URL_FIELDS)
 }
 
 function sourceTitle(source, fallbackUrl = '') {
-  return String(source?.title || source?.query || source?.name || fallbackUrl || '(untitled)').trim()
+  return firstSourceField(source, NATIVE_SOURCE_TITLE_FIELDS, fallbackUrl || '(untitled)')
 }
 
 function sourceSnippet(source) {
-  return String(source?.snippet || source?.text || source?.description || '').replace(/\s+/g, ' ').trim()
+  return firstSourceField(source, NATIVE_SOURCE_SNIPPET_FIELDS).replace(/\s+/g, ' ').trim()
 }
 
 function collectNativeWebSearchSources(result) {

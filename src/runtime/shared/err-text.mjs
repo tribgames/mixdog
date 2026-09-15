@@ -177,7 +177,7 @@ export function presentErrorText(error, options = {}) {
   let text = errText(error);
   const name = error && typeof error === 'object' ? String(error.name || '') : '';
   const code = error && typeof error === 'object' ? String(error.code || '') : '';
-  const status = Number(error?.httpStatus || error?.status || error?.response?.status || 0);
+  const status = errorHttpStatus(error);
   const jsonError = extractJsonError(text);
   if (jsonError) text = jsonError;
   const embeddedError = extractEmbeddedError(text);

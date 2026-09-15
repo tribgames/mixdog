@@ -41,11 +41,7 @@ import {
   getMetaValue,
   setMetaValue,
   mergeMetaValue,
-  cleanMemoryText,
 } from './lib/memory.mjs'
-import {
-  firstTextContent,
-} from './lib/session-ingest.mjs';
 import { configureEmbedding, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, primeEmbeddingDims, shutdownEmbeddingProvider, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
 import { runCycle1, runCycle2, runCycle3, parseInterval, flushEmbeddingDirty, flushRawEmbeddings } from './lib/memory-cycle.mjs'
@@ -196,8 +192,6 @@ const _transcriptIngest = createTranscriptIngest({
   persistMeta: (json) => setMetaValue(db, TRANSCRIPT_OFFSETS_KEY, json),
   projectsRoot: () => path.join(mixdogHome(), 'projects'),
   resolveProjectId,
-  firstTextContent,
-  cleanMemoryText,
   log: __mixdogMemoryLog,
 })
 const {
@@ -615,8 +609,7 @@ export async function appendEntry(data = {}) {
   await init()
   const role = String(data.role ?? 'user')
   const content = String(data.content ?? '')
-  const cleaned = cleanMemoryText(content)
-  if (!cleaned || !cleaned.trim()) return { error: content ? 'empty after clean' : 'content required' }
+  if (!content.trim()) return { error: 'content required' }
   const sourceRef = String(data.sourceRef ?? `manual:${Date.now()}-${process.pid}`)
   const sessionId = data.sessionId ?? null
   const tsMs = parseTsToMs(data.ts ?? Date.now())
@@ -626,7 +619,7 @@ export async function appendEntry(data = {}) {
     VALUES ($1, $2, $3, $4, $5, $6)
     ON CONFLICT DO NOTHING
     RETURNING id
-  `, [tsMs, role, cleaned, sourceRef, sessionId, projectId])
+  `, [tsMs, role, content, sourceRef, sessionId, projectId])
   const insertedId = result.rows[0]?.id ?? null
   return {
     ok: true,

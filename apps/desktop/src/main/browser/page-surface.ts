@@ -3,10 +3,11 @@
 import type { WebContents } from 'electron';
 import type { DesktopBrowserPageControl, DesktopBrowserPageFrame, DesktopBrowserTab } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
-import type { BrowserGuestStateStore } from './guest-state';
+import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
 import { createBrowserInputDriver } from './input';
 import { normalizePageUrl, type BrowserUrlPolicy } from './url-policy';
 import type { BrowserScreenshotCapture } from './screenshot';
+import type { BrowserDisplayTexture } from './display-textures';
 import { browserInputRecovery } from '../../shared/browser-input-policy';
 import type { createBrowserInputDispatch } from './input-dispatch';
 import type { createBrowserLocalPrompts } from './local-prompts';
@@ -22,6 +23,7 @@ export function createBrowserPageSurface(host: {
   resize(guest: WebContents, width: number, height: number): void;
   viewport(guest: WebContents): { width: number; height: number; zoom: number };
   capture(guest: WebContents, geometryKey: string, viewport: { width: number; height: number }, signal?: AbortSignal): Promise<BrowserScreenshotCapture>;
+  captureTexture?(guest: WebContents, documentId: string, viewport: { width: number; height: number }): BrowserDisplayTexture | undefined;
   currentGuest?(sessionId: string): WebContents | null;
   tabs?: {
     list(sessionId: string): DesktopBrowserTab[];
@@ -40,14 +42,37 @@ export function createBrowserPageSurface(host: {
   const paneSizes = new Map<string, { width: number; height: number }>();
   const presentedGuests = new Map<string, WebContents>();
   const lastFrames = new WeakMap<WebContents, { frame: DesktopBrowserPageFrame; zoom: number }>();
+  const lastTextureFrames = new WeakMap<WebContents, { frame: DesktopBrowserPageFrame; zoom: number }>();
   // Chromium's compositor occasionally rejects one display sample (it reports
   // "UnknownVizError" while a large capture is in flight). That single miss
   // keeps the last good frame on screen; only a capture that stays broken past
   // STALE_FRAME_MS reaches the client as a failure.
   const STALE_FRAME_MS = 3000;
   const captureFaults = new WeakMap<WebContents, number>();
-  const documentId = (guest: WebContents) =>
-    `${host.state.pageId(guest)}:${host.state.for(guest).documentGeneration}`;
+  const documentId = (guest: WebContents) => browserDocumentId(host.state, guest);
+  /** Pixels and input belong to one client only while this session still shows
+   *  this document on this page; anything else is a frame from the past. */
+  const presenting = (sessionId: string, guest: WebContents, token: string): boolean =>
+    !guest.isDestroyed() && token === documentId(guest)
+    && (!host.currentGuest || host.currentGuest(sessionId) === guest);
+  const assertPresenting = (
+    sessionId: string, guest: WebContents, token: string, signal?: AbortSignal,
+  ): void => {
+    signal?.throwIfAborted();
+    if (!presenting(sessionId, guest, token)) throw new Error('Browser page changed during capture.');
+  };
+  /** A GPU frame crosses to the client through the compositor, so the document
+   *  it belongs to is revalidated once that transfer lands. */
+  const sendTexture = async (
+    texture: BrowserDisplayTexture,
+    sessionId: string,
+    guest: WebContents,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    await texture.send(sessionId);
+    assertPresenting(sessionId, guest, token, signal);
+  };
 
   async function sample(
     guest: WebContents, geometryKey: string, viewport: { width: number; height: number }, signal?: AbortSignal,
@@ -67,7 +92,8 @@ export function createBrowserPageSurface(host: {
     }
   }
 
-  async function frame(sessionId: string, previousId = '', signal?: AbortSignal): Promise<DesktopBrowserPageFrame> {
+  async function frame(sessionId: string, previousId = '', signal?: AbortSignal, useTexture = false): Promise<DesktopBrowserPageFrame> {
+    const previousFrames = useTexture ? lastTextureFrames : lastFrames;
     const guest = await host.ensureGuest(sessionId, { reveal: false });
     signal?.throwIfAborted();
     if (presentedGuests.get(sessionId) !== guest) {
@@ -83,12 +109,15 @@ export function createBrowserPageSurface(host: {
       // entirely from native state; never wait for the page it is blocking.
       const viewport = host.viewport(guest);
       const token = documentId(guest);
-      const previous = lastFrames.get(guest);
+      const previous = previousFrames.get(guest);
       const cached = previous?.frame.documentId === token && previous.zoom === viewport.zoom
         && previous.frame.surfaceWidth === viewport.width && previous.frame.surfaceHeight === viewport.height
         ? previous.frame : undefined;
+      const texture = useTexture ? host.captureTexture?.(guest, token, viewport) : undefined;
+      try {
+      if (texture) await sendTexture(texture, sessionId, guest, token, signal);
       return {
-        frameId: cached?.frameId ?? `blocked_${token}_${viewport.width}_${viewport.height}_${viewport.zoom}`,
+        frameId: texture?.id ?? cached?.frameId ?? `blocked_${token}_${viewport.width}_${viewport.height}_${viewport.zoom}`,
         documentId: token, webContentsId: guest.id,
         url: guest.getURL(), title: guest.getTitle(), loading: guest.isLoadingMainFrame(),
         canGoBack: guest.navigationHistory.canGoBack(), canGoForward: guest.navigationHistory.canGoForward(),
@@ -96,22 +125,30 @@ export function createBrowserPageSurface(host: {
         viewportWidth: cached?.viewportWidth ?? viewport.width,
         viewportHeight: cached?.viewportHeight ?? viewport.height,
         surfaceWidth: viewport.width, surfaceHeight: viewport.height,
-        ...(cached && cached.frameId !== previousId ? { image: cached.image } : {}),
+        ...(cached && cached.frameId !== previousId && !texture ? { image: cached.image } : {}),
+        ...(texture ? { textureId: texture.id } : {}),
         ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
         ...host.prompts?.describe(guest),
       };
+      } finally { texture?.release(); }
     }
     const debuggerInstance = await host.cdp.guestDebugger(guest);
     if (viewportChanges.get(guest)) throw new Error('Browser page changed during capture.');
     const token = documentId(guest);
     const nativeViewport = host.viewport(guest);
     const revision = geometryRevisions.get(guest) ?? 0;
-    const geometryKey = `${token}:${revision}:${nativeViewport.width}:${nativeViewport.height}:${nativeViewport.zoom}`;
+    const geometryKey = `${token}:${revision}:${nativeViewport.width}:${nativeViewport.height}:${nativeViewport.zoom}:${useTexture}`;
     // Display metadata is a native read, not a page script. In particular, a
     // display timeout must never terminate an unrelated agent evaluation or
     // leave subsequent human input behind its execution cleanup fence.
+    const texture = useTexture ? host.captureTexture?.(guest, token, nativeViewport) : undefined;
+    try {
     const [shot, metrics] = await Promise.all([
-      sample(guest, geometryKey, nativeViewport, signal),
+      texture
+        ? Promise.resolve<BrowserScreenshotCapture>({
+          width: texture.width, height: texture.height, data: '', mimeType: 'image/png', fullPage: false,
+        })
+        : sample(guest, geometryKey, nativeViewport, signal),
       host.cdp.bounded(
         debuggerInstance.sendCommand('Page.getLayoutMetrics').catch(error => {
           // A popup's first navigation can replace the renderer target while
@@ -126,7 +163,7 @@ export function createBrowserPageSurface(host: {
         2_000, 'Browser display viewport', signal,
       ),
     ]);
-    if (guest.isDestroyed() || token !== documentId(guest)) throw new Error('Browser page changed during capture.');
+    assertPresenting(sessionId, guest, token);
     const pageScale = metrics.cssVisualViewport?.scale;
     if (!(pageScale > 0 && nativeViewport.zoom > 0)) {
       throw new Error('Browser display viewport is not ready.');
@@ -145,14 +182,12 @@ export function createBrowserPageSurface(host: {
       || (geometryRevisions.get(guest) ?? 0) !== revision) {
       throw new Error('Browser page changed during capture.');
     }
-    signal?.throwIfAborted();
-    if (token !== documentId(guest)
-      || (host.currentGuest && host.currentGuest(sessionId) !== guest)) {
-      throw new Error('Browser page changed during capture.');
-    }
+    assertPresenting(sessionId, guest, token, signal);
     let image = images.get(guest);
-    if (!image || image.geometryKey !== geometryKey || image.shot.data !== shot.data) {
-      image = { shot, documentId: token, geometryKey, id: `local_${guest.id}_${Date.now()}_${Math.random().toString(36).slice(2)}` };
+    if (!image || image.geometryKey !== geometryKey || image.shot.data !== shot.data
+      || (texture && image.id !== texture.id)) {
+      image = { shot, documentId: token, geometryKey,
+        id: texture?.id ?? `local_${guest.id}_${Date.now()}_${Math.random().toString(36).slice(2)}` };
       images.set(guest, image);
     }
     const result: DesktopBrowserPageFrame = {
@@ -162,14 +197,17 @@ export function createBrowserPageSurface(host: {
       url: guest.getURL(), title: guest.getTitle(), loading: guest.isLoadingMainFrame(),
       canGoBack: guest.navigationHistory.canGoBack(), canGoForward: guest.navigationHistory.canGoForward(),
       width: shot.width, height: shot.height, fault: host.state.for(guest).fault || undefined,
+      ...(texture ? { textureId: texture.id } : {}),
       ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
       ...host.prompts?.describe(guest),
       ...(previousId === image.id || !shot.data ? {} : { image: { mimeType: shot.mimeType, data: shot.data } }),
     };
-    lastFrames.set(guest, {
-      frame: { ...result, image: { mimeType: shot.mimeType, data: shot.data } }, zoom: nativeViewport.zoom,
+    if (texture) await sendTexture(texture, sessionId, guest, token, signal);
+    previousFrames.set(guest, {
+      frame: { ...result, ...(texture ? {} : { image: { mimeType: shot.mimeType, data: shot.data } }) }, zoom: nativeViewport.zoom,
     });
     return result;
+    } finally { texture?.release(); }
   }
 
   async function control(sessionId: string, input: DesktopBrowserPageControl, signal?: AbortSignal): Promise<void> {
@@ -186,8 +224,7 @@ export function createBrowserPageSurface(host: {
     const guest = await host.ensureGuest(sessionId, { reveal: false });
     const assertCurrent = () => {
       signal?.throwIfAborted();
-      if (guest.isDestroyed() || input.documentId !== documentId(guest)
-        || (host.currentGuest && host.currentGuest(sessionId) !== guest)) {
+      if (!presenting(sessionId, guest, input.documentId)) {
         throw new Error('Browser page changed; input was not sent.');
       }
     };
@@ -243,6 +280,13 @@ export function createBrowserPageSurface(host: {
       case 'forward': if (guest.navigationHistory.canGoForward()) guest.navigationHistory.goForward(); break;
       case 'zoom': invalidateGeometry(guest); guest.setZoomFactor(input.factor); break;
       case 'text': await send(guest, 'Input.insertText', { text: input.text }, signal); break;
+      case 'composition': await send(guest, 'Input.imeSetComposition', {
+        text: input.text, selectionStart: input.selectionStart, selectionEnd: input.selectionEnd,
+      }, signal); break;
+      case 'composition-end':
+        await send(guest, input.text ? 'Input.insertText' : 'Input.imeSetComposition',
+          input.text ? { text: input.text } : { text: '', selectionStart: 0, selectionEnd: 0 }, signal);
+        break;
       case 'key': await keyboard.pressKey(guest, input.key, signal); break;
       case 'pointer': await send(guest, 'Input.dispatchMouseEvent', {
         type: input.phase, x: input.x, y: input.y, button: input.button,

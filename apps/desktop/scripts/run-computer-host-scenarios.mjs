@@ -1,18 +1,18 @@
-import { spawn } from 'node:child_process';
 import { readFileSync, unwatchFile, watchFile } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import electron from 'electron';
-import { build } from 'esbuild';
+import { optionValue } from './cli-args.mjs';
 import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
+import {
+  bundleElectronEntry,
+  electronProcessEnv,
+  spawnElectron,
+  waitForChildExit,
+} from './electron-harness.mjs';
 
-const argument = (name) => {
-  const prefix = `--${name}=`;
-  return process.argv.find((value) => value.startsWith(prefix))?.slice(prefix.length) || '';
-};
+const argument = optionValue;
 
 const label = argument('label') || 'baseline';
 const initialDirectory = process.env.INIT_CWD || process.cwd();
@@ -28,27 +28,21 @@ const output = join(staging, 'computer-host-scenarios.mjs');
 const progressPath = join(staging, 'progress.log');
 
 try {
-  await build({
-    entryPoints: [fileURLToPath(new URL('../src/main/computer/harness/scenarios.ts', import.meta.url))],
+  await bundleElectronEntry({
+    entry: new URL('../src/main/computer/harness/scenarios.ts', import.meta.url),
     outfile: output,
-    bundle: true,
     plugins: [computerSourceEsbuildPlugin()],
-    platform: 'node',
-    format: 'esm',
-    target: 'node22',
-    external: ['electron'],
     sourcemap: 'inline',
-    logLevel: 'warning',
   });
 
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  env.MIXDOG_COMPUTER_SCENARIO_LOG = progressPath;
-  env.MIXDOG_COMPUTER_SCENARIO_REPORT = reportPath;
-  env.MIXDOG_COMPUTER_SCENARIO_LABEL = label;
-  env.MIXDOG_COMPUTER_SCENARIO_REPORT_DIR = dirname(reportPath);
-  env.MIXDOG_COMPUTER_SCENARIO_ONLY = only;
-  env.MIXDOG_COMPUTER_SCENARIO_PROFILE = profile;
+  const env = electronProcessEnv({
+    MIXDOG_COMPUTER_SCENARIO_LOG: progressPath,
+    MIXDOG_COMPUTER_SCENARIO_REPORT: reportPath,
+    MIXDOG_COMPUTER_SCENARIO_LABEL: label,
+    MIXDOG_COMPUTER_SCENARIO_REPORT_DIR: dirname(reportPath),
+    MIXDOG_COMPUTER_SCENARIO_ONLY: only,
+    MIXDOG_COMPUTER_SCENARIO_PROFILE: profile,
+  });
   // --display=primary keeps every fixture on the primary display, so a failure
   // can be attributed to the code rather than to secondary-display geometry.
   env.MIXDOG_COMPUTER_SCENARIO_DISPLAY = argument('display');
@@ -67,23 +61,16 @@ try {
     emittedProgress = progress;
   };
   watchFile(progressPath, { interval: 500 }, flushProgress);
-  const child = spawn(electron, [output], {
-    env,
-    stdio: 'inherit',
-    windowsHide: true,
-  });
+  const child = spawnElectron(output, { env });
   let timedOut = false;
-  const exitCode = await new Promise((resolveExit, reject) => {
-    const timer = setTimeout(() => {
+  const exitCode = await waitForChildExit(child, {
+    timeoutMs,
+    onTimeout: 'kill',
+    fallbackCode: 1,
+    onTimedOut: () => {
       timedOut = true;
-      child.kill();
-    }, timeoutMs);
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
-      clearTimeout(timer);
-      if (signal && !timedOut) reject(new Error(`computer host scenario matrix was terminated by ${signal}`));
-      else resolveExit(code ?? (timedOut ? 124 : 1));
-    });
+    },
+    signalMessage: (signal) => `computer host scenario matrix was terminated by ${signal}`,
   });
   unwatchFile(progressPath);
   flushProgress();

@@ -353,6 +353,25 @@ test('partial-salvage dispatch publishes idle before done tombstoning and preser
     assert.equal(session.closeReason, 'ephemeral-done');
 });
 
+test('dispatch links parent abort without a dynamic manager fallback', async () => {
+    const session = { id: 'sess_static_link', agent: 'worker', owner: 'agent', tools: [], messages: [] };
+    const parent = new AbortController();
+    const dispatch = makeAgentDispatch({
+        agent: 'worker',
+        preset: { provider: 'test', model: 'test-model' },
+        config: { presets: [] },
+        brief: false,
+        resourceAdmission: noopAdmission(),
+        parentSignal: parent.signal,
+        prepareAgentSession: () => ({ session }),
+        updateSessionStatus: async () => {},
+        closeSession: () => {},
+        getSession: () => session,
+        askSession: async () => ({ content: 'ok' }),
+    });
+    assert.equal(await dispatch({ prompt: 'hello' }), 'ok');
+});
+
 test('failed dispatch publishes error before error tombstoning and propagates the original error', async () => {
     const failure = new Error('provider failed');
     const { dispatch, events, session } = lifecycleDispatch({

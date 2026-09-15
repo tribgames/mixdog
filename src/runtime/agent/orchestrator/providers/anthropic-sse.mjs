@@ -263,6 +263,17 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
     let model = '';
     let toolCalls = [];
     let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, raw: null };
+    const updateUsage = (raw) => {
+        // Final usage can revise any slot. Omitted fields preserve the earlier
+        // report; explicit zero replaces it. Update before terminal early exits.
+        if (raw.input_tokens != null) usage.inputTokens = raw.input_tokens;
+        if (raw.output_tokens != null) usage.outputTokens = raw.output_tokens;
+        if (raw.cache_read_input_tokens != null) usage.cachedTokens = raw.cache_read_input_tokens;
+        if (raw.cache_creation_input_tokens != null) usage.cacheWriteTokens = raw.cache_creation_input_tokens;
+        usage.raw = { ...(usage.raw || {}), ...raw };
+        // Input excludes cache; all three slots contribute to prompt volume.
+        usage.promptTokens = usage.inputTokens + usage.cachedTokens + usage.cacheWriteTokens;
+    };
     let stopReason = null;
     let stopDetails;
     const fallbackEvents = [];
@@ -565,10 +576,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                         try { onStreamDelta?.('semantic'); } catch {}
                         if (event.message.model) model = event.message.model;
                         if (event.message.usage) {
-                            usage.inputTokens = event.message.usage.input_tokens || 0;
-                            usage.cachedTokens = event.message.usage.cache_read_input_tokens || 0;
-                            usage.cacheWriteTokens = event.message.usage.cache_creation_input_tokens || 0;
-                            usage.raw = { ...event.message.usage };
+                            updateUsage(event.message.usage);
                         }
                     }
 
@@ -835,8 +843,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                                 };
                         }
                         if (event.usage) {
-                            usage.outputTokens = event.usage.output_tokens || 0;
-                            usage.raw = { ...(usage.raw || {}), ...event.usage };
+                            updateUsage(event.usage);
                         }
                         // A terminal stop_reason while ANY tool input is still
                         // streaming ends the turn truncated, immediately: the
@@ -881,14 +888,6 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                         // out of streamLoop the moment the message ends.
                         break streamLoop;
                     }
-                    // Unified prompt volume — what the model actually ingested.
-                    // Anthropic splits input into three billable slots (uncached
-                    // input + cache_read + cache_create); keep them separate for
-                    // cost math but also expose the sum so cross-provider logs
-                    // have a consistent `promptTokens` meaning.
-                    usage.promptTokens = (usage.inputTokens || 0)
-                        + (usage.cachedTokens || 0)
-                        + (usage.cacheWriteTokens || 0);
                 } catch (err) {
                     if (err?.code === 'EANTHROPIC_SSE_ERROR') throw err;
                     /* skip malformed events */

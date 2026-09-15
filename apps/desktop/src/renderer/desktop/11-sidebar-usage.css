@@ -10,9 +10,9 @@
   z-index: 1090;
   left: 56px;
   bottom: var(--rail-usage-popup-bottom, 48px);
-  /* ActivityRail supplies the popup width inline (sidebar default + 36),
+  /* ActivityRail supplies the popup width inline (sidebar default + 88),
      so PC and phone open the same widened flyout with room for the meter. */
-  max-height: calc(100vh - 60px);
+  max-height: calc(100vh - var(--rail-usage-popup-bottom, 48px) - 52px);
   overflow-y: auto;
   overscroll-behavior: contain;
   /* ONE frame (user: 사용량프레임도 원프레임으로): the popup's own border is
@@ -133,9 +133,11 @@
 .sidebar-usage-meter {
   min-width: 0;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 38px 48px;
+  /* Give labels and reset times priority over the progress track. At the
+     default flyout width, "7D SONNET", "FLASH" and "29d 13h" fit in full. */
+  grid-template-columns: minmax(46px, auto) minmax(64px, 1fr) 38px 64px;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 /* Per-window reset reading: quiet, right-aligned so "5d 13h" and "12h" share
    the row's trailing edge just past the percentage. */

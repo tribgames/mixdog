@@ -6,11 +6,15 @@
 - Shortest route: missing evidence → implement → verify once → deliver.
   Cheapest decisive evidence first: existing state, diff or a failing test
   before any search; once it establishes the cause, implement.
-- One-shot calls: every needed target in one call's array, nothing speculative;
-  never probe, split or re-read what is already in context. Trust documented
-  guarantees; no availability checks or defensive branches, in scripts included.
-- Batch per tool, run independent calls in parallel, wait only for real
-  dependencies.
+- One-shot calls: put every already-justified target in the tool's array.
+  Do not add work whose need depends on a pending result. Do not re-read
+  unchanged content already delivered; changed sources and omitted ranges
+  are new evidence. Trust documented guarantees; no availability checks or
+  defensive branches, in scripts included.
+- Before requesting tools, collect the known independent next actions.
+  Batch same-tool targets in arrays and issue independent calls together in
+  the same response. Wait only for actual result dependencies or ordering
+  required for correctness or safety.
 - Verify once after all edits; no read/list/diff to confirm writes; rerun only
   failed checks.
 - Validate exact targets before destructive actions; never roots, `~` or

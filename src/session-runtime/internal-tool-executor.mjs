@@ -15,6 +15,7 @@ import { featureEnvOverride } from './config-helpers.mjs';
 import { renderToolSearch } from './tool-catalog.mjs';
 import { clean } from './session-text.mjs';
 import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
+import { listProjects } from '../standalone/projects.mjs';
 import {
   dispatchWebSearchRuntimeTool,
   memoryToolArgsForCaller,
@@ -149,6 +150,12 @@ export function createInternalToolExecutor({
     if (name === 'cwd') {
       const action = clean(args?.action || (args?.path ? 'set' : 'get')).toLowerCase();
       let currentCwd = callerCwd;
+      if (action === 'list') {
+        return JSON.stringify({
+          cwd: currentCwd,
+          projects: listProjects().map((project) => ({ name: project.name, path: project.path })),
+        }, null, 2);
+      }
       if (action === 'set') {
         const rawPath = clean(args?.path);
         if (!rawPath) throw new Error('cwd: path is required for action=set');

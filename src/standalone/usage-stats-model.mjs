@@ -151,6 +151,8 @@ function addUsage(target, usage) {
   target.cacheWrite += usage.cacheWrite;
   target.costUsd += usage.costUsd;
   target.costKnownTurns = (target.costKnownTurns || 0) + (usage.costKnownTurns || 0);
+  target.costBilled = (target.costBilled || 0) + (usage.costBilled || 0);
+  target.costEstimated = (target.costEstimated || 0) + (usage.costEstimated || 0);
   target.unmeasuredTurns = (target.unmeasuredTurns || 0) + (usage.unmeasuredTurns || 0);
 }
 
@@ -170,6 +172,9 @@ function foldRoute(state, providerId, modelId, kind, usage) {
   state.cacheRead += usage.cacheRead;
   state.cacheWrite += usage.cacheWrite;
   state.costUsd += usage.costUsd;
+  state.costKnownTurns += usage.costKnownTurns || 0;
+  state.costBilled += usage.costBilled || 0;
+  state.costEstimated += usage.costEstimated || 0;
   state.unmeasuredTurns += usage.unmeasuredTurns || 0;
 }
 
@@ -216,9 +221,6 @@ function foldRollupDay(state, key, day, conversationOnly) {
   if (day?.restored === true) state.historyDays += 1;
   if (day?.importedPartial === true) state.partialDays += 1;
   if (conversationOnly && day?.conversationPartial === true) state.partialDays += 1;
-  state.costKnownTurns += num(totals.costKnownTurns);
-  state.costBilled += num(totals.costBilled);
-  state.costEstimated += num(totals.costEstimated);
   state.durationMs += num(totals.durationMs);
   state.durationTurns += num(totals.durationTurns);
   state.sessionsDropped += num(day?.sessionsDropped);
@@ -241,6 +243,9 @@ function foldRollupDay(state, key, day, conversationOnly) {
       costUsd: num(route.costUsd),
       costKnownTurns: route.costKnownTurns == null
         ? (num(route.costUsd) > 0 ? num(route.turns) : 0) : num(route.costKnownTurns),
+      costBilled: num(route.costBilled),
+      costEstimated: route.costEstimated == null
+        ? Math.max(0, num(route.costUsd) - num(route.costBilled)) : num(route.costEstimated),
       sessions: route.sessions,
       sessionsComplete: route.sessionsComplete,
       unmeasuredTurns: num(route.unmeasuredTurns),
@@ -277,6 +282,9 @@ function foldEvent(state, key, event, conversationOnly) {
   const cacheRead = num(event?.cacheReadTokens);
   const cacheWrite = num(event?.cacheWriteTokens);
   const sessionId = conversation ? text(event?.sessionId) : '';
+  const costSource = text(event?.costSource);
+  const priced = event?.costUsd != null && Number.isFinite(Number(event.costUsd))
+    && !['', 'none', 'unpriced'].includes(costSource);
   const usage = {
     turns: 1,
     // Same normalization the rollup applies: a provider that reports the whole
@@ -286,19 +294,15 @@ function foldEvent(state, key, event, conversationOnly) {
     cacheRead,
     cacheWrite,
     costUsd: num(event?.costUsd),
-    costKnownTurns: event?.costSource && event.costSource !== 'none' ? 1 : 0,
+    costKnownTurns: priced ? 1 : 0,
+    costBilled: priced && costSource === 'provider' ? num(event.costUsd) : 0,
+    costEstimated: priced && costSource !== 'provider' ? num(event.costUsd) : 0,
     sessions: sessionId ? { [sessionId]: 1 } : {},
     sessionsComplete: !conversation || Boolean(sessionId),
   };
   foldRoute(state, providerId, modelId, text(event?.providerKind), usage);
   addDaily(state, key, usage, providerId);
 
-  const costSource = text(event?.costSource);
-  if (costSource && costSource !== 'none') {
-    state.costKnownTurns += 1;
-    if (costSource === 'provider') state.costBilled += usage.costUsd;
-    else state.costEstimated += usage.costUsd;
-  }
   const durationMs = num(event?.durationMs);
   if (durationMs > 0) {
     state.durationMs += durationMs;
@@ -417,15 +421,17 @@ function median(values) {
     : sorted[middle];
 }
 
-// Cache reads outweigh everything else by two orders of magnitude on a long
-// session, so "tokens" counts what a turn actually read fresh or produced.
-// Cache is reported beside that figure instead of swallowing it.
+// "tokens" is everything a turn moved: fresh input, output, and the cached
+// prompt it read or wrote. Cached providers re-read the whole context every
+// turn, so counting only the fresh part made a cached route look idle beside
+// an uncached one doing the same work. The split stays in input/output/cache.
 function tokensOf(bucket) {
-  return bucket.input + bucket.output;
+  return bucket.input + bucket.output + bucket.cacheRead + bucket.cacheWrite;
 }
 
 function exportRoute(bucket, totalTokens) {
   const tokens = tokensOf(bucket);
+  const fresh = bucket.input + bucket.output;
   const prompt = bucket.input + bucket.cacheRead + bucket.cacheWrite;
   const unmeasuredTurns = num(bucket.unmeasuredTurns);
   const unknown = unmeasuredTurns > 0 && unmeasuredTurns === bucket.turns;
@@ -443,17 +449,20 @@ function exportRoute(bucket, totalTokens) {
     tokens,
     unmeasuredTurns,
     costUsd: round(bucket.costUsd, 6),
+    costBilled: round(num(bucket.costBilled), 6),
+    costEstimated: round(num(bucket.costEstimated), 6),
+    costKnownTurns: num(bucket.costKnownTurns),
+    costUnpricedTurns: Math.max(0, bucket.turns - num(bucket.costKnownTurns)),
     costCoverage: bucket.turns > 0 ? num(bucket.costKnownTurns) / bucket.turns : 0,
     share: unmeasuredTurns > 0 ? null : totalTokens > 0 ? round(tokens / totalTokens, 6) : 0,
     // How much of this route's prompt arrived from cache instead of being read
     // again. Cache writes are misses, so belong in the denominator, not the
     // numerator.
     cacheHitRate: unmeasuredTurns > 0 ? null : prompt > 0 ? round(bucket.cacheRead / prompt, 4) : 0,
-    // What a million tokens actually cost on this route. Cache is excluded from
-    // the divisor for the same reason it is excluded from the token figure —
-    // including it would divide real spend by a number two orders of magnitude
-    // larger and rank every route as free.
-    costPerMTokens: tokens > 0 ? round(bucket.costUsd / (tokens / 1_000_000), 4) : 0,
+    // What a million fresh tokens actually cost on this route. Cache is excluded
+    // from the divisor: including it would divide real spend by a number two
+    // orders of magnitude larger and rank every route as free.
+    costPerMTokens: fresh > 0 ? round(bucket.costUsd / (fresh / 1_000_000), 4) : 0,
     // Answer length, which is what separates a terse route from a verbose one
     // at the same price.
     outputPerTurn: bucket.turns > 0 ? Math.round(bucket.output / bucket.turns) : 0,
@@ -492,8 +501,8 @@ export function usageStatsSnapshot({
   const eventList = Array.isArray(events) ? events : [];
   const state = collect({ events: eventList, rollupDays, historyDays, window, conversationOnly });
 
-  const totalTokens = state.input + state.output;
   const cacheTokens = state.cacheRead + state.cacheWrite;
+  const totalTokens = state.input + state.output + cacheTokens;
   const sessionTotals = [...state.sessions.values(), ...state.anonymousSessions];
   const dayKeys = [...state.dayKeys].sort();
   const firstDay = dayKeys[0] || '';
@@ -531,22 +540,24 @@ export function usageStatsSnapshot({
     const bucket = state.daily.get(day);
     const future = period ? { future: day > endDay } : {};
     if (!bucket) {
-      return { day, turns: 0, tokens: 0, cacheTokens: 0, costUsd: 0, providers: [], ...future };
+      return { day, turns: 0, tokens: 0, cacheTokens: 0, costUsd: 0, costKnownTurns: 0, providers: [], ...future };
     }
     return {
       day: bucket.day,
       turns: bucket.turns,
-      tokens: bucket.input + bucket.output,
+      tokens: tokensOf(bucket),
       cacheTokens: bucket.cacheRead + bucket.cacheWrite,
       costUsd: round(bucket.costUsd, 6),
+      costKnownTurns: num(bucket.costKnownTurns),
       unmeasuredTurns: num(bucket.unmeasuredTurns),
       ...future,
       providers: [...bucket.providers.values()]
         .map((slice) => ({
           provider: slice.provider,
           turns: slice.turns,
-          tokens: slice.input + slice.output,
+          tokens: tokensOf(slice),
           costUsd: round(slice.costUsd, 6),
+          costKnownTurns: num(slice.costKnownTurns),
           unmeasuredTurns: num(slice.unmeasuredTurns),
         }))
         .sort((a, b) => b.tokens - a.tokens),
@@ -584,21 +595,21 @@ export function usageStatsSnapshot({
       cacheRead: state.cacheRead,
       cacheWrite: state.cacheWrite,
       cacheTokens,
-      // Everything that moved, cache included — the figure to quote when the
-      // question is how much data flowed rather than what it cost.
-      totalTokens: totalTokens + cacheTokens,
+      totalTokens,
       // How much of the prompt arrived from cache instead of being read again.
       cacheHitRate: state.unmeasuredTurns > 0 ? null : state.input + state.cacheRead + state.cacheWrite > 0
         ? round(state.cacheRead / (state.input + state.cacheRead + state.cacheWrite), 4)
         : 0,
       costUsd: round(state.costUsd, 6),
+      costKnownTurns: state.costKnownTurns,
+      costUnpricedTurns: Math.max(0, state.turns - state.costKnownTurns),
       // Priced by the provider vs derived from the catalog. A subscription turn
       // lands in the second: real spend, but never an invoice line.
       costBilled: round(state.costBilled, 6),
       costEstimated: round(state.costEstimated, 6),
       costPerDay: effectiveDays > 0 ? round(state.costUsd / effectiveDays, 6) : 0,
       tokensPerSession: sessionTotals.length
-        ? Math.round((totalTokens + cacheTokens) / sessionTotals.length)
+        ? Math.round(totalTokens / sessionTotals.length)
         : 0,
       medianTokensPerSession: Math.round(median(sessionTotals)),
       avgDurationMs: state.durationTurns > 0
@@ -610,7 +621,7 @@ export function usageStatsSnapshot({
     previous: prior
       ? {
         turns: prior.turns,
-        tokens: prior.input + prior.output,
+        tokens: tokensOf(prior),
         costUsd: round(prior.costUsd, 6),
       }
       : null,

@@ -1,7 +1,7 @@
 ---
 name: browser-use
 description: Drive the built-in browser tool (Mixdog Browser Use) on a live web page.
-when_to_use: 'Interactive browsing, forms, sign-in, or web-app tests; not URL text (web_fetch first) or native apps (computer-use).'
+when_to_use: 'Interactive pages, forms, sign-in, or web-app tests in the Mixdog browser; not URL text (web_fetch first) or external browser windows and native apps (computer-use).'
 metadata:
   requires: browser
 dependencies:
@@ -35,7 +35,13 @@ file is a `browser` action.
 - Browser Use is a fallback only when retrieval cannot access required
   rendered, authenticated, or visual content. If fallback is necessary and
   the user did not ask to reveal the page, use a background page.
-- OS chrome, dialogs outside the page, native apps → Computer Use (`computer`).
+- User-designated external browser windows (including web pages), OS chrome,
+  dialogs outside the page, and native apps → Computer Use (`computer`).
+  `browser` cannot attach to an external Chrome/Edge/Firefox window; do not
+  substitute an in-app page for the user's selected window or login session.
+- A refused or unfinished page action stays on this route for recovery or
+  user handoff. An unavailable bridge is not an external-window task; never
+  switch tools or browser windows to bypass a block, CAPTCHA/2FA, or user stop.
 - Guessing at page state from memory → never; take a fresh observation.
 
 ## The core loop
@@ -134,43 +140,52 @@ caps a conditional wait.
 ## Foreground vs background
 
 - Use the visible foreground page for shared-screen work, a requested visual
-  result, or the user's next action. Foreground calls reveal the browser dock.
+  result, or the user's next action. `open` with `tab` reveals that exact page
+  and retains it for user handoff; `background:false` is a temporary reveal.
 - For result-only work, prefer a named `background:true` page; keep the user's
-  current page intact. Reporting a result does not require revealing a page.
+  current page intact. Later calls may omit `background`: naming a support page
+  does not promote it. Reporting a result does not require revealing a page.
 - Background pages run concurrently, so independent background work can share
   one assistant turn.
 - Pages, tabs, URLs, and targets are session-local; sign-in state, cookies,
   and localStorage are shared across sessions — treat them as the user's.
 - Routing is automatic; never supply a session id.
+- A panel closed by the user stays closed until the user reopens it. Automation
+  may continue on its hidden page; do not repeat `open` to override that choice.
 
 ## Finish or hand off
 
 - **Action/result only** — verify completion first, retain needed evidence or
   completed downloads, then `close_tab` the disposable background pages created
-  for this task. If the task revealed the browser panel and no user handoff is
-  needed, `hide` it before the final reply. Do not open hidden pages just to
-  close them or summarize their results.
+  for this task. Runtime completion, failure, and cancellation also clean up
+  task-owned pages and restore temporary panels. Do not rely on idle timeouts,
+  or open hidden pages just to close them or summarize their results.
 - **Screen is the deliverable / user continues** — leave the relevant foreground
-  page visible; clean up only disposable support pages. A CAPTCHA, 2FA, or
-  identity check is a handoff, not completion: keep the page and wait.
+  page visible using `open` with its `tab`; clean up only disposable support
+  pages. A CAPTCHA, 2FA, or identity check is a handoff, not completion: retain
+  that exact page with `open` and wait.
 - Preserve pre-existing user tabs, unfinished forms, and pages needed for
   recovery. If ownership or disposability is unclear, preserve the page;
   never clear cookies/storage as cleanup. Do not hide a screen the user asked
   to keep visible.
 - `hide` takes no page target: it folds this session's panel without unloading
-  pages or losing drafts; `open` restores the foreground panel. `close_tab`
+  pages or losing drafts. `close_tab`
   destroys only a named background page, not visible user tabs.
-- `open` does not promote a background page. If a hidden result must be shown,
-  navigate the foreground to its verified URL only when that reproduces the
-  needed result without overwriting user work. Do not discard an in-progress
-  hidden page or claim it is visible when it is not.
-- Use the cleanup call's result as its receipt. Another foreground observation
-  would reopen the panel; report a failed cleanup rather than claiming it closed.
+- Prefer `open` on the existing page to re-navigation, which can discard a form
+  or an authenticated workflow. User-controlled and explicitly retained pages
+  survive task cleanup; never clear cookies or storage as cleanup.
+- Use cleanup results as receipts. Read-only observations do not reveal panels;
+  report failed cleanup rather than claiming a page or panel closed.
 
 ## Common flows
 
-**Log in** — navigate → use its returned refs → `fill.fields` for user + password →
-`click` submit with `expect.url` or `expect.text`. If the page shows a
+**Log in** — navigate to the sign-in form (or its password step) → `fill`
+with `savedAccount:"<email or masked label>"` when the user has stored logins
+for that HTTPS site; the host fills user + password itself and the password
+never appears in any reply. Without a stored login, use the returned refs and
+`fill.fields` for user + password. Then `click` submit (or `submit:true`) with
+`expect.url` or `expect.text`. A `savedAccount` miss lists the site's stored
+logins as masked labels; the user chooses which to use. If the page shows a
 CAPTCHA, 2FA prompt, or identity check, stop and hand control to the user;
 never try to solve or bypass it.
 

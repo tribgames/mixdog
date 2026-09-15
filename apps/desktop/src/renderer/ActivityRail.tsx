@@ -351,7 +351,8 @@ export function ActivityRail({
       {desktopFeatureEnabled("usage") && usageOpen && <div className="rail-usage-popup" role="dialog" aria-label={t("Subscription usage")}
         style={{
           "--rail-usage-popup-bottom": `${usageAnchorBottom}px`,
-          width: DESKTOP_SIDEBAR_DEFAULT_WIDTH + 36,
+          width: DESKTOP_SIDEBAR_DEFAULT_WIDTH + 88,
+          maxWidth: "calc(100vw - 116px)",
         } as React.CSSProperties}
         data-state="open">
         {/* The popup shares the rail's host API so its open-time revalidation

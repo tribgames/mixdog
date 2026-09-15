@@ -21,6 +21,7 @@ import {
   summarizeToolResult,
   toolLoadingTargets,
 } from './tool-surface.mjs';
+import { pluralize } from './tool-primitives.mjs';
 import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from './err-text.mjs';
 import { normalizeToolTerminalStatus, toolResultTerminalStatus } from './tool-status.mjs';
 import { formatElapsed } from './time-format.mjs';
@@ -67,9 +68,7 @@ export function normalizeCountMap(value = {}) {
   return out;
 }
 
-export function plural(count, singular, pluralText = `${singular}s`) {
-  return count === 1 ? singular : pluralText;
-}
+export { pluralize as plural };
 
 export function shellResultStatus(value) {
   const match = String(value || '').match(/(?:^|\b)status:\s*(running|pending|queued|completed|failed|cancelled|canceled)\b/im);
@@ -188,7 +187,7 @@ export function shellDisplayStatus({ pending = false, failedCount = 0, exitFaile
 
 export function shellHeader(status, count = 1, verifying = false) {
   const n = Math.max(1, Number(count) || 1);
-  const object = `${n} ${plural(n, 'command')}`;
+  const object = `${n} ${pluralize(n, 'command')}`;
   // A shell that follows an edit in the same batch IS the verification —
   // label it as such while healthy; failures keep the neutral Ran + detail.
   if (verifying && status === 'running') return `Verifying ${object}`;
@@ -205,8 +204,12 @@ export const SKILL_SURFACE_NAMES = new Set([
   'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill',
 ]);
 
+const BACKGROUND_TASK_TOOL_NAMES = new Set([
+  'web_search', 'shell', 'bash', 'bash_session', 'shell_command', 'task',
+]);
+
 export function isBackgroundTaskTool(normalizedName) {
-  return new Set(['web_search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']).has(String(normalizedName || '').toLowerCase());
+  return BACKGROUND_TASK_TOOL_NAMES.has(String(normalizedName || '').toLowerCase());
 }
 
 const AGENT_DISPLAY_NAMES = new Map([

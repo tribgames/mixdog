@@ -11,7 +11,7 @@ import {
   type DesktopUpdaterState,
   type SessionSnapshot,
 } from '../shared/contract';
-import { requiredSessionId } from './desktop-state';
+import { isSessionId, requiredSessionIds } from './desktop-state';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
 import {
@@ -162,10 +162,7 @@ export class DesktopStateBridge {
   };
 
   private async setVisibleSessions(value: unknown): Promise<boolean> {
-    if (!Array.isArray(value) || value.length > 256) {
-      throw new TypeError('sessionIds must be a bounded array.');
-    }
-    const normalized = [...new Set(value.map((sessionId) => requiredSessionId(sessionId)))];
+    const normalized = requiredSessionIds(value);
     this.visibleSessionIds.clear();
     for (const sessionId of normalized) this.visibleSessionIds.add(sessionId);
     const released = releaseHiddenSessionStateEntries(
@@ -215,7 +212,7 @@ export class DesktopStateBridge {
       return;
     }
     const sessionId = String(value || '');
-    if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || !this.latestSessionStates.has(sessionId)) return;
+    if (!isSessionId(sessionId) || !this.latestSessionStates.has(sessionId)) return;
     const provenance = this.latestSessionProvenance.get(sessionId);
     if (!provenance) return;
     this.sessionEncoders.get(sessionId)?.reset();

@@ -1,16 +1,19 @@
-// Conversation-only compaction. The current summary and live conversation
-// produce one replacement summary; Memory DB contents are never read or mutated.
+// Rule-first compaction. Only conversation pressure can request an AI summary;
+// tool history, skills and protected context follow deterministic rules.
 import { loadConfig } from '../../config.mjs';
 import { getProvider, initProviders } from '../../providers/registry.mjs';
 import { resolveMaintenanceRoute } from '../../agent-runtime/maintenance-route.mjs';
 import { resolveSessionContextMeta } from '../manager/context-meta.mjs';
 import { builtinFeatureActive } from '../../../../../session-runtime/builtin-features.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
-import { providerTokenCalibration } from '../context-utils.mjs';
+import { estimateMessagesTokens, providerTokenCalibration } from '../context-utils.mjs';
 import {
+    conversationCompactionInput,
     freshContextCompactMessages,
     generateFreshHandoffSummary,
     SUMMARY_OUTPUT_TOKENS,
+    CONTEXT_SHARE_RATIO,
+    COMPACT_TARGET_MIN_TOKENS,
 } from '../compact.mjs';
 
 // Select an explicitly configured, enabled maintenance route only. An absent
@@ -71,9 +74,7 @@ export async function runFreshContextCompact({
     initProvidersFn,
 } = {}) {
     const startedAt = Date.now();
-    const route = await resolveCompactionRoute({
-        sessionRef, provider, model, config, signal, getProviderFn, initProvidersFn,
-    });
+    signal?.throwIfAborted();
     const contextWindow = positiveInt(compactPolicy.contextWindow)
         || positiveInt(sessionRef?.contextWindow)
         || positiveInt(compactPolicy.boundaryTokens)
@@ -82,6 +83,40 @@ export async function runFreshContextCompact({
         ? Number(compactPolicy.tokenCalibration)
         : providerTokenCalibration(sessionRef?.provider || provider?.name);
     const hardBudget = Math.max(1, Math.floor(contextWindow / calibration));
+    const conversationInput = conversationCompactionInput(messages);
+    const conversationTokens = Math.ceil(estimateMessagesTokens(conversationInput) * calibration);
+    const conversationThresholdTokens = positiveInt(sessionRef?.compaction?.conversationThresholdTokens)
+        || Math.max(Math.min(contextWindow, COMPACT_TARGET_MIN_TOKENS), Math.floor(contextWindow * CONTEXT_SHARE_RATIO));
+    const summaryTriggered = conversationTokens > conversationThresholdTokens;
+    const build = (handoffText) => freshContextCompactMessages(messages, compactBudgetTokens, {
+        reserveTokens: compactPolicy.reserveTokens,
+        maxBudgetTokens: hardBudget,
+        force: true,
+        handoffText,
+        contextWindow,
+        sessionId,
+        latestUserPrefix: goalReminderText,
+        activeTurn,
+    });
+    const pipeline = {
+        mode: summaryTriggered ? 'conversation-summary' : 'rules',
+        conversationTokens,
+        conversationThresholdTokens,
+        summaryTriggered,
+    };
+    if (!summaryTriggered) {
+        const result = build();
+        signal?.throwIfAborted();
+        result.usage = null;
+        result.handoffSource = 'rules';
+        result.summaryProvider = null;
+        result.summaryModel = null;
+        result.diagnostics.pipeline = { ...pipeline, totalMs: Date.now() - startedAt };
+        return result;
+    }
+    const route = await resolveCompactionRoute({
+        sessionRef, provider, model, config, signal, getProviderFn, initProvidersFn,
+    });
     const summaryWindow = positiveInt(route.contextWindow) || contextWindow;
     const outputTokens = Math.min(SUMMARY_OUTPUT_TOKENS, Math.max(256, Math.floor(summaryWindow * 0.15)));
     // The summary request's input budget belongs to its OWN model, whereas
@@ -96,7 +131,7 @@ export async function runFreshContextCompact({
         cwd: sessionRef?.cwd,
     };
     const generated = await generateFreshHandoffSummary(
-        route.provider, messages, route.model, Math.max(compactBudgetTokens, hardBudget), {
+        route.provider, conversationInput, route.model, Math.max(compactBudgetTokens, hardBudget), {
             reserveTokens: compactPolicy.reserveTokens,
             compactionInputBudgetTokens: inputBudget,
             maxOutputTokens: outputTokens,
@@ -116,22 +151,14 @@ export async function runFreshContextCompact({
         },
     );
     signal?.throwIfAborted();
-    const result = freshContextCompactMessages(messages, compactBudgetTokens, {
-        reserveTokens: compactPolicy.reserveTokens,
-        maxBudgetTokens: hardBudget,
-        force: true,
-        handoffText: generated.summary,
-        contextWindow,
-        sessionId,
-        latestUserPrefix: goalReminderText,
-        activeTurn,
-    });
+    const result = build(generated.summary);
     signal?.throwIfAborted();
     result.usage = generated.usage;
     result.handoffSource = 'session-local';
     result.summaryProvider = route.providerName;
     result.summaryModel = route.model;
     result.diagnostics.pipeline = {
+        ...pipeline,
         handoffSource: 'session-local',
         summaryRoute: route.source,
         summaryProvider: route.providerName,

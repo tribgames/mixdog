@@ -493,11 +493,7 @@ const TOOL_CATEGORY = new Map([
 export function classifyToolCategory(name, args = {}) {
   if (isExternalMcpToolName(name)) return 'MCP';
   const normalized = normalizeToolName(name);
-  if (normalized === 'code_graph') {
-    const mode = String(args.mode || args.action || '').toLowerCase();
-    if (mode === 'prewarm' || mode === 'index' || mode === 'build' || mode === 'refresh') return 'Setup';
-    return (mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees') ? 'Search' : 'Read';
-  }
+  if (normalized === 'code_graph') return codeGraphLabel(args);
   return TOOL_CATEGORY.get(normalized) || 'Other';
 }
 

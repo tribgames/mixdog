@@ -21,6 +21,7 @@
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { publishHeartbeat, deleteHeartbeat } from '../store.mjs';
 import { DEFAULT_ACTIVITY_HEARTBEAT_MS } from '../../stall-policy.mjs';
+import { finishBrowserTurn } from '../../../../browser-bridge/client.mjs';
 import {
     configureUsageMetricsRuntime,
     dropMetricSeenState,
@@ -35,6 +36,13 @@ const VALID_STAGES = new Set([
     'connecting', 'requesting', 'streaming', 'tool_running', 'idle', 'error', 'done', 'cancelling',
 ]);
 const TERMINAL_STAGES = new Set(['done', 'error']);
+
+function finishBrowserWork(id, entry) {
+    const turnId = Number(entry.browserTurnId ?? entry.session?.usageMetricsTurnId) || 0;
+    void finishBrowserTurn(id, turnId).catch(error => {
+        process.stderr.write(`[browser] Task cleanup failed: ${error?.message || error}\n`);
+    });
+}
 
 // Injected deps that would otherwise pull manager.mjs's store/provider surface
 // back into this module (circular). Wired once from manager.mjs at load time.
@@ -120,6 +128,7 @@ export function markSessionAskStart(id) {
     entry.usageMetricsTurnIncremental = false;
     const sessionForTurn = entry.session ?? _deps.loadSession(id);
     if (sessionForTurn) bumpUsageMetricsTurnId(sessionForTurn);
+    entry.browserTurnId = Number(sessionForTurn?.usageMetricsTurnId) || 0;
     entry.stage = 'connecting';
     entry.lastStreamDeltaAt = null;
     entry.lastTransportAt = null;
@@ -284,6 +293,7 @@ export function markSessionDone(id, { empty = false } = {}) {
     if (!id) return;
     _stopToolActivityHeartbeat(id);
     const entry = _touchRuntime(id);
+    finishBrowserWork(id, entry);
     entry.stage = 'done';
     entry.lastError = null;
     entry.askStartedAt = null;
@@ -319,6 +329,7 @@ export function markSessionError(id, msg) {
     if (!id) return;
     _stopToolActivityHeartbeat(id);
     const entry = _touchRuntime(id);
+    finishBrowserWork(id, entry);
     entry.stage = 'error';
     entry.lastError = msg ? String(msg).slice(0, 200) : null;
     entry.askStartedAt = null;
@@ -339,6 +350,7 @@ export function markSessionCancelled(id) {
     if (!id) return;
     _stopToolActivityHeartbeat(id);
     const entry = _touchRuntime(id);
+    finishBrowserWork(id, entry);
     entry.stage = 'done';
     entry.lastError = null;
     entry.askStartedAt = null;

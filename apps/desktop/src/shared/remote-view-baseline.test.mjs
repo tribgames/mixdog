@@ -39,6 +39,38 @@ test('retained baselines are bounded, pinned during recovery and isolated from c
   assert.equal(readViewBaselineOffer({ version: 1, keys: Array(133).fill(a.key) }), null);
 });
 
+test('successful retained references renew expiry without reviving evicted or cleared entries', () => {
+  let now = 0;
+  const a = baseline('a'.repeat(120));
+  const b = baseline('b'.repeat(120));
+  const cache = createRemoteViewBaselineCache(JSON.stringify(a.frame).length * 2 + 8, () => now);
+  cache.restore(a);
+  now = 240_000;
+  const reference = cache.begin();
+  assert.deepEqual(cache.restore({ key: a.key }), a.frame);
+  reference.finish();
+  now = 300_001;
+  const renewed = cache.begin();
+  assert.deepEqual(renewed.offer.keys, [a.key]);
+  renewed.finish();
+  now = 540_001;
+  const expired = cache.begin();
+  assert.deepEqual(expired.offer.keys, [], 'advertising alone must not extend expiry');
+  expired.finish();
+
+  cache.restore(a);
+  const pinned = cache.begin();
+  cache.restore(b);
+  assert.deepEqual(cache.restore({ key: a.key }), a.frame);
+  pinned.finish();
+  const retained = cache.begin();
+  assert.deepEqual(retained.offer.keys, [b.key], 'a pinned reference must not undo byte-limit eviction');
+  cache.clear();
+  assert.throws(() => cache.restore({ key: b.key }), /no longer available/);
+  retained.finish();
+  assert.deepEqual(cache.begin().offer.keys, []);
+});
+
 test('reconnect references only identical full baselines and rebuilds a usable delta decoder', async () => {
   let snapshot = {
     sessionId: 'session', streamingTail: null,

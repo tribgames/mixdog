@@ -16,7 +16,7 @@ import {
   computerResultRecovery,
   formatComputerToolError,
 } from './error-recovery.mjs';
-import { readBridgeDiscovery } from '../bridge-discovery.mjs';
+import { bridgeDiscoveryChanged, readBridgeDiscovery } from '../bridge-discovery.mjs';
 import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerReply } from './limits.mjs';
 import { computerActionHas } from './actions.mjs';
 import { continuePendingComputerWork, isPendingComputerWork } from './pending-continuation.mjs';
@@ -48,6 +48,28 @@ const activeComputerExecutions = new Set();
 const BRIDGE_UNAVAILABLE_MESSAGE =
   'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
 
+const ACT_STEP_STATUSES = new Set(['succeeded', 'failed', 'skipped', 'pending', 'uncertain']);
+
+function canonicalizeActResult(value, args) {
+  value.completed_actions = value.completed_steps;
+  value.total_actions = value.total_steps;
+  value.actions = Array.isArray(value.steps)
+    ? value.steps.map((row, index) => {
+        const normalized = { ...row };
+        normalized.type = args.input?.actions?.[index]?.type || normalized.action;
+        normalized.status = ACT_STEP_STATUSES.has(normalized.status)
+          ? normalized.status
+          : normalized.ok === false ? 'failed' : 'succeeded';
+        delete normalized.action;
+        delete normalized.ok;
+        return normalized;
+      })
+    : value.steps;
+  delete value.completed_steps;
+  delete value.total_steps;
+  delete value.steps;
+}
+
 export function canonicalComputerResultText(text, args) {
   if (args.action === 'clipboard' && args.input?.operation === 'read') return text;
   let value;
@@ -65,25 +87,7 @@ export function canonicalComputerResultText(text, args) {
   if (args.action === 'capture') value.mode = args.input?.mode || 'state';
   if (args.action === 'window') value.operation = args.input?.operation;
   if (args.action === 'clipboard') value.operation = args.input?.operation;
-  if (args.action === 'act') {
-    value.completed_actions = value.completed_steps;
-    value.total_actions = value.total_steps;
-    value.actions = Array.isArray(value.steps)
-      ? value.steps.map((row, index) => {
-          const normalized = { ...row };
-          normalized.type = args.input?.actions?.[index]?.type || normalized.action;
-          normalized.status = ['succeeded', 'failed', 'skipped', 'pending', 'uncertain'].includes(normalized.status)
-            ? normalized.status
-            : normalized.ok === false ? 'failed' : 'succeeded';
-          delete normalized.action;
-          delete normalized.ok;
-          return normalized;
-        })
-      : value.steps;
-    delete value.completed_steps;
-    delete value.total_steps;
-    delete value.steps;
-  }
+  if (args.action === 'act') canonicalizeActResult(value, args);
   if (value.capture_after && value.observation === undefined) {
     value.observation = value.capture_after;
     delete value.capture_after;
@@ -118,6 +122,35 @@ export function computerBridgeAvailableSync() {
 
 function readDiscovery() {
   return readBridgeDiscovery(DISCOVERY_FILE);
+}
+
+function computerCommandHeaders(bridge) {
+  return {
+    'content-type': 'application/json',
+    authorization: `Bearer ${bridge.token}`,
+  };
+}
+
+async function postComputerCommand(bridge, payload, { signal, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const requestSignal = signal ? AbortSignal.any([timeout, signal]) : timeout;
+  return await fetch(`http://127.0.0.1:${bridge.port}/command`, {
+    method: 'POST',
+    headers: computerCommandHeaders(bridge),
+    body: typeof payload === 'string' ? payload : JSON.stringify(payload),
+    signal: requestSignal,
+  });
+}
+
+function computerMutationMayHaveExecuted(command) {
+  return !isReplaySafeComputerCommand(command) && command?.read_only !== true;
+}
+
+function computerUncertainMutationResult(message = 'computer command may have executed and was not replayed; inspect fresh state before retrying') {
+  return {
+    content: [{ type: 'text', text: `Error: ${message}` }],
+    isError: true,
+  };
 }
 
 /** Execute one `computer` tool call. Returns MCP-shaped content so the
@@ -161,23 +194,10 @@ export async function executeComputerTool(rawArgs, context = {}) {
   let bridge = discovery;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-      const requestSignal = context?.signal
-        ? AbortSignal.any([timeoutSignal, context.signal])
-        : timeoutSignal;
-      response = await fetch(`http://127.0.0.1:${bridge.port}/command`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${bridge.token}`,
-        },
-        body: encoded,
-        signal: requestSignal,
-      });
+      response = await postComputerCommand(bridge, encoded, { signal: context?.signal });
       if (response.status === 401 && attempt === 0 && isReplaySafeComputerCommand(command)) {
         const replacement = readDiscovery();
-        if (replacement
-          && (replacement.port !== bridge.port || replacement.token !== bridge.token)) {
+        if (bridgeDiscoveryChanged(bridge, replacement)) {
           await response.body?.cancel().catch(() => undefined);
           bridge = replacement;
           continue;
@@ -187,36 +207,22 @@ export async function executeComputerTool(rawArgs, context = {}) {
     } catch (error) {
       const externallyAborted = context?.signal?.aborted === true;
       const timedOut = error?.name === 'TimeoutError';
-      const mutationMayHaveExecuted = !isReplaySafeComputerCommand(command)
-        && command?.read_only !== true;
+      const mutationMayHaveExecuted = computerMutationMayHaveExecuted(command);
       // The desktop app republishes the bridge with a fresh port/token when it
       // restarts. Observations are replay-safe; input may already have executed
       // before the response vanished, so never send it twice.
       if (attempt === 0 && !externallyAborted && !timedOut) {
         const replacement = readDiscovery();
-        if (replacement
-          && (replacement.port !== bridge.port || replacement.token !== bridge.token)) {
+        if (bridgeDiscoveryChanged(bridge, replacement)) {
           if (isReplaySafeComputerCommand(command)) {
             bridge = replacement;
             continue;
           }
-          return {
-            content: [{
-              type: 'text',
-              text: 'Error: computer command may have executed and was not replayed; inspect fresh state before retrying',
-            }],
-            isError: true,
-          };
+          return computerUncertainMutationResult();
         }
       }
       if (!externallyAborted && mutationMayHaveExecuted) {
-        return {
-          content: [{
-            type: 'text',
-            text: 'Error: computer command may have executed and was not replayed; inspect fresh state before retrying',
-          }],
-          isError: true,
-        };
+        return computerUncertainMutationResult();
       }
       if (externallyAborted) return cancelledComputerResult(sessionId, mutationMayHaveExecuted);
       const reason = timedOut
@@ -233,17 +239,15 @@ export async function executeComputerTool(rawArgs, context = {}) {
     body = await readComputerBridgeJson(response);
   } catch {
     if (context.signal?.aborted) {
-      return cancelledComputerResult(sessionId,
-        !isReplaySafeComputerCommand(command) && command?.read_only !== true);
+      return cancelledComputerResult(sessionId, computerMutationMayHaveExecuted(command));
     }
-    const message = !isReplaySafeComputerCommand(command) && command?.read_only !== true
+    const message = computerMutationMayHaveExecuted(command)
       ? 'computer command may have executed but the bridge returned an invalid response; inspect fresh state before retrying'
       : `computer bridge returned an invalid response (HTTP ${response.status})`;
     return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
   }
   if (context.signal?.aborted) {
-    return cancelledComputerResult(sessionId,
-      !isReplaySafeComputerCommand(command) && command?.read_only !== true);
+    return cancelledComputerResult(sessionId, computerMutationMayHaveExecuted(command));
   }
   if (!body?.ok) {
     const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);
@@ -257,13 +261,9 @@ export async function executeComputerTool(rawArgs, context = {}) {
   if (isPendingComputerWork(value)) {
     try {
       value = await continuePendingComputerWork(value, command, async (readCommand) => {
-        const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-        const pendingResponse = await fetch(`http://127.0.0.1:${bridge.port}/command`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${bridge.token}` },
-          body: JSON.stringify({ ...readCommand, ...(sessionId ? { session_id: sessionId } : {}) }),
-          signal: context.signal ? AbortSignal.any([timeout, context.signal]) : timeout,
-        });
+        const pendingResponse = await postComputerCommand(bridge, {
+          ...readCommand, ...(sessionId ? { session_id: sessionId } : {}),
+        }, { signal: context.signal });
         const pendingBody = await readComputerBridgeJson(pendingResponse);
         if (readCommand.action === 'capture' && pendingBody?.ok === false
           && pendingResponse.status !== 401 && pendingResponse.status !== 403
@@ -308,18 +308,10 @@ async function sendComputerSessionControl(sessionId, action, timeoutMs) {
   const discovery = readDiscovery();
   if (!discovery) return false;
   try {
-    const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${discovery.token}`,
-      },
-      body: JSON.stringify({
-        action,
-        session_id: sessionId,
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const response = await postComputerCommand(discovery, {
+      action,
+      session_id: sessionId,
+    }, { timeoutMs });
     const body = await readComputerBridgeJson(response);
     return response.ok && body?.ok === true;
   } catch {

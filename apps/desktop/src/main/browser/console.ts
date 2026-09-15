@@ -82,7 +82,7 @@ export class BrowserConsoleLedger {
 
   format(rawLevel: unknown, rawQuery: unknown, rawLimit: unknown): string {
     const level = normalizeFilterLevel(rawLevel);
-    const query = String(rawQuery || '').trim().toLowerCase().slice(0, 2_000);
+    const query = String(rawQuery || '').trim().toLowerCase();
     const limit = Math.min(
       200,
       Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(Number(rawLimit)) : 50),

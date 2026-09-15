@@ -290,6 +290,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let secureChannel: RelayE2EEChannel | null = null;
   let connectionReady = false;
   let peerViewSync = false;
+  let legacyVisibleSessionsQueue: Promise<unknown> = Promise.resolve();
   let pendingReconnectNotification = false;
   const viewBaselines = createRemoteViewBaselineCache();
   const viewSync = createRemoteViewSync({
@@ -1791,7 +1792,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : []),
       ]),
     setVisibleSessions: (sessionIds) => {
-      lastVisibleSessionIds = [...sessionIds];
+      const requested = [...sessionIds];
+      lastVisibleSessionIds = requested;
       try {
         localStorage.setItem(
           VISIBLE_SESSIONS_STORAGE_KEY,
@@ -1799,7 +1801,16 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         );
       } catch { /* the next launch simply waits for React, as before */ }
       return connect().then(async () => {
-        if (!peerViewSync) return call<boolean>('setVisibleSessions', [lastVisibleSessionIds]);
+        if (!peerViewSync) {
+          // Legacy encrypted peers have no registration version. Keep their
+          // old ordering guarantee here, not in every desktop pane.
+          const run = legacyVisibleSessionsQueue.catch(() => undefined).then(() =>
+            lastVisibleSessionIds === requested
+              ? call<boolean>('setVisibleSessions', [requested])
+              : true);
+          legacyVisibleSessionsQueue = run;
+          return run;
+        }
         await viewSync.request();
         return true;
       });

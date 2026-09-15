@@ -12,6 +12,7 @@ import React, {
 import { type TranscriptItem } from "./desktop-types";
 import { t } from "./i18n";
 import { preloadMarkdownBody } from "./markdown-body-loader";
+import { LocalPathMention } from "./MarkdownLink";
 import { MxIcon } from "./MxIcon";
 import { CodeDiff } from "./transcript-diff";
 import { CopyControl, TextShimmer } from "./transcript-primitives";
@@ -336,7 +337,11 @@ function ToolActivityItem({
           <b><TextShimmer text={presentation.title} active={presentation.pending} /></b>
           {presentation.subject && !(open && presentation.hideSubjectWhenOpen)
             && !(presentation.pending && !presentation.command)
-            && <small>{presentation.subject}</small>}
+            && <small>{presentation.targetPath
+              ? <LocalPathMention path={presentation.targetPath} line={presentation.targetLine}>
+                {presentation.subject}
+              </LocalPathMention>
+              : presentation.subject}</small>}
         </span>
         {presentation.resultLabel && <span className="tool-activity-item-result">{presentation.resultLabel}</span>}
         {presentation.pending && <span className="sr-only" role="status">{t("Running")}</span>}

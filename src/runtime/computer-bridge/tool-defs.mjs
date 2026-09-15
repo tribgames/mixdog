@@ -8,7 +8,7 @@ import {
 // recovery, and flows live in the built-in `computer-use` skill; the schema
 // below owns every field.
 const COMPUTER_TOOL_DESCRIPTION = [
-  'Operate the local Windows desktop through Mixdog (Windows only). Last resort after an MCP tool, shell/CLI, and Browser Use (browser): only native apps and GUI-only tools; never a stand-in for a page action browser refused.',
+  'Operate local Windows desktop apps, external browser windows, and OS dialogs through Mixdog. Last resort after an MCP tool, shell/CLI, and Browser Use where applicable; never a stand-in for a page action browser refused.',
   'Load the computer-use skill before first use.',
   'At most one computer call per model turn; chain same-window steps inside one act.',
   'Every window action names one exact target (window_id, or app resolving to one window); input requires a fresh observation from capture or the previous result.',

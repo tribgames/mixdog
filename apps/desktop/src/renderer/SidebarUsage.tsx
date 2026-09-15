@@ -37,6 +37,7 @@ const SUBSCRIPTIONS = [
   { key: "claude", label: "Claude", provider: "anthropic-oauth" },
   { key: "grok", label: "Grok", provider: "grok-oauth" },
   { key: "cursor", label: "Cursor", provider: "cursor-oauth" },
+  { key: "antigravity", label: "Antigravity", provider: "antigravity-oauth" },
   { key: "opencode-go", label: "OpenCode Go", provider: "opencode-go" },
 ] as const;
 
@@ -71,6 +72,9 @@ function subscriptionRow(dashboard: unknown, subscription: Subscription): UsageR
     if (subscription.key === "cursor") {
       return id === "cursor-oauth" || label.includes("cursor oauth");
     }
+    if (subscription.key === "antigravity") {
+      return id === "antigravity-oauth" || label.includes("antigravity");
+    }
     if (group !== "oauth") return false;
     if (subscription.key === "codex") return /openai|codex/.test(`${id} ${label}`);
     if (subscription.key === "claude") return /anthropic|claude/.test(`${id} ${label}`);
@@ -99,6 +103,7 @@ function windowLabel(window: UsageRecord): string {
   const label = String(window.label || "Quota").trim();
   if (/^(?:w|wk|week|weekly)$/i.test(label)) return "W";
   if (/^(?:mo|mon|month|monthly)$/i.test(label)) return "M";
+  if (/^flsh$/i.test(label)) return "FLASH";
   return label.toUpperCase();
 }
 
@@ -124,12 +129,17 @@ const PIN_WINDOW_PRIORITY = [
   /^(?:\d+H|\d+D|D|DAY|DAILY)$/i,
 ];
 
-function pinPercent(windows: UsageRecord[], preferredLabel = ""): number | null {
+function pinPercent(windows: UsageRecord[], provider: string): number | null {
   const candidates = windows.flatMap((window) => {
     const percent = usedPercent(window);
     return percent === null ? [] : [{ label: String(window.label || "").trim(), percent }];
   });
   if (!candidates.length) return null;
+  if (provider === "antigravity-oauth") {
+    const gemini = candidates.filter((candidate) => /^(?:FLSH|FLASH|PRO)$/i.test(candidate.label));
+    return gemini.length ? Math.max(...gemini.map((candidate) => candidate.percent)) : null;
+  }
+  const preferredLabel = provider === "cursor-oauth" ? "Basic" : "";
   if (preferredLabel) {
     const preferred = candidates.find((candidate) => candidate.label.toLowerCase() === preferredLabel.toLowerCase());
     if (preferred) return preferred.percent;
@@ -145,7 +155,7 @@ export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
     const percent = pinPercent(
       quotaWindows(subscriptionRow(dashboard, subscription)),
-      subscription.provider === "cursor-oauth" ? "Basic" : "",
+      subscription.provider,
     );
     if (percent === null) return [];
     return [{
@@ -427,18 +437,19 @@ export function SidebarUsage({
         {SUBSCRIPTIONS.map((subscription) => {
           const row = subscriptionRow(dashboard, subscription);
           const windows = quotaWindows(row);
+          const checking = row.status === "checking";
           const available = Object.keys(row).length > 0;
           const connected = subscriptionConnected(row);
           if (!connected) return null;
           return <div className="sidebar-usage-row" key={subscription.key}
-            data-usage-provider={subscription.key}>
+            data-usage-provider={subscription.key} aria-busy={checking}>
             <span className="sidebar-usage-line">
               <span className="sidebar-usage-provider-icon">
                 <ProviderIcon provider={subscription.provider} />
               </span>
               <b>{subscription.label}</b>
               {subscription.provider.endsWith('-oauth') && <ProviderAccountPicker api={api} provider={subscription.provider} />}
-              {windows.length === 0 && <small>{!available && awaitingFirstUsage ? t("Loading…")
+              {windows.length === 0 && !checking && <small>{!available && awaitingFirstUsage ? t("Loading…")
                 : connected ? t("Connected") : t("Not connected")}</small>}
             </span>
             <span className="sidebar-usage-meters">
@@ -459,7 +470,7 @@ export function SidebarUsage({
                   ? resetText(window.resetAt) : "";
                 return <span className={`sidebar-usage-meter${tone}`}
                   key={quotaWindowKey(window, index)}>
-                  <small>{windowLabel(window)}</small>
+                  <small title={windowLabel(window)}>{windowLabel(window)}</small>
                   <i><i style={{ width: `${effectivePercent ?? 0}%` }} /></i>
                   <b>{displayedPercent === null ? "—" : `${displayedPercent}%`}</b>
                   <em title={resetSentence || undefined}>
@@ -468,7 +479,7 @@ export function SidebarUsage({
                 </span>;
               })}
               {windows.length === 0 && <span className="sidebar-usage-meter sidebar-usage-meter-empty">
-                <small>{!available && awaitingFirstUsage ? t("Loading…")
+                <small>{checking ? t("Loading usage…") : !available && awaitingFirstUsage ? t("Loading…")
                   : connected ? t("No current quota window") : t("Connect to load usage")}</small>
               </span>}
             </span>

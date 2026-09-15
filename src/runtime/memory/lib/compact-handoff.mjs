@@ -1,4 +1,5 @@
 import { compareRecallNewestFirst } from './recall-order.mjs'
+import { assessChunkQuality } from './memory-chunk-quality.mjs'
 
 function finiteTurn(row) {
   const turn = Number(row?.source_turn)
@@ -45,8 +46,11 @@ function memberRows(row) {
 }
 
 function rawMember(row) {
-  const copy = { ...(row || {}), is_root: 0, chunk_root: null }
+  const copy = { ...(row || {}), is_root: 0, chunk_root: null, _compactRaw: true }
   delete copy.members
+  delete copy.element
+  delete copy.summary
+  delete copy.chunk_quality
   return copy
 }
 
@@ -76,9 +80,17 @@ function isBeforeCutoff(row, cutoff) {
   return chronologicalCompare(row, cutoff) < 0
 }
 
+function canCompressEpisode(row, members, keptMembers, references) {
+  return !!String(row?.summary ?? '').trim()
+    && members.length > 0
+    && keptMembers.length === members.length
+    && members.every((member) => references.get(rowIdentity(member)) === 1)
+    && assessChunkQuality(row, row.members).usable
+}
+
 // Build one complete compact projection for a session:
-//   summarized episode -> root summary
-//   unsummarized episode -> every RAW member
+//   structurally usable, shorter episode (including legacy) -> compressed body
+//   malformed, changed or larger episode -> every RAW member
 // The latest live user turns are excluded here because the orchestrator emits
 // that same range once, with provider roles/tool pairing intact, as the tail.
 // No content-based dedupe or count cap is allowed: repeated text can be a real
@@ -87,29 +99,27 @@ export function compactHandoffRows(rows, { preserveLatestUserTurns = 0 } = {}) {
   const source = Array.isArray(rows) ? rows : []
   const cutoff = tailCutoff(source, preserveLatestUserTurns)
   const projected = []
+  const references = new Map()
+  for (const row of source) {
+    for (const member of memberRows(row)) {
+      const key = rowIdentity(member)
+      references.set(key, (references.get(key) || 0) + 1)
+    }
+  }
 
   for (const row of source) {
     const isRoot = Number(row?.is_root) === 1
     const members = memberRows(row)
     if (!isRoot) {
-      if (isBeforeCutoff(row, cutoff)) projected.push(row)
+      if (isBeforeCutoff(row, cutoff)) projected.push(rawMember(row))
       continue
     }
 
     const keptMembers = members.filter((member) => isBeforeCutoff(member, cutoff))
-    const hasSummary = !!String(row?.summary ?? '').trim()
-    if (hasSummary && members.length > 0 && keptMembers.length === members.length) {
-      const summaryRow = { ...row }
+    if (canCompressEpisode(row, members, keptMembers, references)) {
+      const summaryRow = { ...row, element: '', _compactBody: true, _compactMemberIds: members.map(member => String(member.id)) }
       delete summaryRow.members
       projected.push(summaryRow)
-      continue
-    }
-    if (hasSummary && members.length === 0) {
-      if (isBeforeCutoff(row, cutoff)) {
-        const summaryRow = { ...row }
-        delete summaryRow.members
-        projected.push(summaryRow)
-      }
       continue
     }
     if (members.length > 0) {
@@ -117,9 +127,7 @@ export function compactHandoffRows(rows, { preserveLatestUserTurns = 0 } = {}) {
       continue
     }
     if (isBeforeCutoff(row, cutoff)) {
-      const rawRoot = { ...row }
-      delete rawRoot.members
-      projected.push(rawRoot)
+      projected.push(rawMember(row))
     }
   }
 

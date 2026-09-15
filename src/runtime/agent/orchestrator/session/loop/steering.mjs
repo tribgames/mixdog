@@ -123,3 +123,94 @@ export function mergeSteeringEntries(entries) {
     const merged = mergeNormalizedContentEntries(normalized, steeringContentText);
     return merged ? { ...merged, ...mergeSteeringMetadata(normalized) } : null;
 }
+
+// Drain of the host's queued steering/prompt entries into the live transcript.
+// The drain is synchronous (terminal guards depend on that) and returns whether
+// anything was injected. `onSkillPrompt` receives each typed entry so the loop
+// can run its policy-checked skill selection before the next provider snapshot.
+export function createSteeringDrain({ messages, opts, sessionId, onSkillPrompt }) {
+    return function drainSteeringIntoMessages(stage = 'mid-turn', options = {}) {
+        if (typeof opts.drainSteering !== 'function') return false;
+        let steerMsgs = [];
+        // The stage rides along so the host can scope which queues a drain may
+        // consume (mid-turn tool-batch boundary vs the terminal pending-input
+        // check that precedes the stop hooks).
+        try { steerMsgs = opts.drainSteering(sessionId, { ...options, stage }) || []; }
+        catch { steerMsgs = []; }
+        const mergedMessages = [];
+        for (const entry of Array.isArray(steerMsgs) ? steerMsgs : []) {
+            const merged = mergeSteeringEntries([entry]);
+            if (merged) mergedMessages.push(merged);
+        }
+        if (mergedMessages.length === 0) return false;
+        if (typeof options.beforeAppend === 'function') {
+            try { options.beforeAppend(); } catch { /* best-effort hook */ }
+        }
+        let totalCount = 0;
+        let totalTextLen = 0;
+        let maxQueueWaitMs = 0;
+        for (const merged of mergedMessages) {
+            const submissionIds = Array.isArray(merged.ids) ? merged.ids : [];
+            const submittedAt = Number(merged.submittedAt);
+            const injectedAt = Date.now();
+            const steeringTranscriptMeta = merged.transcriptMeta
+                && typeof merged.transcriptMeta === 'object'
+                ? {
+                    at: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : injectedAt,
+                    ...merged.transcriptMeta,
+                }
+                : null;
+            if (Number.isFinite(submittedAt) && submittedAt > 0) {
+                maxQueueWaitMs = Math.max(maxQueueWaitMs, injectedAt - submittedAt);
+            }
+            // Tag steering-origin user messages so provider lowering keeps them
+            // distinct from preceding tool results. Keep each queued command as
+            // its own user turn instead of collapsing priority/mode buckets
+            // together.
+            // A drained task notification is the runtime reporting, not the
+            // user speaking: it keeps the user role the wire needs but is
+            // stored under its own source with its execution provenance, so
+            // envelope classification and the transcript never mistake it
+            // for typed input.
+            const notification = merged.mode === 'task-notification';
+            const execution = notification && merged.execution && typeof merged.execution === 'object'
+                ? { ...merged.execution }
+                : null;
+            messages.push({
+                role: 'user',
+                content: merged.content,
+                meta: {
+                    source: notification ? 'task-notification' : 'steering',
+                    ...(execution ? { execution } : {}),
+                    ...(submissionIds.length ? { submissionIds } : {}),
+                    ...(steeringTranscriptMeta ? { transcript: steeringTranscriptMeta } : {}),
+                },
+            });
+            if (!notification) onSkillPrompt(merged.content);
+            const text = merged.text || steeringContentText(merged.content);
+            totalCount += Number(merged.count) || 1;
+            totalTextLen += String(text || '').length;
+            try {
+                opts.onSteerMessage?.(text, {
+                    ids: submissionIds,
+                    submittedAt: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : undefined,
+                    injectedAt,
+                    stage,
+                    ...(notification ? { mode: 'task-notification' } : {}),
+                    ...(execution ? { execution } : {}),
+                    ...(Array.isArray(merged.images) && merged.images.length ? { images: merged.images } : {}),
+                    ...(steeringTranscriptMeta ? { transcriptMeta: steeringTranscriptMeta } : {}),
+                });
+            } catch {}
+        }
+        if (sessionId) {
+            try {
+                process.stderr.write(
+                    `[steer] sess=${sessionId} injected ${stage} user message(s)`
+                    + ` (merged=${totalCount} len=${totalTextLen} waitMs=${Math.max(0, maxQueueWaitMs)})\n`,
+                );
+            } catch {}
+        }
+        return true;
+    };
+}

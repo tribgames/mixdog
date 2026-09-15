@@ -100,3 +100,18 @@ test('focus loss releases every held button without leaving a stuck drag', () =>
     { button: 'left', buttons: 2 }, { button: 'right', buttons: 0 },
   ]);
 });
+
+test('composition controls preserve UTF-16 selections and reject malformed or oversized values', () => {
+  assert.deepEqual(normalizeBrowserPageControl({
+    type: 'composition', documentId: 'p1:1', text: '한글', selectionStart: 1, selectionEnd: 2,
+  }), { type: 'composition', documentId: 'p1:1', text: '한글', selectionStart: 1, selectionEnd: 2 });
+  assert.deepEqual(normalizeBrowserPageControl({
+    type: 'composition-end', documentId: 'p1:1', text: '',
+  }), { type: 'composition-end', documentId: 'p1:1', text: '' });
+  for (const change of [{ selectionStart: -1 }, { selectionStart: 0.5 },
+    { selectionStart: 2, selectionEnd: 1 }, { selectionEnd: 3 }, { text: 'x'.repeat(32_001) }]) {
+    assert.throws(() => normalizeBrowserPageControl({
+      type: 'composition', documentId: 'p1:1', text: '한글', selectionStart: 1, selectionEnd: 2, ...change,
+    }));
+  }
+});

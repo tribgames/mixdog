@@ -3,6 +3,12 @@ export const BROWSER_INPUT_WAIT_MS = 2_000;
 export const BROWSER_INPUT_EXPIRED = 'Browser input expired; input was not sent.';
 export const BROWSER_INPUT_BUSY = 'Browser input is busy; input was not sent.';
 
+/** Typing is ordered text editing, not expendable pointer motion. */
+export function browserTypingInput(action: { type: string }): boolean {
+  return action.type === 'text' || action.type === 'key'
+    || action.type === 'composition' || action.type === 'composition-end';
+}
+
 /** Session-owned tab controls can escape a blocked page without editing it. */
 export function browserTabControl(action: { type: string }): boolean {
   return action.type === 'new-tab' || action.type === 'select-tab' || action.type === 'close-tab';

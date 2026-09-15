@@ -4,7 +4,6 @@ const SCHEMA_ANNOTATIONS = new Set([
     '$schema',
     'default',
     'deprecated',
-    'description',
     'examples',
     'readOnly',
     'title',
@@ -105,13 +104,6 @@ function flattenCursorTopLevelCompoundSchema(schema) {
     };
 }
 
-function conciseDescription(value) {
-    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
-    if (normalized.length <= 120) return normalized;
-    const sentence = normalized.match(/^.{24,117}?[.!?](?:\s|$)/)?.[0]?.trim();
-    return sentence || `${normalized.slice(0, 117)}...`;
-}
-
 export function prepareCursorToolDefinition(tool) {
     const fn = tool?.function || tool || {};
     const inputSchema = fn.parameters && typeof fn.parameters === 'object'
@@ -119,7 +111,7 @@ export function prepareCursorToolDefinition(tool) {
         : { type: 'object', properties: {} };
     return {
         name: fn.name,
-        description: conciseDescription(fn.description),
+        description: String(fn.description || ''),
         inputSchema,
     };
 }

@@ -6,7 +6,7 @@ import { homedir as osHomedir } from 'node:os';
 
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { normalizeInputPath, toDisplayPath } from '../builtin.mjs';
+import { normalizeInputPath, toDisplayPath } from '../builtin/path-utils.mjs';
 import { findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../code-graph-tool-defs.mjs';

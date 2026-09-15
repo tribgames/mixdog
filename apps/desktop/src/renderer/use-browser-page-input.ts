@@ -5,7 +5,7 @@ import { remoteBrowserImagePoint } from '../shared/remote-browser';
 
 export function useBrowserPageInput(
   client: ReturnType<typeof createBrowserPageClient>,
-  image: RefObject<HTMLImageElement | null>,
+  image: RefObject<HTMLElement | null>,
   keyboard: RefObject<HTMLTextAreaElement | null>,
 ) {
   const composing = useRef(false);
@@ -92,7 +92,7 @@ export function useBrowserPageInput(
     },
     onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
       event.stopPropagation();
-      if (composing.current || event.nativeEvent.isComposing || event.key === 'Process') return;
+      if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.key === 'Process') return;
       const command = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       if (key === 'f5' || (command && key === 'r')) {
@@ -117,18 +117,26 @@ export function useBrowserPageInput(
       const modifiers = [event.ctrlKey && 'Control', event.metaKey && 'Meta', event.altKey && 'Alt', event.shiftKey && 'Shift'].filter(Boolean);
       client.fire({ type: 'key', key: [...modifiers, event.key === ' ' ? 'Space' : event.key].join('+') });
     },
-    onInput: (event: FormEvent<HTMLTextAreaElement>) => { if (!composing.current) text(event.currentTarget); },
+    onInput: (event: FormEvent<HTMLTextAreaElement>) => {
+      if (!composing.current && !(event.nativeEvent as InputEvent).isComposing) text(event.currentTarget);
+    },
     onCompositionStart: () => {
       composing.current = true;
       compositionOwner.current = { client, token: client.inputToken() };
+    },
+    onCompositionUpdate: (event: CompositionEvent<HTMLTextAreaElement>) => {
+      const owner = compositionOwner.current;
+      if (owner) owner.client.fire({
+        type: 'composition', text: event.data,
+        selectionStart: event.data.length, selectionEnd: event.data.length,
+      }, owner.token);
     },
     onCompositionEnd: (event: CompositionEvent<HTMLTextAreaElement>) => {
       composing.current = false;
       const owner = compositionOwner.current;
       compositionOwner.current = null;
-      const value = event.currentTarget.value;
       event.currentTarget.value = '';
-      if (value && owner) owner.client.fire({ type: 'text', text: value }, owner.token);
+      if (owner) owner.client.fire({ type: 'composition-end', text: event.data }, owner.token);
     },
     onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => {
       event.preventDefault();

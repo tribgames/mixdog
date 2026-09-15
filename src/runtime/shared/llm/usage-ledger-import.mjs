@@ -29,6 +29,8 @@ export function importTraceRow(row) {
         : /^\d+$/.test(String(row.ts)) ? Number(row.ts) : Date.parse(row.ts);
     return makeUsageRecord({
         ts, provider, model: row.model,
+        requestedModel: row.requested_model || payload.requested_model,
+        pricingModel: row.pricing_model || payload.pricing_model,
         inputTokens: input, outputTokens: output,
         uncachedInputTokens: raw ? row.uncached_input_tokens ?? payload.uncached_input_tokens : undefined,
         cacheReadTokens: raw ? row.cached_tokens : row.cacheReadTokens,
@@ -61,6 +63,7 @@ export function repriceRestoredDays(original) {
                     uncachedInputTokens: bucket.input, outputTokens: bucket.output,
                     cacheReadTokens: bucket.cacheRead, cacheWriteTokens: bucket.cacheWrite,
                     historical: true,
+                    historicalAggregate: true,
                 });
                 bucket.costUsd = price.costUsd ?? 0;
                 bucket.costBilled = 0;
@@ -145,6 +148,8 @@ export async function readOriginalTrace(dataDir, until) {
             SELECT ts,kind,model,session_id,input_tokens,output_tokens,cached_tokens,cache_write_tokens,
                 duration_ms,jsonb_build_object(
                     'provider',payload->'provider',
+                    'requested_model',payload->'requested_model',
+                    'pricing_model',payload->'pricing_model',
                     'uncached_input_tokens',payload->'uncached_input_tokens',
                     'response_id',payload->'response_id',
                     'service_tier',payload->'service_tier',

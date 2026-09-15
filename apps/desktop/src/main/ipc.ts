@@ -28,7 +28,7 @@ import {
 import { localFileMimeTypeForPath } from '../shared/local-files';
 import { translateNativeUi } from '../shared/native-ui';
 import { openLocalFileLink } from './local-file-links';
-import { requiredSessionId } from './desktop-state';
+import { optionalSessionId, requiredSessionId } from './desktop-state';
 import type { DesktopService } from './desktop-service-contract';
 import {
   absoluteLocalPath,
@@ -510,18 +510,11 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.setModelRoute, (_event, selection, sessionId) =>
     host.setModelRoute(
       requiredModelSelection(selection),
-      sessionId === undefined || sessionId === null || sessionId === ''
-        ? undefined
-        : requiredSessionId(sessionId),
+      optionalSessionId(sessionId),
     ));
   handle(DESKTOP_IPC.setFast, (_event, enabled, sessionId) => {
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
-    return host.setFast(
-      enabled,
-      sessionId === undefined || sessionId === null || sessionId === ''
-        ? undefined
-        : requiredSessionId(sessionId),
-    );
+    return host.setFast(enabled, optionalSessionId(sessionId));
   });
   handle(DESKTOP_IPC.readSettings, () =>
     settingsStore?.read() ?? invokeDesktopOperation('readSettings', []));

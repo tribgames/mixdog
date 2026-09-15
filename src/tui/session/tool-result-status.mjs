@@ -7,12 +7,17 @@
  * so they move out verbatim as free functions. session-local.mjs imports them and
  * keeps calling them unchanged.
  */
-import { toolErrorDisplay } from './tool-result-text.mjs';
+import { stripShellExitHeader, toolErrorDisplay } from './tool-result-text.mjs';
 import {
   normalizeToolTerminalStatus,
   toolResultTerminalStatus,
 } from '../../runtime/shared/tool-status.mjs';
 import { isReadOnlyNavigationMiss } from '../../runtime/agent/orchestrator/session/result-classification.mjs';
+import {
+  formatAggregateDetail,
+  summarizeToolResult,
+  toolLoadingTargets,
+} from '../../runtime/shared/tool-surface.mjs';
 
 const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
@@ -183,6 +188,7 @@ export function aggregateToolMembers(calls) {
       count: 1,
       completedCount: completed ? 1 : 0,
       headerFinalized: completed,
+      ...stringUiDiffPatch(rec.uiDiff),
       ...(Number(rec.startedAt) > 0 ? { startedAt: Number(rec.startedAt) } : {}),
       ...(Number(rec.completedAt) > 0 ? { completedAt: Number(rec.completedAt) } : {}),
     });
@@ -224,4 +230,91 @@ export function assignAggregateSummaryOrder(aggregate, callRec) {
   const next = Math.max(0, Number(aggregate.nextSummarySeq || 0));
   callRec.summarySeq = next;
   aggregate.nextSummarySeq = next + 1;
+}
+
+/** Live tool messages: a present uiDiff is always a string (empty if malformed). */
+export function uiDiffFromMessage(source) {
+  if (!source || typeof source !== 'object' || !Object.hasOwn(source, 'uiDiff')) return undefined;
+  return typeof source.uiDiff === 'string' ? source.uiDiff : '';
+}
+
+export function uiDiffPatchFromMessage(source) {
+  const value = uiDiffFromMessage(source);
+  return value === undefined ? {} : { uiDiff: value };
+}
+
+export function assignUiDiffFromMessage(target, source) {
+  const value = uiDiffFromMessage(source);
+  if (value === undefined || !target) return target;
+  target.uiDiff = value;
+  return target;
+}
+
+/** Stored/member records only copy a string uiDiff; other types stay omitted. */
+export function stringUiDiffPatch(value) {
+  return typeof value === 'string' ? { uiDiff: value } : {};
+}
+
+export function toolResultDisplay(message, rawText, toolName) {
+  const outcome = toolCallOutcome({ ...message, toolName }, rawText);
+  const isError = outcome.isCallError;
+  const text = isError
+    ? toolErrorDisplay(rawText, toolName || 'tool')
+    : (outcome.exitCode != null ? stripShellExitHeader(rawText) : rawText);
+  return { ...outcome, isError, text };
+}
+
+export function applyAggregateCallFields(callRec, aggregate, {
+  isError,
+  isCallError,
+  isExitError,
+  exitCode,
+  text,
+  rawText,
+  message,
+} = {}) {
+  if (!callRec) return callRec;
+  callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
+  assignAggregateSummaryOrder(aggregate, callRec);
+  callRec.isError = isError;
+  callRec.isCallError = isCallError;
+  callRec.isExitError = isExitError;
+  callRec.exitCode = exitCode;
+  callRec.resultText = text;
+  callRec.rawResultText = rawText;
+  assignUiDiffFromMessage(callRec, message);
+  callRec.completedAt = callRec.completedAt || Date.now();
+  return callRec;
+}
+
+export function aggregateLoadingTargets(calls) {
+  const records = calls?.values ? [...calls.values()] : [...(calls || [])];
+  const groups = records.map((call) => toolLoadingTargets(call.name, call.args));
+  if (groups.length === 0 || !groups.every((targets) => targets.length > 0)) return [];
+  return [...new Set(groups.flat())];
+}
+
+export function aggregateResultPatch(aggregate, allCalls, completedCount) {
+  const errors = allCalls.filter((r) => r.isError).length;
+  const callErrors = allCalls.filter((r) => r.isCallError).length;
+  const exitErrors = allCalls.filter((r) => r.isExitError).length;
+  const succeeded = Math.max(0, completedCount - errors - exitErrors);
+  const displayDetail = errors > 0 || exitErrors > 0
+    ? failureDetailText({
+      succeeded,
+      realErrors: callErrors,
+      exitErrors,
+      exitCode: allCalls.find((r) => r.isExitError)?.exitCode,
+    })
+    : formatAggregateDetail(aggregateSummaries(aggregate));
+  return {
+    result: displayDetail,
+    text: displayDetail,
+    isError: errors > 0,
+    errorCount: errors,
+    callErrorCount: callErrors,
+    exitErrorCount: exitErrors,
+    count: allCalls.length,
+    toolMembers: aggregateToolMembers(allCalls),
+  };
 }

@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import { makeModelCache } from '../agent/orchestrator/providers/model-cache.mjs';
-import { resolveGeminiKey, resolveXaiAuth } from './auth.mjs';
+import { resolveAntigravityAuth, resolveGeminiKey, resolveXaiAuth } from './auth.mjs';
 import { catalogHttpError, staleCatalog } from './catalog-errors.mjs';
 
 const TTL_MS = 24 * 60 * 60_000;
@@ -29,6 +29,12 @@ function imageToolSupported(row, id) {
   return major >= 5 && !/(?:^|-)(?:codex|nano|pro|chat|audio|realtime|search)(?:-|$)/i.test(id);
 }
 
+// Antigravity serves the same Nano Banana family through the Cloud Code
+// Assist gateway; the ids and labels follow the Gemini API catalog.
+function googleLane(lane) {
+  return lane === 'gemini' || lane === 'antigravity-oauth';
+}
+
 function kindFor(lane, row, id) {
   if (row.deprecated === true || row.disabled === true) return null;
   if (lane === 'openai-oauth') return imageToolSupported(row, id) ? 'image' : null;
@@ -40,9 +46,11 @@ function kindFor(lane, row, id) {
       && !/^grok-imagine-video-1\.5(?:-|$)/.test(id)) return 'video';
     return null;
   }
-  if (lane === 'gemini') {
+  if (googleLane(lane)) {
     if (/^gemini-.*(?:^|-)image(?:-|$)/.test(id)
       && methodsAllow(row, 'generateContent')) return 'image';
+  }
+  if (lane === 'gemini') {
     if (/^gemini-omni-(?:[\d.]+-)?flash(?:-|$)/.test(id)) return 'video';
     if (/^veo-3(?:\.[\d]+)?-.*generate(?:-|$)/.test(id)
       && methodsAllow(row, 'predictLongRunning')) return 'video';
@@ -53,6 +61,13 @@ function kindFor(lane, row, id) {
 function version(id) {
   return (id.match(/^(?:gpt|gemini|veo)-(\d+(?:\.\d+)*)/)
     || id.match(/(?:image|video|omni)-(\d+(?:\.\d+)*)/))?.[1] || '0';
+}
+
+function isPreferredMediaModel(lane, kind, id) {
+  if (lane === 'openai-oauth') return !/(?:^|-)mini(?:-|$)/.test(id);
+  if (lane === 'gemini' && kind === 'video') return /^gemini-omni-/.test(id);
+  if (googleLane(lane) && kind === 'image') return !/-lite-|preview|experimental/.test(id);
+  return true;
 }
 
 function compareModels(a, b) {
@@ -69,7 +84,7 @@ export function mediaModelLabel(lane, row, id) {
     label = id.replace(/^grok-imagine-image/, 'Grok Imagine Image')
       .replace(/^grok-imagine-video/, 'Grok Imagine Video')
       .replace(/-quality$/, ' Quality').replace(/-(\d)/, ' $1');
-  } else if (lane === 'gemini') {
+  } else if (googleLane(lane)) {
     const names = {
       'gemini-2.5-flash-image': 'Nano Banana · Gemini 2.5 Flash Image',
       'gemini-3.1-flash-image': 'Nano Banana 2 · Gemini 3.1 Flash Image',
@@ -109,10 +124,7 @@ export function projectMediaModels(lane, rows) {
   for (const kind of ['image', 'video']) {
     result[kind].sort(compareModels);
     // Defaults follow a current mainline/Omni model, never a dated hardcoded id.
-    const preferred = result[kind].findIndex((row) => lane === 'openai-oauth'
-      ? !/(?:^|-)mini(?:-|$)/.test(row.id)
-      : lane === 'gemini' && kind === 'video' ? /^gemini-omni-/.test(row.id)
-        : lane === 'gemini' && kind === 'image' ? !/-lite-|preview|experimental/.test(row.id) : true);
+    const preferred = result[kind].findIndex((row) => isPreferredMediaModel(lane, kind, row.id));
     if (preferred > 0) result[kind].unshift(...result[kind].splice(preferred, 1));
     result[kind] = result[kind].map(({ created, ...row }) => row);
   }
@@ -151,10 +163,13 @@ async function providerSource(lane) {
   }
   const auth = lane === 'gemini'
     ? { token: resolveGeminiKey() }
-    : await resolveXaiAuth(lane);
+    : lane === 'antigravity-oauth'
+      ? await resolveAntigravityAuth()
+      : await resolveXaiAuth(lane);
   // API-key and OAuth catalogs must not leak availability across credentials.
-  // Persist only a one-way scope hash, never a key or a bearer.
-  const scope = createHash('sha256').update(auth.token).digest('hex').slice(0, 24);
+  // Persist only a one-way scope hash, never a key or a bearer. Antigravity
+  // bearers rotate hourly; the Cloud project identifies that account instead.
+  const scope = createHash('sha256').update(auth.projectId || auth.token).digest('hex').slice(0, 24);
   return {
     key: `${lane}-${scope}`, revision,
     fetchModels: () => fetchMediaModelRows({ lane, auth }),
@@ -172,6 +187,11 @@ export async function fetchMediaModelRows({ lane, auth, fetchFn = fetch }) {
       if (!Array.isArray(data?.models)) throw new Error('Invalid Gemini media catalog response');
       return { ok: true, json: async () => data };
     });
+  }
+  if (lane === 'antigravity-oauth') {
+    const { fetchAvailableModels } = await import('../agent/orchestrator/providers/antigravity-oauth-catalog.mjs');
+    const models = await fetchAvailableModels({ accessToken: auth.token, projectId: auth.projectId, fetchFn, signal });
+    return Object.entries(models).map(([id, row]) => ({ ...(row && typeof row === 'object' ? row : {}), id }));
   }
   const { getLlmDispatcher } = await import('../shared/llm/http-agent.mjs');
   const response = await fetchFn(`${auth.baseURL}/models`, {

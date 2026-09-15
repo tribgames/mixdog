@@ -96,6 +96,7 @@ export function resolveRouteContextState(
 
 export function createSessionLifecycle({
   rt,
+  adoptSession,
   collectProviderModels,
   ensureProvidersReady,
   lookupModelMeta,
@@ -227,7 +228,7 @@ export function createSessionLifecycle({
     if (rt.sessionCreatePromise) {
       return await runAbortable(signal, () => rt.sessionCreatePromise, 'Session creation aborted');
     }
-    if (rt.session?.id && !rt.sessionNeedsCwdRefresh) {
+    if (rt.session?.id) {
       const liveSession = mgr.getSession(rt.session.id);
       if (liveSession && liveSession.closed !== true && liveSession.status !== 'closed') {
         rt.session = liveSession;
@@ -332,9 +333,8 @@ export function createSessionLifecycle({
       if (hasOwn(rt.route, 'effort') || rt.route.effectiveEffort) {
         sessionOpts.effort = rt.route.effectiveEffort || null;
       }
-      rt.session = mgr.createSession(sessionOpts);
+      adoptSession(mgr.createSession(sessionOpts));
       rt.reservedSessionId = null;
-      rt.sessionNeedsCwdRefresh = false;
       attachSessionHooks(rt.session, { hooks, hookCommonPayload, getCwd: () => rt.currentCwd });
       // Every-create MCP fold (NO blocking): seed the INITIAL provider-visible
       // surface (and native BP2 manifest) from MCP servers connected at create
@@ -471,8 +471,8 @@ export function createSessionLifecycle({
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
     scheduleSearchRuntimeWarmup,
-    invokeChannelStart,
     scheduleChannelStart,
+    scheduleAutomationAutostart,
   } = createPrewarmSchedulers({
     timers: prewarmTimers,
     bootProfile,
@@ -515,8 +515,8 @@ export function createSessionLifecycle({
     scheduleCodeGraphPrewarm,
     scheduleToolRuntimeWarmup,
     scheduleSearchRuntimeWarmup,
-    invokeChannelStart,
     scheduleChannelStart,
+    scheduleAutomationAutostart,
     refreshRouteEffort,
     routeHasModel,
     requireModelRoute,

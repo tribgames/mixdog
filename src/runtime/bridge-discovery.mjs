@@ -41,6 +41,14 @@ export function readBridgeDiscovery(fileName) {
   return readBridgeDiscoveryDetail(fileName).discovery;
 }
 
+/** True when the on-disk advertisement names a different loopback endpoint
+ *  than the one this call already used. Observations may retry there;
+ *  mutations must not. */
+export function bridgeDiscoveryChanged(current, replacement) {
+  return Boolean(replacement
+    && (replacement.port !== current?.port || replacement.token !== current?.token));
+}
+
 export function readBridgeDiscoveryDetail(fileName) {
   const path = join(bridgeDiscoveryDirectory(), fileName);
   let parsed;

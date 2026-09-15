@@ -431,6 +431,20 @@ export function normalizeWebSearchRouteConfig(routeLike, fallback = {}) {
   };
 }
 
+// The runtime's web-search route is never "unconfigured": an unset or invalid
+// candidate falls through to the next one, and an empty list resolves to the
+// default "follow the Main Model" route.
+export function webSearchRouteOrDefault(...routeLikes) {
+  for (const routeLike of routeLikes) {
+    const normalized = normalizeWebSearchRouteConfig(routeLike);
+    if (normalized) return normalized;
+  }
+  return normalizeWebSearchRouteConfig({
+    provider: WEB_SEARCH_DEFAULT_PROVIDER,
+    model: WEB_SEARCH_DEFAULT_MODEL,
+  });
+}
+
 export function normalizeWorkflowRoute(routeLike, fallback = {}) {
   const provider = clean(routeLike?.provider) || clean(fallback.provider);
   const model = clean(routeLike?.model) || clean(fallback.model);

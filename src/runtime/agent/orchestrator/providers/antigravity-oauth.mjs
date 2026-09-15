@@ -37,10 +37,18 @@ import {
     DEFAULT_ANTIGRAVITY_MODEL,
     antigravityHeaders,
     ensureAccessToken,
+    ensureAntigravityVersion,
     hasAntigravityOAuthCredentials,
     loadTokens,
     _scrubTokens,
 } from './antigravity-oauth-tokens.mjs';
+import {
+    antigravityModelCache,
+    antigravityQuotaWindows,
+    fetchAvailableModels,
+    normalizeAntigravityCatalog,
+    resolveAntigravityWireModel,
+} from './antigravity-oauth-catalog.mjs';
 
 const CLAUDE_THINKING_BETA = 'interleaved-thinking-2025-05-14';
 
@@ -61,9 +69,16 @@ function antigravityError(res, text, endpoint) {
     }
     // Account verification is terminal and actionable: surface the URL Google
     // returns instead of a raw API body the user cannot act on.
-    const validationUrl = /https:\/\/\S*(?:accounts|console)\.google\.com\/\S+/.exec(message || '');
+    // Google puts the link in the error details, not the message text.
+    const validationDetail = Array.isArray(detail?.details)
+        ? detail.details.find((entry) => entry?.reason === 'VALIDATION_REQUIRED' && typeof entry.metadata?.validation_url === 'string')
+        : null;
+    const validationUrl = validationDetail?.metadata.validation_url
+        || /https:\/\/\S*(?:accounts|console)\.google\.com\/\S+/.exec(message || '')?.[0]
+        || '';
     if (res.status === 403 && /VALIDATION_REQUIRED/i.test(text || '')) {
-        err.message = `Antigravity requires account verification${validationUrl ? `: ${validationUrl[0]}` : ''}`;
+        err.message = `Antigravity requires account verification${validationUrl ? `: open ${validationUrl} , complete the check, then retry` : ''}`;
+        err.validationUrl = validationUrl || undefined;
         err.unsafeToRetry = true;
     }
     return err;
@@ -90,6 +105,28 @@ function antigravityFailoverEligible(err) {
     return status === 0;
 }
 
+async function storedAuth(options) {
+    const tokens = await ensureAccessToken(options);
+    return { accessToken: tokens.access_token, projectId: tokens.project_id, email: tokens.email || '' };
+}
+
+// A retired wire id answers with one plain-text notice and no finishReason.
+// That is a terminal answer about the model, not a truncated stream.
+const RETIRED_MODEL_NOTICE = /\bno longer (?:available|supported)\b/i;
+
+function retiredModelError(err, streamedText, model) {
+    if (!(err?.code === 'TRUNCATED_STREAM' && /no finishReason/.test(String(err?.message || '')))) return null;
+    const text = String(streamedText || '').trim();
+    if (!RETIRED_MODEL_NOTICE.test(text)) return null;
+    return Object.assign(new Error(`Antigravity retired ${model}: ${text}`), {
+        code: 'MODEL_RETIRED',
+        status: 404,
+        httpStatus: 404,
+        unsafeToRetry: true,
+        modelRetired: true,
+    });
+}
+
 export class AntigravityOAuthProvider {
     // usageMetadata.promptTokenCount is the total, cached tokens included.
     static inputExcludesCache = false;
@@ -101,7 +138,12 @@ export class AntigravityOAuthProvider {
         this._preconnect = typeof config.preconnectFn === 'function' ? config.preconnectFn : preconnect;
         // AuthStorage equivalent: refreshes the token and resolves the project.
         // Injectable so wire-shape tests do not need a real credential store.
-        this._ensureAuth = typeof config.ensureAuthFn === 'function' ? config.ensureAuthFn : ensureAccessToken;
+        // The store keeps snake_case fields; requests read the camelCase view.
+        this._ensureAuth = typeof config.ensureAuthFn === 'function' ? config.ensureAuthFn : storedAuth;
+        // Client version for the hub identity header, discovered once per process.
+        this._ensureVersion = typeof config.ensureVersionFn === 'function'
+            ? config.ensureVersionFn
+            : () => ensureAntigravityVersion({ fetchFn: this._fetch });
         // Remember the endpoint that last answered so a session stops paying the
         // failover cost on every turn.
         this._lastGoodEndpoint = null;
@@ -123,20 +165,37 @@ export class AntigravityOAuthProvider {
     }
 
     async send(messages, model, tools, sendOpts = {}) {
-        const opts = sendOpts || {};
-        const signal = opts.signal || null;
-        const useModel = model || DEFAULT_ANTIGRAVITY_MODEL;
+        const signal = sendOpts?.signal || null;
+        // Picker ids name a tier family; the wire id carries the chosen effort.
+        const route = resolveAntigravityWireModel(model || DEFAULT_ANTIGRAVITY_MODEL, sendOpts?.effort);
+        const useModel = route.model;
+        const opts = route.effort === sendOpts?.effort
+            ? (sendOpts || {})
+            : { ...sendOpts, effort: route.effort, thinkingLevel: route.effort == null ? null : sendOpts?.thinkingLevel };
         const onToolCall = typeof opts.onToolCall === 'function' ? opts.onToolCall : null;
-        const onTextDelta = typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null;
+        // Streamed text is kept so a retirement notice can be told apart from
+        // a truncated stream when the gateway omits the finishReason.
+        let streamedText = '';
+        const onTextDelta = typeof opts.onTextDelta === 'function'
+            ? (text) => { if (typeof text === 'string') streamedText += text; opts.onTextDelta(text); }
+            : null;
         const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
         if (signal?.aborted) {
             const reason = signal.reason;
             throw reason instanceof Error ? reason : new Error('Antigravity request aborted');
         }
 
-        const auth = await this._ensureAuth({ fetchFn: this._fetch });
+        this._preconnect(this._endpointOrder()[0]);
+        // Normalize history while version discovery and token refresh run.
+        // The authenticated project is bound only after those tasks finish.
+        const [, auth, request] = await Promise.all([
+            this._ensureVersion(),
+            this._ensureAuth({ fetchFn: this._fetch }),
+            Promise.resolve().then(() => this._buildBody(messages, useModel, tools, opts)),
+        ]);
         this._projectId = auth.projectId;
-        const body = JSON.stringify(this._buildBody(messages, useModel, tools, opts));
+        request.project = auth.projectId;
+        const body = JSON.stringify(request);
         const headers = {
             Authorization: `Bearer ${auth.accessToken}`,
             'Content-Type': 'application/json',
@@ -146,6 +205,42 @@ export class AntigravityOAuthProvider {
         };
 
         let textLeakGuard = null;
+        let terminalFailure = null;
+        let streamedParts = [];
+        let streamedNativeToolCalls = [];
+        const seenNativeToolIds = new Set();
+        const emittedToolIds = new Set();
+        const dispatchToolCall = onToolCall ? (call) => {
+            // A failure already observed in this chunk must win over both
+            // native calls and calls recovered from its text.
+            if (terminalFailure || emittedToolIds.has(call.id)) return;
+            emittedToolIds.add(call.id);
+            onToolCall(call);
+        } : null;
+        const onChunk = (chunk) => {
+            const candidate = chunk?.candidates?.[0];
+            const finishReason = candidate?.finishReason
+                || (chunk?.promptFeedback?.blockReason ? `PROMPT_${chunk.promptFeedback.blockReason}` : null);
+            if (finishReason && String(finishReason).replace(/^FINISH_REASON_/, '') !== 'STOP') {
+                terminalFailure ||= finishReason;
+            }
+            if (!onToolCall) return;
+            const parts = candidate?.content?.parts ?? [];
+            streamedParts.push(...parts);
+            if (terminalFailure || !parts.some((part) => part?.functionCall)) return;
+            // Parse against the turn's parts so anonymous call IDs keep the
+            // same ordinal as final parsing, even across separate SSE chunks.
+            const fresh = (parseToolCalls(streamedParts) || []).filter((call) => {
+                if (seenNativeToolIds.has(call.id)) return false;
+                seenNativeToolIds.add(call.id);
+                return true;
+            });
+            const calls = textLeakGuard?.enabled
+                ? textLeakGuard.filterNativeToolCalls(fresh)
+                : fresh;
+            if (calls?.length) streamedNativeToolCalls.push(...calls);
+            emitGeminiToolCalls(calls, dispatchToolCall);
+        };
         const passthrough = createPassthroughSignal(signal);
         const endpoints = this._endpointOrder();
         let lastErr = null;
@@ -185,21 +280,45 @@ export class AntigravityOAuthProvider {
                             textLeakGuard = createGeminiTextLeakGuard({
                                 knownToolNames: tools?.map((t) => t.name).filter(Boolean) ?? [],
                                 onTextDelta,
-                                onToolCall,
+                                onToolCall: dispatchToolCall,
                                 onStreamDelta,
                             });
-                            return await consumeGeminiRestStreamResponse(res, {
-                                signal: attemptSignal,
-                                onStreamDelta,
-                                onTextDelta,
-                                textLeakGuard,
-                                label: 'Antigravity streamGenerateContent',
-                                // Cloud Code Assist nests the Gemini payload under
-                                // `response`; in-band error events stay top level.
-                                unwrapChunk: (chunk) => (chunk && typeof chunk === 'object' && chunk.response
-                                    ? chunk.response
-                                    : chunk),
-                            });
+                            streamedText = '';
+                            terminalFailure = null;
+                            streamedParts = [];
+                            streamedNativeToolCalls = [];
+                            seenNativeToolIds.clear();
+                            emittedToolIds.clear();
+                            try {
+                                return await consumeGeminiRestStreamResponse(res, {
+                                    signal: attemptSignal,
+                                    onStreamDelta,
+                                    onTextDelta,
+                                    onChunk,
+                                    textLeakGuard,
+                                    label: 'Antigravity streamGenerateContent',
+                                    // Cloud Code Assist nests the Gemini payload under
+                                    // `response`; in-band error events stay top level.
+                                    unwrapChunk: (chunk) => (chunk && typeof chunk === 'object' && chunk.response
+                                        ? chunk.response
+                                        : chunk),
+                                });
+                            } catch (streamErr) {
+                                const error = retiredModelError(streamErr, streamedText, useModel) || streamErr;
+                                // Native calls now run before EOF. Preserve
+                                // their history and prohibit resampling after
+                                // a tool callback, including on another host.
+                                if (emittedToolIds.size) {
+                                    error.emittedToolCall = true;
+                                    error.unsafeToRetry = true;
+                                    const leaked = textLeakGuard.getLeakedToolCalls();
+                                    error.partialToolCalls = [...streamedNativeToolCalls, ...leaked];
+                                    const replay = createProviderReplay('antigravity', leaked.length ? [] : streamedParts);
+                                    if (replay) replay.requestContext = { model: useModel };
+                                    if (replay) error.partialProviderReplay = replay;
+                                }
+                                throw error;
+                            }
                         },
                         {
                             signal: passthrough.signal,
@@ -273,19 +392,23 @@ export class AntigravityOAuthProvider {
         const leakedToolCalls = textLeakGuard?.getLeakedToolCalls() ?? [];
         const providerReplay = createProviderReplay(
             'antigravity',
-            leakedToolCalls.length ? [] : responseParts,
+            leakedToolCalls.length || rawContent !== content ? [] : responseParts,
         );
-        let nativeToolCalls = parseToolCalls(responseParts);
-        if (textLeakGuard?.enabled) nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
+        // Thought signatures are only valid for the model family that minted
+        // them; the request builder consults this when the route changes.
+        if (providerReplay) providerReplay.requestContext = { model: useModel };
+        let nativeToolCalls = onToolCall
+            ? (streamedNativeToolCalls.length ? streamedNativeToolCalls : undefined)
+            : parseToolCalls(responseParts);
+        if (!onToolCall && textLeakGuard?.enabled) nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
         let toolCalls = nativeToolCalls;
         if (leakedToolCalls.length) {
             toolCalls = toolCalls?.length ? [...toolCalls, ...leakedToolCalls] : leakedToolCalls;
         }
         const citations = collectGeminiGroundingSources(candidate);
-        emitGeminiToolCalls(nativeToolCalls, onToolCall);
 
         const promptBlockReason = response.promptFeedback?.blockReason || null;
-        const finishReason = candidate?.finishReason || (promptBlockReason ? `PROMPT_${promptBlockReason}` : null);
+        const finishReason = terminalFailure || candidate?.finishReason || (promptBlockReason ? `PROMPT_${promptBlockReason}` : null);
         const normalizedFinish = String(finishReason || '').replace(/^FINISH_REASON_/, '');
         if (finishReason && normalizedFinish !== 'STOP') {
             throw Object.assign(new Error(`Antigravity response incomplete: finishReason=${finishReason}`), {
@@ -299,6 +422,7 @@ export class AntigravityOAuthProvider {
                 providerMetadata,
                 model: useModel,
                 rawUsage: response.usageMetadata || null,
+                ...(emittedToolIds.size ? { emittedToolCall: true, unsafeToRetry: true } : {}),
             });
         }
 
@@ -337,10 +461,48 @@ export class AntigravityOAuthProvider {
         };
     }
 
-    // The gateway publishes no public catalog endpoint, so the curated list in
-    // the tokens module is the source of truth.
+    async _fetchRawModels(signal = null) {
+        await this._ensureVersion();
+        const auth = await this._ensureAuth({ fetchFn: this._fetch });
+        return fetchAvailableModels({
+            accessToken: auth.accessToken,
+            projectId: auth.projectId,
+            fetchFn: this._fetch,
+            signal,
+        });
+    }
+
+    // Live catalog with a disk cache; the curated list covers an offline or
+    // signed-out daemon so the picker never goes empty.
     async listModels() {
+        const cached = antigravityModelCache.loadSync();
+        if (cached) return cached;
+        try {
+            const models = normalizeAntigravityCatalog(await this._fetchRawModels());
+            if (models.length) {
+                antigravityModelCache.save(models);
+                return models;
+            }
+        } catch (err) {
+            console.warn(`[antigravity-oauth] catalog refresh failed, using the curated list: ${err?.message || err}`);
+        }
         return ANTIGRAVITY_MODELS;
+    }
+
+    async _refreshModelCache() {
+        const models = normalizeAntigravityCatalog(await this._fetchRawModels());
+        if (!models.length) throw new Error('[antigravity-oauth] fetchAvailableModels listed no chat models');
+        antigravityModelCache.save(models);
+        return models;
+    }
+
+    async getUsageSnapshot() {
+        return {
+            provider: this.name,
+            model: null,
+            source: 'antigravity-models',
+            quotaWindows: antigravityQuotaWindows(await this._fetchRawModels()),
+        };
     }
 
     async isAvailable() {

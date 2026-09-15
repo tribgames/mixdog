@@ -64,7 +64,6 @@ export function createLifecycleApi(deps) {
     getMcpScopeId,
     getDesktopSession, setDesktopSession,
     setCloseRequested, getMemoryModPromise, setMemoryModPromise,
-    setSessionNeedsCwdRefresh,
     hooks, hookCommonPayload, mgr, statusRoutes, channels, agentTool, mcpClient,
     warmupTimers, prewarmTimers,
     flushAllConfigSavesAsync,
@@ -521,12 +520,9 @@ export function createLifecycleApi(deps) {
       setDesktopSession(nextDesktopSession && typeof nextDesktopSession === 'object'
         ? nextDesktopSession
         : null);
-      // Do NOT block the switch on the project MCP reconnect (observed 5s+ per
-      // project entry on desktop). The reset still STARTS here synchronously
-      // (generation bump + in-flight registration inside applyResolvedCwd), so
-      // stale servers cannot be re-adopted, and the ask path gates boundedly on
-      // the in-flight connect before the next turn's tool surface is built.
-      await applyResolvedCwd(cwd, { markRefresh: false });
+      // Retargets the live execution cwd in place; extension settings are
+      // global, so the switch never waits on an MCP or Skills reload.
+      await applyResolvedCwd(cwd);
       // Resuming a historical session temporarily routes the runtime through
       // that session's provider/model. A fresh desktop task or project must
       // return to the configured Lead route instead of inheriting the route
@@ -584,9 +580,8 @@ export function createLifecycleApi(deps) {
       try {
         agentTool?.upsertLeadSession?.(resumed, { status: 'idle', stage: 'idle' });
       } catch { /* lead pool must never break resume */ }
-      applyResolvedCwd(resolveResumeCwd(resumed, getCurrentCwd()), { markRefresh: false });
-      // Cwd application is synchronous even though MCP reconnect may continue
-      // in the background. Commit it before returning the resume transcript.
+      applyResolvedCwd(resolveResumeCwd(resumed, getCurrentCwd()));
+      // Commit the applied cwd before returning the resume transcript.
       resumed.cwd = getCurrentCwd();
       const route = getRoute();
       // The resumed session's OWN effort wins. resolveRoute always returns an
@@ -641,7 +636,6 @@ export function createLifecycleApi(deps) {
       }
       invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
-      setSessionNeedsCwdRefresh(false);
       return {
         id: resumed.id,
         messages: resumed.messages || [],

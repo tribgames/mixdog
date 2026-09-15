@@ -25,7 +25,7 @@ function withSharedChartDefaults(session, operations) {
       : operation
   ));
 }
-import { TABULAR_FORMATS, isMicrosoftOfficeSession, mergeOfficeDesignRequest } from './office-core.mjs';
+import { TABULAR_FORMATS, emptyOfficeDesignState, isMicrosoftOfficeSession, mergeOfficeDesignRequest } from './office-core.mjs';
 import { fullPath, materializeWorkingCopy, trustForMutation } from './office-sessions.mjs';
 import {
   assertTransactionUnchanged,
@@ -59,13 +59,7 @@ export async function applyBatch(session, args) {
   });
   session.designRequest = designRequest;
   session.design = prepared.design;
-  session.designState ||= {
-    renderedVersion: null,
-    semanticCount: 0,
-    requiresVisualReview: false,
-    slidePlans: [],
-    compositions: [],
-  };
+  session.designState ||= emptyOfficeDesignState();
   const pathOperations = new Set(['add_image', 'replace_image', 'stamp_image', 'add_attachment', 'merge_pdf', 'apply_theme', 'import_slides', 'add_media']);
   const operations = Array.isArray(prepared.operations)
     ? prepared.operations.map((operation) => {

@@ -5,3 +5,7 @@
 export function hasOwn(value, key) {
   return value != null && Object.hasOwn(value, key);
 }
+
+export function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}

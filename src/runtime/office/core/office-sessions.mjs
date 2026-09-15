@@ -1,7 +1,6 @@
 import { access, copyFile, mkdir, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { callMicrosoftOffice, detectMicrosoftOffice, microsoftOfficeComSupported, openMicrosoftOfficeSession } from '../com/com-adapter.mjs';
 import { snapshotPortableOoxml } from '../portable/portable-ooxml.mjs';
 import { normalizeExcelCellStyle } from '../portable/portable-sheet-styles.mjs';
@@ -12,7 +11,7 @@ import { createTabular, snapshotTabular } from './tabular.mjs';
 import { createOfficeSnapshotRequest, finalizeOfficeSnapshotPage } from './pagination.mjs';
 import { applyPdfDesign } from '../design/design-system.mjs';
 import { analyzeOfficeFilePromptInjection, analyzeOfficePromptInjection, combineOfficeTrustReviews } from '../quality/assurance.mjs';
-import { FORMATS, TABULAR_FORMATS, bounded, documentFileKind, documentFormat, documentSessionKey, documentSessions, isInteractiveOfficeSession, normalizeOfficeFormat, registerOfficeSession, resolveOfficeDesignContext, serializedToolValue, sessions } from './office-core.mjs';
+import { FORMATS, TABULAR_FORMATS, bounded, documentFileKind, documentFormat, documentSessionKey, documentSessions, emptyOfficeDesignState, isInteractiveOfficeSession, microsoftOfficeOpenFields, normalizeOfficeFormat, officeSessionId, registerOfficeSession, resolveOfficeDesignContext, serializedToolValue, sessions } from './office-core.mjs';
 
 export function fullPath(path, cwd) {
   if (!path) throw new Error('path is required');
@@ -84,6 +83,62 @@ function officeDetectionFor(result, format) {
   return result?.applications?.find((entry) => entry?.format === format) || null;
 }
 
+function reusedDocumentSession(target) {
+  const existingId = documentSessions.get(documentSessionKey(target));
+  const existing = existingId ? sessions.get(existingId) : null;
+  return existing ? { ...existing, reused: true } : null;
+}
+
+function pptxReviewDesignState(design, format) {
+  return emptyOfficeDesignState({
+    requiresVisualReview: format === 'pptx' && design.review.required,
+  });
+}
+
+function portableCreateDesignState() {
+  return emptyOfficeDesignState({ includeSlidePlans: false });
+}
+
+function assertCreateTargetAvailable(target, existed, overwrite) {
+  if (existed && overwrite !== true) {
+    throw new Error(`Office create target already exists: ${target}`);
+  }
+}
+
+function buildOfficeSessionRecord({
+  id = officeSessionId(),
+  source,
+  target,
+  fileKind,
+  format,
+  mode,
+  backend,
+  dataDir,
+  created = false,
+  createdNewFile,
+  designContext,
+  designState,
+  extra = {},
+}) {
+  return {
+    id,
+    source,
+    target,
+    fileKind,
+    format,
+    mode,
+    backend,
+    openedAt: new Date().toISOString(),
+    dataDir,
+    created,
+    snapshotVersion: 0,
+    ...(createdNewFile !== undefined ? { createdNewFile } : {}),
+    ...(designContext || {}),
+    designState,
+    ...extra,
+  };
+}
+
 
 export async function selectMode(requested, format, source) {
   if (format === 'pdf') return { mode: 'portable', backend: 'mixdog-pdf' };
@@ -127,10 +182,8 @@ export async function openSession(args, cwd, dataDir, { readOnly = false } = {})
     target = args.output ? await assertDocumentOutput(fullPath(args.output, cwd), source) : defaultOutput(source);
     if (target.toLowerCase() === source.toLowerCase()) throw new Error('background/portable editing requires an output path different from the source');
   }
-  const key = documentSessionKey(target);
-  const existingId = documentSessions.get(key);
-  const existing = existingId ? sessions.get(existingId) : null;
-  if (existing) return { ...existing, reused: true };
+  const existing = reusedDocumentSession(target);
+  if (existing) return existing;
   if (!reads && ['background', 'portable'].includes(selected.mode)) {
     await mkdir(dirname(target), { recursive: true });
     await copyFile(source, target);
@@ -143,8 +196,8 @@ export async function openSession(args, cwd, dataDir, { readOnly = false } = {})
     format,
     created: false,
   });
-  const id = `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
-  const session = {
+  const id = officeSessionId();
+  const session = buildOfficeSessionRecord({
     id,
     source,
     target,
@@ -152,23 +205,17 @@ export async function openSession(args, cwd, dataDir, { readOnly = false } = {})
     format,
     mode: selected.mode,
     backend: selected.backend,
-    ...(selected.backend === 'mixdog-ooxml' ? { ownership: 'owned', visible: false } : {}),
-    // The session reads the file itself; the first edit gives it a working
-    // copy so the user's document is never written in place.
-    ...(reads ? { readsSource: true } : {}),
-    openedAt: new Date().toISOString(),
     dataDir,
     created: false,
-    snapshotVersion: 0,
-    ...designContext,
-    designState: {
-      renderedVersion: null,
-      semanticCount: 0,
-      requiresVisualReview: format === 'pptx' && designContext.design.review.required,
-      slidePlans: [],
-      compositions: [],
+    designContext,
+    designState: pptxReviewDesignState(designContext.design, format),
+    extra: {
+      ...(selected.backend === 'mixdog-ooxml' ? { ownership: 'owned', visible: false } : {}),
+      // The session reads the file itself; the first edit gives it a working
+      // copy so the user's document is never written in place.
+      ...(reads ? { readsSource: true } : {}),
     },
-  };
+  });
   if (selected.backend === 'microsoft-office-com') {
     const opened = await openMicrosoftOfficeSession({
       session: id,
@@ -178,16 +225,7 @@ export async function openSession(args, cwd, dataDir, { readOnly = false } = {})
     }, { signal: args.__signal || null });
     // The file a caller can act on is the one they named, not the working copy.
     if (!opened.ok) throw new Error(officeOpenFailure(opened.error, session.source || target));
-    Object.assign(session, {
-      mode: opened.mode,
-      ownership: opened.ownership,
-      visible: opened.visible,
-      appPid: opened.appPid,
-      windowHwnd: opened.windowHwnd,
-      foregroundActivated: opened.foregroundActivated === true,
-      backgroundIsolation: opened.backgroundIsolation || null,
-      documentId: opened.documentId,
-    });
+    Object.assign(session, microsoftOfficeOpenFields(opened));
   }
   await registerOfficeSession(session);
   return session;
@@ -258,9 +296,7 @@ export async function createSession(args, cwd, dataDir) {
   });
   const { designRequest, designLibrary, design } = designContext;
   if (format === 'pdf') {
-    if (targetExisted && args.overwrite !== true) {
-      throw new Error(`Office create target already exists: ${target}`);
-    }
+    assertCreateTargetAvailable(target, targetExisted, args.overwrite);
     await mkdir(dirname(target), { recursive: true });
     // `design` is where authoring intent and content go for every other format,
     // so blocks named there are the document's content, not an unknown key to
@@ -283,73 +319,60 @@ export async function createSession(args, cwd, dataDir) {
         ...(args.properties?.fontPath ? { fontPath: fullPath(args.properties.fontPath, cwd) } : {}),
       },
     });
-    const session = {
-      id: `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`,
+    const session = buildOfficeSessionRecord({
       source: target,
       target,
       fileKind,
       format,
       mode: 'portable',
       backend: 'mixdog-pdf',
-      openedAt: new Date().toISOString(),
       dataDir,
       created: true,
       createdNewFile: !targetExisted,
-      // What the writer decided (numbering, the font it embedded) rides on the
-      // create result so the caller need not re-open the file to learn it.
-      createReceipt: {
-        pageNumbers: written.pageNumbers,
-        font: written.font,
-        // What the writer actually flowed: a document with nothing in it is a
-        // result the caller has to see, not a silent success.
-        blocks: designed.blocks.length,
-        fields: requestedFields.length,
-        ...(written.form?.issueCount ? { formIssues: written.form.issues } : {}),
+      designContext,
+      designState: portableCreateDesignState(),
+      extra: {
+        // What the writer decided (numbering, the font it embedded) rides on the
+        // create result so the caller need not re-open the file to learn it.
+        createReceipt: {
+          pageNumbers: written.pageNumbers,
+          font: written.font,
+          // What the writer actually flowed: a document with nothing in it is a
+          // result the caller has to see, not a silent success.
+          blocks: designed.blocks.length,
+          fields: requestedFields.length,
+          ...(written.form?.issueCount ? { formIssues: written.form.issues } : {}),
+        },
+        ownership: 'owned',
+        visible: false,
       },
-      ownership: 'owned',
-      visible: false,
-      snapshotVersion: 0,
-      designRequest,
-      designLibrary,
-      design,
-      designState: { renderedVersion: null, semanticCount: 0, requiresVisualReview: false, compositions: [] },
-    };
+    });
     await registerOfficeSession(session);
     return session;
   }
   if (!FORMATS.has(format) || format === 'pdf') {
     throw new Error('Office create currently supports Word, Excel, PowerPoint, CSV, and TSV files');
   }
-  if (targetExisted && args.overwrite !== true) {
-    throw new Error(`Office create target already exists: ${target}`);
-  }
-  const key = documentSessionKey(target);
-  const existingId = documentSessions.get(key);
-  const existing = existingId ? sessions.get(existingId) : null;
-  if (existing) return { ...existing, reused: true };
+  assertCreateTargetAvailable(target, targetExisted, args.overwrite);
+  const existing = reusedDocumentSession(target);
+  if (existing) return existing;
   if (TABULAR_FORMATS.has(format)) {
     await mkdir(dirname(target), { recursive: true });
     await createTabular(target);
-    const session = {
-      id: `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`,
+    const session = buildOfficeSessionRecord({
       source: target,
       target,
       fileKind,
       format,
       mode: 'portable',
       backend: 'mixdog-tabular',
-      openedAt: new Date().toISOString(),
       dataDir,
       created: true,
       createdNewFile: !targetExisted,
-      ownership: 'owned',
-      visible: false,
-      snapshotVersion: 0,
-      designRequest,
-      designLibrary,
-      design,
-      designState: { renderedVersion: null, semanticCount: 0, requiresVisualReview: false, compositions: [] },
-    };
+      designContext,
+      designState: portableCreateDesignState(),
+      extra: { ownership: 'owned', visible: false },
+    });
     await registerOfficeSession(session);
     return session;
   }
@@ -367,36 +390,24 @@ export async function createSession(args, cwd, dataDir) {
       fileKind,
       title: basename(target, extname(target)),
     });
-    const session = {
-      id: `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`,
+    const session = buildOfficeSessionRecord({
       source: target,
       target,
       fileKind,
       format,
       mode: 'portable',
       backend: 'mixdog-ooxml',
-      openedAt: new Date().toISOString(),
       dataDir,
       created: true,
       createdNewFile: !targetExisted,
-      ownership: 'owned',
-      visible: false,
-      snapshotVersion: 0,
-      designRequest,
-      designLibrary,
-      design,
-      designState: {
-        renderedVersion: null,
-        semanticCount: 0,
-        requiresVisualReview: format === 'pptx' && design.review.required,
-        slidePlans: [],
-        compositions: [],
-      },
-    };
+      designContext,
+      designState: pptxReviewDesignState(design, format),
+      extra: { ownership: 'owned', visible: false },
+    });
     await registerOfficeSession(session);
     return session;
   }
-  const id = `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+  const id = officeSessionId();
   const opened = await openMicrosoftOfficeSession({
     session: id,
     format,
@@ -407,7 +418,7 @@ export async function createSession(args, cwd, dataDir) {
     overwrite: args.overwrite === true,
   }, { signal: args.__signal || null });
   if (!opened.ok) throw new Error(opened.error || 'Microsoft Office document creation failed');
-  const session = {
+  const session = buildOfficeSessionRecord({
     id,
     source: target,
     target,
@@ -415,29 +426,13 @@ export async function createSession(args, cwd, dataDir) {
     format,
     mode: opened.mode,
     backend: 'microsoft-office-com',
-    openedAt: new Date().toISOString(),
     dataDir,
     created: true,
     createdNewFile: !targetExisted,
-    ownership: opened.ownership,
-    visible: opened.visible,
-    appPid: opened.appPid,
-    windowHwnd: opened.windowHwnd,
-    foregroundActivated: opened.foregroundActivated === true,
-    backgroundIsolation: opened.backgroundIsolation || null,
-    documentId: opened.documentId,
-    snapshotVersion: 0,
-    designRequest,
-    designLibrary,
-    design,
-    designState: {
-      renderedVersion: null,
-      semanticCount: 0,
-      requiresVisualReview: format === 'pptx' && design.review.required,
-      slidePlans: [],
-      compositions: [],
-    },
-  };
+    designContext,
+    designState: pptxReviewDesignState(design, format),
+    extra: microsoftOfficeOpenFields(opened),
+  });
   await registerOfficeSession(session);
   return session;
 }
@@ -480,8 +475,8 @@ export async function createAuthoredSession(args, cwd, dataDir, target) {
       deck: { ...(resolved.design?.deck || {}), backgroundMode: 'custom', enforce: false },
     },
   };
-  const id = `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
-  const session = {
+  const id = officeSessionId();
+  const session = buildOfficeSessionRecord({
     id,
     source: target,
     target,
@@ -489,22 +484,14 @@ export async function createAuthoredSession(args, cwd, dataDir, target) {
     format,
     mode: selected.mode,
     backend: selected.backend,
-    openedAt: new Date().toISOString(),
     dataDir,
     created: true,
-    authored: true,
-    ownership: 'owned',
-    visible: false,
-    snapshotVersion: 0,
-    ...designContext,
-    designState: {
-      renderedVersion: null,
-      semanticCount: 0,
+    designContext,
+    designState: emptyOfficeDesignState({
       requiresVisualReview: designContext.design.review.required,
-      slidePlans: [],
-      compositions: [],
-    },
-  };
+    }),
+    extra: { authored: true, ownership: 'owned', visible: false },
+  });
   if (selected.backend === 'microsoft-office-com') {
     const opened = await openMicrosoftOfficeSession({
       session: id,
@@ -514,16 +501,7 @@ export async function createAuthoredSession(args, cwd, dataDir, target) {
       path: target,
     }, { signal: args.__signal || null });
     if (!opened.ok) throw new Error(officeOpenFailure(opened.error, target));
-    Object.assign(session, {
-      mode: opened.mode,
-      ownership: opened.ownership,
-      visible: opened.visible,
-      appPid: opened.appPid,
-      windowHwnd: opened.windowHwnd,
-      foregroundActivated: opened.foregroundActivated === true,
-      backgroundIsolation: opened.backgroundIsolation || null,
-      documentId: opened.documentId,
-    });
+    Object.assign(session, microsoftOfficeOpenFields(opened));
   }
   await registerOfficeSession(session);
   return session;

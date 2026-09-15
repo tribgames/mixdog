@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { setImmediate, setTimeout } from 'node:timers/promises';
 import test from 'node:test';
-import { createConfigLifecycle } from './config-lifecycle.mjs';
+import { createConfigLifecycle, resolveInitialConfigState } from './config-lifecycle.mjs';
 
 function deferred() {
   let resolve;
@@ -137,6 +137,65 @@ test('automatic skills debounce drains the older whole-config snapshot first', a
   assert.deepEqual(f.writes, ['config', 'skills']);
   assert.deepEqual(f.disk().agent.skills.disabled, ['demo']);
   assert.equal(f.disk().agent.theme, 'latest');
+});
+
+function initialState(overrides = {}) {
+  const stored = { presets: {}, route: 'stored' };
+  return resolveInitialConfigState({
+    loadConfig: () => stored,
+    resolveRoute: (config, { provider, model }) => ({
+      provider: provider || 'stored-provider',
+      model: model || 'stored-model',
+      effort: 'high',
+      fast: true,
+      fromConfig: config.route,
+    }),
+    ...overrides,
+  });
+}
+
+test('boot route overrides apply only when the caller supplied them', () => {
+  const untouched = initialState();
+  assert.equal(untouched.route.effort, 'high');
+  assert.equal(untouched.route.fast, true);
+  assert.equal(untouched.route.modelParameters, undefined);
+  assert.equal(untouched.route.fromConfig, 'stored');
+
+  const overridden = initialState({
+    provider: 'demo',
+    model: 'demo-model',
+    effort: '',
+    fast: false,
+    modelParameters: { context: '1m' },
+  });
+  assert.equal(overridden.route.provider, 'demo');
+  assert.equal(overridden.route.model, 'demo-model');
+  // An explicit empty effort clears the stored one; `fast: false` is a real
+  // choice, not "unset".
+  assert.equal(overridden.route.effort, null);
+  assert.equal(overridden.route.fast, false);
+  assert.deepEqual(overridden.route.modelParameters, { context: '1m' });
+});
+
+test('an injected initial config is adopted instead of loading from disk', () => {
+  let loads = 0;
+  const state = initialState({
+    initialConfig: { presets: {}, route: 'injected' },
+    loadConfig: () => { loads += 1; return { route: 'stored' }; },
+  });
+
+  assert.equal(loads, 0);
+  assert.equal(state.route.fromConfig, 'injected');
+  // The builtins section is stamped on adoption, exactly as a disk load is.
+  assert.equal(typeof state.config.builtins, 'object');
+});
+
+test('an unset web-search route resolves to the follow-the-main-model default', () => {
+  assert.deepEqual(initialState().webSearchRoute, { provider: 'default', model: 'default' });
+  assert.deepEqual(
+    initialState({ initialConfig: { webSearchRoute: { provider: 'openai', model: 'gpt-5' } } }).webSearchRoute,
+    { provider: 'openai', model: 'gpt-5' },
+  );
 });
 
 test('a failed whole-config write cannot consume the pending skills patch', async () => {

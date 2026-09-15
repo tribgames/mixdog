@@ -136,3 +136,79 @@ test("runtime unload keeps the remembered browser dock while deletion forgets it
     host.remove();
   }
 });
+
+test("temporary task reveal restores the original dock and never overwrites a user selection or a newer turn", async () => {
+  const { usePaneSideDocks } = await import("./pane-side-dock.tsx");
+  let receive, surfaces, docks;
+  window.mixdogDesktop = {
+    onBrowserOpenRequested(listener) { receive = listener; return () => {}; },
+  };
+  function Harness() {
+    surfaces = useSessionPaneSurfaces();
+    docks = usePaneSideDocks({ leafIds: ['alpha'], groups: [['sourceControl'], ['browser']] });
+    useAgentBrowserSurfaceRequests({
+      owners: [{ sessionId: 'alpha', leafId: 'alpha' }], focusedLeafId: 'alpha',
+      surfaces: { ...surfaces, browserSurfaces: { ensure() {} } },
+      prefetch: async () => {}, select: docks.select, temporarySelect: docks.temporarySelect,
+    });
+    return null;
+  }
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    await act(async () => docks.select('alpha', 'sourceControl'));
+    const original = docks.entryFor('alpha');
+    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 1 }));
+    assert.equal(docks.entryFor('alpha').surface, 'browser');
+    assert.deepEqual(docks.docks.alpha, original, 'temporary layout is not persisted');
+    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 1 }));
+    assert.deepEqual(docks.entryFor('alpha'), original);
+    assert.equal(surfaces.sessionSideSurfaces.has('alpha'), false);
+
+    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 2 }));
+    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 3 }));
+    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 2 }));
+    assert.equal(docks.entryFor('alpha').surface, 'browser');
+    await act(async () => {
+      surfaces.setSessionSideSurface('alpha', 'terminal');
+      docks.select('alpha', 'terminal');
+    });
+    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 3 }));
+    assert.equal(docks.entryFor('alpha').surface, 'terminal');
+    assert.equal(surfaces.sessionSideSurfaces.get('alpha'), 'terminal');
+
+    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 4 }));
+    await act(async () => receive({ sessionId: 'alpha', reveal: true }));
+    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 4 }));
+    assert.equal(docks.entryFor('alpha').surface, 'browser', 'explicit handoff remains visible');
+    await act(async () => {
+      surfaces.setSessionSideSurface('alpha', null);
+      docks.select('alpha', 'sourceControl');
+    });
+    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 5 }));
+    await act(async () => receive({ sessionId: 'alpha', retainTurnId: 5 }));
+    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 5 }));
+    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 6 }));
+    await act(async () => receive({ sessionId: 'alpha', restoreTurnId: 6 }));
+    assert.equal(surfaces.sessionSideSurfaces.get('alpha'), 'browser',
+      'later automation restores the user-taken-over browser, not its obsolete baseline');
+    await act(async () => {
+      surfaces.dismissBrowserSurface('alpha');
+      docks.setOpen('alpha', false);
+    });
+    for (const request of [{ temporaryTurnId: 7 }, { reveal: true }, {}, { temporaryTurnId: 8 }]) {
+      await act(async () => receive({ sessionId: 'alpha', ...request }));
+      assert.equal(docks.entryFor('alpha').open, false, 'manual close wins over every later automation reveal');
+      assert.equal(surfaces.sessionSideSurfaces.has('alpha'), false);
+    }
+    await act(async () => {
+      surfaces.setSessionSideSurface('alpha', 'browser');
+      docks.select('alpha', 'browser');
+    });
+    assert.equal(surfaces.browserAutoRevealSuppressed.current.has('alpha'), false);
+    await act(async () => receive({ sessionId: 'alpha', temporaryTurnId: 9 }));
+    assert.equal(surfaces.sessionSideSurfaces.get('alpha'), 'browser', 'only a manual open re-enables automation reveal');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});

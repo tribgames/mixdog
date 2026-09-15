@@ -4,6 +4,7 @@ import { availableParallelism } from 'node:os';
 import { createOwnerFairGate } from './owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from './tool-execution-owner.mjs';
 import { acquireRemoteSpawnLease, remoteSpawnLeasesEnabled } from './child-spawn-remote.mjs';
+import { positiveInt } from './numbers.mjs';
 
 // ── Module-global child-spawn semaphore ──────────────────────────────────
 //
@@ -23,9 +24,7 @@ import { acquireRemoteSpawnLease, remoteSpawnLeasesEnabled } from './child-spawn
 // shared MIXDOG_CHILD_SPAWN_MAX_INFLIGHT fallback or a lane-specific override.
 
 function resolveDefaultChildSpawnMaxInflight(env = process.env, platform = process.platform) {
-  const override = Number(env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT);
-  if (Number.isFinite(override) && override >= 1) return Math.floor(override);
-  return platform === 'win32' ? 1 : Infinity;
+  return positiveInt(env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT, platform === 'win32' ? 1 : Infinity);
 }
 
 function resolveDefaultChildSpawnLaneMaxInflight(
@@ -36,10 +35,10 @@ function resolveDefaultChildSpawnLaneMaxInflight(
 ) {
   const lane = _laneName(laneName);
   const key = lane.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  const laneOverride = Number(env[`MIXDOG_CHILD_SPAWN_${key}_MAX_INFLIGHT`]);
-  if (Number.isFinite(laneOverride) && laneOverride >= 1) return Math.floor(laneOverride);
-  const sharedOverride = Number(env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT);
-  if (Number.isFinite(sharedOverride) && sharedOverride >= 1) return Math.floor(sharedOverride);
+  const laneOverride = positiveInt(env[`MIXDOG_CHILD_SPAWN_${key}_MAX_INFLIGHT`]);
+  if (laneOverride != null) return laneOverride;
+  const sharedOverride = positiveInt(env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT);
+  if (sharedOverride != null) return sharedOverride;
   const cpus = Math.max(1, Math.floor(Number(parallelism) || 1));
   if (platform !== 'win32') {
     // No AV amplification, but disk/CPU saturation is platform-neutral: an
@@ -77,12 +76,10 @@ function _laneLimit(name) {
 
 function _laneSetting(name, suffix, fallback) {
   const key = _laneName(name).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  const laneValue = Number(process.env[`MIXDOG_CHILD_SPAWN_${key}_${suffix}`]);
-  if (Number.isFinite(laneValue) && laneValue >= 1) return Math.floor(laneValue);
-  const sharedValue = Number(process.env[`MIXDOG_CHILD_SPAWN_${suffix}`]);
-  return Number.isFinite(sharedValue) && sharedValue >= 1
-    ? Math.floor(sharedValue)
-    : fallback;
+  return positiveInt(
+    process.env[`MIXDOG_CHILD_SPAWN_${key}_${suffix}`],
+    positiveInt(process.env[`MIXDOG_CHILD_SPAWN_${suffix}`], fallback),
+  );
 }
 
 // ── Lanes ────────────────────────────────────────────────────────────────

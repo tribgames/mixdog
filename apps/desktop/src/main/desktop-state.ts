@@ -18,6 +18,61 @@ function isDesktopTaskWorkspace(value: string): boolean {
   return normalizedPath(value).endsWith('/workspace/unclassified');
 }
 
+export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+export const MAX_SESSION_ID_LENGTH = 256;
+export const MAX_VISIBLE_SESSION_IDS = 256;
+
+export function isSessionId(value: unknown): value is string {
+  return typeof value === 'string' && SESSION_ID_PATTERN.test(value);
+}
+
+export function requiredSessionId(value: unknown): string {
+  if (typeof value !== 'string') throw new TypeError('session id must be a string.');
+  const id = value.trim();
+  if (!id || id.length > MAX_SESSION_ID_LENGTH || !isSessionId(id)) {
+    throw new TypeError('session id is invalid.');
+  }
+  return id;
+}
+
+/** Empty/omitted targets the control session; any other value must be a real id. */
+export function optionalSessionId(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return requiredSessionId(value);
+}
+
+export function requiredSessionIds(
+  value: unknown,
+  limit = MAX_VISIBLE_SESSION_IDS,
+): string[] {
+  if (!Array.isArray(value) || value.length > limit) {
+    throw new TypeError('sessionIds must be a bounded array.');
+  }
+  return [...new Set(value.map((sessionId) => requiredSessionId(sessionId)))];
+}
+
+/** Service/client/relay delivery filters drop malformed entries so one bad id
+ *  cannot fail the whole visible-set update. IPC still uses requiredSessionIds. */
+export function filterSessionIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const id = String(item || '');
+    if (!isSessionId(id) || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+export function requiredVisibleSessionVersion(value: unknown): number {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+    throw new TypeError('visible session version must be a positive safe integer.');
+  }
+  return Number(value);
+}
+
 export function desktopSessionSummaries(
   rows: Array<Record<string, unknown>>,
   titles: Readonly<Record<string, string>> = {},
@@ -40,7 +95,7 @@ export function desktopSessionSummaries(
       ? 'project'
       : (meta?.classification === 'task' ? 'task' : (cwd && !isDesktopTaskWorkspace(cwd) ? 'project' : 'task'));
     const storedProjectPath = typeof meta?.projectPath === 'string' ? meta.projectPath.trim() : '';
-    const projectPath = classification === 'project' ? storedProjectPath || cwd : '';
+    const projectPath = classification === 'project' ? cwd || storedProjectPath : '';
     if (classification === 'project' && (!projectPath || projectPath.includes('\0'))) return [];
     const preview = String(row.preview || '').trim();
     const id = String(row.id || '');
@@ -98,14 +153,5 @@ export function desktopSessionSummaries(
       ...(provider ? { provider } : {}),
       ...(model ? { model } : {}),
     }];
-  }).filter((row) => /^[A-Za-z0-9_-]+$/.test(row.id));
-}
-
-export function requiredSessionId(value: unknown): string {
-  if (typeof value !== 'string') throw new TypeError('session id must be a string.');
-  const id = value.trim();
-  if (!id || id.length > 256 || !/^[A-Za-z0-9_-]+$/.test(id)) {
-    throw new TypeError('session id is invalid.');
-  }
-  return id;
+  }).filter((row) => isSessionId(row.id));
 }

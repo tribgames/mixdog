@@ -171,6 +171,7 @@ function providerDescription(id, group) {
     case 'openai-oauth': return 'OpenAI OAuth subscription quota';
     case 'anthropic-oauth': return 'Anthropic OAuth subscription quota';
     case 'grok-oauth': return 'Grok Build subscription quota';
+    case 'antigravity-oauth': return 'Antigravity subscription quota';
     case 'opencode-go': return 'OpenCode Go subscription quota';
     case 'openai': return 'OpenAI API billing';
     case 'anthropic': return 'Anthropic API billing';
@@ -263,6 +264,7 @@ function providerRank(row) {
     'anthropic-oauth': 20,
     'grok-oauth': 30,
     'cursor-oauth': 35,
+    'antigravity-oauth': 36,
     'opencode-go': 40,
     openai: 50,
     anthropic: 60,

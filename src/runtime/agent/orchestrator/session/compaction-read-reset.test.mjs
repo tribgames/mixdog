@@ -95,6 +95,7 @@ test('manual compaction starts a fresh read epoch', async (t) => {
             { role: 'system', content: 'system rules stay exact' },
             { role: 'user', content: 'older request about working.txt' },
             { role: 'assistant', content: 'older answer with file details' },
+            { role: 'user', content: '[mixdog-runtime] obsolete notification' },
             { role: 'user', content: 'current request remains verbatim' },
         ],
         tools: [

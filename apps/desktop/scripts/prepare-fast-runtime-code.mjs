@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import { optionValue } from './cli-args.mjs';
 import { copyRuntimePackagePayload } from './runtime-package-payload.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -13,12 +14,6 @@ const rootDir = resolve(desktopDir, '../..');
 const runtimeDir = join(desktopDir, '.runtime');
 const outputDir = join(runtimeDir, 'fast-runtime-code');
 const markerName = '.mixdog-fast-runtime.json';
-
-function optionValue(name) {
-  const prefix = `--${name}=`;
-  const argument = process.argv.find((value) => value.startsWith(prefix));
-  return argument ? argument.slice(prefix.length) : '';
-}
 
 async function resolveRuntimePackageManifest() {
   const npmCli = process.env.npm_execpath;

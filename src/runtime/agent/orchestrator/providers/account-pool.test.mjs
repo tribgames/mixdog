@@ -62,6 +62,46 @@ test('persisted order controls quota failover and preserves selection across rel
   assert.throws(() => providerAccountPath(provider, '../outside'), /Invalid/);
 });
 
+test('a 429 whose Retry-After spans a quota window switches accounts without a usage probe', async () => {
+  const provider = 'anthropic-oauth';
+  const ids = setup(provider);
+  const calls = [];
+  const windowRefusal = () => Object.assign(new Error('Anthropic OAuth API 429 quota/rate limit'), {
+    code: 'PROVIDER_QUOTA', status: 429, headers: { 'retry-after': '363064' },
+  });
+  assert.equal(isAccountQuotaError(windowRefusal()), false);
+  const gateway = createAccountPoolProvider(provider, () => ({
+    async send() {
+      const id = currentProviderAccountId(provider);
+      calls.push(id);
+      if (id === ids[0]) throw windowRefusal();
+      return { content: 'done' };
+    },
+  }));
+  const before = Date.now();
+  const result = await gateway.send([], 'model', [], {});
+  assert.equal(result.content, 'done');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0], ids[0]);
+  assert.notEqual(calls[1], ids[0]);
+  const pool = readProviderAccountPool(provider);
+  assert.equal(pool.selectedId, calls[1]);
+  assert.ok(pool.accounts.find((row) => row.id === ids[0]).blockedUntil >= before + 363_064_000);
+
+  // A burst throttle answers in seconds; without a usage-endpoint confirmation
+  // it keeps the account and surfaces the error.
+  changeProviderAccounts(provider, { selectedId: ids[2] });
+  calls.length = 0;
+  const burst = createAccountPoolProvider(provider, () => ({
+    async send() {
+      calls.push(currentProviderAccountId(provider));
+      throw Object.assign(new Error('burst'), { status: 429, headers: { 'retry-after': '5' } });
+    },
+  }));
+  await assert.rejects(burst.send([], 'model', [], {}), /burst/);
+  assert.deepEqual(calls, [ids[2]]);
+});
+
 test('manual switching never changes authentication inside an in-flight request', async () => {
   const provider = 'anthropic-oauth';
   const ids = setup(provider);

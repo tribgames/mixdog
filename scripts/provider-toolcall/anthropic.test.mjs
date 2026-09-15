@@ -219,7 +219,10 @@ test('Anthropic API-key and OAuth preserve root properties across compound schem
     ];
     for (const compoundKey of ['oneOf', 'anyOf', 'allOf']) {
         const schema = { type: 'object', properties, [compoundKey]: branches };
-        const expected = { type: 'object', properties };
+        const expected = {
+            type: 'object', properties,
+            ...(compoundKey === 'allOf' ? { required: ['pattern', 'path'] } : {}),
+        };
         const apiKey = _anthropicApiKeyTest.sanitizeInputSchema(schema, 'grep');
         const oauth = _anthropicOAuthTest.sanitizeInputSchema(schema, 'grep');
 

@@ -1,4 +1,5 @@
 import { providerNativeToolPrefixCount } from '../../../../../session-runtime/provider-request-tools.mjs';
+import { actionInputContract } from './action-input-contract.mjs';
 import { isNativeServerToolBlockType } from './anthropic-native-blocks.mjs';
 import {
     isAnthropicThinkingBlock,
@@ -362,13 +363,26 @@ export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
     }
     const compound = schema.oneOf || schema.anyOf || schema.allOf;
     if (!compound) return structuredClone(schema);
+    const compoundKey = schema.oneOf ? 'oneOf' : schema.anyOf ? 'anyOf' : 'allOf';
+    const conjunctive = compoundKey === 'allOf';
     const mergedProps = { ...(schema.properties && typeof schema.properties === 'object' ? schema.properties : {}) };
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
     const branchDescs = [];
-    for (const branch of Array.isArray(compound) ? compound : []) {
+    for (const rawBranch of Array.isArray(compound) ? compound : []) {
+        const branch = conjunctive && rawBranch?.allOf
+            ? sanitizeAnthropicInputSchema(rawBranch, toolName, logTag)
+            : rawBranch;
         if (branch && typeof branch === 'object' && branch.properties) {
             for (const [name, property] of Object.entries(branch.properties)) {
-                mergedProps[name] = mergeAnthropicFlatProperty(mergedProps[name], property);
+                // allOf is an intersection, not an alternative: retain both
+                // constraints on a shared field. Nested allOf is supported.
+                mergedProps[name] = conjunctive && Object.hasOwn(mergedProps, name)
+                    ? { allOf: [structuredClone(mergedProps[name]), structuredClone(property)] }
+                    : mergeAnthropicFlatProperty(mergedProps[name], property);
             }
+        }
+        if (conjunctive) {
+            for (const name of Array.isArray(branch?.required) ? branch.required : []) required.add(name);
         }
         if (branch && typeof branch === 'object') {
             const parts = [];
@@ -377,7 +391,10 @@ export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
             if (parts.length) branchDescs.push(parts.join(' '));
         }
     }
-    const compoundKey = schema.oneOf ? 'oneOf' : schema.anyOf ? 'anyOf' : 'allOf';
+    const actionContract = actionInputContract(schema);
+    if (actionContract && mergedProps.input) {
+        mergedProps.input = { ...mergedProps.input, description: actionContract };
+    }
     let description = schema.description || '';
     if (branchDescs.length) {
         const parts = [];
@@ -400,9 +417,7 @@ export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
         type: 'object',
         ...(description ? { description } : {}),
         properties: mergedProps,
-        ...(Array.isArray(schema.required) && schema.required.length
-            ? { required: [...schema.required] }
-            : {}),
+        ...(required.size ? { required: [...required] } : {}),
         ...(schema.additionalProperties === false ? { additionalProperties: false } : {}),
     };
 }

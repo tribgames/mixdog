@@ -1,24 +1,22 @@
 /** Display sampling is read-only. It must never enter the CDP execution fence
  * or activate a hidden page window. At most one native capture may be pending
  * per page, including after a caller stops waiting. */
-import type { NativeImage, WebContents } from 'electron';
+import type { WebContents } from 'electron';
 import { browserScreenshotBytesFitBudget } from './screenshot-policy';
 import type { BrowserScreenshotCapture } from './screenshot';
 import { createBrowserDisplayStream } from './display-stream';
+import { encodeBrowserDisplayPng } from './display-png';
 
-export function createBrowserDisplayCapture() {
+export function createBrowserDisplayCapture(sharedTextures = false) {
   const pending = new WeakMap<WebContents, { documentId: string; work: Promise<BrowserScreenshotCapture> }>();
-  const encode = (image: NativeImage): BrowserScreenshotCapture => {
-    const size = image.getSize();
-    if (!size.width || !size.height) throw new Error('Browser display frame is not ready.');
-    const scaleFactor = Math.max(1, ...image.getScaleFactors());
-    const bytes = image.toPNG({ scaleFactor });
+  const png = (bytes: Buffer): BrowserScreenshotCapture => {
     if (!browserScreenshotBytesFitBudget(bytes.length)) throw new Error('Browser display frame is too large.');
     return {
       data: bytes.toString('base64'), width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20),
       mimeType: 'image/png', fullPage: false,
     };
   };
+  const encode = async (image: Electron.NativeImage) => png(await encodeBrowserDisplayPng(image));
   const stream = createBrowserDisplayStream(encode);
   return function capture(
     guest: WebContents, documentId = '', viewport?: { width: number; height: number },
@@ -33,7 +31,7 @@ export function createBrowserDisplayCapture() {
     }
     // Popups with native (non-offscreen) views do not emit paint events.
     // They retain the single-flight native path, not a silent stream fallback.
-    const work = guest.isOffscreen?.()
+    const work = guest.isOffscreen?.() && !sharedTextures
       ? stream(guest, key, viewport)
       : guest.capturePage(undefined, { stayHidden: true }).then(image => {
         const size = image.getSize();

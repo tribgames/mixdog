@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { reportSessionRead } from "./session-read-diagnostics";
-
-const SESSION_LANE_WAIT_MS = 15_000;
+import { TRANSCRIPT_READ_TIMEOUT_MS } from "../shared/transcript-read-policy";
 
 /** An accepted read is not readiness: only an actual lane releases the cover. */
 export function useSessionLaneRead({
@@ -29,7 +28,7 @@ export function useSessionLaneRead({
     const timer = window.setTimeout(() => {
       reportSessionRead(sessionId, 'wait-expired', { hasLane: false });
       fail();
-    }, SESSION_LANE_WAIT_MS);
+    }, TRANSCRIPT_READ_TIMEOUT_MS);
     if (reconcileOnMount || retry > 0) {
       void read(sessionId).then((accepted) => {
         if (!accepted) fail();

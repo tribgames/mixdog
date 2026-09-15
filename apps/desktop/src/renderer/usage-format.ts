@@ -11,12 +11,13 @@ export function usageNumber(value: unknown): number | null {
   return value === null || value === undefined || value === '' || !Number.isFinite(number) ? null : number;
 }
 
-// Fewer decimals as the amount grows: $12 reads at a glance, $0.0042 does not
-// survive rounding to two places.
+// Keep cents for normal amounts and never round a positive micro-cost to zero.
 export function usageMoney(value: unknown): string {
   const amount = usageNumber(value);
   if (amount === null) return '—';
-  return uiCurrency(amount, amount === 0 || amount >= 10 ? 0 : amount >= 1 ? 2 : amount >= 0.01 ? 3 : 4);
+  if (amount > 0 && amount < 0.000001) return `<${uiCurrency(0.000001, 6)}`;
+  return uiCurrency(amount, Math.abs(amount) >= 0.01 || amount === 0 ? 2
+    : Math.abs(amount) >= 0.0001 ? 4 : 6);
 }
 
 /**
@@ -31,7 +32,9 @@ export function usageProviderLabel(label: string): string {
 export function usageCompact(value: unknown): string {
   const amount = usageNumber(value);
   if (amount === null) return '';
+  // One decimal at every magnitude: "1293만" and "4억" hid a third of the
+  // difference between two routes that both rounded to the same figure.
   return new Intl.NumberFormat(uiFormatLocale(), {
-    notation: 'compact', maximumFractionDigits: Math.abs(amount) >= 10_000 ? 0 : 1,
+    notation: 'compact', maximumFractionDigits: 1,
   }).format(amount);
 }

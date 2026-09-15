@@ -18,6 +18,7 @@ import {
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
+import { isPlainObject } from './object.mjs';
 
 function mixdogConfigBaseDir() {
   return process.env.MIXDOG_CONFIG_DIR || join(homedir(), '.mixdog');
@@ -51,10 +52,6 @@ function safeReason(reason) {
 function initMarkerPath(dataDir) {
   const id = createHash('sha256').update(String(dataDir || 'unknown')).digest('hex').slice(0, 16);
   return join(getBackupRoot(), `.initialized-${id}.json`);
-}
-
-function isPlainObject(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function hasUserDataInitMarker(dataDir) {

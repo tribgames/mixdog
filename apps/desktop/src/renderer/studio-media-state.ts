@@ -9,6 +9,7 @@ import {
 } from 'react';
 
 import { t } from './i18n';
+import { readGlobalCapabilities } from './global-capability-reads';
 import {
   writeStudioAssetReferences,
   type StudioReferenceStore,
@@ -284,8 +285,10 @@ export function useStudioMediaJobs({
     const poll = () => {
       void (async () => {
         try {
-          const polled = await Promise.all(ids.map((id) =>
-            callCapability(api, 'getMediaJob', [id]) as Promise<MediaJob | null>));
+          const polled = await readGlobalCapabilities(api, ids.map((id) => ({
+            capability: 'getMediaJob',
+            args: [id],
+          }))) as Array<MediaJob | null>;
           if (stopped) return;
           const landed = polled.filter(Boolean) as MediaJob[];
           for (const entry of landed) misses.delete(entry.id);

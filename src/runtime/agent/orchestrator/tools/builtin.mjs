@@ -118,6 +118,7 @@ export {
     normalizeOutputPath,
     posixPathToWindowsPath,
     resolveAgainstCwd,
+    toDisplayPath,
 } from './builtin/path-utils.mjs';
 export {
     buildGlobCacheKey,
@@ -418,6 +419,9 @@ function _locatorBudgetFooter(toolName, args, keptLines, capBytes) {
 }
 
 export async function executeBuiltinTool(name, args, cwd, options = {}) {
+    // Argument guards and executors normalize in place. Their working state
+    // must not rewrite the caller's transcript or provider correlation data.
+    args = structuredClone(args);
     if (args && typeof args === 'object' && !Array.isArray(args) && '_clampNotices' in args) {
         // Reserved harness notice channel (arg-guard pushClampNotice). Drop
         // caller-supplied values so a model cannot inject fake [arg-guard]
@@ -428,6 +432,16 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
         options = { ...options, signal: options.abortSignal };
     }
     const toolName = canonicalizeBuiltinToolName(name);
+    if (toolName === 'read') {
+        // Capture the caller's coordinates before public inputs become legacy
+        // executor windows. Child reads inherit the originating batch's base.
+        options = {
+            ...options,
+            readOffsetBase: args && Object.hasOwn(args, 'file_path')
+                ? 1
+                : (options.readOffsetBase ?? 0),
+        };
+    }
     const argError = validateBuiltinArgs(toolName, args);
     if (argError) return toolName === 'shell' ? formatShellToolFailure(argError) : argError;
     // Fallback live-progress emit for direct callers (in-process toolExecutor
@@ -599,20 +613,3 @@ export function clearReadSnapshotForPath(fullPath, _scope) {
 // helpers from builtin.mjs (result-compression.mjs) can pick up the tool
 // def list from the same module without a parallel path.
 export { CODE_GRAPH_TOOL_DEFS } from './code-graph-tool-defs.mjs';
-
-// Render an absolute path relative to `cwd` for display. Falls back to the
-// absolute path when `cwd` is missing or does not prefix the input. Used by
-// code-graph for tool-result formatting; declared here to keep path-display
-// invariants colocated with the other normalize* helpers above.
-export function toDisplayPath(absPath, cwd) {
-  if (!absPath) return '';
-  if (cwd) {
-    const a = String(absPath).replace(/\\/g, '/');
-    const c = String(cwd).replace(/\\/g, '/').replace(/\/+$/, '');
-    if (a.toLowerCase().startsWith(c.toLowerCase() + '/')) {
-      return a.slice(c.length + 1);
-    }
-    if (a.toLowerCase() === c.toLowerCase()) return '';
-  }
-  return absPath;
-}

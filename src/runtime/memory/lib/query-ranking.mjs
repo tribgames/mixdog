@@ -52,6 +52,23 @@ export function recallRowTopicText(row) {
   ].filter(Boolean).join(' ').normalize('NFKC').toLowerCase()
 }
 
+export function uniqueRowsById(rows) {
+  const seen = new Set()
+  const out = []
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const id = String(row?.id ?? '')
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(row)
+  }
+  return out
+}
+
+export function topicTermCoverage(row, terms) {
+  const text = recallRowTopicText(row)
+  return (Array.isArray(terms) ? terms : []).reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0)
+}
+
 export function rankLatestRecallRows(rows, query) {
   const terms = latestRecallTopicTerms(query)
   const explicitIdentifiers = String(query ?? '').match(/[A-Za-z][A-Za-z0-9_]*/g) ?? []
@@ -64,15 +81,12 @@ export function rankLatestRecallRows(rows, query) {
     return Number.isFinite(value) ? value : 0
   }
   const annotated = [...(Array.isArray(rows) ? rows : [])]
-    .map((row, index) => {
-      const text = recallRowTopicText(row)
-      return {
-        row,
-        index,
-        coverage: terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0),
-        selfEcho: String(row?.content ?? '').normalize('NFKC').trim().toLowerCase() === normalizedQuery,
-      }
-    })
+    .map((row, index) => ({
+      row,
+      index,
+      coverage: topicTermCoverage(row, terms),
+      selfEcho: String(row?.content ?? '').normalize('NFKC').trim().toLowerCase() === normalizedQuery,
+    }))
   const maxCoverage = annotated.reduce((max, candidate) => Math.max(max, candidate.coverage), 0)
   const latestCoverageFloor = strictEntityCoverage
     ? maxCoverage

@@ -10,6 +10,10 @@
 //   with the confirm dialog and a hover-expand on collapsed folders.
 // - The active editor auto-reveals: its ancestors expand, the row scrolls
 //   into view and becomes the selection without stealing keyboard focus.
+// This file owns selection, keyboard, drag and menu behaviour. Folder listing,
+// expansion and refresh live in explorer-dir-state; the file operations behind
+// delete/paste/drop live in explorer-mutations; the tree shape and its path
+// grammar in explorer-tree-model; the inline input row in explorer-edit-row.
 import {
   ChevronDown,
   FilePlus,
@@ -17,58 +21,44 @@ import {
   ListCollapse,
   RefreshCw,
 } from "lucide-react";
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { DesktopGitStatus } from "../shared/contract";
 import {
   explorerTypeAheadIndex,
-  sortExplorerEntries,
   validateExplorerName,
   wellFormedExplorerName,
 } from "./explorer-logic";
+import { useExplorerDirs } from "./explorer-dir-state";
+import { ExplorerEditRow, type ExplorerEdit } from "./explorer-edit-row";
+import {
+  explorerCreatedEntry,
+  explorerErrorText,
+  explorerTransferRels,
+  transferExplorerEntries,
+  trashExplorerEntries,
+} from "./explorer-mutations";
+import {
+  explorerAbsolutePath,
+  explorerParentRel,
+  explorerRevealStep,
+  type ExplorerRow,
+} from "./explorer-tree-model";
 import { COMPOSER_PROJECT_PATHS_MIME } from "./composer-support";
 import { t } from "./i18n";
 import { ErrorNotice } from "./ErrorNotice";
 import { useMobileBack } from "./mobile-back";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
-import { subscribeProjectFileChanges } from "./project-file-changes";
-import { setiIconFor } from "./seti-icons";
+import { SetiFileIcon } from "./SetiFileIcon";
 import { useSurfaceActive } from "./surface-activity";
 import { copyTextToClipboard } from "./text-format";
 
-interface DockDirEntry { name: string; dir: boolean }
-interface DockDirState { entries?: DockDirEntry[]; expanded: boolean; error?: string }
 interface ExplorerMenu { x: number; y: number; rel: string; parent: string; name: string; isDir: boolean; background?: boolean }
-interface ExplorerRow {
-  rel: string;
-  name: string;
-  dir: boolean;
-  level: number;
-  parentRel: string;
-  expanded: boolean;
-  error?: string;
-}
-interface ExplorerEdit {
-  mode: "new-file" | "new-folder" | "rename";
-  parentRel: string;
-  rel: string;
-  initial: string;
-  dir: boolean;
-}
 
 const TYPE_AHEAD_RESET_MS = 700;
 const DRAG_EXPAND_DELAY_MS = 500;
 
-/** Seti file glyph (file icon theme; folders stay icon-less). */
-export function SetiFileIcon({ name, className = "" }: { name: string; className?: string }) {
-  const icon = setiIconFor(name);
-  // The colour goes out as a custom property, never as an inline `color`: the
-  // table is Seti's dark set, and desktop.css retunes it on light surfaces.
-  // An inline color would win that cascade and keep 1.7:1 glyphs on paper.
-  return <span className={className ? `seti-icon ${className}` : "seti-icon"}
-    style={icon.color ? { "--seti-color": icon.color } as React.CSSProperties : undefined}
-    aria-hidden="true">{icon.glyph}</span>;
-}
+export { SetiFileIcon };
 
 export const FilesRootPane = memo(function FilesRootPane({
   projectPath,
@@ -95,7 +85,6 @@ export const FilesRootPane = memo(function FilesRootPane({
   rootLabel?: string;
   headerSlot?: HTMLElement | null;
 }) {
-  const [dirs, setDirs] = useState<Map<string, DockDirState>>(() => new Map());
   const api = window.mixdogDesktop;
   // Files and Source Control consume the same project-scoped Git snapshot so
   // their decorations cannot drift after an SCM action.
@@ -124,19 +113,6 @@ export const FilesRootPane = memo(function FilesRootPane({
     : badge === "U" || badge === "A" || badge === "?" ? " git-added"
       : badge === "D" ? " git-deleted"
         : " git-modified";
-  const patch = useCallback((rel: string, next: Partial<DockDirState>) => {
-    setDirs((current) => {
-      const map = new Map(current);
-      map.set(rel, { expanded: false, ...map.get(rel), ...next });
-      return map;
-    });
-  }, []);
-  const load = useCallback((rel: string) => {
-    patch(rel, { expanded: true, error: undefined });
-    void api?.listProjectDir?.(projectPath, rel)
-      .then((entries) => patch(rel, { entries: entries ?? [] }))
-      .catch((reason) => patch(rel, { entries: [], error: reason instanceof Error ? reason.message : String(reason) }));
-  }, [api, projectPath, patch]);
   // Selection, focus, and clipboard state for the multi-select list.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [focusedRel, setFocusedRel] = useState("");
@@ -146,137 +122,39 @@ export const FilesRootPane = memo(function FilesRootPane({
   editingRef.current = editing;
   const [editValue, setEditValue] = useState("");
   const [mutationError, setMutationError] = useState("");
-  const editInputRef = useRef<HTMLInputElement>(null);
-  const editSelectionState = useRef<"prefix" | "all" | "suffix">("prefix");
   const [clipboard, setClipboard] = useState<{ rels: string[]; cut: boolean } | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const rowEls = useRef(new Map<string, HTMLButtonElement>());
   const dragRels = useRef<string[]>([]);
   const hoverExpandTimer = useRef(0);
   const typeAhead = useRef({ buffer: "", at: 0 });
-  const parentOf = (rel: string) => rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
-  // The Dock retains every visited tab, so this effect must never rebuild the
-  // tree for a surface the user is not looking at: an inactive Files pane keeps
-  // its expansion and issues no listProjectDir. The signature defers the reset
-  // + root listing to the moment the pane becomes active again, which is also
-  // the moment a stale project would otherwise be visible.
-  const loadedTreeSignature = useRef("");
-  useEffect(() => {
-    const signature = `${readinessKey}\u0000${projectPath}`;
-    if (!active || loadedTreeSignature.current === signature) return undefined;
-    loadedTreeSignature.current = signature;
-    let live = true;
-    onReadyChange(readinessKey, false);
-    setDirs(new Map());
-    setSelected(new Set());
-    setFocusedRel("");
-    setEditing(null);
-    setClipboard(null);
-    setMutationError("");
-    if (!projectPath) {
-      onReadyChange(readinessKey, true);
-      return () => { live = false; };
-    }
-    const rootRequest = api?.listProjectDir?.(projectPath, "");
-    void Promise.resolve(rootRequest ?? [])
-      .then((entries) => {
-        if (live) setDirs(new Map([["", { expanded: true, entries: entries ?? [] }]]));
-      })
-      .catch((reason) => {
-        if (live) setDirs(new Map([["", {
-          expanded: true, entries: [],
-          error: reason instanceof Error ? reason.message : String(reason),
-        }]]));
-      })
-      .finally(() => {
-        if (live) onReadyChange(readinessKey, true);
-      });
-    return () => { live = false; };
-  }, [active, api, onReadyChange, projectPath, readinessKey]);
-  // Agent/external edits arrive through the shared recursive project watcher.
-  // A slow safety pass covers watcher overflow or unavailable native delivery.
-  useEffect(() => {
-    if (!active || !projectPath) return undefined;
-    const refreshExpanded = () => {
-      setDirs((current) => {
-        for (const [rel, state] of current) {
-          if (!state.expanded || !state.entries) continue;
-          void api?.listProjectDir?.(projectPath, rel).then((entries) => {
-            if (!entries) return;
-            setDirs((latest) => {
-              const existing = latest.get(rel);
-              if (!existing?.entries || JSON.stringify(existing.entries) === JSON.stringify(entries)) return latest;
-              const map = new Map(latest);
-              map.set(rel, { ...existing, entries });
-              return map;
-            });
-          }).catch(() => { /* dir removed — next expand reloads */ });
-        }
-        return current;
-      });
-    };
-    const unsubscribeProject = subscribeProjectFileChanges(projectPath, refreshExpanded);
-    const timer = window.setInterval(refreshExpanded, 30_000);
-    return () => {
-      unsubscribeProject();
-      window.clearInterval(timer);
-    };
-  }, [active, api, projectPath]);
-  const [refreshing, setRefreshing] = useState(false);
-  const refreshTree = useCallback(async () => {
-    if (!projectPath || refreshing) return;
-    setRefreshing(true);
-    const targets = [...dirs.entries()]
-      .filter(([rel, state]) => rel === "" || state.expanded)
-      .map(([rel]) => rel);
-    try {
-      const refreshed = await Promise.all(targets.map(async (rel) => {
-        try {
-          return { rel, entries: await Promise.resolve(api?.listProjectDir?.(projectPath, rel) ?? []) };
-        } catch {
-          return null;
-        }
-      }));
-      setDirs((current) => {
-        const next = new Map(current);
-        for (const result of refreshed) {
-          if (!result) continue;
-          const existing = next.get(result.rel);
-          if (existing) next.set(result.rel, { ...existing, entries: result.entries });
-        }
-        return next;
-      });
-    } finally {
-      setRefreshing(false);
-    }
-  }, [api, dirs, projectPath, refreshing]);
-  const canCollapseAll = [...dirs.entries()]
-    .some(([rel, state]) => rel !== "" && state.expanded);
-  const collapseAll = useCallback(() => {
-    setDirs((current) => {
-      let changedAny = false;
-      const next = new Map(current);
-      for (const [rel, state] of next) {
-        if (rel === "" || !state.expanded) continue;
-        next.set(rel, { ...state, expanded: false });
-        changedAny = true;
-      }
-      return changedAny ? next : current;
-    });
-  }, []);
-  const toggle = (rel: string) => {
-    const state = dirs.get(rel);
-    if (state?.expanded) patch(rel, { expanded: false });
-    else if (state?.entries) patch(rel, { expanded: true });
-    else load(rel);
+  // Folder listing, expansion and refresh live in their own state module; the
+  // pane drives them and adds the selection/mutation grammar on top.
+  const {
+    dirs, rows, navRows, refreshing, canCollapseAll,
+    patch, load, toggle, expandDir, refreshDir, refreshTree, collapseAll,
+  } = useExplorerDirs({
+    api,
+    projectPath,
+    active,
+    readinessKey,
+    onReadyChange,
+    onProjectReset: () => {
+      setSelected(new Set());
+      setFocusedRel("");
+      setEditing(null);
+      setClipboard(null);
+      setMutationError("");
+    },
+  });
+  /** Single-row selection: range anchor, selection and focus land together. */
+  const selectOnly = (rel: string) => {
+    anchorRel.current = rel;
+    setSelected(new Set([rel]));
+    setFocusedRel(rel);
   };
-  const expandDir = (rel: string) => {
-    if (!rel) return;
-    const state = dirs.get(rel);
-    if (state?.expanded) return;
-    if (state?.entries) patch(rel, { expanded: true });
-    else load(rel);
-  };
+  /** What an action addresses: the selection, or the focused row alone. */
+  const selectionRels = () => selected.size > 0 ? [...selected] : focusedRel ? [focusedRel] : [];
   // Explorer-style right-click menu state. Declared BEFORE the empty-project
   // early return below: with hooks after that return, a projectPath flip
   // (pane focus swaps between draft/EMPTY and session snapshots) changed the
@@ -319,42 +197,6 @@ export const FilesRootPane = memo(function FilesRootPane({
   }, [visibleMenu]);
   // ABB: hardware back closes the menu instead of leaving the PWA.
   useMobileBack(Boolean(visibleMenu), () => setMenu(null));
-  // renderInputBox: focus the inline editor and pre-select the basename
-  // without its extension (rename of a file); create starts empty.
-  useEffect(() => {
-    if (!editing) return;
-    const input = editInputRef.current;
-    if (!input) return;
-    editSelectionState.current = "prefix";
-    input.focus();
-    const value = editing.initial;
-    const lastDot = value.lastIndexOf(".");
-    const end = editing.mode === "rename" && !editing.dir && lastDot > 0 ? lastDot : value.length;
-    try { input.setSelectionRange(0, end); } catch { /* jsdom */ }
-  }, [editing]);
-  // Flattened visible rows: the shared coordinate space for keyboard
-  // navigation, shift ranges, type-ahead, and indent guides.
-  const rows = useMemo(() => {
-    const out: ExplorerRow[] = [];
-    const walk = (rel: string, level: number) => {
-      const state = dirs.get(rel);
-      if (!state?.expanded) return;
-      if (state.error) {
-        out.push({ rel: `${rel}\u0000error`, name: state.error, dir: false, level, parentRel: rel, expanded: false, error: state.error });
-        return;
-      }
-      if (!state.entries) return;
-      for (const entry of sortExplorerEntries(state.entries)) {
-        const childRel = rel ? `${rel}/${entry.name}` : entry.name;
-        const expanded = entry.dir && dirs.get(childRel)?.expanded === true;
-        out.push({ rel: childRel, name: entry.name, dir: entry.dir, level, parentRel: rel, expanded });
-        if (entry.dir && expanded) walk(childRel, level + 1);
-      }
-    };
-    walk("", 0);
-    return out;
-  }, [dirs]);
-  const navRows = useMemo(() => rows.filter((row) => !row.error), [rows]);
   // Auto-reveal: expand ancestors of the
   // active editor file step by step; each load/expand re-runs this effect
   // until the row exists, then select + scroll without stealing focus.
@@ -369,22 +211,14 @@ export const FilesRootPane = memo(function FilesRootPane({
   useEffect(() => {
     const rel = revealTarget.current;
     if (!rel || !active || editingRef.current) return;
-    const segments = rel.split("/");
-    let cursor = "";
-    for (let index = 0; index < segments.length - 1; index += 1) {
-      cursor = cursor ? `${cursor}/${segments[index]}` : segments[index];
-      const state = dirs.get(cursor);
-      if (!state?.entries) {
-        if (!state?.expanded) load(cursor);
-        return;
-      }
-      if (state.error) { revealTarget.current = ""; return; }
-      if (!state.expanded) { patch(cursor, { expanded: true }); return; }
-    }
+    const step = explorerRevealStep(dirs, rel);
+    if (step.kind === "load") { load(step.rel); return; }
+    if (step.kind === "expand") { patch(step.rel, { expanded: true }); return; }
+    if (step.kind === "pending") return;
+    // Ready or abandoned: either way this target is done steering the tree.
     revealTarget.current = "";
-    anchorRel.current = rel;
-    setSelected(new Set([rel]));
-    setFocusedRel(rel);
+    if (step.kind === "blocked") return;
+    selectOnly(rel);
     window.requestAnimationFrame(() => {
       rowEls.current.get(rel)?.scrollIntoView?.({ block: "nearest" });
     });
@@ -393,16 +227,11 @@ export const FilesRootPane = memo(function FilesRootPane({
   const openFile = (rel: string, mode: "preview" | "pinned" = "preview") => onOpenFile
     ? onOpenFile(projectPath, rel, mode)
     : void api?.openFilePath?.(projectPath, rel);
-  const refreshDir = (rel: string) => {
-    void api?.listProjectDir?.(projectPath, rel)
-      .then((entries) => patch(rel, { entries: entries ?? [] }))
-      .catch(() => { /* gone — collapsed on next interaction */ });
-  };
-  const absOf = (rel: string) => `${projectPath.replace(/[\\/]+$/, "")}/${rel}`;
+  const absOf = (rel: string) => explorerAbsolutePath(projectPath, rel);
   const menuAction = (action: () => void) => () => { setMenu(null); action(); };
   const focusRow = (rel: string, options?: { extend?: boolean; keepSelection?: boolean }) => {
-    setFocusedRel(rel);
     if (options?.extend) {
+      setFocusedRel(rel);
       const anchor = anchorRel.current || rel;
       const from = navRows.findIndex((row) => row.rel === anchor);
       const to = navRows.findIndex((row) => row.rel === rel);
@@ -410,17 +239,15 @@ export const FilesRootPane = memo(function FilesRootPane({
         const [lo, hi] = from < to ? [from, to] : [to, from];
         setSelected(new Set(navRows.slice(lo, hi + 1).map((row) => row.rel)));
       }
-    } else if (!options?.keepSelection) {
-      anchorRel.current = rel;
-      setSelected(new Set([rel]));
-    }
+    } else if (options?.keepSelection) setFocusedRel(rel);
+    else selectOnly(rel);
     const element = rowEls.current.get(rel);
     element?.focus?.({ preventScroll: true });
     element?.scrollIntoView?.({ block: "nearest" });
   };
   const beginRename = (rel: string, name: string, dir: boolean) => {
     setEditValue(name);
-    setEditing({ mode: "rename", parentRel: parentOf(rel), rel, initial: name, dir });
+    setEditing({ mode: "rename", parentRel: explorerParentRel(rel), rel, initial: name, dir });
   };
   const beginCreate = (dir: boolean, explicitParent?: string) => {
     const focusedRow = navRows.find((row) => row.rel === focusedRel);
@@ -442,11 +269,14 @@ export const FilesRootPane = memo(function FilesRootPane({
     allowSegments: editing.mode !== "rename",
   }) : null;
   const cancelEdit = () => {
+    if (!editingRef.current) return;
     editingRef.current = null;
     setEditing(null);
   };
-  const mutationErrorText = (reason: unknown) =>
-    reason instanceof Error ? reason.message : String(reason);
+  /** Re-list the folders a mutation touched: its target and every source parent. */
+  const refreshParentsOf = (rels: readonly string[]) => {
+    for (const parent of new Set(rels.map(explorerParentRel))) refreshDir(parent);
+  };
   const commitEdit = () => {
     const edit = editingRef.current;
     if (!edit) return;
@@ -458,87 +288,67 @@ export const FilesRootPane = memo(function FilesRootPane({
     if (edit.mode === "rename") {
       if (value === edit.initial) return;
       void api?.renameProjectEntry?.(projectPath, edit.rel, value)
-        .then(() => {
-          const nextRel = edit.parentRel ? `${edit.parentRel}/${value}` : value;
-          anchorRel.current = nextRel;
-          setSelected(new Set([nextRel]));
-          setFocusedRel(nextRel);
-        })
-        .catch((reason) => setMutationError(mutationErrorText(reason)))
+        .then(() => selectOnly(edit.parentRel ? `${edit.parentRel}/${value}` : value))
+        .catch((reason) => setMutationError(explorerErrorText(reason)))
         .finally(() => refreshDir(edit.parentRel));
       return;
     }
     const dir = edit.mode === "new-folder";
     void api?.createProjectEntry?.(projectPath, edit.parentRel, value, dir)
       .then(() => {
-        const segments = value.split(/[\\/]/).filter(Boolean);
+        const created = explorerCreatedEntry(edit.parentRel, value, dir);
         refreshDir(edit.parentRel);
         // Expand every folder a nested name created (the new entry reveals).
-        let cursor = edit.parentRel;
-        for (const segment of (dir ? segments : segments.slice(0, -1))) {
-          cursor = cursor ? `${cursor}/${segment}` : segment;
-          load(cursor);
-        }
-        const finalRel = [edit.parentRel, ...segments].filter(Boolean).join("/");
-        anchorRel.current = finalRel;
-        setSelected(new Set([finalRel]));
-        setFocusedRel(finalRel);
-        if (!dir) openFile(finalRel, "preview");
+        for (const folderRel of created.expandRels) load(folderRel);
+        selectOnly(created.finalRel);
+        if (!dir) openFile(created.finalRel, "preview");
       })
       .catch((reason) => {
-        setMutationError(mutationErrorText(reason));
+        setMutationError(explorerErrorText(reason));
         refreshDir(edit.parentRel);
       });
   };
   const deleteSelection = () => {
-    const rels = selected.size > 0 ? [...selected] : focusedRel ? [focusedRel] : [];
+    const rels = selectionRels();
     if (rels.length === 0) return;
     const label = rels.length === 1 ? (rels[0].split("/").at(-1) || rels[0]) : t("{{count}} items", { count: rels.length });
     if (!window.confirm(t("Move {{name}} to the Recycle Bin?", { name: label }))) return;
     setMutationError("");
-    void Promise.allSettled(rels.map((rel) => Promise.resolve(api?.trashProjectEntry?.(projectPath, rel))))
-      .then((results) => {
-        const failed = results.flatMap((result, index) =>
-          result.status === "rejected" ? [rels[index]] : []);
-        setSelected(new Set(failed));
-        setFocusedRel(failed[0] || "");
-        const rejection = results.find((result) => result.status === "rejected");
-        if (rejection?.status === "rejected") {
-          setMutationError(mutationErrorText(rejection.reason));
-        }
-        for (const parent of new Set(rels.map(parentOf))) refreshDir(parent);
-      });
+    void trashExplorerEntries({ api, projectPath, rels }).then(({ failed, firstError }) => {
+      // Only what survived the delete stays selected, ready for a retry.
+      setSelected(new Set(failed));
+      setFocusedRel(failed[0] || "");
+      if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
+      refreshParentsOf(rels);
+    });
   };
   const stashClipboard = (cut: boolean) => {
-    const rels = selected.size > 0 ? [...selected] : focusedRel ? [focusedRel] : [];
+    const rels = selectionRels();
     if (rels.length) setClipboard({ rels, cut });
   };
   const pasteTargetRel = () => {
     const row = navRows.find((candidate) => candidate.rel === focusedRel);
     return row ? (row.dir ? row.rel : row.parentRel) : "";
   };
+  /** After a copy/move: reveal the destination and re-list both sides. */
+  const settleTransfer = (targetDirRel: string, rels: readonly string[]) => {
+    expandDir(targetDirRel);
+    refreshDir(targetDirRel);
+    refreshParentsOf(rels);
+  };
   const pasteClipboard = async (targetDirRel: string) => {
     if (!clipboard) return;
     setMutationError("");
-    const ops = clipboard.rels.filter((rel) =>
-      targetDirRel !== rel && !targetDirRel.startsWith(`${rel}/`)
-      && !(clipboard.cut && parentOf(rel) === targetDirRel));
-    const failed: string[] = [];
-    let firstError: unknown;
-    for (const rel of ops) {
-      try {
-        if (clipboard.cut) await api?.moveProjectEntry?.(projectPath, rel, targetDirRel);
-        else await api?.copyProjectEntry?.(projectPath, rel, targetDirRel);
-      } catch (reason) {
-        failed.push(rel);
-        firstError ??= reason;
-      }
-    }
+    const copy = !clipboard.cut;
+    const ops = explorerTransferRels(clipboard.rels, targetDirRel, copy);
+    const { failed, firstError } = await transferExplorerEntries({
+      api, projectPath, rels: ops, targetDirRel, copy,
+    });
+    // A cut is consumed by its paste; entries that could not move stay cut so
+    // the next paste retries exactly them.
     if (clipboard.cut) setClipboard(failed.length ? { rels: failed, cut: true } : null);
-    if (firstError !== undefined) setMutationError(mutationErrorText(firstError));
-    expandDir(targetDirRel);
-    refreshDir(targetDirRel);
-    for (const parent of new Set(ops.map(parentOf))) refreshDir(parent);
+    if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
+    settleTransfer(targetDirRel, ops);
   };
   const clearHoverExpand = () => {
     if (hoverExpandTimer.current) {
@@ -547,9 +357,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     }
   };
   const performDrop = async (targetDirRel: string, copy: boolean) => {
-    const rels = dragRels.current.filter((rel) =>
-      targetDirRel !== rel && !targetDirRel.startsWith(`${rel}/`)
-      && (copy || parentOf(rel) !== targetDirRel));
+    const rels = explorerTransferRels(dragRels.current, targetDirRel, copy);
     dragRels.current = [];
     clearHoverExpand();
     setDropTarget(null);
@@ -562,23 +370,14 @@ export const FilesRootPane = memo(function FilesRootPane({
         : t("the following {{count}} items", { count: rels.length });
       if (!window.confirm(t("Are you sure you want to move {{name}}?", { name: label }))) return;
     }
-    const failed: string[] = [];
-    let firstError: unknown;
-    for (const rel of rels) {
-      try {
-        if (copy) await api?.copyProjectEntry?.(projectPath, rel, targetDirRel);
-        else await api?.moveProjectEntry?.(projectPath, rel, targetDirRel);
-      } catch (reason) {
-        failed.push(rel);
-        firstError ??= reason;
-      }
-    }
-    expandDir(targetDirRel);
-    refreshDir(targetDirRel);
-    for (const parent of new Set(rels.map(parentOf))) refreshDir(parent);
+    const { failed, firstError } = await transferExplorerEntries({
+      api, projectPath, rels, targetDirRel, copy,
+    });
+    settleTransfer(targetDirRel, rels);
+    // Whatever failed to land stays selected where it still is.
     setSelected(new Set(failed));
     setFocusedRel(failed[0] || "");
-    if (firstError !== undefined) setMutationError(mutationErrorText(firstError));
+    if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
   };
   const dragTargetDir = (row: ExplorerRow) => row.dir ? row.rel : row.parentRel;
   const onTreeKeyDown = (event: React.KeyboardEvent) => {
@@ -632,7 +431,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       && !event.ctrlKey && !event.metaKey) {
       // Copy file path (Shift+Alt+C): absolute paths of the selection.
       event.preventDefault();
-      const rels = selected.size > 0 ? [...selected] : focusedRel ? [focusedRel] : [];
+      const rels = selectionRels();
       if (rels.length) void copyTextToClipboard(rels.map(absOf).join("\n"));
     } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && /\S/.test(event.key)) {
       const now = performance.now();
@@ -664,53 +463,10 @@ export const FilesRootPane = memo(function FilesRootPane({
       <ListCollapse size={16} aria-hidden="true" />
     </button>
   </>, headerSlot) : null;
-  const editRowNode = (level: number): ReactNode => {
-    if (!editing) return null;
-    const editDir = editing.mode === "new-folder" || (editing.mode === "rename" && editing.dir);
-    return <div key="explorer-edit" className="dock-file-row explorer-edit-row"
-      style={{ paddingLeft: `calc(var(--mx-explorer-inset, 12px) + ${level * 8}px)` }}>
-      <span className="explorer-twistie" aria-hidden="true" />
-      {/* renderInputBox updates the icon live while the user types. */}
-      {!editDir && <SetiFileIcon name={editValue || "file"} className="dock-file-icon" />}
-      <span className="explorer-edit-box" data-problem={editProblem?.severity || undefined}>
-        <input ref={editInputRef} value={editValue} spellCheck={false}
-          aria-label={t("Type file name. Press Enter to confirm or Escape to cancel.")}
-          onChange={(event) => setEditValue(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === "F2" && editing.mode === "rename" && !editing.dir) {
-              const input = event.currentTarget;
-              const dotIndex = input.value.lastIndexOf(".");
-              if (dotIndex === -1) return;
-              event.preventDefault();
-              if (editSelectionState.current === "prefix") {
-                editSelectionState.current = "all";
-                input.setSelectionRange(0, input.value.length);
-              } else if (editSelectionState.current === "all") {
-                editSelectionState.current = "suffix";
-                input.setSelectionRange(dotIndex + 1, input.value.length);
-              } else {
-                editSelectionState.current = "prefix";
-                input.setSelectionRange(0, dotIndex);
-              }
-            } else if (event.key === "Enter") {
-              if (editProblem?.severity === "error") return;
-              commitEdit();
-            } else if (event.key === "Escape") {
-              cancelEdit();
-            }
-          }}
-          onBlur={() => {
-            if (!editingRef.current) return;
-            if (editProblem?.severity === "error") cancelEdit();
-            else commitEdit();
-          }} />
-        {editProblem && <span className={`explorer-edit-message ${editProblem.severity}`} role="alert">
-          {editProblem.content}
-        </span>}
-      </span>
-    </div>;
-  };
+  const editRowNode = (level: number): ReactNode => editing
+    ? <ExplorerEditRow key="explorer-edit" edit={editing} value={editValue} problem={editProblem}
+      level={level} onChange={setEditValue} onCommit={commitEdit} onCancel={cancelEdit} />
+    : null;
   const firstFocusableRel = focusedRel || navRows[0]?.rel || "";
   const rowNode = (row: ExplorerRow): ReactNode => {
     if (row.error) return <ErrorNotice key={row.rel} error={row.error} role="status" />;
@@ -744,12 +500,10 @@ export const FilesRootPane = memo(function FilesRootPane({
       style={{ paddingLeft: `calc(var(--mx-explorer-inset, 12px) + ${row.level * 8}px)`, ...guides }}
       draggable
       onDragStart={(event) => {
-        const rels = selected.has(row.rel) ? [...selected] : [row.rel];
-        if (!selected.has(row.rel)) {
-          anchorRel.current = row.rel;
-          setSelected(new Set([row.rel]));
-          setFocusedRel(row.rel);
-        }
+        // Dragging outside the selection re-selects the dragged row alone.
+        const withinSelection = selected.has(row.rel);
+        const rels = withinSelection ? [...selected] : [row.rel];
+        if (!withinSelection) selectOnly(row.rel);
         dragRels.current = rels;
         event.dataTransfer.effectAllowed = "copyMove";
         event.dataTransfer.setData("text/plain", rels.join("\n"));
@@ -810,20 +564,16 @@ export const FilesRootPane = memo(function FilesRootPane({
           focusRow(row.rel, { extend: true });
           return;
         }
-        anchorRel.current = row.rel;
-        setSelected(new Set([row.rel]));
-        setFocusedRel(row.rel);
+        selectOnly(row.rel);
         if (row.dir) toggle(row.rel);
         else openFile(row.rel, "preview");
       }}
       onDoubleClick={row.dir ? undefined : () => openFile(row.rel, "pinned")}
       onContextMenu={(event) => {
         event.preventDefault();
-        if (!selected.has(row.rel)) {
-          anchorRel.current = row.rel;
-          setSelected(new Set([row.rel]));
-        }
-        setFocusedRel(row.rel);
+        // A right-click inside the selection keeps it (multi-item actions).
+        if (selected.has(row.rel)) setFocusedRel(row.rel);
+        else selectOnly(row.rel);
         setMenu({ x: event.clientX, y: event.clientY, rel: row.rel, parent: row.parentRel, name: row.name, isDir: row.dir });
       }}>
       {/* 16px twistie column on EVERY row (monaco-tl-twistie): files reserve

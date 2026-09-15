@@ -23,7 +23,6 @@ export function createCwdPlugins({
   isCodeGraphPrewarmLazy,
   isCodeGraphFirstTurnPrewarmDone,
   getCodeGraphPrewarmDelayMs,
-  setSessionNeedsCwdRefresh,
   // callbacks / deps
   scheduleCodeGraphPrewarm,
   hooks,
@@ -99,11 +98,11 @@ export function createCwdPlugins({
     return next;
   }
 
-  function applyResolvedCwd(nextCwd, {
-    markRefresh = true,
-    waitForMcpReset = false,
-    persistProjectSelection = false,
-  } = {}) {
+  // cwd changes NEVER recreate the session and never reload MCP or Skills
+  // (extension settings are global): a mid-conversation cwd switch must
+  // preserve the full message history. The live execution cwd is retargeted in
+  // place; the BP3 session snapshot remains the session-start environment.
+  function applyResolvedCwd(nextCwd, { persistProjectSelection = false } = {}) {
     const resolved = resolve(nextCwd);
     const stat = statSync(resolved);
     if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${resolved}`);
@@ -114,22 +113,18 @@ export function createCwdPlugins({
     if (session) session.cwd = currentCwd;
     updateCurrentCwdOverride?.(currentCwd);
     writeLastSessionCwd(currentCwd, session?.clientHostPid);
-    if (persistProjectSelection && session) {
-      const desktop = getDesktopSession?.() || session.desktopSession;
+    if (persistProjectSelection) {
+      const desktop = getDesktopSession?.() || session?.desktopSession;
       if (desktop && typeof desktop === 'object') {
         const nextDesktop = { classification: 'project', projectPath: currentCwd };
         setDesktopSession?.(nextDesktop);
-        session.desktopSession = nextDesktop;
+        if (session) session.desktopSession = nextDesktop;
       }
-      session.updatedAt = Date.now();
-      persistSession(session);
+      if (session) {
+        session.updatedAt = Date.now();
+        persistSession(session);
+      }
     }
-    // cwd changes NEVER recreate the session: a mid-conversation cwd switch must
-    // preserve the full message history. We retarget the live execution cwd in
-    // place; the BP3 session snapshot remains the session-start environment.
-    // `markRefresh`/`changed` are kept only for signature compatibility with
-    // existing callers.
-    void markRefresh;
     // Lazy mode: before the first turn (e.g. the initial project-selection
     // cwd set), do NOT prewarm — that is exactly the post-first-frame freeze
     // we are avoiding. Once a turn has run, an in-session cwd switch DOES
@@ -140,23 +135,12 @@ export function createCwdPlugins({
       const delay = getCodeGraphPrewarmDelayMs();
       scheduleCodeGraphPrewarm(changed ? 0 : delay, changed ? 'cwd-change' : 'cwd');
     }
-    // Extension settings are global; cwd changes never reload MCP or Skills.
-    void waitForMcpReset;
     // CwdChanged: bridge an effective cwd switch to the standard hook bus.
     // No matcher event — payload is minimal { cwd }. Fire-and-forget.
     if (changed) {
       try { void hooks.dispatch('CwdChanged', hookCommonPayload({ cwd: currentCwd })); } catch {}
     }
     return currentCwd;
-  }
-
-  async function refreshSessionForCwdIfNeeded(reason = 'cwd-change') {
-    // No-op: cwd changes are applied in place by applyResolvedCwd and never
-    // tear down the session. Retained as a stable hook for ask()'s pre-turn
-    // call so the surrounding turn flow is unchanged.
-    void reason;
-    setSessionNeedsCwdRefresh(false);
-    return getSession();
   }
 
   function pluginsStatus() {
@@ -272,7 +256,6 @@ export function createCwdPlugins({
   return {
     resolveCwdPath,
     applyResolvedCwd,
-    refreshSessionForCwdIfNeeded,
     pluginsStatus,
     formatCoreMemoryLines,
     loadCoreMemoryContext,

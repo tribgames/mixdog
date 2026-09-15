@@ -100,7 +100,7 @@ export function buildDefaultConfig(options = {}) {
     return {
         providers,
         disabledAgents: [...DEFAULT_DISABLED_AGENT_IDS],
-        workflow: { active: 'default' },
+        workflow: { active: 'solo' },
     };
 }
 
@@ -242,7 +242,7 @@ export function loadConfig(options = {}) {
                 // Explicit "off" roster. canonicalizeAgentRouteStorage normalizes
                 // and drops it when empty, so an all-enabled config stays clean.
                 disabledAgents: Array.isArray(raw.disabledAgents) ? raw.disabledAgents : [],
-                workflow: raw.workflow && typeof raw.workflow === 'object' ? { active: String(raw.workflow.active || 'default') } : { active: 'default' },
+                workflow: raw.workflow && typeof raw.workflow === 'object' ? { active: String(raw.workflow.active || 'solo') } : { active: 'solo' },
                 profile: normalizeProfileConfig(raw.profile),
                 skills: normalizeSkillsConfig(raw.skills),
                 extensionScopes: normalizeExtensionScopes(raw.extensionScopes),
@@ -285,7 +285,7 @@ export function loadConfig(options = {}) {
         modelSettings: {},
         onboarding: {},
         agents: {},
-        workflow: { active: 'default' },
+        workflow: { active: 'solo' },
         profile: normalizeProfileConfig(null),
         skills: normalizeSkillsConfig(null),
         extensionScopes: normalizeExtensionScopes(null),
@@ -384,7 +384,7 @@ function buildAgentSaveBuilder(config) {
             modelSettings: canonicalRoutes.modelSettings,
             onboarding: config.onboarding || {},
             agents: canonicalRoutes.agents,
-            workflow: config.workflow || { active: 'default' },
+            workflow: config.workflow || { active: 'solo' },
             profile,
             skills,
             extensionScopes,
@@ -396,6 +396,11 @@ function buildAgentSaveBuilder(config) {
             modules,
             builtins,
         };
+        if (canonicalRoutes.disabledAgents) {
+            next.disabledAgents = canonicalRoutes.disabledAgents;
+        } else {
+            delete next.disabledAgents;
+        }
         delete next.workflowRoutes;
         return removeRetiredAgentFields(next);
     };

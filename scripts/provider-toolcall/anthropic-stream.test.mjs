@@ -7,6 +7,47 @@ import {
 } from './_shared.mjs';
 
 
+test('Anthropic final usage revises every token slot before an early tool-use return', async () => {
+    const result = await anthropicParseSSEStream(anthropicSseResponse([
+        { type: 'message_start', message: { model: 'claude', usage: {
+            input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 100, cache_creation_input_tokens: 20,
+        } } },
+        { type: 'content_block_start', index: 0, content_block: {
+            type: 'tool_use', id: 'usage-tool', name: 'shell', input: { command: 'echo test' },
+        } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: {
+            input_tokens: 31, output_tokens: 17, cache_read_input_tokens: 300, cache_creation_input_tokens: 40,
+        } },
+    ]), null, () => {}, () => {}, () => {}, {}, null);
+    assert.deepEqual(
+        [result.usage.inputTokens, result.usage.outputTokens, result.usage.cachedTokens,
+            result.usage.cacheWriteTokens, result.usage.promptTokens],
+        [31, 17, 300, 40, 371],
+    );
+});
+
+test('Anthropic partial usage updates preserve absent fields and accept explicit zero', async () => {
+    for (const [delta, expected] of [
+        [{ output_tokens: 9 }, [11, 9, 100, 20, 131]],
+        [{ input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, [0, 2, 0, 0, 0]],
+        [{ input_tokens: null, output_tokens: null }, [11, 2, 100, 20, 131]],
+    ]) {
+        const result = await anthropicParseSSEStream(anthropicSseResponse([
+            { type: 'message_start', message: { model: 'claude', usage: {
+                input_tokens: 11, output_tokens: 2, cache_read_input_tokens: 100, cache_creation_input_tokens: 20,
+            } } },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: delta },
+            { type: 'message_stop' },
+        ]), null, () => {}, () => {}, () => {}, {}, null);
+        assert.deepEqual(
+            [result.usage.inputTokens, result.usage.outputTokens, result.usage.cachedTokens,
+                result.usage.cacheWriteTokens, result.usage.promptTokens],
+            expected,
+        );
+    }
+});
+
 test('anthropic SSE exposes refusal stop details and category metadata', async () => {
     const result = await anthropicParseSSEStream(
         anthropicSseResponse([

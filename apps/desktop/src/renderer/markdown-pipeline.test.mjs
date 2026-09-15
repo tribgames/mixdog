@@ -14,6 +14,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 
 import { parseMarkdownToHast } from "./markdown-ast";
+import MarkdownBody from "./MarkdownBody";
+import MarkdownAstBody from "./MarkdownAstBody";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
 import StreamingMarkdownBody from "./StreamingMarkdownBody";
 import { createTranscriptRowMeasureScheduler } from "./transcript-measure";
@@ -38,6 +40,82 @@ test("strong containing inline code closes before a Korean suffix", () => {
   assert.match(rendered, /strong\("디시인사이드 ",code\("AI 활용 마이너 갤러리"\)\)/);
   assert.match(rendered, /"를 보고 있습니다\."/);
 });
+
+const CopyControl = () => null;
+const strongRenderers = {
+  settled: (text) => React.createElement(MarkdownBody, { text, copyControl: CopyControl }),
+  worker: (text) => React.createElement(MarkdownAstBody, {
+    root: parseMarkdownToHast(text), copyControl: CopyControl,
+  }),
+};
+
+for (const [name, render] of Object.entries(strongRenderers)) {
+  test(`${name}: strong preserves mixed code and prose before Korean suffixes`, () => {
+    const cases = [
+      {
+        source: "네, 재영님. **`src/workflows/default/`가 코워크(Cowork)**입니다.",
+        text: "네, 재영님. default/가 코워크(Cowork)입니다.",
+        strong: ["default/가 코워크(Cowork)"],
+        code: [],
+      },
+      {
+        source: "**앞 `코드` 뒤(설명)**입니다.",
+        text: "앞 코드 뒤(설명)입니다.",
+        strong: ["앞 코드 뒤(설명)"],
+        code: ["코드"],
+      },
+      {
+        source: "**`첫째`와 `둘째`(설명)**입니다.",
+        text: "첫째와 둘째(설명)입니다.",
+        strong: ["첫째와 둘째(설명)"],
+        code: ["첫째", "둘째"],
+      },
+      {
+        source: "**`첫째`**와 **`둘째`(설명)**입니다.",
+        text: "첫째와 둘째(설명)입니다.",
+        strong: ["첫째", "둘째(설명)"],
+        code: ["첫째", "둘째"],
+      },
+      {
+        source: "__앞 `코드` 뒤(설명)__입니다.",
+        text: "앞 코드 뒤(설명)입니다.",
+        strong: ["앞 코드 뒤(설명)"],
+        code: ["코드"],
+      },
+    ];
+    for (const sample of cases) {
+      const dom = new JSDOM(renderToStaticMarkup(render(sample.source)));
+      try {
+        const { body } = dom.window.document;
+        assert.equal(body.textContent, sample.text, sample.source);
+        assert.deepEqual([...body.querySelectorAll("strong")].map((node) => node.textContent), sample.strong);
+        assert.deepEqual([...body.querySelectorAll("strong code")].map((node) => node.textContent), sample.code);
+        if (sample.source.includes("src/workflows/default/")) {
+          assert.equal(body.querySelector("strong a")?.getAttribute("href"), "src/workflows/default/");
+          assert.match(ast(sample.source), /strong\(a\(code\("src\/workflows\/default\/"\)\)/);
+        }
+      } finally {
+        dom.window.close();
+      }
+    }
+  });
+
+  test(`${name}: repair leaves code literals, unfinished markers and normal emphasis intact`, () => {
+    for (const source of [
+      "`**문구(설명)**입니다`",
+      "```text\n**문구(설명)**입니다\n```",
+      "**앞 `코드` 뒤(설명)",
+      "** `코드` **입니다.",
+    ]) {
+      const markup = renderToStaticMarkup(render(source));
+      assert.equal(markup.includes("<strong>"), false, source);
+    }
+    const markup = renderToStaticMarkup(render("**정상**입니다. *기울임*과 `코드`입니다."));
+    assert.match(markup, /<strong>정상<\/strong>입니다\./);
+    assert.match(markup, /<em>기울임<\/em>/);
+    assert.match(markup, /<code>코드<\/code>/);
+  });
+}
 
 test("strikethrough is pair-only", () => {
   assert.match(ast("~~gone~~ kept"), /del\("gone"\)/);

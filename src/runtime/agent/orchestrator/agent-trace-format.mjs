@@ -328,8 +328,29 @@ function classifyPatchFailure(text) {
     return null;
 }
 
+function toolTraceText(value) {
+    if (typeof value === 'string') return value;
+    const parts = Array.isArray(value) ? value : value?.content;
+    if (Array.isArray(parts)) {
+        return parts.filter((part) => part?.type === 'text' && typeof part.text === 'string')
+            .map((part) => part.text).join('\n');
+    }
+    return value == null ? '' : JSON.stringify(value);
+}
+
+function toolFailureCause(text) {
+    const body = text.trim().replace(/^Error:\s*/i, '');
+    if (body.startsWith('{')) {
+        try {
+            const value = JSON.parse(body);
+            if (value?.ok === false && typeof value.error === 'string') return value.error;
+        } catch { /* Bounded or non-JSON output keeps its original text. */ }
+    }
+    return text;
+}
+
 function classifyToolFailure(resultText, toolName) {
-    const raw = String(resultText ?? '');
+    const raw = toolFailureCause(toolTraceText(resultText));
     const text = raw.toLowerCase();
     if (isExpectedToolCancellation(raw)) return 'expected-cancellation';
     // Shell renderers put the machine-readable status on the leading line.
@@ -340,6 +361,7 @@ function classifyToolFailure(resultText, toolName) {
         .map((line) => line.trim())
         .find((line) => line && !line.startsWith('⚠️ '))
         ?.replace(/^Error:\s*/i, '') || '';
+    if (/^\[shell-tool-failed\]\s+shell arg "[^"]+" is unsupported\b/i.test(leading)) return 'schema/args';
     if (/^\[shell-tool-failed\](?:\s|$)/i.test(leading)) return 'tool-call/failure';
     if (/^\[shell-run-failed\](?:\s|$)/i.test(leading)) {
         if (/\[timeout:|cause:\s*(?:timeout|cancellation)\b/i.test(leading)) return 'timeout/abort';
@@ -349,6 +371,21 @@ function classifyToolFailure(resultText, toolName) {
     }
     if (/compacted-history placeholder/.test(text)) return 'expected-preflight';
     if (/\[tool-input-validation\]/.test(text)) return 'schema/args';
+    // These are emitted validation/cancellation contracts, not keywords found
+    // somewhere in a quoted document, command output, or error preview.
+    if (/^(?:Browser command interrupted by local user input\.|computer_session_aborted: queued command was cancelled before execution|computer_user_control_active:)/i.test(leading)) return 'expected-cancellation';
+    if (/^The arguments provided to `[^`]+` are invalid JSON and could not be parsed:/i.test(leading)
+        || /^new Goal tasks must omit ids; use updates for existing tasks$/i.test(leading)
+        || /^goal task exceeds \d+ characters$/i.test(leading)
+        || /^goal (?:tasks|updates) support at most \d+ entries$/i.test(leading)
+        || /^goal arguments contain unknown fields:/i.test(leading)
+        || /^Unsupported field for GitHub [\w.]+\.$/i.test(leading)
+        || /^browser action "[^"]+" (?:does not accept input field|requires input\.|accepts only one input target form|fields must be inside input:|input\.[^\n]*(?:must be|requires|accepts at most))/i.test(leading)
+        || /^Computer Use [^\n]*(?:does not accept|requires input|must be|accepts at most)/i.test(leading)
+        || /^regex parse error:/i.test(leading)) return 'schema/args';
+    if (toolName === 'web_fetch' && /\berrorCode:\s*HTTP_ERROR\b/.test(raw)) return 'upstream/http';
+    if (toolName === 'media' && /^generation failed on [^\n]+failed \([45]\d\d\):/i.test(leading)) return 'upstream/http';
+    if (toolName === 'web_search' && /^Web search failed: native web search failed: .+: runtime is closing$/i.test(leading)) return 'lifecycle/closing';
     // `shell` results quote git/patch output verbatim (e.g. `git apply`
     // rejects); only real patch surfaces may claim the patch taxonomy, so an
     // ordinary command exit is never rewritten into a patch failure.
@@ -368,8 +405,8 @@ function classifyToolFailure(resultText, toolName) {
         if (patchCategory) return patchCategory;
         if (/\bstat\b.*\bfor delete\b.*\(os error 2\)/.test(text)) return 'path/enoent';
     }
-    if (/requires either|invalid arguments|unknown parameter|unknown memory action/.test(text)
-        || /must be|schema|required|old_string is .*>?=/.test(text)) return 'schema/args';
+    if (/requires either|invalid arguments|unknown parameter|unknown memory action/i.test(leading)
+        || /must be|schema|required|old_string is .*>?=/i.test(leading)) return 'schema/args';
     if (/not in allow-list|not allowed/.test(text)) return 'permission';
     if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(raw)) return 'command-exit';
     if (isReadOnlyNavigationMiss(toolName, raw)) return 'navigation/miss';
@@ -396,7 +433,7 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
     if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
     if (!_resolveToolFailurePath()) return;
     try {
-        const cleanText = _redactLogText(String(resultText ?? ''));
+        const cleanText = _redactLogText(toolTraceText(resultText));
         // A session close is deliberate orchestration, not a tool failure.
         // traceAgentTool still records the error/category on the normal trace.
         if (isExpectedToolCancellation(cleanText)) return;
@@ -413,7 +450,7 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
             cwd: cwd || null,
             tool_ms: Number.isFinite(Number(toolMs)) ? Number(toolMs) : null,
             tool_args: summarizeToolArgs(toolName, toolArgs),
-            error_first_line: _firstNonEmptyLine(cleanText).slice(0, 300),
+            error_first_line: _firstNonEmptyLine(toolFailureCause(cleanText)).slice(0, 300),
             error_preview: cleanText.slice(0, 1200),
             result_bytes_est: Buffer.byteLength(cleanText, 'utf8'),
             result_lines_est: cleanText.length > 0 ? cleanText.split('\n').length : 0,
@@ -465,13 +502,13 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
     // Keep a short redacted error preview on the tool row itself so trace
     // analysis can see WHY a call failed without joining the failure log.
     const errorFirstLine = resultKind === 'error'
-        ? _firstNonEmptyLine(_redactLogText(String(resultText ?? ''))).slice(0, 200) || null
+        ? _firstNonEmptyLine(toolFailureCause(_redactLogText(toolTraceText(resultText)))).slice(0, 200) || null
         : null;
     // Failure taxonomy on the tool row itself (mirrors the failure log's
     // `category`) so trace-level aggregation can exclude expected command
     // exits (`command-exit`) without joining tool-failures.jsonl.
     const errorCategory = resultKind === 'error'
-        ? classifyToolFailure(String(resultText ?? ''), toolName)
+        ? classifyToolFailure(resultText, toolName)
         : null;
     // Flat shape — fields named exactly as the agent_calls PG columns so
     // insertAgentCalls can pick them up by direct property access without

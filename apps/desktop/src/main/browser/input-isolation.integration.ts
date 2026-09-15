@@ -11,7 +11,7 @@ const directory = process.env.MIXDOG_INPUT_ISOLATION_DIRECTORY!;
 const logPath = process.env.MIXDOG_INPUT_ISOLATION_LOG!;
 process.env.MIXDOG_DATA_DIR = join(directory, 'data');
 app.setPath('userData', join(directory, 'profile'));
-app.disableHardwareAcceleration();
+if (!process.argv.includes('--gpu')) app.disableHardwareAcceleration();
 const log = (text: string) => appendFileSync(logPath, `${text}\n`);
 const { readDiscovery } = createPolling({ timeoutMs: 5_000, intervalMs: 25 });
 const deadline = setTimeout(() => { log('input isolation timed out'); app.exit(1); }, 110_000);

@@ -911,6 +911,12 @@ export interface DesktopBrowserOpenRequest {
   reveal?: boolean;
   /** Hide only: never create or release pages; overrides reveal. */
   hide?: boolean;
+  /** Temporary automation reveal, scoped to one runtime turn. */
+  temporaryTurnId?: number;
+  /** Restore only the matching temporary reveal, never a user's selection. */
+  restoreTurnId?: number;
+  /** Human takeover commits a temporary surface without reopening it. */
+  retainTurnId?: number;
 }
 
 export interface DesktopRemoteBrowserFrame {
@@ -943,6 +949,8 @@ export interface DesktopBrowserTab {
 }
 
 export interface DesktopBrowserPageFrame extends DesktopRemoteBrowserFrame {
+  /** Local-only GPU frame, received separately by the trusted preload. */
+  textureId?: string;
   webContentsId: number;
   documentId: string;
   viewportWidth: number;
@@ -968,6 +976,8 @@ export type DesktopBrowserPageAction =
   | { type: 'zoom'; factor: number }
   | { type: 'text'; text: string }
   | { type: 'key'; key: string }
+  | { type: 'composition'; text: string; selectionStart: number; selectionEnd: number }
+  | { type: 'composition-end'; text: string }
   | {
       type: 'pointer'; phase: 'mouseMoved' | 'mousePressed' | 'mouseReleased';
       x: number; y: number; button: 'none' | 'left' | 'middle' | 'right';
@@ -1661,8 +1671,10 @@ export interface DesktopApi {
   openMediaAsset?(assetId: string): Promise<void>;
   openMediaFolder?(assetId: string): Promise<void>;
   openExternal(url: string): Promise<void>;
-  /** Desktop-only document link opener, confined to the conversation's Project. */
-  openLocalFileLink?(projectPath: string, href: string): Promise<void>;
+  /** Desktop-only chat link opener, confined to the conversation's Project:
+   *  documents launch their OS app, folders open in the file manager, and
+   *  text files come back as 'editor' for the renderer to open itself. */
+  openLocalFileLink?(projectPath: string, href: string): Promise<'file' | 'folder' | 'editor'>;
   /** Settings → About: gh-CLI star state for the mixdog repo. Desktop-only;
    *  the remote shim omits both and the Star button falls back to the repo
    *  link. */
@@ -1839,6 +1851,8 @@ export interface DesktopApi {
   listRemoteClientClaims?(): Promise<DesktopRemoteClientClaim[]>;
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
   prefetchSession?(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
+  /** Replay a visible lane after its read ACK arrived without a renderer baseline. */
+  resyncSessionState?(sessionId: string): void;
   /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
@@ -2011,6 +2025,8 @@ export interface DesktopApi {
     sessionId: string,
     previousFrameId?: string,
   ): Promise<DesktopBrowserPageFrame>;
+  browserPresentTexture?(sessionId: string, textureId: string, canvasId: string): void;
+  browserDiscardTexture?(sessionId: string): void;
   browserPageControl?(
     sessionId: string,
     input: DesktopBrowserPageControl,

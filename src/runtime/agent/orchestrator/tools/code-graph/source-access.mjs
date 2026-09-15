@@ -1,7 +1,7 @@
 // Per-node source-text accessors with fingerprint-keyed runtime caching:
 // raw text, raw lines, masked lines. Extracted verbatim from code-graph.mjs.
 import { readFileSync } from 'node:fs';
-import { toDisplayPath } from '../builtin.mjs';
+import { toDisplayPath } from '../builtin/path-utils.mjs';
 import { _maskNonCodeText } from './text-mask.mjs';
 
 export function _graphRel(absPath, cwd) {

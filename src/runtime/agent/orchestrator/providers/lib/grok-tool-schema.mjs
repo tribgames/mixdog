@@ -1,5 +1,6 @@
 // Grok's gRPC tool registry requires flattened anyOf/oneOf schemas. Tool
 // definitions are never mutated.
+import { actionInputContract } from './action-input-contract.mjs';
 
 function schemasDeepEqual(left, right) {
     if (Object.is(left, right)) return true;
@@ -43,7 +44,22 @@ function mergeObjectBranchProperties(objectBranches) {
                     : [...unique, alternative],
                 [],
             );
-            properties[name] = deduped.length === 1 ? deduped[0] : { anyOf: deduped };
+            if (deduped.every((value) => value.type === 'object' || value.properties)) {
+                const { required: _required, properties: _properties, ...base } = deduped[0];
+                const required = requiredKeys(deduped[0])
+                    .filter((key) => deduped.every((value) => requiredKeys(value).includes(key)));
+                properties[name] = {
+                    ...base,
+                    type: 'object',
+                    properties: mergeObjectBranchProperties(deduped),
+                    ...(required.length ? { required } : {}),
+                };
+            } else if (deduped.every((value) => Array.isArray(value.enum)
+                && value.type === deduped[0].type)) {
+                properties[name] = { ...deduped[0], enum: [...new Set(deduped.flatMap((value) => value.enum))] };
+            } else {
+                properties[name] = deduped.length === 1 ? deduped[0] : { anyOf: deduped };
+            }
         }
     }
     return properties;
@@ -99,14 +115,33 @@ function normalizeGrokPropertySchema(schema) {
             return normalizeGrokPropertySchema(projectDroppedBranches({ ...first, ...siblings }, dropped));
         }
     }
-    if (!schema.properties || typeof schema.properties !== 'object') return schema;
-    let changed = false;
-    const properties = Object.fromEntries(Object.entries(schema.properties).map(([name, propertySchema]) => {
-        const normalized = normalizeGrokPropertySchema(propertySchema);
-        if (normalized !== propertySchema) changed = true;
-        return [name, normalized];
-    }));
-    return changed ? { ...schema, properties } : schema;
+    let result = schema;
+    const replace = (key, value) => {
+        if (value !== schema[key]) result = { ...result, [key]: value };
+    };
+    for (const key of ['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']) {
+        if (!schema[key] || typeof schema[key] !== 'object') continue;
+        let changed = false;
+        const children = Object.fromEntries(Object.entries(schema[key]).map(([name, child]) => {
+            const normalized = normalizeGrokPropertySchema(child);
+            if (normalized !== child) changed = true;
+            return [name, normalized];
+        }));
+        if (changed) replace(key, children);
+    }
+    // Schema-valued keywords are not restricted to object properties. Do not
+    // walk data-valued keywords such as enum/default/examples.
+    for (const key of ['items', 'prefixItems', 'additionalProperties', 'contains',
+        'allOf', 'not', 'if', 'then', 'else', 'propertyNames', 'unevaluatedProperties', 'unevaluatedItems']) {
+        const child = schema[key];
+        if (Array.isArray(child)) {
+            const children = child.map(normalizeGrokPropertySchema);
+            if (children.some((value, index) => value !== child[index])) replace(key, children);
+        } else if (child && typeof child === 'object') {
+            replace(key, normalizeGrokPropertySchema(child));
+        }
+    }
+    return result;
 }
 
 function normalizeGrokToolSchema(schema) {
@@ -138,11 +173,24 @@ function normalizeGrokToolSchema(schema) {
     }
 
     const properties = objectBranches.some(branch => branch.properties) || root.properties
-        ? {
-            ...mergeObjectBranchProperties(objectBranches),
-            ...(root.properties || {}),
-        }
+        ? mergeObjectBranchProperties(objectBranches)
         : undefined;
+    for (const [name, property] of Object.entries(root.properties || {})) {
+        const combined = properties[name];
+        // A root's generic input object constrains its type; it must not erase
+        // the action branches' actual fields.
+        properties[name] = property.type === 'object' && !property.properties
+            && combined?.type === 'object'
+            ? { ...combined, ...property, properties: combined.properties }
+            : property;
+    }
+    const actionContract = actionInputContract(schema);
+    if (actionContract && properties?.input) {
+        properties.input = {
+            ...properties.input,
+            description: actionContract,
+        };
+    }
     const branchRequiredInEvery = (Array.isArray(objectBranches[0].required) ? objectBranches[0].required : [])
         .filter(key => objectBranches.every(branch => Array.isArray(branch.required) && branch.required.includes(key)));
     const required = [...new Set([

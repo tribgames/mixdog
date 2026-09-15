@@ -27,12 +27,13 @@ interface BrowserIpcOptions {
 }
 
 export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): void {
-  handle(DESKTOP_IPC.browserPageFrame, (_event, sessionId, previousId) => {
+  handle(DESKTOP_IPC.browserPageFrame, (_event, sessionId, previousId, texture) => {
     if (!browserHost) throw new Error('Browser Use is unavailable.');
     if (previousId !== undefined && (typeof previousId !== 'string' || previousId.length > 160)) {
       throw new TypeError('Browser frame id is invalid.');
     }
-    return browserHost.browserPageFrame(requiredSessionId(sessionId), previousId as string | undefined);
+    if (texture !== undefined && typeof texture !== 'boolean') throw new TypeError('Browser texture mode is invalid.');
+    return browserHost.browserPageFrame(requiredSessionId(sessionId), previousId as string | undefined, texture === true);
   });
   handle(DESKTOP_IPC.browserPageControl, (_event, sessionId, input) => {
     if (!browserHost) throw new Error('Browser Use is unavailable.');

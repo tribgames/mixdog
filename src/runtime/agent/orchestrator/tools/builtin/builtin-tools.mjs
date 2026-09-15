@@ -8,6 +8,7 @@
 import { GIT_STAGE_TOOL_DEF, GIT_TOOL_DEF } from './git-command-tool.mjs';
 import { PUBLIC_PATH_BATCH_LIMIT, PUBLIC_READ_WINDOW_MAX } from './arg-guard.mjs';
 import { GITHUB_TOOL_DEF } from '../../../../github/tool.mjs';
+import { envFlag } from '../../../../shared/env.mjs';
 // action=wait ceiling, colocated with the schema that publishes it so the
 // documented bounds and the runtime clamp cannot drift. The wait returns the
 // instant the task settles, so the ceiling only bounds how long a STILL-running
@@ -32,9 +33,7 @@ const _shellSyntaxCheat =
         ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved. For multiline program input, use a literal here-string.'
         : ' Bash: chain dependent commands with &&. For multiline input, use a quoted heredoc delimiter, not extra quoting/escape layers.';
 // Process-stable switch used to describe foreground-only execution accurately.
-const _shellBackgroundDisabled = /^(1|true|yes|on)$/i.test(
-    String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
-);
+const _shellBackgroundDisabled = envFlag('MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS');
 
 export const BUILTIN_TOOLS = [
     {
@@ -183,7 +182,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search literal/regex file contents; returns path:line blocks with context. Symbol relations: code_graph. Batch only patterns and scopes for unresolved evidence; never prefetch alternatives a pending diff or lookup would settle. Broad reconnaissance: mode:files; locations only: context:0. Single-line ripgrep; 10 KB cap. include_noise/text opt into ignored files/binary data.',
+        description: 'Search literal/regex file contents; returns path:line blocks with context. Symbol relations: code_graph. Batch independent patterns and scopes for established evidence needs; defer a search only when a pending result determines its need or inputs. Broad reconnaissance: mode:files; locations only: context:0. Single-line ripgrep; 10 KB cap. include_noise/text opt into ignored files/binary data.',
         inputSchema: {
             type: 'object',
             properties: {

@@ -15,7 +15,6 @@
  * cold-view refresh off the disk entirely.
  */
 
-const DEFAULT_MAX_ENTRIES = 8;
 const DEFAULT_MAX_TEXT_CHARS = 64 * 1024 * 1024;
 // Coarse filesystems stamp mtime at whole seconds (FAT: two). A write landing
 // inside that window after our read could keep the same stat, so only a file
@@ -39,7 +38,9 @@ export function nextProjectionStamp() {
 }
 
 export function createStoredTranscriptCache({
-    maxEntries = DEFAULT_MAX_ENTRIES,
+    // Bound retained content, not the number of small sessions. An eight-entry
+    // LRU reparsed every unchanged record when nine visible sessions refreshed.
+    maxEntries = Number.POSITIVE_INFINITY,
     maxTextChars = DEFAULT_MAX_TEXT_CHARS,
 } = {}) {
     /** key -> { text, fingerprint, value } (Map order doubles as LRU order). */

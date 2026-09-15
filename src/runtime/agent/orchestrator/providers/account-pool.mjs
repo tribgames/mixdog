@@ -17,6 +17,11 @@ export function isAccountQuotaError(error) {
     .includes(String(typedErrorCode(error) || error?.error?.type || '').toLowerCase());
 }
 
+// Burst throttles reopen within seconds. A 429 whose Retry-After points
+// minutes or days ahead is a closed subscription window, whichever scoped
+// limit the usage endpoint attributes it to.
+const QUOTA_WINDOW_RETRY_AFTER_MS = 60_000;
+
 export function createAccountPoolProvider(providerName, create) {
   if (!ACCOUNT_PROVIDERS.includes(providerName) || hasExplicitProviderAuthBinding(providerName)) return create();
   const instances = new Map();
@@ -86,8 +91,9 @@ export function createAccountPoolProvider(providerName, create) {
         return result;
       } catch (error) {
         if (options.signal?.aborted) throw error;
-        let exhausted = isAccountQuotaError(error);
         const status = Number(error?.status || error?.httpStatus || error?.response?.status || 0);
+        const delay = retryAfterMsFromError(error);
+        let exhausted = isAccountQuotaError(error) || (status === 429 && delay > QUOTA_WINDOW_RETRY_AFTER_MS);
         // Anthropic and other subscriptions may use the same 429 code for
         // burst throttling and exhausted subscription windows. Ask the native
         // usage endpoint rather than interpreting a human-readable message.
@@ -96,7 +102,6 @@ export function createAccountPoolProvider(providerName, create) {
           exhausted = providerAccountExhausted(readProviderAccountPool(providerName).accounts.find((entry) => entry.id === row.id));
         }
         if (options.signal?.aborted || !exhausted) throw error;
-        const delay = retryAfterMsFromError(error);
         blockProviderAccount(providerName, row.id, Date.now() + (delay > 0 ? delay : 5 * 60_000));
         if (pool.auto === false || emitted || error.unsafeToRetry || error.liveTextEmitted || error.emittedToolCall) throw error;
         lastError = error;

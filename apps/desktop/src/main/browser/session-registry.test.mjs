@@ -72,6 +72,13 @@ test('background tab names may repeat across browser sessions', () => {
     registry.allBackgroundEntries().map(([sessionId, name]) => [sessionId, name]),
     [['alpha', 'research'], ['beta', 'research']],
   );
+
+  assert.equal(registry.backgroundPageForGuest('alpha', alphaGuest), alpha);
+  assert.equal(registry.backgroundPageForGuest('alpha', betaGuest), undefined,
+    'a support page belongs to its own session only');
+  assert.equal(registry.backgroundPageForGuest('alpha', {}), undefined);
+  registry.deleteBackgroundPage('alpha', 'research', alpha);
+  assert.equal(registry.backgroundPageForGuest('alpha', alphaGuest), undefined);
 });
 
 test('Browser Use command queues serialize per session instead of globally', () => {

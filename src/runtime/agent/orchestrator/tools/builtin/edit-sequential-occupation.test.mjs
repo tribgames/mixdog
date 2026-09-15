@@ -148,6 +148,57 @@ test('an external write between read and edit is never hidden by "file unchanged
     assert.match(reread, /EXTERNAL/);
 });
 
+test('a partial reread of a new file version cannot hide its unread tail after an edit', async (t) => {
+    const { dir, file } = makeTempFile('alpha\nold-tail\n');
+    const sessionId = `edit-partial-new-version-${process.pid}`;
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests(); });
+
+    const initial = String(await executeBuiltinTool('read', { path: file }, dir, { sessionId }));
+    assert.match(initial, /old-tail/);
+
+    writeFileSync(file, 'alpha\nUNSEEN_NEW_TAIL\nnew-extra-line\n', 'utf8');
+    const head = String(await executeBuiltinTool('read', {
+        path: file, offset: 0, limit: 1,
+    }, dir, { sessionId }));
+    assert.match(head, /alpha/);
+    assert.doesNotMatch(head, /UNSEEN_NEW_TAIL/);
+
+    const edited = await tryExecuteExternalToolAdapter('edit', {
+        file_path: file,
+        old_string: 'alpha',
+        new_string: 'omega',
+    }, dir, { sessionId });
+    assert.match(String(edited), /^Updated /);
+
+    const tail = String(await executeBuiltinTool('read', {
+        path: file, offset: 1, limit: 1,
+    }, dir, { sessionId }));
+    assert.match(tail, /UNSEEN_NEW_TAIL/);
+    assert.doesNotMatch(tail, /file unchanged/);
+});
+
+test('a batch reread returns the requested body after an edit', async (t) => {
+    const { dir, file } = makeTempFile('alpha\nkeep\n');
+    const sessionId = `edit-batch-force-body-${process.pid}`;
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests(); });
+
+    const initial = String(await executeBuiltinTool('read', { path: file }, dir, { sessionId }));
+    assert.match(initial, /alpha/);
+    const edited = await tryExecuteExternalToolAdapter('edit', {
+        file_path: file,
+        old_string: 'alpha',
+        new_string: 'omega',
+    }, dir, { sessionId });
+    assert.match(String(edited), /^Updated /);
+
+    const batched = String(await executeBuiltinTool('read', {
+        path: [{ path: file, offset: 0, limit: 2 }],
+    }, dir, { sessionId }));
+    assert.match(batched, /omega/);
+    assert.match(batched, /keep/);
+    assert.doesNotMatch(batched, /file unchanged/);
+});
+
 test('stale read snapshot does not block a still-unique current old_string', async (t) => {
     const { dir, file } = makeTempFile('alpha\nkeep\n');
     const sessionId = `edit-stale-safe-${process.pid}`;

@@ -16,9 +16,10 @@
 //   * request id — monotonic per request; only the owning request may release
 //               the pending slot, so an old finally cannot clear a newer one.
 import type { DesktopApi } from "../shared/contract";
+import { readGlobalCapabilities } from "./global-capability-reads";
 import { startVisibleRefreshCadence } from "./visible-refresh-cadence";
 
-export type UsageApi = Partial<Pick<DesktopApi, "invokeCapability">>;
+export type UsageApi = Partial<Pick<DesktopApi, "invokeCapability" | "readCapabilities">>;
 export type UsageRecord = Record<string, unknown>;
 
 /** Lifecycle of the LIVE result, independent of what currently paints:
@@ -325,9 +326,10 @@ export function publishUsageDashboard(dashboard: unknown): boolean {
 /** Account switch repaint: the newly selected account's own last-known quota
  *  windows replace that provider's meters at once, so the surface never keeps
  *  showing the PREVIOUS account's numbers while the confirming refresh is in
- *  flight. Nothing is invented — an unknown provider row or an account with no
- *  recorded usage leaves the snapshot untouched — and `refreshedAt` is NOT
- *  advanced, because this is last-known data, not a live result. */
+ *  flight. With no recorded usage, keep only provider identity and show a check
+ *  in progress. Reset credits and other quota fields belong to the old account
+ *  and must not survive either case. `refreshedAt` is NOT advanced: any supplied
+ *  windows are last-known data, not a live result. */
 export function applyAccountUsageWindows(provider: string, windows: unknown): boolean {
   const win = ensureHost();
   if (!win) return false;
@@ -338,11 +340,18 @@ export function applyAccountUsageWindows(provider: string, windows: unknown): bo
   const index = rows.findIndex((row) => String(row?.id || "") === id);
   if (!id || index < 0) return false;
   const accountWindows = scalarRecordList(windows, MAX_WINDOWS, MAX_WINDOW_KEYS);
-  if (!accountWindows.length) return false;
   const dashboard: UsageRecord = {
     ...snapshot.dashboard,
     rows: rows.map((row, position) => (
-      position === index ? { ...row, windows: accountWindows } : row
+      position === index ? {
+        id: row.id,
+        label: row.label,
+        group: row.group,
+        authenticated: row.authenticated,
+        windows: accountWindows,
+        status: "checking",
+        updatedAt: null,
+      } : row
     )),
   };
   writeCache(win, dashboard);
@@ -350,9 +359,26 @@ export function applyAccountUsageWindows(provider: string, windows: unknown): bo
   return true;
 }
 
+/** An unsuccessful check must settle without restoring another account's
+ *  quotas or leaving its replacement on an indefinite loading message. */
+function finishUsageChecks(win: Window): void {
+  const rows = snapshot.dashboard.rows as UsageRecord[] | undefined;
+  if (!rows?.some((row) => row.status === "checking")) return;
+  const dashboard: UsageRecord = {
+    ...snapshot.dashboard,
+    rows: rows.map((row) => row.status === "checking" ? {
+      ...row,
+      status: Array.isArray(row.windows) && row.windows.length > 0 ? "partial" : "unavailable",
+    } : row),
+  };
+  writeCache(win, dashboard);
+  publish({ ...snapshot, dashboard });
+}
+
 function isFresh(): boolean {
   return snapshot.refreshedAt > 0
     && rowCount(snapshot.dashboard) > 0
+    && !(snapshot.dashboard.rows as UsageRecord[]).some((row) => row.status === "checking")
     && Date.now() - snapshot.refreshedAt < USAGE_DASHBOARD_TTL_MS;
 }
 
@@ -380,7 +406,8 @@ function failRefresh(win: Window, timedOut: boolean): void {
       void refreshUsageDashboard(cadenceApi, { force: true, retry: true });
     }, USAGE_DASHBOARD_RETRY_DELAY_MS);
   }
-  // A failed refresh never replaces valid rows: the stale snapshot stands.
+  // Preserve known quotas, but settle account-switch placeholders as unknown.
+  finishUsageChecks(win);
   publishStatus(retryable && snapshot.refreshedAt === 0 ? "loading" : settledStatus());
 }
 
@@ -420,7 +447,7 @@ async function runRefresh(
   let result: unknown;
   try {
     result = await withUsageTimeout(
-      api.invokeCapability!<unknown>({
+      readGlobalCapabilities(api, [{
         capability: "getUsageDashboard",
         // Refresh provider quotas without repeating the slower keychain/local
         // setup scan on every cadence tick. `refreshProviders` narrows the LIVE
@@ -431,7 +458,7 @@ async function runRefresh(
           refreshSetup: false,
           ...(providers?.length ? { refreshProviders: [...providers] } : {}),
         }],
-      }),
+      }]),
       USAGE_DASHBOARD_REQUEST_TIMEOUT_MS,
       win,
     );
@@ -442,7 +469,7 @@ async function runRefresh(
     return;
   }
   if (!owns(win, id, generation)) return;
-  acceptRefresh(win, (result as { value?: unknown } | undefined)?.value);
+  acceptRefresh(win, (result as unknown[])[0]);
 }
 
 /** Credentials changed (login, account switch): do not adopt a request started
@@ -469,9 +496,10 @@ export function refreshUsageDashboard(
   const win = ensureHost();
   if (pending) return pending;
   if (!win) return Promise.resolve();
-  if (typeof api?.invokeCapability !== "function") {
+  if (typeof api?.invokeCapability !== "function" && typeof api?.readCapabilities !== "function") {
     // This host cannot serve usage at all. Settle the first paint instead of
     // leaving the surface on an indefinite Loading.
+    finishUsageChecks(win);
     publishStatus(settledStatus());
     return Promise.resolve();
   }
@@ -519,8 +547,9 @@ export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void
   cadenceHolders += 1;
   // A same-window API swap (host bridge replaced) becomes the cadence API, so
   // neither the cadence nor the retry can keep a retired bridge alive.
-  if (typeof api?.invokeCapability === "function") cadenceApi = api;
-  if (win && releaseCadence === null && typeof cadenceApi?.invokeCapability === "function") {
+  if (typeof api?.invokeCapability === "function" || typeof api?.readCapabilities === "function") cadenceApi = api;
+  if (win && releaseCadence === null
+    && (typeof cadenceApi?.invokeCapability === "function" || typeof cadenceApi?.readCapabilities === "function")) {
     releaseCadence = startVisibleRefreshCadence({
       win,
       intervalMs: USAGE_DASHBOARD_REFRESH_INTERVAL_MS,

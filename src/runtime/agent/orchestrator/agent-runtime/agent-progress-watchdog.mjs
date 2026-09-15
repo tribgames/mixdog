@@ -6,6 +6,7 @@
 
 import { appendAgentTrace } from '../agent-trace-io.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
+import { envNonNegativeInt, envPresent } from '../../../shared/env.mjs';
 import {
     PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
     PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
@@ -196,10 +197,8 @@ export function abortAgentProgressWatchdog(controller, ctx) {
 }
 
 function envTimeoutMs(name, fallback) {
-    const raw = process.env[name];
-    if (raw === undefined || raw === '') return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+    if (!envPresent(name)) return fallback;
+    return envNonNegativeInt(name, fallback);
 }
 
 const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs(

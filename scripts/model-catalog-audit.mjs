@@ -4,6 +4,7 @@ import { initProviders, getAllProviders } from '../src/runtime/agent/orchestrato
 import {
   loadModelsDevCatalog,
   warmModelMetadataCatalogs,
+  auditModelPricing,
 } from '../src/runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { QUICK_WEB_SEARCH_MODELS } from '../src/session-runtime/quick-web-search-models.mjs';
 
@@ -151,6 +152,7 @@ for (const [name, provider] of getAllProviders()) {
     error: listed.error,
     count: listed.models.length,
     rows,
+    pricing: auditModelPricing(listed.models, name),
   });
 }
 
@@ -178,6 +180,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   enabledProviders: Object.entries(cfg.providers || {}).filter(([, v]) => v?.enabled).map(([k]) => k),
   providerResults,
+  unpricedRoutes: providerResults.flatMap((p) => p.pricing.filter((row) => !row.priced)),
   mismatches,
   exactOneM,
   nearOneM,
@@ -197,6 +200,9 @@ if (json) {
         r.outputMismatch ? `output ${r.liveOutput} != external ${r.externalOutput}` : '',
       ].filter(Boolean).join('; ');
       console.log(`  ${r.id}: ${r.liveContextLabel} ctx, out=${r.liveOutput ?? '-'}${flags ? `  [${flags}]` : ''}`);
+    }
+    for (const row of p.pricing.filter((r) => !r.priced)) {
+      console.log(`  UNPRICED ${row.model} -> ${row.pricingProvider}/${row.pricingModel}: ${row.missingRates.join(', ')}`);
     }
   }
   console.log(`\nsummary: mismatches=${mismatches.length}, exact1M=${exactOneM.length}, near1MNotExact=${nearOneM.length}, staticContextRows=${quickRows.length}`);

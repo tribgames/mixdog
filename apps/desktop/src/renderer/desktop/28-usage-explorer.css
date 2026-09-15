@@ -151,15 +151,31 @@
 @media (prefers-reduced-motion: reduce) { .usage-skeleton { animation: none; } }
 
 /* Token usage (ℹ️ in the usage flyout): what was SPENT, opposite /usage's what
-   is LEFT. Eight numeric columns need more room than the quota table, and the
+   is LEFT. Seven numeric columns need more room than the quota table, and the
    provider rows expand in place into their models. */
+.mixdog-settings-layer:has(> .command-surface[data-surface="stats"]) {
+  --stats-dialog-height: min(760px, calc(100dvh - 48px));
+  /* Keep the top anchored when an empty result trims only the unused bottom. */
+  align-items: start;
+  padding-top: max(var(--settings-layer-safe-top), calc(
+    (var(--vvh, 100dvh) - var(--stats-dialog-height)
+      + var(--settings-layer-safe-top) - var(--settings-layer-safe-bottom)) / 2));
+}
 .command-surface[data-surface="stats"] {
   width: min(980px, calc(100vw - 32px));
-  height: min(760px, calc(100dvh - 48px));
+  height: var(--stats-dialog-height);
   max-height: 100%;
   grid-template-rows: minmax(0, 1fr);
 }
-.command-surface[data-surface="stats"] .mixdog-settings__panel { max-height: 100%; }
+.command-surface[data-surface="stats"]:has(.stats-surface[data-empty="true"]) {
+  height: auto;
+  max-height: min(var(--stats-dialog-height), 100%);
+}
+.command-surface[data-surface="stats"] .mixdog-settings__panel {
+  max-height: 100%;
+  /* Keep the lower inset outside the scroller, even with every model open. */
+  padding-bottom: 24px;
+}
 /* The BODY is the scroller. Handing the scroll to the panel inside it looked
    equivalent and was not: that panel sizes itself around its content, so it
    never overflowed its own box and never produced a scrollbar, while the body
@@ -174,7 +190,7 @@
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
   gap: 0;
-  padding: 20px;
+  padding: 20px 20px 0;
 }
 .stats-surface {
   --stats-input: #b3a3da;
@@ -205,7 +221,6 @@
 .stats-period-arrow svg { width: 14px; height: 14px; }
 .stats-period-arrow:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
 .stats-period-arrow:disabled { opacity: var(--mx-op-dim); cursor: default; }
-.stats-current { margin-inline-start: 4px; }
 .stats-range {
   height: 26px;
   padding: 0 12px;
@@ -224,11 +239,27 @@
   border-color: var(--mx-border-strong);
 }
 .stats-range:disabled { cursor: default; }
+.stats-custom-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 8px;
+}
+.stats-custom-range label { display: grid; gap: 4px; min-width: 0; font-size: var(--mx-font-meta); }
+.stats-custom-range input {
+  min-width: 0; width: 100%; height: 30px; padding: 4px 8px;
+  border: .5px solid var(--mx-border); border-radius: var(--mx-radius-sm);
+  color: var(--mx-text); background: var(--mx-bg-layer-1); font: inherit;
+}
+.stats-custom-range > button { height: 30px; }
 .stats-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 8px;
 }
+.stats-value-skeleton { width: 6ch; }
+.stats-surface[data-loading="true"] .stats-table thead { visibility: hidden; }
+.stats-trend-skeleton { width: 100%; flex: none; }
 .stats-card {
   display: flex;
   flex-direction: column;
@@ -256,10 +287,10 @@
   font-variant-numeric: tabular-nums;
   line-height: var(--mx-line-minor);
 }
-.stats-table { min-width: 760px; }
+.stats-table { min-width: 760px; table-layout: auto; }
 .stats-table th:first-child, .stats-table td:first-child { width: 26%; }
 .stats-table th:not(:first-child), .stats-table td:not(:first-child) {
-  width: 9.25%;
+  width: auto;
   text-align: right;
   font-variant-numeric: tabular-nums;
   /* "963만" split across two lines once the column tightened on a phone. */
@@ -278,10 +309,14 @@
 .stats-sort[data-active="true"]::after { content: " ↓"; }
 .stats-table td:not(:first-child) { color: var(--mx-text-muted); }
 .stats-table .stats-total-cell, .stats-table .stats-cost-cell { color: var(--mx-text); }
-/* Provider groups own their own <tbody>, so the hairline belongs to the group
-   boundary rather than to every model row inside it. */
+/* Provider groups own their own <tbody>. The summary row carries a slightly
+   lighter background and a top hairline so the group hierarchy is clear. */
 .stats-provider td { border-bottom: 0; }
-.stats-provider:not(:last-child) tr:last-child td { border-bottom: .5px solid var(--mx-border); }
+.stats-provider-row td {
+  background: var(--mx-bg-layer-1);
+  border-top: .5px solid var(--mx-border);
+}
+.stats-provider:first-of-type .stats-provider-row td { border-top: 0; }
 .stats-provider-cell { position: relative; min-width: 0; }
 .stats-provider-toggle {
   display: flex;
@@ -311,19 +346,20 @@
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-minor);
 }
-.stats-provider-toggle small {
-  margin-left: auto;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  font-variant-numeric: tabular-nums;
-  line-height: var(--mx-line-meta);
+/* Share of total tokens: aligned under the provider name (after chevron + icon),
+   with the percentage at the right end of the bar. */
+.stats-provider-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: calc(26px + var(--mx-icon-sm));
+  margin-top: 4px;
 }
-/* Share of total tokens: a hairline under the provider name, not a column —
-   the numbers already own the columns. */
 .stats-share {
+  flex: 1;
+  min-width: 0;
   display: block;
   height: 2px;
-  margin-top: 5px;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-bg-layer-2);
   overflow: hidden;
@@ -334,13 +370,19 @@
   border-radius: var(--mx-radius-pill);
   background: var(--stats-provider-color);
 }
+.stats-provider-share small {
+  flex: none;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--mx-line-meta);
+}
 .stats-provider[data-open="true"] .stats-provider-toggle b { color: var(--mx-text); }
 .stats-model-row td { color: var(--mx-text-faint); font-size: var(--mx-font-minor); }
 .stats-model-cell {
   padding-left: 32px !important;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 /* The plan badge is one token wide; letting it wrap broke the row into two
    lines on a narrow shell. */
@@ -424,18 +466,22 @@
   font-variant-numeric: tabular-nums;
 }
 .stats-trend-bars {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 2px;
   height: 72px;
 }
-.stats-trend-bars > i {
+.stats-trend-bar {
+  display: flex; align-items: flex-end; flex: 1 1 0; min-width: 2px;
+  height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer;
+}
+.stats-trend-fill {
   display: flex;
   /* Bands stack from the bottom in the legend's order, so the same provider
      sits at the same depth in every bar. */
   flex-direction: column-reverse;
-  flex: 1 1 0;
-  min-width: 2px;
+  width: 100%;
   /* A quiet day is still a day: without a floor its bar rounds to nothing and
      the date silently disappears from the series. */
   min-height: 3px;
@@ -443,7 +489,30 @@
   overflow: hidden;
   background: var(--stats-provider-color);
 }
-.stats-trend-bars > i:hover { filter: brightness(1.15); }
+.stats-trend-bar:hover .stats-trend-fill,
+.stats-trend-bar[aria-expanded="true"] .stats-trend-fill { filter: brightness(1.15); }
+.stats-trend-detail {
+  position: absolute; z-index: 5; width: min(320px, calc(100vw - 64px));
+  overflow-y: auto; overscroll-behavior: contain; padding: 12px;
+  border: var(--mx-popup-border); border-radius: var(--mx-radius-md);
+  color: var(--mx-text); background: var(--mx-popup-bg); box-shadow: var(--mx-popup-shadow);
+  font-size: var(--mx-font-meta); line-height: var(--mx-line-meta);
+}
+.stats-trend-detail-heading { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+.stats-trend-detail-heading > b { min-width: 0; }
+.stats-trend-detail-heading button {
+  display: grid; place-items: center; flex: none; width: 24px; height: 24px;
+  padding: 0; border: 0; color: var(--mx-text-muted); background: transparent; cursor: pointer;
+}
+.stats-trend-detail-heading svg { width: 14px; height: 14px; }
+.stats-trend-detail-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.stats-trend-detail-totals dt { color: var(--mx-text-muted); }
+.stats-trend-detail-totals dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.stats-trend-detail ul { display: grid; gap: 6px; list-style: none; margin: 0; padding: 8px 0 0; border-top: .5px solid var(--mx-border); }
+.stats-trend-detail li, .stats-trend-detail li > span { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.stats-trend-detail li { justify-content: space-between; }
+.stats-trend-detail li > b { flex: none; font-variant-numeric: tabular-nums; }
+.stats-trend-detail li i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--stats-provider-color); }
 /* Same footprint as the bars, so switching between an empty and a busy
    period does not move the table below. */
 .stats-trend-empty {
@@ -459,13 +528,13 @@
 }
 /* Today has one bucket, not a full-width striped banner. */
 .stats-trend-bars[data-single="true"] { justify-content: center; }
-.stats-trend-bars[data-single="true"] > i { flex: 0 1 24px; }
+.stats-trend-bars[data-single="true"] > .stats-trend-bar { flex: 0 1 24px; }
 .stats-trend footer[data-single="true"] { justify-content: center; }
 /* An idle day keeps its slot in the calendar as a hairline rather than
    disappearing and pulling the surrounding days together. */
-.stats-trend-bars > i[data-empty="true"] { background: var(--mx-border); }
-.stats-trend-bars > i[data-future="true"] { opacity: .35; }
-.stats-trend-bars > i > b { display: block; width: 100%; background: var(--stats-provider-color); }
+.stats-trend-fill[data-empty="true"] { background: var(--mx-border); }
+.stats-trend-fill[data-future="true"] { opacity: .35; }
+.stats-trend-fill > b { display: block; width: 100%; background: var(--stats-provider-color); }
 /* Chart inks do not reuse focus, warning or success UI semantics. */
 .stats-surface [data-usage-provider="cursor-oauth"] { --stats-provider-color: #d59b79; }
 .stats-surface :is([data-usage-provider="openai"], [data-usage-provider="openai-oauth"]) { --stats-provider-color: #71bcb0; }
@@ -485,11 +554,17 @@
 .stats-trend-legend {
   display: flex;
   flex-wrap: wrap;
+  align-content: flex-start;
   gap: 4px 14px;
   margin: 0;
   padding: 0;
   list-style: none;
-  min-height: 16px;
+  /* The provider list arrives asynchronously. Reserve two lines instead of
+     moving the table when the list first appears or wraps on a narrow shell. */
+  font-size: var(--mx-font-micro);
+  line-height: var(--mx-line-meta);
+  height: calc(2lh + 4px);
+  overflow-y: auto;
 }
 .stats-trend-legend li {
   display: flex;
@@ -521,26 +596,22 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.stats-help { display: inline-flex; color: var(--mx-text-muted); cursor: help; }
-.stats-measurement-note,
 .stats-refresh-status {
   margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.stats-help svg { width: 15px; height: 15px; }
 .stats-surface > .usage-table-shell { flex: 0 0 auto; min-height: 140px; }
 
-/* Narrow shells — the web build on a phone, or a split window. Nine columns
+/* Narrow shells — the web build on a phone, or a split window. Eight columns
    cannot fit, so they fold in two stages. The raw input/output/cache split goes
-   first. Sessions remain beside request counts; the hit rate folds only on
-   the narrowest screens. */
+   first; the hit rate folds only on the narrowest screens. Numeric columns
+   retain their intrinsic width, including currency signs and partial markers. */
 @media (max-width: 900px) {
   .stats-table { min-width: 0; }
   .stats-table th.stats-breakdown, .stats-table td.stats-breakdown { display: none; }
   .stats-table th:first-child, .stats-table td:first-child { width: 34%; }
-  .stats-table th:not(:first-child), .stats-table td:not(:first-child) { width: 13.2%; }
 }
 @media (max-width: 680px) {
   .command-surface[data-surface="stats"] .mixdog-settings__body { padding: 14px; }
@@ -549,9 +620,6 @@
   .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-table th.stats-optional, .stats-table td.stats-optional { display: none; }
   .stats-table th:first-child, .stats-table td:first-child { width: 38%; }
-  .stats-table th:not(:first-child), .stats-table td:not(:first-child) { width: 15.5%; }
-  .stats-provider-toggle { flex-wrap: wrap; gap: 4px 6px; }
-  .stats-provider-toggle small { margin-left: 0; }
   .stats-model-cell { padding-left: 22px !important; }
 }
 

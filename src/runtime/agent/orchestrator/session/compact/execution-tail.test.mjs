@@ -29,7 +29,7 @@ function pair(id, result, args = { file_path: `${id}.js`, old_string: 'before', 
     ];
 }
 
-test('Memory-only handoff cannot erase seven completed edits or the original request before steering', async () => {
+test('rule-only compaction preserves seven completed edits and the original request before steering', async () => {
     const original = { role: 'user', content: 'Remove mobile from h1, not metadata.' };
     const steering = { role: 'user', content: 'Steam too.', meta: { source: 'steering' } };
     const messages = [{ role: 'system', content: 'rules' }, original, ...pair('rank-0', 'Updated rank-hub.js')];
@@ -49,7 +49,7 @@ test('Memory-only handoff cannot erase seven completed edits or the original req
         provider: { name: 'stub', async send() { providerCalls += 1; return { content: 'The assistant plans to edit h1.' }; } },
         executeMemorySearch: async ({ action }) => action === 'ingest_session' ? 'ok' : 'The assistant plans to edit h1.',
     });
-    assert.equal(providerCalls, 1);
+    assert.equal(providerCalls, 0);
     assert.deepEqual(compacted.messages.filter(m => m.role === 'tool'), messages.filter(m => m.role === 'tool'));
     assert.deepEqual(compacted.messages.flatMap(m => m.toolCalls || []), messages.flatMap(m => m.toolCalls || []));
     assert.equal(compacted.messages.filter(m => m.content === original.content).length, 1);

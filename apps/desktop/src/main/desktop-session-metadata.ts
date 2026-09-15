@@ -16,8 +16,7 @@ import {
   writeSessionMetadata,
   type SessionReadCursor,
 } from './session-metadata-file';
-
-const SESSION_ID = /^[A-Za-z0-9_-]+$/;
+import { isSessionId } from './desktop-state';
 
 export class DesktopSessionMetadata {
   private readonly userDataRoot: () => string;
@@ -128,7 +127,7 @@ export class DesktopSessionMetadata {
     messageCount: number,
     consumedUnread: boolean,
   ): Promise<boolean> {
-    if (!SESSION_ID.test(sessionId)
+    if (!isSessionId(sessionId)
       || !Number.isInteger(messageCount) || messageCount < 0 || messageCount > 10_000_000) {
       throw new TypeError('Session read cursor is invalid.');
     }
@@ -166,7 +165,7 @@ export class DesktopSessionMetadata {
 
   /** Record a generated title once: a user name or an existing title wins. */
   rememberGeneratedTitle(sessionId: string, title: string): boolean {
-    if (!this.titleMap || !SESSION_ID.test(sessionId) || this.nameMap?.[sessionId]) return false;
+    if (!this.titleMap || !isSessionId(sessionId) || this.nameMap?.[sessionId]) return false;
     const normalized = generatedSessionTitle(title, '');
     if (!normalized) return false;
     const existing = this.titleMap[sessionId] || '';
@@ -181,7 +180,7 @@ export class DesktopSessionMetadata {
    *  one. A user-assigned name still wins; media placeholders never demote a
    *  real title. */
   promoteGeneratedTitle(sessionId: string, title: string): boolean {
-    if (!this.titleMap || !SESSION_ID.test(sessionId) || this.nameMap?.[sessionId]) return false;
+    if (!this.titleMap || !isSessionId(sessionId) || this.nameMap?.[sessionId]) return false;
     const normalized = generatedSessionTitle(title, '');
     if (!normalized || isMediaSessionTitlePlaceholder(normalized)) return false;
     if (this.titleMap[sessionId] === normalized) return false;
@@ -195,7 +194,7 @@ export class DesktopSessionMetadata {
    *  generated value from the full durable preview; manual names and all
    *  already-stable generated titles remain immutable. */
   repairRewrittenGeneratedTitle(sessionId: string, title: string): boolean {
-    if (!this.titleMap || !SESSION_ID.test(sessionId)
+    if (!this.titleMap || !isSessionId(sessionId)
       || this.nameMap?.[sessionId] || !this.rewrittenGeneratedTitleIds.has(sessionId)) return false;
     const normalized = generatedSessionTitle(title, '');
     if (!normalized) return false;

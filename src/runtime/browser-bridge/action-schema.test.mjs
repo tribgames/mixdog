@@ -40,6 +40,18 @@ test('ref forms that share a field with the target form still validate', () => {
     /requires input.ref\+text or input.target\+text or input.ref\+checked or input.target\+checked or input.fields/);
 });
 
+test('a stored login is its own fill form and never mixes with a typed value', () => {
+  ok('fill', { savedAccount: 'ada@example.test' });
+  ok('fill', { savedAccount: 'a•••a@example.test', submit: true, expect: { url: '/home' } });
+  bad('fill', { savedAccount: 'ada@example.test', text: 'secret' }, /only one input target form/);
+  bad('fill', { savedAccount: 'ada@example.test', ref: 'p1-s1-e1', text: 'x' }, /only one input target form/);
+  bad('fill', { savedAccount: 'a'.repeat(321) }, /savedAccount must be a string of at most 320/);
+  bad('type', { savedAccount: 'ada@example.test' }, /does not accept input field\(s\): savedAccount/);
+  ok('sequence', { steps: [{ action: 'fill', savedAccount: 'ada@example.test' }, { action: 'click', target: { role: 'button', name: 'Sign in' } }] });
+  bad('sequence', { steps: [{ action: 'fill', savedAccount: 'ada@example.test', text: 'x' }, { action: 'press', key: 'Enter' }] },
+    /savedAccount fills the whole sign-in form/);
+});
+
 test('fill fields are addressed all by ref or all by target', () => {
   ok('fill', { fields: [{ target: { name: 'Email' }, text: 'a' }, { target: { name: 'Agree' }, checked: true }] });
   bad('fill', { fields: [{ target: { name: 'Email' }, text: 'a' }, { ref: 'p1-s1-e2', checked: true }] },

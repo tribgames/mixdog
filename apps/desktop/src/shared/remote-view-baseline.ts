@@ -66,6 +66,12 @@ export function createRemoteViewBaselineCache(
       const frame = JSON.parse(text) as Record<string, unknown>;
       if (!['state', 'sessions', 'agentPool', 'sessionState'].includes(String(frame.event))
         && frame.e !== 'S') throw new Error('Unexpected view baseline event.');
+      if (!Object.hasOwn(value, 'frame')) {
+        const entry = entries.get(value.key);
+        // Renew only a successfully reused, still-retained entry. A pinned
+        // reference can outlive eviction; reusing it must not restore it.
+        if (entry && entry === pinned.get(value.key)) entry.expires = now() + 5 * 60_000;
+      }
       return frame;
     },
     clear(): void {

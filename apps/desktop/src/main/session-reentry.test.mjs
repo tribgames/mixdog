@@ -165,6 +165,24 @@ test('a delayed stored reply cannot overwrite a newly materialized turn', async 
   assert.deepEqual(f.texts().slice(-2), ['new turn', 'reply: new turn']);
 });
 
+test('cold refresh ticks do not stack reads while that session is still loading', async (t) => {
+  const f = await sessionFixture(t);
+  f.persist('stored answer');
+  await f.host.setVisibleSessions([f.id]);
+  const held = f.holdRead();
+  const reads = f.reads;
+  t.mock.timers.tick(1_000);
+  await held.captured.promise;
+  t.mock.timers.tick(5_000);
+  assert.equal(f.reads, reads + 1);
+  held.release.resolve();
+  // Unchanged content intentionally emits no frame. Drain the read completion,
+  // rather than waiting for a publication that the transport must suppress.
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(1_000);
+  assert.equal(f.reads, reads + 2, 'refresh resumes after the preceding read settles');
+});
+
 test('read tracing measures a held host read and propagates its correlation without changing the result', async (t) => {
   const f = await sessionFixture(t);
   f.persist('private saved answer');

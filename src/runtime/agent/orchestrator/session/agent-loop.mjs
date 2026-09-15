@@ -1,27 +1,14 @@
-import { classifyResultKind } from './result-classification.mjs';
-import { traceAgentLoop, estimateProviderPayloadBytes, appendAgentTrace } from '../agent-trace.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
-import { updateSessionStage, SessionClosedError } from './manager.mjs';
-import { cloneProviderReplay } from '../providers/lib/provider-replay.mjs';
-
-import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
-import { executeTool, _scopedCacheOutcomeForCall, resolveLiveToolCwd } from './loop/tool-exec.mjs';
-
-// classifyResultKind is imported from result-classification.mjs at the top of
-// this file; import it from there directly rather than via this module.
+import { SessionClosedError } from './manager.mjs';
 import { recordToolBatch } from '../tools/tool-batch-trace.mjs';
-import { projectProviderEvidence } from './evidence-union.mjs';
-import { projectSyntheticUserEnvelopes } from './synthetic-user-envelope.mjs';
-import { prepareProviderPrefixGuard } from './provider-prefix-guard.mjs';
 import { traceCacheBreak } from '../cache-break-trace.mjs';
 
-
-import { mergeSteeringEntries, steeringContentText } from './loop/steering.mjs';
+import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
+import { resolveLiveToolCwd } from './loop/tool-exec.mjs';
+import { createSteeringDrain } from './loop/steering.mjs';
 import { prepareExplicitSkills } from './explicit-skills.mjs';
-import { addUsage } from './loop/usage.mjs';
-import { HIDDEN_AGENT_NAMES } from './loop/hidden-agents.mjs';
+import { addUsage, usageDeltaEvent } from './loop/usage.mjs';
 import {
-  isEagerDispatchable,
   normalizeHookUpdatedToolOutput,
   resolveToolResultAfterHook,
   formatMissingToolApprovalUiDenial,
@@ -29,26 +16,18 @@ import {
   approvalGranted,
   approvalReason,
 } from './loop/tool-helpers.mjs';
-import {
-  compactToolCallsForHistory,
-} from './loop/stored-tool-args.mjs';
 import { repairTranscriptBeforeProviderSend } from './loop/transcript-repair.mjs';
-import {
-    classifyTerminationReason,
-    INCOMPLETE_STOP_REASONS,
-    isOutputLimitStopReason,
-    providerContinuationSignal,
-} from './loop/termination.mjs';
-import { runPreSendCompactPass } from './pre-send-compact.mjs';
+import { classifyTerminationReason } from './loop/termination.mjs';
+import { prepareProviderRequest } from './loop/request-boundary.mjs';
+import { projectProviderRequest } from './loop/request-projection.mjs';
+import { createNoToolTurnResolver } from './loop/no-tool-turn.mjs';
+import { buildToolCallAssistantMessage, commitAssistantMessage } from './loop/assistant-commit.mjs';
+import { traceProviderSend, traceOutputTruncation, traceLoopPhaseTiming } from './loop/diagnostics.mjs';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
 import { sendWithRecovery } from './send-with-recovery.mjs';
 import { stripInlineImages } from './image-strip-recovery.mjs';
 import { processToolBatch } from './tool-batch.mjs';
-import { snapshotProviderRequestTools } from '../../../../session-runtime/tool-catalog.mjs';
-import {
-    providerNativeToolPrefixCount,
-    runWithProviderRequestToolsScope,
-} from '../../../../session-runtime/provider-request-tools.mjs';
+import { runWithProviderRequestToolsScope } from '../../../../session-runtime/provider-request-tools.mjs';
 
 // Facade re-exports: these symbols moved to split modules under ./loop/ but
 // remain part of loop.mjs's public surface (imported by scripts/tests and other
@@ -70,19 +49,7 @@ export {
 // the model to change approach. This guards deterministic failures, not the
 // length of a task that keeps making progress.
 const REPEAT_FAIL_LIMIT = 3;
-// Structured provider continuations (endTurn=false / pause_turn) are honored,
-// but must not sustain an unbounded text-only loop: a lead session was
-// observed burning a 30-minute agent budget (26K output tokens, zero tool
-// calls) on back-to-back continuations. After this many continuations with no
-// intervening tool batch, the current text is accepted as the final answer.
-const PROVIDER_CONTINUATION_NO_TOOL_LIMIT = Math.max(1, Number(process.env.MIXDOG_PROVIDER_CONTINUATION_NO_TOOL_LIMIT) || 8);
-// A provider max-output stop is not a completed assistant turn, even when it
-// contains useful text. Preserve each partial in the provider transcript and
-// grant at most three direct continuations before surfacing a hard truncation.
-const MAX_OUTPUT_RECOVERY_LIMIT = 3;
-const MAX_OUTPUT_EXHAUSTED_NOTICE = '[mixdog-runtime] Output remained truncated after 3 continuation attempts.';
-// _scopedCacheOutcomeForCall and executeTool moved to ./loop/tool-exec.mjs
-// (imported above).
+
 /**
  * Agent loop: send → tool_call → execute → re-send → repeat until text.
  * sendOpts may include:
@@ -95,19 +62,6 @@ const MAX_OUTPUT_EXHAUSTED_NOTICE = '[mixdog-runtime] Output remained truncated 
  *   - `onStageChange(stage)` / `onStreamDelta()` — forwarded to provider.send for heartbeats
  *   - `liveProjection` — when true, Agent sessions keep provider onTextDelta / mid-turn text
  */
-// Stop reasons that signal the turn was cut short mid-synthesis (token cap,
-// provider pause). Empty content + one of these reasons means the worker
-// was not done — re-prompt instead of accepting empty as final.
-// Covers Anthropic (pause_turn, max_tokens), OpenAI (length), Gemini
-// (MAX_TOKENS, OTHER), and case variants.
-function attachAssistantTranscriptMetadata(message, opts = {}) {
-    const transcript = typeof opts.takeAssistantTranscriptMetadata === 'function'
-        ? opts.takeAssistantTranscriptMetadata()
-        : null;
-    if (!transcript) return message;
-    const meta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
-    return { ...message, meta: { ...meta, transcript } };
-}
 
 // Agent mid-turn text is suppressed unless THIS send explicitly requested a
 // live projection. The request is a send-opt (`liveProjection`) — never a
@@ -145,7 +99,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // providers may use it for continuation anchors.
     let providerState = opts.providerState ?? undefined;
     let providerStateUpdated = false;
-    let _providerStateCleared = false;
     const throwIfAborted = () => {
         if (signal?.aborted) {
             const reason = signal.reason instanceof Error ? signal.reason : null;
@@ -184,10 +137,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // wrapper was installed upstream.
     const suppressMidTurnText = shouldSuppressAgentMidTurnText(sessionRef, opts);
     if (suppressMidTurnText) opts.onTextDelta = undefined;
-    // Deferred mutation-body compaction: bodies left verbatim by a previous
-    // turn's push (deferBodies below) collapse to markers now — the model has
-    // already seen them on that turn's follow-up send. Failed bodies stay
-    // verbatim for retry.
     // Out-of-loop transcript mutations (post-turn/manual compaction in
     // manager/compaction-runner.mjs) run where no send opts exist; they park a
     // one-shot intent on the session so the FIRST send of the next turn tags
@@ -201,147 +150,23 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         try { opts.onToolResult?.(message); } catch {}
     };
     const pendingSkillPrompts = [];
-    const drainSteeringIntoMessages = (stage = 'mid-turn', options = {}) => {
-        if (typeof opts.drainSteering !== 'function') return false;
-        let steerMsgs = [];
-        // The stage rides along so the host can scope which queues a drain may
-        // consume (mid-turn tool-batch boundary vs the terminal pending-input
-        // check that precedes the stop hooks).
-        try { steerMsgs = opts.drainSteering(sessionId, { ...options, stage }) || []; }
-        catch { steerMsgs = []; }
-        const mergedMessages = [];
-        for (const entry of Array.isArray(steerMsgs) ? steerMsgs : []) {
-            const merged = mergeSteeringEntries([entry]);
-            if (merged) mergedMessages.push(merged);
-        }
-        if (mergedMessages.length === 0) return false;
-        if (typeof options.beforeAppend === 'function') {
-            try { options.beforeAppend(); } catch { /* best-effort hook */ }
-        }
-        let totalCount = 0;
-        let totalTextLen = 0;
-        let maxQueueWaitMs = 0;
-        for (const merged of mergedMessages) {
-            const submissionIds = Array.isArray(merged.ids) ? merged.ids : [];
-            const submittedAt = Number(merged.submittedAt);
-            const injectedAt = Date.now();
-            const steeringTranscriptMeta = merged.transcriptMeta
-                && typeof merged.transcriptMeta === 'object'
-                ? {
-                    at: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : injectedAt,
-                    ...merged.transcriptMeta,
-                }
-                : null;
-            if (Number.isFinite(submittedAt) && submittedAt > 0) {
-                maxQueueWaitMs = Math.max(maxQueueWaitMs, injectedAt - submittedAt);
-            }
-            // Tag steering-origin user messages so provider lowering keeps them
-            // distinct from preceding tool results. Keep each queued command as
-            // its own user turn instead of collapsing priority/mode buckets
-            // together.
-            // A drained task notification is the runtime reporting, not the
-            // user speaking: it keeps the user role the wire needs but is
-            // stored under its own source with its execution provenance, so
-            // envelope classification and the transcript never mistake it
-            // for typed input.
-            const notification = merged.mode === 'task-notification';
-            const execution = notification && merged.execution && typeof merged.execution === 'object'
-                ? { ...merged.execution }
-                : null;
-            messages.push({
-                role: 'user',
-                content: merged.content,
-                meta: {
-                    source: notification ? 'task-notification' : 'steering',
-                    ...(execution ? { execution } : {}),
-                    ...(submissionIds.length ? { submissionIds } : {}),
-                    ...(steeringTranscriptMeta ? { transcript: steeringTranscriptMeta } : {}),
-                },
-            });
-            if (!notification) pendingSkillPrompts.push(merged.content);
-            const text = merged.text || steeringContentText(merged.content);
-            totalCount += Number(merged.count) || 1;
-            totalTextLen += String(text || '').length;
-            try {
-                opts.onSteerMessage?.(text, {
-                    ids: submissionIds,
-                    submittedAt: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : undefined,
-                    injectedAt,
-                    stage,
-                    ...(notification ? { mode: 'task-notification' } : {}),
-                    ...(execution ? { execution } : {}),
-                    ...(Array.isArray(merged.images) && merged.images.length ? { images: merged.images } : {}),
-                    ...(steeringTranscriptMeta ? { transcriptMeta: steeringTranscriptMeta } : {}),
-                });
-            } catch {}
-        }
-        if (sessionId) {
-            try {
-                process.stderr.write(
-                    `[steer] sess=${sessionId} injected ${stage} user message(s)`
-                    + ` (merged=${totalCount} len=${totalTextLen} waitMs=${Math.max(0, maxQueueWaitMs)})\n`,
-                );
-            } catch {}
-        }
-        return true;
-    };
-    const pushIntermediateAssistantResponse = (resp) => {
-        if (!resp) return false;
-        const content = typeof resp.content === 'string' ? resp.content : (resp.content == null ? '' : String(resp.content));
-        const reasoningContent = typeof resp.reasoningContent === 'string'
-            ? resp.reasoningContent
-            : undefined;
-        const reasoningItems = Array.isArray(resp.reasoningItems) && resp.reasoningItems.length
-            ? resp.reasoningItems
-            : null;
-        const providerReplay = cloneProviderReplay(resp.providerReplay);
-        const thinkingBlocks = Array.isArray(resp.thinkingBlocks) && resp.thinkingBlocks.length
-            ? resp.thinkingBlocks
-            : null;
-        const providerMetadata = resp.providerMetadata && typeof resp.providerMetadata === 'object'
-            ? resp.providerMetadata
-            : null;
-        const stopReason = resp.stopReason ?? resp.stop_reason ?? null;
-        const terminationReason = resp.terminationReason ?? null;
-        // Anthropic native server-tool turns (web search / code execution /
-        // native MCP) carry `server_tool_use` + `*_tool_result` blocks that
-        // exist ONLY in this ordered verbatim list — they cannot be rebuilt
-        // from content/thinkingBlocks/toolCalls, and dropping them breaks the
-        // resumed turn (a result block is only valid right after its call
-        // block). Attach them so Anthropic lowering replays the turn as-is.
-        // Guarded on no client tool calls: this committer only handles
-        // continuation/intermediate turns. A MIXED turn (native blocks +
-        // client tool_use) is committed by the tool-call branch below, which
-        // keeps both the compacted toolCalls and these blocks.
-        const assistantBlocks = Array.isArray(resp.assistantBlocks)
-            && resp.assistantBlocks.length
-            && !resp.toolCalls?.length
-            ? resp.assistantBlocks
-            : null;
-        // A native-only turn (server tool blocks, no flattened text) is real
-        // assistant output and must stay committable — not treated as empty.
-        if (!content && !reasoningContent && !reasoningItems && !thinkingBlocks && !assistantBlocks && !providerReplay) return false;
-        const message = attachAssistantTranscriptMetadata({
-            role: 'assistant',
-            content,
-            ...(providerReplay ? { providerReplay } : {}),
-            // assistantBlocks already contains the thinking blocks verbatim in
-            // stream order, so thinkingBlocks is redundant (and would be
-            // double-counted by the context estimator) when it is present.
-            ...(assistantBlocks && !providerReplay ? { assistantBlocks } : {}),
-            // Anthropic adaptive-thinking signatures must be replayed verbatim
-            // before the continuation turn, just like tool-call trajectories.
-            ...(thinkingBlocks && !assistantBlocks && !providerReplay ? { thinkingBlocks } : {}),
-            ...(reasoningItems && !providerReplay ? { reasoningItems } : {}),
-            ...(reasoningContent !== undefined ? { reasoningContent } : {}),
-            ...(providerMetadata ? { providerMetadata } : {}),
-            ...(stopReason ? { stopReason } : {}),
-            ...(terminationReason ? { terminationReason } : {}),
-        }, opts);
-        messages.push(message);
-        try { opts.onAssistantMessageCommitted?.(message); } catch {}
-        return true;
-    };
+    const drainSteeringIntoMessages = createSteeringDrain({
+        messages,
+        opts,
+        sessionId,
+        onSkillPrompt: (content) => pendingSkillPrompts.push(content),
+    });
+    // Bounded recovery for provider turns that returned no client tool calls
+    // (max-output ladder, refusal retry, provider continuation, empty-turn
+    // nudge) plus the caller-facing text aggregate those recoveries build.
+    const noToolTurn = createNoToolTurnResolver({
+        messages,
+        opts,
+        sessionId,
+        sessionAgent,
+        suppressMidTurnText,
+        drainSteering: drainSteeringIntoMessages,
+    });
     // Behavioral guards bound repeated failures and unchanged observations,
     // not the number of productive iterations.
     // _editCount counts any executed tool call whose def lacks readOnlyHint
@@ -349,36 +174,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     let _editCount = 0;
     // Step 2: cross-turn identical read-only call dedup. Map keyed by
     // signature(name + stableStringify(args)) → { count, firstIteration }.
-    // Populated only for SUCCESSFUL isEagerDispatchable (read-only) calls.
+    // Populated only for SUCCESSFUL read-only (eager-dispatchable) calls.
     // Bounded to 500 entries (drop-oldest / insertion order).
     const _crossTurnCalls = new Map();
     const _CROSS_TURN_CAP = 500;
     let _dedupStubTotal = 0;
-    // Consecutive empty-turn contract nudges. A model that answers the same
-    // nudge with another empty turn is in a deterministic livelock (same
-    // context in → same empty completion out). Bound that failed recovery and
-    // end the loop as an explicit empty termination instead.
-    let _emptyNudgeStreak = 0;
-    const EMPTY_NUDGE_MAX = 3;
-    let _refusalRetryUsed = false;
-    let _maxOutputRecoveryCount = 0;
-    // Committed-but-unsealed text segments for the caller-facing aggregate:
-    // max-output recovery parts plus (Lead/TUI only) text-only continuation
-    // segments (provider pause_turn / terminal steering / stop hook). The
-    // terminal response returns content = parts + terminal so the UI row that
-    // accumulated every streamed segment is not overwritten down to only the
-    // last segment; historyContent keeps persistence single-copy. Reset after
-    // each executed tool batch — the UI seals its row at tool boundaries, so a
-    // pre-tool part re-prepended at terminal would duplicate a sealed row.
-    const _committedTextParts = [];
-    // Count of structured provider continuation signals honored this turn
-    // (endTurn === false / stopReason === 'pause_turn'). Diagnostic only; the
-    // hard iteration cap remains the sole bound on how long a provider may
-    // keep declaring "not done" inside one user turn.
-    let _providerContinuationCount = 0;
-    // Continuations since the last executed tool batch — bounds the text-only
-    // continuation runaway (see PROVIDER_CONTINUATION_NO_TOOL_LIMIT).
-    let _continuationsSinceToolBatch = 0;
     // Loop-level transport replays consumed since the last SUCCESSFUL send
     // (see send-with-recovery TRANSPORT_RETRY_MAX). The budget is per
     // sampling request, starting at retries=0 and resetting on transport
@@ -435,77 +235,36 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 cwd, signal: opts.signal,
             });
         }
-        const baseSendTools = tools;
-        let sendTools;
-        let requestToolScope;
-        let compactChanged;
-        do {
-            // Provider-history normalization is part of the request boundary:
-            // repair first, then take exactly one immutable tool snapshot for
-            // pressure, send, recovery, and usage/baseline telemetry.
-            const messagesBeforeTranscriptRepair = messages.slice();
-            repairTranscriptBeforeProviderSend(messages, sessionId);
-            if (!opts.cacheBreakIntent
-                && (messages.length !== messagesBeforeTranscriptRepair.length
-                    || messages.some((message, index) => message !== messagesBeforeTranscriptRepair[index]))) {
-                opts.cacheBreakIntent = 'transcript_rebuild';
-            }
-            const _candidateSendTools = snapshotProviderRequestTools({
-                provider: sessionRef?.provider || provider?.name,
-                tools: baseSendTools,
-                nativeTools: opts.nativeTools,
-                messages,
-                session: sessionRef,
-            });
-            // Only native deferred definitions may join a running request loop.
-            // Skill discovery never promotes them into the eager cache prefix.
-            const deferredToolsAdded = _fixedProviderToolSurface
-                && _candidateSendTools.some((tool) => (
-                    (tool.deferLoading === true || tool.defer_loading === true)
-                    && !_fixedProviderToolSurface.some((previous) => previous.name === tool.name)
-                ));
-            if (!_fixedProviderToolSurface || deferredToolsAdded) {
-                _fixedProviderToolSurface = _candidateSendTools;
-            }
-            sendTools = _fixedProviderToolSurface;
-            requestToolScope = {
-                session: sessionRef,
-                provider: sessionRef?.provider || provider?.name,
-                messages,
-                requestTools: sendTools,
-                nativePrefixCount: providerNativeToolPrefixCount(sendTools),
-            };
-            ({
-                iterations,
-                lastUsage,
-                firstTurnUsage,
-                providerState,
-                providerStateCleared: _providerStateCleared,
-                reactiveOverflowRetryPending,
-                compactChanged,
-            } = await runWithProviderRequestToolsScope(requestToolScope, () => runPreSendCompactPass({
-                provider,
-                messages,
-                model,
-                requestTools: sendTools,
-                sessionRef,
-                sessionId,
-                cwd,
-                opts,
-                signal,
-                iterations,
-                lastUsage,
-                firstTurnUsage,
-                providerState,
-                reactiveOverflowRetryPending,
-                loopUsageMetricsTurnId,
-                loopUsageMetricsEpoch,
-            })));
-            if (_providerStateCleared) providerStateUpdated = true;
-            // A changed transcript ends this request attempt. Repair the new
-            // history and establish one fresh post-compaction snapshot before
-            // evaluating pressure again or sending.
-        } while (compactChanged);
+        const boundary = await prepareProviderRequest({
+            provider,
+            messages,
+            model,
+            baseSendTools: tools,
+            sessionRef,
+            sessionId,
+            cwd,
+            opts,
+            signal,
+            iterations,
+            lastUsage,
+            firstTurnUsage,
+            providerState,
+            reactiveOverflowRetryPending,
+            fixedProviderToolSurface: _fixedProviderToolSurface,
+            loopUsageMetricsTurnId,
+            loopUsageMetricsEpoch,
+        });
+        ({
+            iterations,
+            lastUsage,
+            firstTurnUsage,
+            providerState,
+            reactiveOverflowRetryPending,
+        } = boundary);
+        _fixedProviderToolSurface = boundary.fixedProviderToolSurface;
+        if (boundary.providerStateCleared) providerStateUpdated = true;
+        const sendTools = boundary.sendTools;
+        const requestToolScope = boundary.requestToolScope;
         const nextIteration = iterations + 1;
         opts.iteration = nextIteration;
         opts.providerState = providerState;
@@ -551,91 +310,21 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             _sendMessages = stripInlineImages(messages).messages;
         }
         const _providerMessageSource = _sendMessages || messages;
-        const _evidenceUnionDisabled = /^(?:1|true|yes|on)$/i.test(
-            String(process.env.MIXDOG_DISABLE_EVIDENCE_UNION || '').trim(),
-        );
-        const _evidenceUnionShadow = /^(?:1|true|yes|on)$/i.test(
-            String(process.env.MIXDOG_EVIDENCE_UNION_SHADOW || '').trim(),
-        );
-        // Wire-only: synthetic user rows (compaction state, runtime control,
-        // injected context) get the declared runtime envelope so the human's
-        // own prompt stays the only unwrapped user voice. The stored
-        // transcript and recoveryMessages keep the raw rows.
-        const _envelopeProjection = projectSyntheticUserEnvelopes(_providerMessageSource);
-        const _evidenceProjection = projectProviderEvidence(_envelopeProjection.messages, {
-            enabled: !_evidenceUnionDisabled,
-            apply: !_evidenceUnionShadow,
-            // Path aliases are a whole-history projection: a later repeated
-            // path can rewrite already-sent tool results and invalidate every
-            // provider's prefix cache. Row/exact-result references are
-            // append-only, so retain those and disable only the unsafe pass.
-            pathAliases: false,
+        const {
+            providerMessages: _providerMessages,
+            prefixGuardCandidate: _providerPrefixGuardCandidate,
+        } = projectProviderRequest({
+            messages: _providerMessageSource,
+            sendTools,
+            opts,
+            provider,
+            sessionRef,
+            sessionId,
+            model,
+            iteration: nextIteration,
+            prefixGuardState: _providerPrefixGuardState,
+            cacheBreakTraceKeys: _cacheBreakTraceKeys,
         });
-        const _providerMessages = _evidenceProjection.messages;
-        const _prefixMutationSource = opts.cacheBreakIntent === 'transcript_rebuild'
-            ? 'transcript_rebuild'
-            : (_evidenceProjection.stats.changedToolResults > 0 ? 'evidence_union' : null);
-        const _providerPrefixGuardCandidate = prepareProviderPrefixGuard(
-            _providerPrefixGuardState,
-            _evidenceProjection.messages,
-            {
-                tools: sendTools,
-                nativeTools: Array.isArray(opts.nativeTools) ? opts.nativeTools : [],
-            },
-            {
-                provider: sessionRef?.provider || provider?.name || null,
-                model: model || null,
-                cacheBreakIntent: opts.cacheBreakIntent,
-                mutationSource: _prefixMutationSource,
-                onCacheBreak: (details) => {
-                    const key = [
-                        details.classification,
-                        details.reason,
-                        details.index,
-                        details.previousHash,
-                        details.nextHash,
-                        details.previousRequestPrefixHash,
-                        details.nextRequestPrefixHash,
-                    ].join('|');
-                    if (_cacheBreakTraceKeys.has(key)) return;
-                    _cacheBreakTraceKeys.add(key);
-                    traceCacheBreak({
-                        sessionId,
-                        iteration: nextIteration,
-                        intentionalTransition: opts.cacheBreakIntent,
-                        ...details,
-                    });
-                },
-            },
-        );
-        if (_evidenceProjection.stats.reusedRows > 0
-            || _evidenceProjection.stats.exactResultRefs > 0
-            || _evidenceProjection.stats.pathAliases > 0) {
-            try {
-                const _evidencePayload = {
-                    shadow: _evidenceUnionShadow,
-                    before_bytes: _evidenceProjection.stats.beforeBytes,
-                    after_bytes: _evidenceProjection.stats.afterBytes,
-                    evidence_rows: _evidenceProjection.stats.evidenceRows,
-                    reused_rows: _evidenceProjection.stats.reusedRows,
-                    reference_groups: _evidenceProjection.stats.referenceGroups,
-                    changed_tool_results: _evidenceProjection.stats.changedToolResults,
-                    exact_result_refs: _evidenceProjection.stats.exactResultRefs,
-                    exact_result_bytes_saved: _evidenceProjection.stats.exactResultBytesSaved,
-                    path_facts: _evidenceProjection.stats.pathFacts,
-                    path_aliases: _evidenceProjection.stats.pathAliases,
-                    reused_path_facts: _evidenceProjection.stats.reusedPathFacts,
-                    path_alias_bytes_saved: _evidenceProjection.stats.pathAliasBytesSaved,
-                };
-                appendAgentTrace({
-                    sessionId,
-                    iteration: nextIteration,
-                    kind: 'evidence_union',
-                    ..._evidencePayload,
-                    payload: _evidencePayload,
-                });
-            } catch { /* best-effort */ }
-        }
         try { opts.onProviderSendStarted?.(); } catch {}
         const _sendResult = await runWithProviderRequestToolsScope(
             requestToolScope,
@@ -723,27 +412,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             providerStateUpdated = true;
         }
         iterations = nextIteration;
-        // Loop trace has two modes (both no-op on provider behavior):
-        //   VERBOSE=1 → full row; pay the FULL messages+tools payload byte
-        //               estimate (serializes the whole array).
-        //   TIMING=1  → send-latency attribution only; skip the payload
-        //               estimate so measuring send_ms does not itself add
-        //               serialization cost during high-fanout bench runs.
-        const _traceVerbose = process.env.MIXDOG_AGENT_TRACE_VERBOSE === '1';
-        if (_traceVerbose || process.env.MIXDOG_AGENT_TRACE_TIMING === '1') {
-            traceAgentLoop({
-                sessionId,
-                iteration: iterations,
-                sendMs: Date.now() - sendStartedAt,
-                preSendMs,
-                toolResumeMs,
-                messageCount: Array.isArray(messages) ? messages.length : 0,
-                bodyBytesEst: _traceVerbose
-                    ? estimateProviderPayloadBytes(_providerMessages, model, sendTools)
-                    : undefined,
-                agent: sessionAgent || null,
-            });
-        }
+        traceProviderSend({
+            sessionId,
+            iteration: iterations,
+            sendMs: Date.now() - sendStartedAt,
+            preSendMs,
+            toolResumeMs,
+            messages,
+            providerMessages: _providerMessages,
+            model,
+            sendTools,
+            sessionAgent,
+        });
         // Accumulate usage across iterations — every billable slot, not just
         // input/output. Anthropic cache_read/cache_write typically stay 0 on
         // the first iteration and surge on later ones (warm prefix reuse),
@@ -763,243 +443,36 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // Provider may have returned despite an abort (SDKs that don't honour
         // signal) — bail before processing any of its output.
         throwIfAborted();
-        // Keep a diagnostic for every provider-declared truncation. Eligible
-        // no-tool text turns are recovered below rather than accepted as final.
-        if (response?.truncated === true) {
-            try {
-                process.stderr.write(
-                    `[loop] provider output truncated at max-output limit (sess=${sessionId || 'unknown'} `
-                    + `iter=${iterations} stopReason=${response.stopReason ?? response.stop_reason ?? 'length'} `
-                    + `contentLen=${typeof response.content === 'string' ? response.content.length : 0}); `
-                    + `continuation recovery will be attempted when eligible.\n`,
-                );
-            } catch { /* best-effort */ }
-            try {
-                appendAgentTrace({
-                    sessionId,
-                    iteration: iterations,
-                    kind: 'output_truncated',
-                    payload: {
-                        stop_reason: response.stopReason ?? response.stop_reason ?? 'length',
-                        content_len: typeof response.content === 'string' ? response.content.length : 0,
-                        agent: sessionAgent || null,
-                    },
-                });
-            } catch { /* best-effort */ }
-        }
-        // Incremental metric persistence (fix A): push per-iteration token delta
-        // immediately so watchdog / agent type=list sees live totals mid-turn.
+        traceOutputTruncation({
+            sessionId, iteration: iterations, response, sessionAgent,
+        });
         if (sessionId && opts.onUsageDelta && response.usage) {
             try {
-                runWithProviderRequestToolsScope(requestToolScope, () => opts.onUsageDelta({
+                runWithProviderRequestToolsScope(requestToolScope, () => opts.onUsageDelta(usageDeltaEvent({
                     sessionId,
                     iterationIndex: iterations,
                     usageMetricsTurnId: loopUsageMetricsTurnId(),
-                    source: 'provider_send',
+                    usageMetricsEpoch: loopUsageMetricsEpoch(),
                     requestedModel: model,
                     model: response.model || model,
-                    usageMetricsEpoch: loopUsageMetricsEpoch(),
-                    deltaInput: response.usage.inputTokens || 0,
-                    deltaOutput: response.usage.outputTokens || 0,
-                    deltaPrompt: response.usage.promptTokens || 0,
-                    // Cache delta carried alongside input/output so live metrics
-                    // reflect the same token classes the terminal aggregate adds;
-                    // additive — callers that ignore these fields keep working.
-                    deltaCachedRead: response.usage.cachedTokens || 0,
-                    deltaCacheWrite: response.usage.cacheWriteTokens || 0,
-                    // Billing deltas include OAuth WS warmup. Context
-                    // snapshots/baselines must describe only the main send.
-                    contextInputTokens: response.usage.mainInputTokens ?? response.usage.inputTokens ?? 0,
-                    contextOutputTokens: response.usage.mainOutputTokens ?? response.usage.outputTokens ?? 0,
-                    contextPromptTokens: response.usage.mainPromptTokens ?? response.usage.promptTokens ?? 0,
-                    contextCachedReadTokens: response.usage.mainCachedTokens ?? response.usage.cachedTokens ?? 0,
-                    contextCacheWriteTokens: response.usage.mainCacheWriteTokens ?? response.usage.cacheWriteTokens ?? 0,
-                    contextUsageAvailable: response.usage.mainUsageAvailable !== false,
+                    usage: response.usage,
                     sendTools,
-                    ts: Date.now(),
-                }));
+                })));
             } catch { /* best-effort — never break the loop */ }
         }
-        // No tool calls. For PUBLIC agents, the agent contract
-        // (rules/agent/00-core.md) requires either a tool call or a final
-        // handoff text (fragments).
-        // A text-only turn without those tags violates the contract (e.g.
-        // Opus 4.6 emits 'Now I'll polish…' preamble before its first tool
-        // call) and used to leave the session idle until the idle sweep
-        // collected it. Re-prompt the worker with a contract reminder on each
-        // empty turn, with bounded empty-response recovery. Hidden roles are
-        // exempt:
-        // their own role rules define a different output contract (pipe-
-        // separated chunker output, structured pipe-format, etc.) and a
-        // text-only terminal turn is the correct shape — nudging them
-        // produces a contradictory user message that traps the model in a
-        // tool-call-blocked vs contract-required oscillation.
+        // A turn without client tool calls is not automatically the final
+        // answer: the provider may have hit its output ceiling, been cut by a
+        // safety classifier, declared the turn unfinished, or returned nothing.
+        // Each case owns a bounded recovery ladder in ./loop/no-tool-turn.mjs,
+        // which either appended a recovery turn ('continue') or produced the
+        // terminal response ('break').
         if (!response.toolCalls?.length) {
-            // No tool calls. Decide between final-answer accept vs nudge.
-            //   - has content + non-hidden role → valid final, break.
-            //   - empty content + hidden role → contract allows text-only
-            //     terminal turn, break.
-            //   - empty content + non-hidden role → contract nudge, continue.
-            const hasContent = typeof response.content === 'string' && response.content.trim().length > 0;
-            const isHidden = HIDDEN_AGENT_NAMES.has(sessionAgent);
-            const stopReason = response.stopReason ?? response.stop_reason ?? null;
-            const isIncompleteStop = stopReason && INCOMPLETE_STOP_REASONS.has(stopReason);
-            const isOutputLimitStop = isOutputLimitStopReason(stopReason);
-            if (hasContent && isOutputLimitStop) {
-                _committedTextParts.push(response.content);
-                if (!suppressMidTurnText) {
-                    try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
-                }
-                if (_maxOutputRecoveryCount < MAX_OUTPUT_RECOVERY_LIMIT) {
-                    // The partial assistant turn must be visible to the model so
-                    // it can resume at the exact cutoff instead of reconstructing
-                    // or repeating it. askSession persists this natural recovery
-                    // chain; historyContent below prevents the aggregate returned
-                    // to callers from being persisted a second time.
-                    pushIntermediateAssistantResponse(response);
-                    _maxOutputRecoveryCount += 1;
-                    messages.push({
-                        role: 'user',
-                        content: 'Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where the previous text stopped.',
-                        meta: { source: 'max-output-recovery', attempt: _maxOutputRecoveryCount },
-                    });
-                    continue;
-                }
-                const terminalSegment = `${response.content}\n\n${MAX_OUTPUT_EXHAUSTED_NOTICE}`;
-                response = {
-                    ...response,
-                    content: `${_committedTextParts.slice(0, -1).join('')}${terminalSegment}`,
-                    historyContent: terminalSegment,
-                    maxOutputRecoveryAttempts: _maxOutputRecoveryCount,
-                };
-                break;
-            }
-            if (stopReason === 'refusal') {
-                if (_refusalRetryUsed) {
-                    process.stderr.write(`[loop] safety-classifier refusal persisted after one context-changing retry (sess=${sessionId || 'unknown'}); ending loop as refusal termination.\n`);
-                    break;
-                }
-                _refusalRetryUsed = true;
-                // A provider may emit harmless narration before its safety
-                // classifier terminates the turn. Preserve that partial turn
-                // and its stop reason, but never mistake the non-empty text for
-                // a successful completion.
-                if (hasContent && pushIntermediateAssistantResponse(response)) {
-                    if (!suppressMidTurnText) {
-                        _committedTextParts.push(response.content);
-                        try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
-                    }
-                }
-                messages.push({
-                    role: 'user',
-                    content: '[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.',
-                    meta: { source: 'refusal-recovery', attempt: 1 },
-                });
-                continue;
-            }
-            // Structured provider continuation signal. The provider declared
-            // the assistant turn unfinished, so this text is mid-turn output,
-            // not a final answer: commit it EXACTLY ONCE to history/UI (single
-            // pushIntermediateAssistantResponse → onAssistantMessageCommitted)
-            // and immediately resume sampling in the same user turn. Output
-            // limit stops keep the bounded max-output recovery ladder above and
-            // refusals keep the bounded refusal retry; both own their own
-            // continuation semantics. No lexical/progress-text heuristic.
-            const continuationSignal = !isOutputLimitStop && stopReason !== 'refusal'
-                ? providerContinuationSignal(response)
-                : null;
-            if (continuationSignal && _continuationsSinceToolBatch >= PROVIDER_CONTINUATION_NO_TOOL_LIMIT) {
-                // Text-only continuation runaway: stop honoring the signal and
-                // fall through to the terminal handling below, which accepts
-                // the current content as the final answer (or ends the loop).
-                process.stderr.write(`[loop] provider continuation cap ${PROVIDER_CONTINUATION_NO_TOOL_LIMIT} reached without tool calls (sess=${sessionId || 'unknown'}); accepting current text as final.\n`);
-                try {
-                    appendAgentTrace({
-                        sessionId,
-                        iteration: iterations,
-                        kind: 'steer',
-                        payload: { tag: 'provider_continuation_no_tool_cap', count: _continuationsSinceToolBatch },
-                        agent: sessionAgent || null,
-                    });
-                } catch { /* best-effort */ }
-            } else if (continuationSignal && pushIntermediateAssistantResponse(response)) {
-                if (hasContent && !suppressMidTurnText) {
-                    _committedTextParts.push(response.content);
-                    try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
-                }
-                _providerContinuationCount += 1;
-                _continuationsSinceToolBatch += 1;
-                _emptyNudgeStreak = 0;
-                try {
-                    appendAgentTrace({
-                        sessionId,
-                        iteration: iterations,
-                        kind: 'provider_continuation',
-                        payload: {
-                            signal: continuationSignal,
-                            stop_reason: stopReason,
-                            count: _providerContinuationCount,
-                            content_len: typeof response.content === 'string' ? response.content.length : 0,
-                        },
-                        agent: sessionAgent || null,
-                    });
-                } catch { /* best-effort */ }
-                continue;
-            }
-            // A continuation signal with nothing committable (no text, no
-            // reasoning) falls through to the bounded empty-turn handling
-            // below: re-sending an unchanged transcript would livelock.
-            if (!hasContent && !isHidden) {
-                _emptyNudgeStreak += 1;
-                if (_emptyNudgeStreak > EMPTY_NUDGE_MAX) {
-                    // Livelock: identical nudges keep producing identical empty
-                    // completions. Stop re-prompting; classifyTerminationReason
-                    // tags this final empty response as 'empty' so the caller
-                    // surfaces an explicit error instead of a silent finish.
-                    process.stderr.write(`[loop] empty-turn nudge cap ${EMPTY_NUDGE_MAX} reached (sess=${sessionId || 'unknown'}); ending loop as empty termination.\n`);
-                    break;
-                }
-                let nudgeMsg;
-                if (isIncompleteStop) {
-                    nudgeMsg = `[mixdog-runtime] Empty truncated continuation (stopReason=${stopReason}). Return the remaining final handoff; use tools only for required evidence still missing.`;
-                } else {
-                    nudgeMsg = `[mixdog-runtime] Empty response (${_emptyNudgeStreak}/${EMPTY_NUDGE_MAX}). Return final text, or use tools only for required evidence still missing.`;
-                }
-                messages.push({ role: 'user', content: nudgeMsg });
-                continue;
-            }
-            // Pending-input rule: queued user input is folded into
-            // needs_follow_up before terminal completion. Commit the terminal
-            // text first (beforeAppend), then resume.
-            if (drainSteeringIntoMessages('terminal', {
-                maxPriority: 'next',
-                beforeAppend: () => {
-                    if (pushIntermediateAssistantResponse(response) && hasContent && !suppressMidTurnText) {
-                        _committedTextParts.push(response.content);
-                        try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
-                    }
-                },
-            })) {
-                _emptyNudgeStreak = 0;
-                continue;
-            }
-            // A no-tool message ends the turn. Unresolved tool failures remain
-            // visible in history and can be reported directly without a
-            // synthetic continuation turn.
-            if (_committedTextParts.length > 0) {
-                const terminalSegment = typeof response.content === 'string' ? response.content : '';
-                response = {
-                    ...response,
-                    content: `${_committedTextParts.join('')}${terminalSegment}`,
-                    historyContent: terminalSegment,
-                    ...(_maxOutputRecoveryCount > 0
-                        ? { maxOutputRecoveryAttempts: _maxOutputRecoveryCount }
-                        : {}),
-                };
-            }
+            const outcome = noToolTurn.resolve(response, iterations);
+            response = outcome.response;
+            if (outcome.action === 'continue') continue;
             break;
         }
-        _emptyNudgeStreak = 0;
+        noToolTurn.noteToolCallTurn();
         const calls = response.toolCalls;
         toolCallsTotal += calls.length;
         // Surface any mid-turn assistant text (preamble that precedes a tool
@@ -1017,72 +490,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // every assistant message body.
         const toolBatchId = recordToolBatch(sessionId, calls, iterations);
         await Promise.resolve(onToolCall?.(iterations, calls));
-        const _providerReplay = cloneProviderReplay(response.providerReplay);
-        // Append assistant message with tool calls. reasoningItems is the
-        // OpenAI Responses API replay payload (encrypted_content blobs);
-        // providers that ignore it just see an extra field and drop it,
-        // openai-oauth.convertMessagesToResponsesInput emits matching
-        // type:'reasoning' input items on the next turn to keep the openai-oauth
-        // server-side cache prefix stable.
-        const _assistantTurnMsg = attachAssistantTranscriptMetadata({
-            role: 'assistant',
-            createdAt: Date.now(),
-            // Sub-agent tool-call turns carry only mid-turn preamble in
-            // response.content (the real result rides the later final-answer
-            // turn). Blank it so it never accumulates as input tokens.
-            content: suppressMidTurnText ? '' : (response.content || ''),
-            // deferBodies: mutation bodies (patch / old_string / ...) stay
-            // verbatim for the rest of the session. They are never collapsed
-            // afterwards — that rewrote an already-cached prefix and re-billed
-            // the whole request uncached — so a model that patches twice in a
-            // row also never sees a marker where its own last patch should be.
-            toolCalls: compactToolCallsForHistory(calls, { deferBodies: true }),
-            ...(_providerReplay
-                ? { providerReplay: _providerReplay }
-                : {}),
-            // MIXED Anthropic turn (native server tools + client tool_use):
-            // the ordered `server_tool_use` / `*_tool_result` blocks exist ONLY
-            // in this verbatim list and are order-bound (a result block is
-            // valid only right after its call block), so they must ride the
-            // tool-call history message too. toolCalls above stays authoritative
-            // for execution/recovery/interruption; both Anthropic lowerers
-            // prefer assistantBlocks verbatim (which already contains the
-            // text/thinking/tool_use blocks), so nothing is emitted twice and
-            // non-Anthropic providers simply ignore the field.
-            ...(Array.isArray(response.assistantBlocks) && response.assistantBlocks.length
-                && !_providerReplay
-                ? { assistantBlocks: response.assistantBlocks }
-                : {}),
-            // Anthropic adaptive thinking: prior-turn thinking blocks must be
-            // returned verbatim (signature intact; empty thinking allowed) and
-            // are REQUIRED back before tool_use blocks on tool-continuation
-            // turns. Store them so toAnthropicMessages can build assistantBlocks
-            // = [...thinking, tool_use...]. Skipped when assistantBlocks is
-            // present: those blocks already carry the thinking verbatim, and a
-            // second copy would double-count in the context estimator.
-            ...(Array.isArray(response.thinkingBlocks) && response.thinkingBlocks.length
-                && !(Array.isArray(response.assistantBlocks) && response.assistantBlocks.length)
-                && !_providerReplay
-                ? { thinkingBlocks: response.thinkingBlocks }
-                : {}),
-            ...(Array.isArray(response.reasoningItems) && response.reasoningItems.length
-                && !_providerReplay
-                ? { reasoningItems: response.reasoningItems }
-                : {}),
-            ...(typeof response.reasoningContent === 'string'
-                ? { reasoningContent: response.reasoningContent }
-                : {}),
-            ...(response.providerMetadata && typeof response.providerMetadata === 'object'
-                ? { providerMetadata: response.providerMetadata }
-                : {}),
-        }, opts);
-        messages.push(_assistantTurnMsg);
-        try { opts.onAssistantMessageCommitted?.(_assistantTurnMsg); } catch {}
-        const _callsToExecute = calls;
+        const _assistantTurnMsg = buildToolCallAssistantMessage(response, {
+            calls, suppressMidTurnText, opts,
+        });
+        commitAssistantMessage(messages, _assistantTurnMsg, opts);
         try { opts.onToolPhaseStarted?.(); } catch {}
         const _toolsT0 = Date.now();
         ({ dedupStubTotal: _dedupStubTotal, editCount: _editCount } = await processToolBatch({
-            calls: _callsToExecute, messages, tools, cwd, sessionId, sessionRef, signal, opts,
+            calls, messages, tools, cwd, sessionId, sessionRef, signal, opts,
             iterations, assistantTurnMsg: _assistantTurnMsg, toolBatchId,
             pending: eager.pending, epoch: eager.epoch, startEagerRun: eager.startEagerRun,
             crossTurnCalls: _crossTurnCalls, crossTurnCap: _CROSS_TURN_CAP,
@@ -1095,26 +510,21 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         try {
             opts.onToolPhaseCompleted?.({
                 iteration: nextIteration,
-                calls: _callsToExecute.length,
+                calls: calls.length,
                 elapsedMs: _toolsEndedAt - _toolsT0,
             });
         } catch {}
-        // Loop-phase timing (diagnostics): where non-model time goes per
-        // iteration — presend (repair/compact/snapshot), send (provider
-        // round-trip incl. streaming), tools (batch execution). Gated by the
-        // same env as [turn-timing] so bench runs opt in via -AgentEnv.
-        if (process.env.MIXDOG_TURN_TIMING === '1') {
-            try {
-                process.stderr.write(`[loop-timing] iter=${nextIteration} presend=${preSendMs}ms send=${_sendEndedAt - sendStartedAt}ms tools=${_toolsEndedAt - _toolsT0}ms calls=${_callsToExecute.length}\n`);
-            } catch { /* diagnostics only */ }
-        }
+        traceLoopPhaseTiming({
+            iteration: nextIteration,
+            preSendMs,
+            sendMs: _sendEndedAt - sendStartedAt,
+            toolsMs: _toolsEndedAt - _toolsT0,
+            calls: calls.length,
+        });
         _lastToolBatchEndedAt = _toolsEndedAt;
         _toolBatchJustCompleted = true;
-        _continuationsSinceToolBatch = 0;
-        // The UI sealed its streaming row at this tool boundary; earlier
-        // committed parts must not re-prepend at terminal (duplicate rows).
-        _committedTextParts.length = 0;
-        _lastToolBatchHadSleep = _callsToExecute.some(isSleepLikeToolCall);
+        noToolTurn.noteToolBatchCompleted();
+        _lastToolBatchHadSleep = calls.some(isSleepLikeToolCall);
     }
     // Classify WHY the loop ended so agent-tool can promote an empty/abnormal
     // finish to an explicit Lead-facing error instead of a silent empty
@@ -1133,6 +543,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         providerState,
         providerStateUpdated,
         terminationReason,
-        providerContinuations: _providerContinuationCount,
+        providerContinuations: noToolTurn.providerContinuations,
     };
 }

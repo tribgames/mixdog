@@ -38,6 +38,7 @@ import { spawn } from 'node:child_process';
 import { resolvePluginData } from './plugin-paths.mjs';
 // Same probe every discovery/lock reader uses; `process.pid` is trivially alive.
 import { isPidAlive as pidAlive } from './pid-liveness.mjs';
+import { sleepSync } from './sleep.mjs';
 import { detachedSpawnOpts, hiddenSpawnOpts } from './spawn-flags.mjs';
 import { renameWithRetrySync } from './atomic-file.mjs';
 import {
@@ -67,16 +68,6 @@ function liveSessionsDir() {
 
 function rmDir(dir) {
   try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
-}
-
-function sleepSync(ms) {
-  const dur = Math.max(1, Number(ms) || 1);
-  try {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, dur);
-  } catch {
-    const end = Date.now() + dur;
-    while (Date.now() < end) { /* spin fallback */ }
-  }
 }
 
 // ── Live-session refcount (pid files) ─────────────────────────────────────

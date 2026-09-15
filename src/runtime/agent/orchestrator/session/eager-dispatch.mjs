@@ -21,7 +21,7 @@ import {
     _repeatFailureSig,
     _stripMcpPrefix,
 } from './loop/tool-classify.mjs';
-import { tryReadCached, tryScopedToolCached } from './read-dedup.mjs';
+import { captureReadCacheState, tryReadCached, tryScopedToolCached } from './read-dedup.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { crossTurnSignature } from './loop/completion-guards.mjs';
@@ -116,6 +116,9 @@ export function createEagerDispatcher({
             // (invalid-args marker). It has no usable arguments; the serial
             // body handles it via the invalid-args feedback path.
             if (isInvalidToolArgsMarker(call.arguments)) return null;
+            // Authorization precedes cache lookup and dedup, not just IO.
+            const toolKind = getToolKind(call.name);
+            if (preDispatchDenyForSession(sessionRef, call, toolKind) !== null) return null;
             const _sig = _intraTurnSig(call.name, call.arguments);
             const _dedupEligible = isToolCallDedupEligible(call.name, tools);
             if (_dedupEligible && _eagerInFlightSigs.has(_sig)) return null;
@@ -166,11 +169,6 @@ export function createEagerDispatcher({
                     if (tryScopedToolCached({ sessionId, toolName: _stripMcpPrefix(call.name), args: call.arguments, cwd, countStats: false, touch: false }) !== null) return null;
                 }
             }
-            const toolKind = getToolKind(call.name);
-            // Shared pre-dispatch deny: identical predicate runs in the
-            // serial path below. If any role/permission guard would reject
-            // this call there, never start it eagerly here.
-            if (preDispatchDenyForSession(sessionRef, call, toolKind) !== null) return null;
             const dispatchedAt = Date.now();
             const entry = {
                 startedAt: dispatchedAt,
@@ -178,6 +176,7 @@ export function createEagerDispatcher({
                 executionStartedAt: null,
                 endedAt: null,
                 mutationEpoch: epoch.mutation,
+                readCacheState: null,
                 localSearchTelemetry: {},
                 resultTelemetry: {},
             };
@@ -209,6 +208,9 @@ export function createEagerDispatcher({
                         }
                     }
                     await opts.beforeToolExecution?.();
+                    if (sessionId && _isReadTool(call.name)) {
+                        entry.readCacheState = captureReadCacheState({ args: call.arguments, cwd });
+                    }
                     entry.executionStartedAt = Date.now();
                     return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration(), localSearchTelemetry: entry.localSearchTelemetry, resultTelemetry: entry.resultTelemetry }) };
                 } catch (error) {

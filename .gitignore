@@ -27,6 +27,8 @@ npm-debug.log*
 .mixdog-bench/
 .dev-profile/
 .dev-profile-*/
+.dev-logs/
+.mixdog-dev/
 apps/desktop/.dev-detached.pid
 # Kiwi Korean morph model cache (runtime-downloaded, never committed)
 kiwi-model/
@@ -42,6 +44,7 @@ kiwi-model/
 Thumbs.db
 .idea/
 .vscode/
+.claude/settings.local.json
 *.swp
 
 # Scratch
@@ -117,6 +120,8 @@ native/mixdog-spawn/target/
 .tmp-voice/
 
 # Local bench/smoke artifacts
+.audit-office/
+.pytest_cache/
 bench-results/
 .mixdog-smoke-data-empty/
 .smoke/

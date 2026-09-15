@@ -13,6 +13,7 @@ import { assert } from './_helpers.mjs';
 test('tool loop sources carry no behavior-steering injected instructions', () => {
   const steeringSources = [
     'src/runtime/agent/orchestrator/session/agent-loop.mjs',
+    'src/runtime/agent/orchestrator/session/loop/no-tool-turn.mjs',
     'src/runtime/agent/orchestrator/session/tool-batch.mjs',
     'src/runtime/agent/orchestrator/session/eager-dispatch.mjs',
     'src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs',

@@ -4,10 +4,11 @@ export const GOAL_TASK_STATUSES = Object.freeze([
 ]);
 export const GOAL_TASK_SETTLED = Object.freeze(['completed', 'dropped']);
 export const MAX_GOAL_TASKS = 20;
+export const MAX_GOAL_TASK_TEXT_LENGTH = 500;
 
 const taskFields = {
   id: { type: 'string', description: 'Stable task id; omit only for new tasks.' },
-  text: { type: 'string', description: 'Required work or verification outcome.' },
+  text: { type: 'string', minLength: 1, maxLength: MAX_GOAL_TASK_TEXT_LENGTH, description: 'Required work or verification outcome.' },
   status: {
     type: 'string',
     enum: GOAL_TASK_STATUSES,
@@ -47,7 +48,7 @@ export const GOAL_TOOL_DEFS = Object.freeze([{
       tasks: {
         type: 'array', minItems: 1, maxItems: MAX_GOAL_TASKS,
         items: { type: 'object', properties: taskFields, required: ['text', 'status', 'kind'], additionalProperties: false },
-        description: 'create/set_tasks: full list; update_tasks/resume: new tasks to append, without ids.',
+        description: `create/set_tasks: full list; update_tasks/resume: new tasks, no ids. Max ${MAX_GOAL_TASKS} total, including completed/dropped.`,
       },
       updates: {
         type: 'array', minItems: 1, maxItems: MAX_GOAL_TASKS,

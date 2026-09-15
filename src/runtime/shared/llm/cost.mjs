@@ -4,14 +4,15 @@
  * Pricing is pulled from the LiteLLM catalog (already warmed by providers/
  * agent bootstrap). All four token slots — input / output / cacheRead /
  * cacheWrite — are multiplied by their matching $/M rate from the catalog
- * and summed. Missing rates are treated as 0 (no extrapolation).
+ * and summed. A missing rate for a used token slot leaves the cost unknown.
  *
  * The catalog is looked up synchronously: if it has not been warmed yet
- * (fresh process, first call), this returns 0 without blocking. The next
+ * (fresh process, first call), this returns an unknown price. The next
  * call will pick up the cache.
  */
 
-import { getModelMetadataSync } from '../../agent/orchestrator/providers/model-catalog.mjs';
+import { getModelMetadataSync, resolveModelPricingIdentity } from '../../agent/orchestrator/providers/model-catalog.mjs';
+import { PRICING_RATE_KEYS, ratesForPrompt } from '../../agent/orchestrator/providers/model-pricing-rates.mjs';
 
 // OpenAI OAuth / OpenAI API / Gemini report `input_tokens` as the total prompt token
 // count *including* the cached portion (inclusive). Anthropic reports the
@@ -47,10 +48,29 @@ export function priceUsage(args) {
     const cached = n(args.cacheReadTokens);
     const written = n(args.cacheWriteTokens);
     const inclusive = args.inputTokensInclusive ?? isInclusiveProvider(args.provider);
-    const input = args.uncachedInputTokens != null ? n(args.uncachedInputTokens)
+    const input = args.inputTokensKnown === false ? 0 : args.uncachedInputTokens != null ? n(args.uncachedInputTokens)
         : inclusive ? Math.max(0, n(args.inputTokens) - cached - written) : n(args.inputTokens);
-    const meta = getModelMetadataSync(args.model, args.provider);
-    if (!meta) return { input, costUsd: null, rates: null };
+    const identity = resolveModelPricingIdentity(args.model, args.provider, args);
+    const meta = getModelMetadataSync(identity.pricingModel, args.provider);
+    const provenance = {
+        ...identity,
+        pricingProvider: meta?.pricingProvider || identity.pricingProvider,
+        pricingSource: meta?.pricingSource || null,
+        ...(args.inputTokensKnown === false ? { inputTokensKnown: false } : {}),
+        ...(args.fast ? { fast: true } : {}),
+        ...(args.serviceTier ? { serviceTier: args.serviceTier } : {}),
+    };
+    if (args.inputTokensKnown === false || !meta) return {
+        input, costUsd: null,
+        rates: { ...provenance, unpricedReason: args.inputTokensKnown === false ? 'unmeasured-input' : 'model-not-found' },
+    };
+    const promptTokens = input + cached + written;
+    if (args.historicalAggregate && (meta.pricingTiers?.some((tier) => promptTokens > tier.aboveInputTokens)
+        || (meta.longContextThreshold && promptTokens >= meta.longContextThreshold))) {
+        // A daily sum cannot establish which individual requests crossed a
+        // context boundary. Do not price the whole day as one huge prompt.
+        return { input, costUsd: null, rates: { ...provenance, unpricedReason: 'request-boundaries-unavailable' } };
+    }
     let multiplier = 1;
     if (meta.longContextThreshold && input + cached + written >= meta.longContextThreshold) {
         multiplier *= meta.longContextMultiplier || 1;
@@ -64,11 +84,16 @@ export function priceUsage(args) {
             && ((h >= 1 && h < 4) || (h >= 6 && h < 10));
         if (!peak) multiplier *= meta.offPeakMultiplier;
     }
-    if (args.model === 'claude-opus-4-8' && (args.fast || args.serviceTier === 'fast')) multiplier *= 2;
-    const keys = ['inputCostPerM', 'outputCostPerM', 'cacheReadCostPerM', 'cacheWriteCostPerM'];
+    if (identity.pricingModel === 'claude-opus-4-8' && (args.fast || args.serviceTier === 'fast')) multiplier *= 2;
+    const keys = PRICING_RATE_KEYS;
     const tokens = [input, n(args.outputTokens), cached, written];
-    const rates = Object.fromEntries(keys.map((key) => [key, meta[key] == null ? null : meta[key] * multiplier]));
-    if (tokens.some((amount, i) => amount > 0 && rates[keys[i]] === null)) {
+    const tierRates = ratesForPrompt(meta, promptTokens);
+    const rates = { ...provenance, ...Object.fromEntries(keys.map((key) =>
+        [key, tierRates[key] == null ? null : tierRates[key] * multiplier])) };
+    const missingRates = keys.filter((key, i) => tokens[i] > 0 && rates[key] === null);
+    if (missingRates.length) {
+        rates.unpricedReason = 'missing-rate';
+        rates.missingRates = missingRates;
         return { input, costUsd: null, rates };
     }
     const costUsd = tokens.reduce((sum, amount, i) => sum + amount * (rates[keys[i]] ?? 0), 0) / 1_000_000;

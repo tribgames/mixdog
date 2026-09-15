@@ -111,7 +111,14 @@ export function ModelCatalog({
   const modelList = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!active) return;
+    // The composer's flyout keeps this catalog MOUNTED while it is hidden, so
+    // the typed filter outlived its close and still trimmed the list at the
+    // next open (user: 모델 선택하고 닫았는데 타이핑한게 남아있지 않게). The
+    // close drops the query; the open re-reads recents and re-centers.
+    if (!active) {
+      setQuery('');
+      return;
+    }
     setRecentModelKeys(readRecentModelKeys());
     // Opening the list must not summon the keyboard on a phone: it covered
     // half the catalog before a single row was read (user: 검색창 터치도 안

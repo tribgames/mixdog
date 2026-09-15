@@ -10,6 +10,7 @@ import {
   readFileSync, readdirSync, renameSync, rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { readJsonSafe } from './json-file.mjs';
 import {
   downloadToFileWithRetry,
   MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
@@ -26,9 +27,7 @@ export function binSuffix() {
   return process.platform === 'win32' ? '.exe' : '';
 }
 
-export function readJsonOrNull(path) {
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
-}
+export { readJsonSafe as readJsonOrNull };
 
 export function validSha256(value) {
   return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
@@ -73,7 +72,7 @@ export function validReleaseAsset(manifest, pkey, { name, tagPrefix }) {
 
 export function readBundledManifest(bundledPath, options = {}) {
   if (options.bundledManifest) return options.bundledManifest;
-  return existsSync(bundledPath) ? readJsonOrNull(bundledPath) : null;
+  return existsSync(bundledPath) ? readJsonSafe(bundledPath) : null;
 }
 
 export async function fetchRemoteManifest(url, { fetch: fetchFn = fetch, label = '[native-asset]' } = {}) {

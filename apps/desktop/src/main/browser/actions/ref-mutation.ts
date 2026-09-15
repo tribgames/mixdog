@@ -6,13 +6,14 @@ export async function mutateRef<T>(
   context: BrowserActionContext,
   sourceRef: string,
   operation: (ref: string) => Promise<T>,
+  editable = false,
 ): Promise<T> {
   const { guest, signal, refRecovery, services } = context;
   const ref = await services.reply.withRefRecovery(
     guest,
     refRecovery,
     sourceRef,
-    (candidate) => services.refActions.prepareRef(guest, candidate, signal),
+    (candidate) => services.refActions.prepareRef(guest, candidate, signal, editable),
     signal,
   );
   if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');

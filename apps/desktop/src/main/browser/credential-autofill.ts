@@ -134,10 +134,21 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
   async function fillCredentialInGuest(
     guest: WebContents,
     credential: Readonly<BrowserCredentialValue>,
+    signal?: AbortSignal,
   ): Promise<BrowserCredentialFillResult> {
+    signal?.throwIfAborted();
+    const url = guest.getURL();
+    const beforeDispatch = () => {
+      signal?.throwIfAborted();
+      if (guest.isDestroyed() || guest.getURL() !== url) {
+        throw new Error('The page changed before stored credential input; input was not sent.');
+      }
+    };
+    beforeDispatch();
     const frameTree = await cdp.call<{
       frameTree?: { frame?: { id?: string } };
-    }>(guest, 'Page.getFrameTree');
+    }>(guest, 'Page.getFrameTree', {}, signal, { beforeDispatch });
+    beforeDispatch();
     const frameId = String(frameTree.frameTree?.frame?.id || '');
     if (!frameId) throw new Error('The current page frame is unavailable.');
     const world = await cdp.call<{ executionContextId?: number }>(
@@ -148,7 +159,10 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
         worldName: 'mixdog-browser-credential-fill',
         grantUniveralAccess: false,
       },
+      signal,
+      { beforeDispatch },
     );
+    beforeDispatch();
     if (!world.executionContextId) throw new Error('The secure credential fill context is unavailable.');
     rememberSecret(guest, credential.password);
     const response = await cdp.call<{
@@ -170,7 +184,10 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
         awaitPromise: true,
         userGesture: true,
       },
+      signal,
+      { beforeDispatch },
     );
+    signal?.throwIfAborted();
     if (response.exceptionDetails) {
       const detail = response.exceptionDetails.exception?.description
         || response.exceptionDetails.text || 'credential fill failed';

@@ -15,12 +15,86 @@ import type { PendingFileChooser } from './guest-state';
 import type { createBrowserInputDriver } from './input';
 import { redactBrowserText } from './redaction';
 import { BROWSER_EDITABILITY_CHECK } from './editability';
-import { createBrowserRefAccess } from './ref-access';
+import {
+  browserRefElementSource,
+  checkedBrowserRefResult,
+  createBrowserRefAccess,
+} from './ref-access';
 import { createBrowserRefSelection } from './ref-select';
 
 /** How long a clicked button gets to open its picker. */
 const FILE_CHOOSER_WAIT_MS = 3_000;
 const FILE_CHOOSER_POLL_MS = 50;
+
+/** Page functions written once for both realms: the accessibility snapshot
+ *  applies them to the ref's element, and a page without that snapshot applies
+ *  the same source to the element its ref table still holds. */
+const FILL_REF = `function(text) {
+  const el = this;
+  if (!el || !el.isConnected) return { error: 'stale' };
+  const editError = (${BROWSER_EDITABILITY_CHECK})(el);
+  if (editError) return { error: editError };
+  el.scrollIntoView({ block: 'center', inline: 'center' });
+  el.focus();
+  const tag = (el.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea') {
+    const type = tag === 'input' ? String(el.type || 'text').toLowerCase() : '';
+    if (type === 'file') return { error: 'file inputs require upload' };
+    const proto = tag === 'input' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (!setter) return { error: 'input value setter is unavailable' };
+    setter.call(el, text);
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return { value: type === 'password' ? '' : el.value, sensitive: type === 'password' };
+  }
+  if (el.isContentEditable) {
+    const doc = el.ownerDocument;
+    const range = doc.createRange();
+    range.selectNodeContents(el);
+    const selection = doc.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return { contentEditable: true };
+  }
+  return { error: 'element is not editable' };
+}`;
+
+const FOCUS_REF = `function() {
+  const el = this;
+  if (!el || !el.isConnected) return { error: 'stale' };
+  const editError = (${BROWSER_EDITABILITY_CHECK})(el);
+  if (editError) return { error: editError };
+  if (!(el.matches?.('input, textarea') || el.isContentEditable)) return { error: 'element is not editable' };
+  el.scrollIntoView({ block: 'center', inline: 'center' });
+  el.focus();
+  return { sensitive: el.type === 'password' };
+}`;
+
+const READ_SELECT_OPTIONS = `function() {
+  const el = this;
+  if (!el || !el.isConnected) return { error: 'stale' };
+  if ((el.tagName || '').toLowerCase() !== 'select') return { custom: true };
+  const options = Array.from(
+    { length: Math.min(el.options.length, 200) },
+    (_, index) => el.options[index],
+  )
+    .map((option) => String(option.label || option.text || option.value || '').trim().slice(0, 200))
+    .filter(Boolean)
+    .slice(0, 200);
+  return { options };
+}`;
+
+const READ_CHECKED = `function() {
+  const el = this;
+  if (!el || !el.isConnected) return { error: 'stale' };
+  const tag = (el.tagName || '').toLowerCase();
+  const type = String(el.type || '').toLowerCase();
+  if (tag !== 'input' || !['checkbox', 'radio'].includes(type)) {
+    return { error: 'element is not a checkbox or radio button' };
+  }
+  return { checked: Boolean(el.checked), radio: type === 'radio' };
+}`;
 
 export interface BrowserRefActionsHost {
   /** Run a function against the ref through the accessibility snapshot. */
@@ -57,9 +131,7 @@ export interface BrowserRefActionsHost {
 
 export function createBrowserRefActions(host: BrowserRefActionsHost) {
   const {
-    callAccessibilityRef,
     accessibilityRefs,
-    evaluate,
     cdp,
     resolveRefPoint,
     input: browserInput,
@@ -103,85 +175,12 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     text: string,
     signal?: AbortSignal,
   ): Promise<string> {
-    const accessibility = await callAccessibilityRef<{
+    const outcome = checkedBrowserRefResult(await callRef<{
       error?: string;
       value?: string;
       sensitive?: boolean;
       contentEditable?: boolean;
-    }>(guest, ref, `function(text) {
-      const el = this;
-      if (!el || !el.isConnected) return { error: 'stale' };
-      const editError = (${BROWSER_EDITABILITY_CHECK})(el);
-      if (editError) return { error: editError };
-      el.scrollIntoView({ block: 'center', inline: 'center' });
-      el.focus();
-      const tag = (el.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea') {
-        const type = tag === 'input' ? String(el.type || 'text').toLowerCase() : '';
-        if (type === 'file') return { error: 'file inputs require upload' };
-        const proto = tag === 'input' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
-        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-        if (!setter) return { error: 'input value setter is unavailable' };
-        setter.call(el, text);
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { value: type === 'password' ? '' : el.value, sensitive: type === 'password' };
-      }
-      if (el.isContentEditable) {
-        const doc = el.ownerDocument;
-        const range = doc.createRange();
-        range.selectNodeContents(el);
-        const selection = doc.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-        return { contentEditable: true };
-      }
-      return { error: 'element is not editable' };
-    }`, [text], signal);
-    const outcome = accessibility.handled
-      ? accessibility.value
-      : await evaluate<{
-        error?: string;
-        value?: string;
-        sensitive?: boolean;
-        contentEditable?: boolean;
-      }>(guest, `(() => {
-        const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-        const el = record?.element || record;
-        if (!el || !el.isConnected) return { error: 'stale' };
-        const editError = (${BROWSER_EDITABILITY_CHECK})(el);
-        if (editError) return { error: editError };
-        el.scrollIntoView({ block: 'center', inline: 'center' });
-        el.focus();
-        const text = ${JSON.stringify(text)};
-        const tag = (el.tagName || '').toLowerCase();
-        if (tag === 'input' || tag === 'textarea') {
-          const type = tag === 'input' ? String(el.type || 'text').toLowerCase() : '';
-          if (type === 'file') return { error: 'file inputs require upload' };
-          const proto = tag === 'input' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
-          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-          if (!setter) return { error: 'input value setter is unavailable' };
-          setter.call(el, text);
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          return { value: type === 'password' ? '' : el.value, sensitive: type === 'password' };
-        }
-        if (el.isContentEditable) {
-          const doc = el.ownerDocument;
-          const range = doc.createRange();
-          range.selectNodeContents(el);
-          const selection = doc.getSelection();
-          selection.removeAllRanges();
-          selection.addRange(range);
-          return { contentEditable: true };
-        }
-        return { error: 'element is not editable' };
-      })()`, signal);
-    if (outcome?.error) {
-      throw new Error(outcome.error === 'stale'
-        ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
-        : outcome.error);
-    }
+    }>(guest, ref, FILL_REF, [text], signal), ref);
     if (outcome?.contentEditable) return replaceContentEditable(guest, ref, text, signal);
     if (outcome?.sensitive && text) host.rememberSecret?.(guest, text);
     return outcome?.sensitive ? '[REDACTED]' : redactBrowserText(outcome?.value ?? '');
@@ -193,34 +192,9 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     text: string,
     signal?: AbortSignal,
   ): Promise<void> {
-    const accessibility = await callAccessibilityRef<{ error?: string; sensitive?: boolean }>(guest, ref, `function() {
-      const el = this;
-      if (!el || !el.isConnected) return { error: 'stale' };
-      const editError = (${BROWSER_EDITABILITY_CHECK})(el);
-      if (editError) return { error: editError };
-      if (!(el.matches?.('input, textarea') || el.isContentEditable)) return { error: 'element is not editable' };
-      el.scrollIntoView({ block: 'center', inline: 'center' });
-      el.focus();
-      return { sensitive: el.type === 'password' };
-    }`, [], signal);
-    const focused = accessibility.handled
-      ? accessibility.value
-      : await evaluate<{ error?: string; sensitive?: boolean }>(guest, `(() => {
-        const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-        const el = record?.element || record;
-        if (!el || !el.isConnected) return { error: 'stale' };
-        const editError = (${BROWSER_EDITABILITY_CHECK})(el);
-        if (editError) return { error: editError };
-        if (!(el.matches?.('input, textarea') || el.isContentEditable)) return { error: 'element is not editable' };
-        el.scrollIntoView({ block: 'center', inline: 'center' });
-        el.focus();
-        return { sensitive: el.type === 'password' };
-      })()`, signal);
-    if (focused?.error) {
-      throw new Error(focused.error === 'stale'
-        ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
-        : focused.error);
-    }
+    const focused = checkedBrowserRefResult(
+      await callRef<{ error?: string; sensitive?: boolean }>(guest, ref, FOCUS_REF, [], signal), ref,
+    );
     if (focused?.sensitive && text) host.rememberSecret?.(guest, text);
     await browserInput.pressKey(guest, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal);
     await browserInput.pressKey(guest, 'Backspace', signal);
@@ -237,45 +211,11 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     ref: string,
     signal?: AbortSignal,
   ): Promise<string[]> {
-    const read = `function() {
-      const el = this;
-      if (!el || !el.isConnected) return { error: 'stale' };
-      if ((el.tagName || '').toLowerCase() !== 'select') return { custom: true };
-      const options = Array.from(
-        { length: Math.min(el.options.length, 200) },
-        (_, index) => el.options[index],
-      )
-        .map((option) => String(option.label || option.text || option.value || '').trim().slice(0, 200))
-        .filter(Boolean)
-        .slice(0, 200);
-      return { options };
-    }`;
-    const accessibility = await callAccessibilityRef<{
+    const result = checkedBrowserRefResult(await callRef<{
       error?: string;
       custom?: boolean;
       options?: string[];
-    }>(guest, ref, read, [], signal);
-    const result = accessibility.handled
-      ? accessibility.value
-      : await evaluate<{ error?: string; custom?: boolean; options?: string[] }>(guest, `(() => {
-        const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-        const el = record?.element || record;
-        if (!el || !el.isConnected) return { error: 'stale' };
-        if ((el.tagName || '').toLowerCase() !== 'select') return { custom: true };
-        const options = Array.from(
-          { length: Math.min(el.options.length, 200) },
-          (_, index) => el.options[index],
-        )
-          .map((option) => String(option.label || option.text || option.value || '').trim().slice(0, 200))
-          .filter(Boolean)
-          .slice(0, 200);
-        return { options };
-      })()`, signal);
-    if (result?.error) {
-      throw new Error(result.error === 'stale'
-        ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
-        : result.error);
-    }
+    }>(guest, ref, READ_SELECT_OPTIONS, [], signal), ref);
     if (result?.custom) {
       throw new Error(
         `ref ${ref} is not a native <select>; click it to open the list, then read the options from the fresh snapshot`,
@@ -289,38 +229,11 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     ref: string,
     signal?: AbortSignal,
   ): Promise<{ checked: boolean; radio: boolean }> {
-    const accessibility = await callAccessibilityRef<{
+    const state = checkedBrowserRefResult(await callRef<{
       error?: string;
       checked?: boolean;
       radio?: boolean;
-    }>(guest, ref, `function() {
-      const el = this;
-      if (!el || !el.isConnected) return { error: 'stale' };
-      const tag = (el.tagName || '').toLowerCase();
-      const type = String(el.type || '').toLowerCase();
-      if (tag !== 'input' || !['checkbox', 'radio'].includes(type)) {
-        return { error: 'element is not a checkbox or radio button' };
-      }
-      return { checked: Boolean(el.checked), radio: type === 'radio' };
-    }`, [], signal);
-    const state = accessibility.handled
-      ? accessibility.value
-      : await evaluate<{ error?: string; checked?: boolean; radio?: boolean }>(guest, `(() => {
-        const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-        const el = record?.element || record;
-        if (!el || !el.isConnected) return { error: 'stale' };
-        const tag = (el.tagName || '').toLowerCase();
-        const type = String(el.type || '').toLowerCase();
-        if (tag !== 'input' || !['checkbox', 'radio'].includes(type)) {
-          return { error: 'element is not a checkbox or radio button' };
-        }
-        return { checked: Boolean(el.checked), radio: type === 'radio' };
-      })()`, signal);
-    if (state?.error) {
-      throw new Error(state.error === 'stale'
-        ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
-        : state.error);
-    }
+    }>(guest, ref, READ_CHECKED, [], signal), ref);
     return { checked: state?.checked === true, radio: state?.radio === true };
   }
 
@@ -371,10 +284,8 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       exceptionDetails?: unknown;
     }>(guest, 'Runtime.evaluate', {
       expression: `(() => {
-        const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-        const el = record?.element || record;
-        if (!el || !el.isConnected) throw new Error('stale ref');
-        return el;
+        ${browserRefElementSource(ref)}
+        return element;
       })()`,
       returnByValue: false,
       userGesture: true,

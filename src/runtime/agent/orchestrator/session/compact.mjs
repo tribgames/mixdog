@@ -1,10 +1,8 @@
 // Facade for the single fresh-context Compact contract.
 //
-// Default auto-compact trigger sits below the effective compact boundary by a
-// compaction buffer (10% of boundary, capped at MAX_COMPACTION_BUFFER_RATIO).
-// That headroom lets Compact run before the transcript reaches the hard limit.
-// Operators may still tune the buffer through compaction.bufferTokens /
-// bufferPercent / bufferRatio.
+// Main and agent auto-compaction default to 100% of the effective window.
+// Rule-based rebuilding is the default; AI summarizes only the conversation
+// part when its independent threshold is exceeded.
 export {
     DEFAULT_COMPACTION_BUFFER_TOKENS,
     DEFAULT_COMPACTION_BUFFER_RATIO,
@@ -30,6 +28,7 @@ export {
 } from './compact/budget.mjs';
 
 export {
+    conversationCompactionInput,
     generateFreshHandoffSummary,
     freshContextCompactMessages,
 } from './compact/runner.mjs';

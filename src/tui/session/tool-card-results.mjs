@@ -7,24 +7,21 @@
  * store items: aggregate cards, non-aggregate/legacy agent-job cards, grouped
  * fallbacks, and the finalize/cancelled sweeps. They mutate live session state,
  * so state/set/patchItem/markToolCallDone/updateAgentJobCard are threaded via
- * the factory argument (getters/callbacks) — never stale snapshots. Every body
- * is the original session-local.mjs logic verbatim.
+ * the factory argument (getters/callbacks) — never stale snapshots.
  */
-import { summarizeToolResult, aggregateDoneCategories } from '../../runtime/shared/tool-surface.mjs';
-import { toolResultText, toolErrorDisplay, toolGroupedDisplayFallback, stripShellExitHeader } from './tool-result-text.mjs';
+import { aggregateDoneCategories } from '../../runtime/shared/tool-surface.mjs';
+import { toolResultText, toolGroupedDisplayFallback } from './tool-result-text.mjs';
 import { toolResultCallId } from './tool-call-fields.mjs';
 import { parseAgentJob } from './agent-envelope.mjs';
 import {
   withCancelledResultMarker,
   groupedToolResultText,
   aggregateRawResult,
-  aggregateSummaries,
-  aggregateToolMembers,
-  assignAggregateSummaryOrder,
-  failureDetailText,
-  toolCallOutcome,
+  aggregateResultPatch,
+  applyAggregateCallFields,
+  toolResultDisplay,
+  uiDiffPatchFromMessage,
 } from './tool-result-status.mjs';
-import { formatAggregateDetail } from '../../runtime/shared/tool-surface.mjs';
 import { carryTranscriptMeasuredRowsCache } from '../app/transcript-window.mjs';
 
 export function createToolCardResults({
@@ -39,7 +36,8 @@ export function createToolCardResults({
 }) {
   const itemById = (id) => {
     const index = itemIndexById?.get(id);
-    return Number.isInteger(index) ? getState().items[index]?.id === id ? getState().items[index] : null : null;
+    const item = Number.isInteger(index) ? getState().items[index] : null;
+    return item?.id === id ? item : null;
   };
   // A finalized/failed non-aggregate card must never carry an empty body:
   // an empty-body error card is classified fully-failed-with-no-body upstream
@@ -81,15 +79,11 @@ export function createToolCardResults({
     // Only a provider-marked invocation failure contributes to failure count,
     // red state, or Failed aggregate copy. Tool-reported HTTP/domain/status
     // outcomes remain successful calls with their raw/semantic result detail.
-    const { exitCode, isExitError, isCallError } = toolCallOutcome(
-      { ...message, toolName: card?.name },
+    const { exitCode, isExitError, isCallError, isError, text } = toolResultDisplay(
+      message,
       rawText,
+      card?.name,
     );
-    const isError = isCallError;
-    const text = isError
-      ? toolErrorDisplay(rawText, card?.name || 'tool')
-      // Any parsed exit code (0 included) drops the machine header from display.
-      : (exitCode != null ? stripShellExitHeader(rawText) : rawText);
 
     if (aggregate && card.itemId === aggregate.itemId) {
       if (!callRec) return false;
@@ -98,50 +92,21 @@ export function createToolCardResults({
         if (callId) done.add(callId);
         return false;
       }
-      callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
-      assignAggregateSummaryOrder(aggregate, callRec);
-      callRec.isError = isError;
-      callRec.isCallError = isCallError;
-      callRec.isExitError = isExitError;
-      callRec.exitCode = exitCode;
-      callRec.resultText = text;
-      callRec.rawResultText = rawText;
+      applyAggregateCallFields(callRec, aggregate, {
+        isError, isCallError, isExitError, exitCode, text, rawText, message,
+      });
       callRec.resolved = true;
-      callRec.completedAt = callRec.completedAt || Date.now();
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
-      const errors = allCalls.filter((r) => r.isError).length;
-      const callErrors = allCalls.filter((r) => r.isCallError).length;
-      const exitErrors = allCalls.filter((r) => r.isExitError).length;
-      // Collapsed detail carries the merged per-call count summary
-      // ("512 lines, 6 matches, 3 files") so the finished card answers "how
-      // much" without ctrl+o. Failures keep a bare 'N Ok · N Failed' status so
-      // an error stays visible while collapsed.
-      const succeeded = Math.max(0, completed - errors - exitErrors);
-      const detailText = errors > 0 || exitErrors > 0
-        ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
-        : formatAggregateDetail(aggregateSummaries(aggregate));
       const currentItem = itemById(card.itemId);
       const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
       const visualCompleted = Math.max(completed, earlyCompleted, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
-      const rawResult = aggregateRawResult(allCalls);
-      // The numbered+labelled raw (rawResult) is preserved for ctrl+o expansion.
-      const displayDetail = detailText;
       patchToolItem(card.itemId, {
-        result: displayDetail,
-        text: displayDetail,
-        rawResult: rawResult || null,
-        ...(Object.hasOwn(message || {}, 'uiDiff')
-          ? { uiDiff: typeof message.uiDiff === 'string' ? message.uiDiff : '' }
-          : {}),
-        isError: errors > 0,
-        errorCount: errors,
-        callErrorCount: callErrors,
-        exitErrorCount: exitErrors,
-        count: allCalls.length,
+        ...aggregateResultPatch(aggregate, allCalls, completed),
+        rawResult: aggregateRawResult(allCalls) || null,
+        ...uiDiffPatchFromMessage(message),
         completedCount: visualCompleted,
         doneCategories: aggregateDoneCategories(allCalls),
-        toolMembers: aggregateToolMembers(allCalls),
         completedAt: Number(currentItem?.completedAt) || Date.now(),
       });
       card.done = true;
@@ -165,9 +130,7 @@ export function createToolCardResults({
     const patch = {
       result: displayResult,
       text: displayResult,
-      ...(Object.hasOwn(message || {}, 'uiDiff')
-        ? { uiDiff: typeof message.uiDiff === 'string' ? message.uiDiff : '' }
-        : {}),
+      ...uiDiffPatchFromMessage(message),
       isError: group.errors > 0,
       errorCount: group.errors,
       callErrorCount: group.callErrors || 0,
@@ -259,37 +222,21 @@ export function createToolCardResults({
           }
         }
         const completed = allCalls.filter((r) => r.resolved).length;
-        const totalCompleted = completed;
-        const errors = allCalls.filter((r) => r.isError).length;
-        const callErrors = allCalls.filter((r) => r.isCallError).length;
-        const exitErrors = allCalls.filter((r) => r.isExitError).length;
-        const succeeded = Math.max(0, completed - errors - exitErrors);
-        const rawResult = aggregateRawResult(allCalls);
-        // Collapsed detail carries the merged per-call count summary; real
-        // failures keep 'N Failed'; completed command failures stay warnings.
-        // Raw is kept for ctrl+o.
-        let displayDetail = errors > 0 || exitErrors > 0
-          ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
-          : formatAggregateDetail(aggregateSummaries(aggregate));
+        const outcomePatch = aggregateResultPatch(aggregate, allCalls, completed);
+        let displayDetail = outcomePatch.result;
         if (cancelled) {
           // Cancelled aggregates MUST keep the [status: cancelled] marker on the
           // result so terminalStatus parsing resolves to 'cancelled'. Only normal
           // completions drop the summary; cancelled ones prepend the marker.
-          const currentItem = itemById(card.itemId);
-          displayDetail = withCancelledResultMarker(displayDetail, currentItem);
+          displayDetail = withCancelledResultMarker(displayDetail, itemById(card.itemId));
         }
         patchToolItem(card.itemId, {
+          ...outcomePatch,
           result: displayDetail,
           text: displayDetail,
-          rawResult: rawResult || null,
-          isError: errors > 0,
-          errorCount: errors,
-          callErrorCount: callErrors,
-          exitErrorCount: exitErrors,
-          count: allCalls.length,
-          completedCount: totalCompleted,
+          rawResult: aggregateRawResult(allCalls) || null,
+          completedCount: completed,
           doneCategories: aggregateDoneCategories(allCalls),
-          toolMembers: aggregateToolMembers(allCalls),
           completedAt: Date.now(),
         });
         for (const sibling of toolCards || []) {

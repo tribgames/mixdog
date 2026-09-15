@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getUsageLedger, makeUsageRecord } from './usage-ledger.mjs';
+import { withUsageContext } from './usage-context.mjs';
 
 /**
  * Runs at the common provider boundary, not inside optional diagnostic IO.
@@ -23,6 +24,8 @@ export async function accountProviderSend(provider, instance, send, model, opts 
         const row = makeUsageRecord({
             id: result.responseId ? undefined : requestId,
             ts: Date.now(), provider, model: result.model || model,
+            requestedModel: model,
+            pricingModel: result.pricingModel,
             sessionId: opts.sessionId || opts.session?.id,
             sourceType: opts.session?.sourceType || opts.sourceType || opts.requestKind || '',
             inputTokens: usage.inputTokens,
@@ -47,7 +50,14 @@ export async function accountProviderSend(provider, instance, send, model, opts 
         }
     };
     let result;
-    try { result = await send(); }
+    try {
+        result = await withUsageContext({
+            provider, requestedModel: model,
+            sessionId: opts.sessionId || opts.session?.id,
+            sourceType: opts.session?.sourceType || opts.sourceType || opts.requestKind || '',
+            inputTokensInclusive: instance.constructor?.inputExcludesCache !== true,
+        }, send);
+    }
     catch (error) {
         // Only provider-reported partial usage is recordable; never invent
         // tokens for a failed request or reinterpret an error as a success.

@@ -39,6 +39,18 @@ export async function resolveCodexAuth() {
   return await provider.ensureAuth();
 }
 
+/**
+ * Antigravity bearer + Cloud project. The chat provider's token store owns the
+ * refresh; the client version is warmed so discovery and generation present the
+ * same hub identity the gateway version-gates on.
+ */
+export async function resolveAntigravityAuth() {
+  const tokens = await import('../agent/orchestrator/providers/antigravity-oauth-tokens.mjs');
+  await tokens.ensureAntigravityVersion();
+  const current = await tokens.ensureAccessToken();
+  return { token: current.access_token, projectId: current.project_id };
+}
+
 export function resolveGeminiKey() {
   const key = getAgentApiKey('gemini');
   if (!key) {

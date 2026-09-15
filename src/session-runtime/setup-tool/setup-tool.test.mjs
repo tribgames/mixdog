@@ -148,7 +148,7 @@ test('mutations go through the runtime facade with validated input', async () =>
   await run(executor, { action: 'set_builtin_enabled', name: 'localProvider', enabled: true });
   assert.deepEqual(calls[3], ['setBuiltinToolEnabled', 'localProvider', true]);
   await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'memory', enabled: true }), /name must be one of git, office, localProvider/);
-  await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'git', enabled: 'yes' }), /enabled \(boolean\)/);
+  await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'git', enabled: 'yes' }), /enabled must be a boolean/);
 
   await run(executor, { action: 'set_compaction', enabled: true });
   assert.deepEqual(calls[4], ['setCompactionSettings', { auto: true }]);

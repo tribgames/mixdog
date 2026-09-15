@@ -6,9 +6,11 @@
  */
 import type { WebContents } from 'electron';
 
+import { BrowserActionabilityError, waitForBrowserActionable } from './actionability';
 import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
 import type { GuestSlot } from './guest-state';
+import { browserRefElementSource } from './ref-access';
 import type { BrowserRefSet } from './ref-recovery';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
 import {
@@ -85,9 +87,7 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     const resolved = await cdp.call<{ result?: { objectId?: string }; exceptionDetails?: unknown }>(
       guest, 'Runtime.evaluate', {
         expression: `(() => {
-          const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-          const element = record?.element || record;
-          if (!element?.isConnected) throw new Error('stale ref');
+          ${browserRefElementSource(ref)}
           return element;
         })()`, returnByValue: false,
       }, signal,
@@ -96,6 +96,31 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     return hitTarget.guard(guest, { objectId: resolved.result.objectId }, signal);
   }
   async function resolveRefPoint(
+    guest: WebContents,
+    ref: string,
+    signal?: AbortSignal,
+  ): Promise<{ x: number; y: number }> {
+    try {
+      return await waitForBrowserActionable(() => probeRefPoint(guest, ref, signal), signal);
+    } catch (error) {
+      if (!(error instanceof BrowserActionabilityError) || error.reason !== 'covered') throw error;
+      // Capture guidance only after the wait expires. Capturing during each
+      // probe would retire the ref we are still waiting to click.
+      let fresh;
+      try {
+        fresh = await captureSnapshotPayload(guest, { action: 'snapshot', maxElements: 500 }, signal);
+      } catch (captureError) {
+        if (signal?.aborted) throw signal.reason || captureError;
+        fresh = null;
+      }
+      throw new Error(
+        `${error.message} Dismiss the blocker using a ref from the fresh snapshot below.\n\n`
+        + (fresh ? formatSnapshot(fresh, diagnosticsFor(guest)) : 'A fresh snapshot could not be captured.'),
+      );
+    }
+  }
+
+  async function probeRefPoint(
     guest: WebContents,
     ref: string,
     signal?: AbortSignal,
@@ -250,34 +275,22 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     }
     if (!point || point.error || typeof point.x !== 'number' || typeof point.y !== 'number') {
       if (point?.error === 'covered') {
-        let fresh;
-        try {
-          fresh = await captureSnapshotPayload(
-            guest,
-            { action: 'snapshot', maxElements: 500 },
-            signal,
-          );
-        } catch (error) {
-          if (signal?.aborted) throw signal.reason || error;
-          fresh = null;
-        }
-        throw new Error(
-          `ref ${ref} is covered by ${point.covering || 'another element'}; input was not dispatched. `
-          + 'Dismiss the blocker using a ref from the fresh snapshot below.\n\n'
-          + (fresh ? formatSnapshot(fresh, diagnosticsFor(guest)) : 'A fresh snapshot could not be captured.'),
+        throw new BrowserActionabilityError(
+          `ref ${ref} is covered by ${point.covering || 'another element'}; input was not dispatched.`,
+          'covered',
         );
       }
       if (point?.error === 'not-visible') {
-        throw new Error(`ref ${ref} is not visible; take a fresh snapshot first`);
+        throw new BrowserActionabilityError(`ref ${ref} is not visible; take a fresh snapshot first`, 'hidden');
       }
       if (point?.error === 'disabled') {
-        throw new Error(`ref ${ref} is disabled`);
+        throw new BrowserActionabilityError(`ref ${ref} is disabled`, 'disabled');
       }
       if (point?.error === 'moving') {
-        throw new Error(`ref ${ref} is still moving; wait briefly and take a fresh snapshot`);
+        throw new BrowserActionabilityError(`ref ${ref} is still moving; wait briefly and take a fresh snapshot`, 'moving');
       }
       if (point?.error === 'not-actionable') {
-        throw new Error(`ref ${ref} is not actionable (hidden, transparent, or pointer events disabled)`);
+        throw new BrowserActionabilityError(`ref ${ref} is not actionable (hidden, transparent, or pointer events disabled)`, 'hidden');
       }
       throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
     }

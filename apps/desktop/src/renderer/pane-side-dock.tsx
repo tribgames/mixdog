@@ -331,6 +331,18 @@ export function usePaneSideDocks({
   const groupsKey = groups.map((group) => group.join(",")).join("|");
   const [docks, setDocks] = useState<Record<string, PaneSideDockEntry>>(() =>
     normalizePaneSideDocks(readStoredPaneSideDocks(), leafIds, groups, modeDefaultOpen()));
+  // Automation overlays never enter persisted user layout.
+  const [temporary, setTemporary] = useState<ReadonlyMap<string, symbol>>(() => new Map());
+  const temporarySelect = useCallback((leafId: string, _surface: "browser") => {
+    const token = Symbol();
+    setTemporary(current => new Map(current).set(leafId, token));
+    return () => setTemporary(current => {
+      if (current.get(leafId) !== token) return current;
+      const next = new Map(current);
+      next.delete(leafId);
+      return next;
+    });
+  }, []);
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
   const leafIdsRef = useRef(leafIds);
@@ -377,12 +389,20 @@ export function usePaneSideDocks({
       // Dock state remains active for this renderer session.
     }
   }, [docks]);
-  const entryFor = useCallback((leafId: string): PaneSideDockEntry =>
-    docks[leafId] ?? CLOSED_ENTRY, [docks]);
+  const entryFor = useCallback((leafId: string): PaneSideDockEntry => {
+    const base = docks[leafId] ?? CLOSED_ENTRY;
+    return temporary.has(leafId) ? { ...base, open: true, surface: "browser" } : base;
+  }, [docks, temporary]);
   const patch = useCallback((
     leafId: string,
     updater: (entry: PaneSideDockEntry, firstRoot: WorkbenchSideViewId | null) => PaneSideDockEntry,
   ) => {
+    setTemporary(current => {
+      if (!current.has(leafId)) return current;
+      const next = new Map(current);
+      next.delete(leafId);
+      return next;
+    });
     setDocks((current) => {
       const firstRoot = firstPanelRoot(groupsRef.current);
       const entry = current[leafId] ?? { ...CLOSED_ENTRY, view: firstRoot };
@@ -450,6 +470,7 @@ export function usePaneSideDocks({
   return {
     docks,
     entryFor,
+    temporarySelect,
     select,
     open,
     setOpen,

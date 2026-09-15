@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
 import { resolveOfficeDesign } from '../design/design-system.mjs';
 import { nativeOfficeDesign, usesNativeOfficeDesign } from '../design/native-design.mjs';
@@ -49,6 +49,85 @@ export function isMicrosoftOfficeSession(session) {
 export function documentSessionKey(path) {
   const canonical = resolve(path);
   return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+}
+
+export function officeSessionId() {
+  return `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+}
+
+/** Shared design-review counters. PDF/tabular creates omit slidePlans because
+ *  those formats never carry a deck plan; every other session keeps the field. */
+export function emptyOfficeDesignState({
+  requiresVisualReview = false,
+  includeSlidePlans = true,
+} = {}) {
+  return {
+    renderedVersion: null,
+    semanticCount: 0,
+    requiresVisualReview,
+    ...(includeSlidePlans ? { slidePlans: [] } : {}),
+    compositions: [],
+  };
+}
+
+export function microsoftOfficeOpenFields(opened) {
+  return {
+    mode: opened.mode,
+    ownership: opened.ownership,
+    visible: opened.visible,
+    appPid: opened.appPid,
+    windowHwnd: opened.windowHwnd,
+    foregroundActivated: opened.foregroundActivated === true,
+    backgroundIsolation: opened.backgroundIsolation || null,
+    documentId: opened.documentId,
+  };
+}
+
+/** Bind or refresh the session design exactly once per call. Open/create only
+ *  merge a preset; later calls may upgrade the library and keep a native
+ *  document native instead of applying a profile it never asked for. */
+export async function ensureOfficeSessionDesign(session, args, dataDir, {
+  created = session.created === true,
+  allowLibraryUpgrade = false,
+  preserveNativeDesign = false,
+} = {}) {
+  if (!session.design) {
+    Object.assign(session, await resolveOfficeDesignContext({
+      args,
+      dataDir,
+      target: session.target,
+      source: session.source,
+      format: session.format,
+      created,
+    }));
+    session.designState = emptyOfficeDesignState();
+    return session;
+  }
+  if (!args.design) return session;
+  if (allowLibraryUpgrade && args.design.upgradeLibrary === true) {
+    const upgraded = await resolveOfficeDesignContext({
+      args,
+      dataDir,
+      target: session.target,
+      source: session.source,
+      format: session.format,
+      created: false,
+    });
+    session.designLibrary = upgraded.designLibrary;
+    await persistOfficeDesignBinding(dataDir, session.target, session.designLibrary.binding);
+  }
+  session.designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
+  // A native document stays native: the `design` a later call carries is the
+  // page review (reviewed, reviewToken, critique) or content, not a request
+  // for a preset. Resolving it as one used to hand a Word or Excel file the
+  // default profile's palette and art direction it never asked for, and put
+  // the preset review's gates in front of finalize.
+  session.design = preserveNativeDesign
+    && session.design?.authoring === 'native'
+    && usesNativeOfficeDesign(session.format, session.designRequest)
+    ? nativeOfficeDesign(session.format, session.designRequest)
+    : resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
+  return session;
 }
 
 

@@ -1,20 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { EventEmitter } from 'node:events';
+import { inflateSync } from 'node:zlib';
 import { createBrowserDisplayCapture } from './display-capture.ts';
 
 function image(text, width = 600, height = 400, scaleFactor = 1) {
   return {
-    getSize: () => ({ width, height }),
+    getSize: (scale = 1) => ({ width: width * scale, height: height * scale }),
     getScaleFactors: () => [1, scaleFactor],
-    toPNG: ({ scaleFactor: requested }) => {
+    toBitmap: ({ scaleFactor: requested }) => {
       assert.equal(requested, scaleFactor);
-      const bytes = Buffer.alloc(24 + Buffer.byteLength(text));
-      bytes.writeUInt32BE(width * scaleFactor, 16);
-      bytes.writeUInt32BE(height * scaleFactor, 20);
-      bytes.write(text, 24);
-      return bytes;
+      return Buffer.alloc(width * height * scaleFactor ** 2 * 4, Buffer.from([0, 0, text.charCodeAt(0), 255]));
     },
+    crop: () => ({ toPNG: () => Buffer.from('89504e470d0a1a0a0000000049454e44ae426082', 'hex') }),
   };
+}
+
+function firstRed(frame) {
+  const bytes = Buffer.from(frame.data, 'base64');
+  for (let offset = 8; offset < bytes.length;) {
+    const length = bytes.readUInt32BE(offset);
+    if (bytes.toString('ascii', offset + 4, offset + 8) === 'IDAT') {
+      return inflateSync(bytes.subarray(offset + 8, offset + 8 + length))[1];
+    }
+    offset += length + 12;
+  }
+  assert.fail('no PNG pixels');
 }
 
 test('display sampling keeps pages hidden and bounds pending native captures', async () => {
@@ -36,7 +47,7 @@ test('display sampling keeps pages hidden and bounds pending native captures', a
   assert.equal(a.data, b.data);
   const next = capture(guest);
   assert.equal(starts, 2);
-  finish({ getSize: () => ({ width: 0, height: 0 }) });
+  finish(image('', 0, 0));
   await assert.rejects(next, /not ready/);
 });
 
@@ -54,7 +65,7 @@ test('navigation never reuses an outstanding native sample from the previous doc
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(pending.length, 2);
   pending[1](image('new'));
-  assert.equal(Buffer.from((await next).data, 'base64').subarray(24).toString(), 'new');
+  assert.equal(firstRed(await next), 'new'.charCodeAt(0));
 });
 
 test('resizing never relabels an old compositor image, even when its document is unchanged', async () => {
@@ -74,5 +85,30 @@ test('resizing never relabels an old compositor image, even when its document is
   const frame = await fresh;
   assert.equal(frame.mimeType, 'image/png');
   assert.deepEqual([frame.width, frame.height], [1170, 2532]);
-  assert.equal(Buffer.from(frame.data, 'base64').subarray(24).toString(), 'fresh');
+  assert.equal(firstRed(frame), 'fresh'.charCodeAt(0));
+});
+
+test('offscreen presentation compresses losslessly without blocking input or starting another capture', async () => {
+  const guest = new EventEmitter();
+  guest.isOffscreen = () => true;
+  let captures = 0;
+  guest.invalidate = () => {
+    captures++;
+    guest.emit('paint', {}, {}, {
+      ...image('pixels'),
+      toPNG: () => assert.fail('full display compression must not block the main thread'),
+    });
+  };
+  try {
+    const capture = createBrowserDisplayCapture();
+    const first = capture(guest, 'document', { width: 600, height: 400 });
+    const second = capture(guest, 'document', { width: 600, height: 400 });
+    assert.equal(captures, 1);
+    const [a, b] = await Promise.all([first, second]);
+    assert.deepEqual(a, b);
+    assert.deepEqual([a.width, a.height, a.mimeType], [600, 400, 'image/png']);
+    assert.equal(firstRed(a), 'pixels'.charCodeAt(0));
+    await capture(guest, 'document', { width: 600, height: 400 });
+    assert.equal(captures, 1, 'unchanged paint reuses the encoded frame');
+  } finally { guest.emit('destroyed'); }
 });

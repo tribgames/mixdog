@@ -8,6 +8,7 @@ import type { WebContents } from 'electron';
 
 import type { BrowserGuestCdp } from '../cdp';
 import type { BrowserCommand, BrowserCommandResult } from '../command';
+import type { BrowserCredentialFillResult } from '../credential-autofill';
 import type { createBrowserDialogReport } from '../dialog-report';
 import type { createBrowserDocuments } from '../documents';
 import type { TrackedBrowserDownload } from '../downloads';
@@ -50,6 +51,11 @@ export interface BrowserActionServices {
   dialogs: ReturnType<typeof createBrowserDialogReport>;
   urls: ReturnType<typeof createBrowserUrlAdmission>;
   targets: ReturnType<typeof createBrowserTargetResolver>;
+  /** Stored logins: the host matches the account against the page origin and
+   *  fills the form itself, so the password never reaches a handler. */
+  credentials: {
+    fillStored(guest: WebContents, account: string, signal?: AbortSignal): Promise<BrowserCredentialFillResult>;
+  };
   downloadsForSession(sessionId: string): TrackedBrowserDownload[];
   /** Re-enter the dispatcher for one step of a running sequence. */
   runCommand(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult>;

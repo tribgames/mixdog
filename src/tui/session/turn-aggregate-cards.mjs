@@ -5,33 +5,16 @@
  * current; assistant text and turn boundaries seal the block. Extracted from
  * turn.mjs.
  */
-import { aggregateDoneCategories, formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
-import { toolResultText, toolErrorDisplay, stripShellExitHeader } from './tool-result-text.mjs';
-import { aggregateRawResult, aggregateSummaries, aggregateToolMembers, assignAggregateSummaryOrder, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
-
-// Merged count summary (see patchToolCardResult); real failures keep
-// 'N Failed'; completed command failures render separately. `completedCount`
-// is the caller's notion of finished calls (resolved only at block close,
-// resolved-or-early on the eager path).
-function aggregateResultPatch(aggregate, allCalls, completedCount) {
-  const errors = allCalls.filter((r) => r.isError).length;
-  const callErrors = allCalls.filter((r) => r.isCallError).length;
-  const exitErrors = allCalls.filter((r) => r.isExitError).length;
-  const succeeded = Math.max(0, completedCount - errors - exitErrors);
-  const displayDetail = errors > 0 || exitErrors > 0
-    ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
-    : formatAggregateDetail(aggregateSummaries(aggregate));
-  return {
-    result: displayDetail,
-    text: displayDetail,
-    isError: errors > 0,
-    errorCount: errors,
-    callErrorCount: callErrors,
-    exitErrorCount: exitErrors,
-    count: allCalls.length,
-    toolMembers: aggregateToolMembers(allCalls),
-  };
-}
+import { aggregateDoneCategories } from '../../runtime/shared/tool-surface.mjs';
+import { toolResultText } from './tool-result-text.mjs';
+import {
+  aggregateLoadingTargets,
+  aggregateRawResult,
+  aggregateResultPatch,
+  aggregateToolMembers,
+  applyAggregateCallFields,
+  toolResultDisplay,
+} from './tool-result-status.mjs';
 
 export function createAggregateCardTracker({
   toolCards,
@@ -136,12 +119,7 @@ export function createAggregateCardTracker({
 
   const syncAggregateHeader = (aggregate) => {
     if (!aggregate?.itemId) return;
-    const loadingTargetGroups = [...aggregate.calls.values()]
-      .map((call) => toolLoadingTargets(call.name, call.args));
-    const loadingTargets = loadingTargetGroups.length > 0
-      && loadingTargetGroups.every((targets) => targets.length > 0)
-      ? [...new Set(loadingTargetGroups.flat())]
-      : [];
+    const loadingTargets = aggregateLoadingTargets(aggregate.calls);
     const patch = {
       args: {
         categoryOrder: aggregate.categoryOrder.slice(),
@@ -191,30 +169,15 @@ export function createAggregateCardTracker({
     if (!callRec || callRec.resolved || callRec.completedEarly) return;
     aggregate.ensureVisible?.();
     const rawText = toolResultText(message?.content);
-    // Tool result text (including HTTP/domain failures, zero matches, task
-    // statuses, and shell output) is detail, not a failed invocation. Only
-    // the provider's isError/error-tool envelope drives failure counts/red.
-    const { exitCode, isExitError, isCallError } = toolCallOutcome(
-      { ...message, toolName: callRec.name },
+    const { exitCode, isExitError, isCallError, isError, text } = toolResultDisplay(
+      message,
       rawText,
+      callRec.name,
     );
-    const isError = isCallError;
-    const text = isError
-      ? toolErrorDisplay(rawText, callRec.name || 'tool')
-      // Strip the machine exit header for ANY parsed code (0 included):
-      // exit 0 no longer routes through isExitError but its
-      // `[exit code: 0]` line is still display noise.
-      : (exitCode != null ? stripShellExitHeader(rawText) : rawText);
-    callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
-    assignAggregateSummaryOrder(aggregate, callRec);
-    callRec.isError = isError;
-    callRec.isCallError = isCallError;
-    callRec.isExitError = isExitError;
-    callRec.exitCode = exitCode;
-    callRec.resultText = text;
-    callRec.rawResultText = rawText;
+    applyAggregateCallFields(callRec, aggregate, {
+      isError, isCallError, isExitError, exitCode, text, rawText, message,
+    });
     callRec.completedEarly = true;
-    callRec.completedAt = callRec.completedAt || Date.now();
     const allCalls = [...aggregate.calls.values()];
     const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
     const currentIndex = itemIndexById.get(card.itemId);

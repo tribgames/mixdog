@@ -378,10 +378,15 @@ export function decideSessionLaneFrame(
   // Host-only read-outs and the unresolved context denominator are restored
   // BEFORE any branch decides, so every accepted frame carries the pane's live
   // work and a gauge limit it can actually divide by.
-  const frame = laneFrameWithRetainedContextWindow(
+  let frame = laneFrameWithRetainedContextWindow(
     prior,
     laneFrameWithRetainedShellJobs(prior, next),
   );
+  // Execution cwd owns the Project, including same-generation tool updates.
+  // Never retain a legacy alias pointing links and UI at the previous cwd.
+  if (frame.cwd && (frame.currentProject !== frame.cwd || frame.project !== frame.cwd)) {
+    frame = { ...frame, currentProject: frame.cwd, project: frame.cwd };
+  }
   if (prior) {
     const rejected = rejectedSessionLaneRevision(priorRevision, provenance);
     if (rejected) return { accept: false, reason: rejected, revision: priorRevision };

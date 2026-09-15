@@ -94,6 +94,40 @@ test('the cache stays within its entry and text budgets', async () => {
     assert.equal((await cache.read({ ...base, key: '4', loadText: text('x'.repeat(11)) })).hit, false);
 });
 
+test('unchanged session rotations do not churn at the former eight-session boundary', async () => {
+    const cache = createStoredTranscriptCache();
+    let produced = 0;
+    let loaded = 0;
+    const read = (id) => cache.read({
+        key: `${id}|512`, fingerprint: 'absent', fileStat: stat(1, 4), now: 10_000,
+        loadText: () => { loaded++; return 'body'; },
+        produce: () => { produced++; return { items: [id] }; },
+    });
+    for (let id = 0; id < 32; id++) await read(id);
+    for (let round = 0; round < 3; round++) {
+        for (let id = 0; id < 32; id++) {
+            const result = await read(id);
+            assert.equal(result.hit, true);
+            assert.deepEqual(result.value.items, [id]);
+        }
+    }
+    assert.equal(produced, 32);
+    assert.equal(loaded, 32);
+});
+
+test('the content budget still evicts entries without a session-count limit', async () => {
+    const cache = createStoredTranscriptCache({ maxTextChars: 10 });
+    const read = (key) => cache.read({
+        key, fingerprint: '', loadText: text('body'), produce: () => ({ items: [key] }),
+    });
+    await read('a');
+    await read('b');
+    await read('c');
+    assert.equal(cache.stats().retainedChars, 8);
+    assert.equal((await read('b')).hit, true);
+    assert.equal((await read('a')).hit, false);
+});
+
 test('a stored transcript read is served from cache until the record changes', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-transcript-cache-'));
     const previous = process.env.MIXDOG_DATA_DIR;

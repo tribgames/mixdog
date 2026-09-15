@@ -66,6 +66,7 @@ import { getStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
 import { createDaemonBootCoordinator } from './daemon-boot-coordinator.mjs';
 import { createDaemonLog } from './daemon-log.mjs';
+import { createDaemonTelemetry } from './daemon-telemetry.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -113,8 +114,8 @@ let shutdownRecheckTimer = null;
 let replacementRequested = null;
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
-let eventLoopLagTimer = null;
 let idleGc = null;
+let daemonTelemetry = null;
 
 function registerMemoryRuntimeLazy() {
   // Register the shared proxy immediately so daemon shutdown owns its
@@ -181,7 +182,7 @@ async function shutdown(reason, code = 0) {
   try { await closeProviderStreamJsonPool(reason); } catch (e) { log(`stream parser stop failed: ${e?.message || e}`); }
   try { await transport?.stop?.(); } catch (e) { log(`transport.stop failed: ${e?.message || e}`); }
   idleGc?.disarm();
-  if (eventLoopLagTimer) { clearInterval(eventLoopLagTimer); eventLoopLagTimer = null; }
+  daemonTelemetry?.stop();
   eventLoopDelay.disable();
   for (const discoveryPath of [DAEMON_DISCOVERY_PATH]) {
     try { rmSync(discoveryPath, { force: true }); } catch {}
@@ -201,6 +202,29 @@ function inFlightWork() {
     busyMemoryAgents: agentDispatchBroker?.snapshot?.().inFlight ?? 0,
   };
 }
+
+daemonTelemetry = createDaemonTelemetry({
+  log,
+  getWork: inFlightWork,
+  onInterval() {
+    const status = eventLoopStatus();
+    if (status.eventLoopP99Ms >= 250) {
+      log(`event-loop lag p95=${status.eventLoopP95Ms}ms p99=${status.eventLoopP99Ms}ms max=${status.eventLoopMaxMs}ms`);
+    }
+    // Legacy external runtime hosts may still report shard-local lag. The
+    // production in-process host is already covered by daemon loop telemetry.
+    const shards = sessionRuntimeHost?.status?.shards || [];
+    const lagging = shards.filter((shard) => Number(shard?.lag?.p99Ms) >= 250 || shard?.degraded);
+    if (lagging.length > 0) {
+      log(`session runtime shard lag ${lagging.map((shard) => (
+        `#${shard.index}${shard.degraded ? '(quarantined)' : ''}`
+        + ` p95=${shard.lag?.p95Ms ?? -1}ms p99=${shard.lag?.p99Ms ?? -1}ms`
+        + ` max=${shard.lag?.maxMs ?? -1}ms runtimes=${shard.runtimes}`
+      )).join(' ')}`);
+    }
+    eventLoopDelay.reset();
+  },
+});
 
 function daemonHasWorkInFlight() {
   const work = inFlightWork();
@@ -711,25 +735,11 @@ async function main() {
   }
   log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
   bootPhases.mark('daemon-ready');
-  eventLoopLagTimer = setInterval(() => {
-    const status = eventLoopStatus();
-    if (status.eventLoopP99Ms >= 250) {
-      log(`event-loop lag p95=${status.eventLoopP95Ms}ms p99=${status.eventLoopP99Ms}ms max=${status.eventLoopMaxMs}ms`);
-    }
-    // Legacy external runtime hosts may still report shard-local lag. The
-    // production in-process host is already covered by daemon loop telemetry.
-    const shards = sessionRuntimeHost?.status?.shards || [];
-    const lagging = shards.filter((shard) => Number(shard?.lag?.p99Ms) >= 250 || shard?.degraded);
-    if (lagging.length > 0) {
-      log(`session runtime shard lag ${lagging.map((shard) => (
-        `#${shard.index}${shard.degraded ? '(quarantined)' : ''}`
-        + ` p95=${shard.lag?.p95Ms ?? -1}ms p99=${shard.lag?.p99Ms ?? -1}ms`
-        + ` max=${shard.lag?.maxMs ?? -1}ms runtimes=${shard.runtimes}`
-      )).join(' ')}`);
-    }
-    eventLoopDelay.reset();
-  }, 30_000);
-  eventLoopLagTimer.unref?.();
+  // One unref'd 30s loop: memory/work samples plus event-loop lag. A crash
+  // still has a recent RSS/heap/limit record in daemon.log; the 10-minute
+  // memory-pressure file is too sparse to be that record.
+  daemonTelemetry.emit('boot');
+  daemonTelemetry.start();
 
   // Automation may spawn the shared daemon; keep schedules/webhooks live.
   // A TUI-spawned daemon keeps the historical eager start (its channels client

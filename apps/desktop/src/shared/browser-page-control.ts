@@ -47,6 +47,18 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
     case 'zoom': return { type: input.type, documentId, factor: number('factor', 0.25, 5) };
     case 'text': return { type: input.type, documentId, text: text('text', 32_000) };
     case 'key': return { type: input.type, documentId, key: text('key', 64) };
+    case 'composition': case 'composition-end': {
+      if (typeof input.text !== 'string' || input.text.length > 32_000) {
+        throw new TypeError('Browser composition text is invalid.');
+      }
+      if (input.type === 'composition-end') return { type: input.type, documentId, text: input.text };
+      const selectionStart = number('selectionStart', 0, input.text.length);
+      const selectionEnd = number('selectionEnd', selectionStart, input.text.length);
+      if (!Number.isInteger(selectionStart) || !Number.isInteger(selectionEnd)) {
+        throw new TypeError('Browser composition selection is invalid.');
+      }
+      return { type: input.type, documentId, text: input.text, selectionStart, selectionEnd };
+    }
     case 'pointer': {
       if (!['mouseMoved', 'mousePressed', 'mouseReleased'].includes(String(input.phase))
         || !['none', 'left', 'middle', 'right'].includes(String(input.button))) {

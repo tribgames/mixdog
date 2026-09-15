@@ -920,7 +920,8 @@ export async function _streamResponse({
                     // Only non-empty reasoning text is model progress. Empty
                     // deltas remain transport activity via resetIdle() above.
                     if (event.delta) {
-                        midState.emittedReasoning = true;
+                        // The text is suppressed; the progress notification
+                        // does not expose output and must not veto replay.
                         try { onStreamDelta?.('reasoning'); } catch {}
                         bumpSemanticIdle();
                     }
@@ -1363,7 +1364,7 @@ export async function _streamResponse({
                         // Only non-empty reasoning deltas are model progress;
                         // empty variants remain transport activity only.
                         if (event.delta) {
-                            midState.emittedReasoning = true;
+                            // Suppressed reasoning is progress, not exposure.
                             try { onStreamDelta?.('reasoning'); } catch {}
                             bumpSemanticIdle();
                         }

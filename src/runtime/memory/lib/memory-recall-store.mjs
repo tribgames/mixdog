@@ -2,7 +2,7 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 
 import { buildFtsQuery, buildFtsPrefixQuery } from './memory-text-utils.mjs'
 import { VALID_CATEGORY, embeddingToSql } from './memory.mjs'
-import { buildRecallScopeFilter } from './memory-recall-scope-filter.mjs'
+import { buildRecallScopeFilter, projectScopePredicate } from './memory-recall-scope-filter.mjs'
 import { recallReadQuery } from './memory-recall-read-query.mjs'
 import { rankRecallCandidates, recallLaneRanks, recallRrfScore } from './recall-fusion.mjs'
 import { recallSubstringPredicate } from './recall-substring-predicate.mjs'
@@ -133,12 +133,8 @@ export async function searchRelevantHybrid(db, query, options = {}) {
 
   // Kept for the non-candidate root-lookup inside the member-hit resolution path.
   function buildScopeClause(offset) {
-    if (projectScope === 'common') {
-      return { clause: 'AND project_id IS NULL', params: [] }
-    } else if (projectScope && projectScope !== 'all') {
-      return { clause: `AND (project_id IS NULL OR project_id = $${offset})`, params: [projectScope] }
-    }
-    return { clause: '', params: [] }
+    const { clause, params } = projectScopePredicate(projectScope, offset)
+    return { clause: clause ? `AND ${clause}` : '', params }
   }
 
   // ── Single-round-trip hybrid CTE ─────────────────────────────────────────
@@ -190,11 +186,11 @@ export async function searchRelevantHybrid(db, query, options = {}) {
       clauses.push(`category IN (${placeholders})`)
       params.push(...categories)
     }
-    if (projectScope === 'common') {
-      clauses.push('project_id IS NULL')
-    } else if (projectScope && projectScope !== 'all') {
-      clauses.push(`(project_id IS NULL OR project_id = $${next++})`)
-      params.push(projectScope)
+    const { clause: scopeClause, params: scopeParams } = projectScopePredicate(projectScope, next)
+    if (scopeClause) {
+      clauses.push(scopeClause)
+      params.push(...scopeParams)
+      next += scopeParams.length
     }
     return { clause: clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '', params }
   }

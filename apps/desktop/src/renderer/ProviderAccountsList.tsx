@@ -98,9 +98,9 @@ export function ProviderAccountsList({ api, provider, title, listOnly = false, r
       setPool(next);
       window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
       if (value.selectedId !== undefined) {
-        // The active credential changed. Paint the chosen account's own last
-        // known windows immediately, then confirm with a refresh that cannot be
-        // served by a request the previous account started.
+        // Replace the old account's quota with the chosen account's own last
+        // known windows, or a loading placeholder when none are known. Confirm
+        // with a refresh that cannot adopt the previous account's request.
         applyAccountUsageWindows(provider, next.accounts.find((row) => row.id === next.selectedId)?.usage?.windows);
         void refreshUsageDashboardAfterAuth(api, [provider]);
       } else {

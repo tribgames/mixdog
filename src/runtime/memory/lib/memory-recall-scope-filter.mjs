@@ -1,5 +1,28 @@
 import { VALID_CATEGORY } from './memory.mjs'
 
+export { VALID_CATEGORY }
+
+// Shared project-scope SQL: common → NULL-only; slug → NULL or that slug; all/empty → no filter.
+export function projectScopePredicate(projectScope, nextParam, { column = 'project_id' } = {}) {
+  if (projectScope === 'common') {
+    return { clause: `${column} IS NULL`, params: [] }
+  }
+  if (projectScope && projectScope !== 'all') {
+    return {
+      clause: `(${column} IS NULL OR ${column} = $${nextParam})`,
+      params: [projectScope],
+    }
+  }
+  return { clause: '', params: [] }
+}
+
+export function appendProjectScopeClause(clauses, params, projectScope, { column = 'project_id' } = {}) {
+  const { clause, params: extra } = projectScopePredicate(projectScope, params.length + 1, { column })
+  if (!clause) return
+  clauses.push(clause)
+  params.push(...extra)
+}
+
 function buildCategoryFilterClause(offset, categories, { tableAlias = '' } = {}) {
   const cats = (Array.isArray(categories) ? categories : [categories])
     .map(c => String(c ?? '').trim().toLowerCase())
@@ -84,10 +107,12 @@ export function buildRecallScopeFilter(offset, options = {}, tableAlias = '') {
     if (catClause) { clauses.push(catClause.replace(/^AND /, '')); params.push(...catParams); next += catParams.length }
   }
   const projectScope = typeof options.projectScope === 'string' ? options.projectScope : null
-  if (projectScope === 'common') clauses.push(`${p}project_id IS NULL`)
-  else if (projectScope && projectScope !== 'all') {
-    clauses.push(`(${p}project_id IS NULL OR ${p}project_id = $${next++})`)
-    params.push(projectScope)
+  const { clause: scopeClause, params: scopeParams } = projectScopePredicate(projectScope, next, {
+    column: `${p}project_id`,
+  })
+  if (scopeClause) {
+    clauses.push(scopeClause)
+    params.push(...scopeParams)
   }
   return { clause: clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '', params }
 }

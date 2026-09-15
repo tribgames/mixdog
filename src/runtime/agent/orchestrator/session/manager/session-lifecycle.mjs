@@ -904,9 +904,15 @@ export async function resumeSession(sessionId, preset, options = {}) {
             || expectedDesktop.classification !== storedDesktop.classification) {
             return null;
         }
-        // Adopt the host-canonical project path selected from the authoritative
-        // summary. Task metadata always remains pathless.
-        session.desktopSession = expectedDesktop;
+        // The host's summary may predate a cwd change. It supplies the
+        // classification check, not permission to overwrite the session's
+        // newer execution Project. Task metadata always remains pathless.
+        session.desktopSession = expectedDesktop.classification === 'project'
+            ? normalizeDesktopSessionMetadata({
+                ...expectedDesktop,
+                projectPath: session.cwd || expectedDesktop.projectPath,
+            }, session.cwd)
+            : expectedDesktop;
     }
     if (!session.owner) session.owner = 'user';
     if (Object.prototype.hasOwnProperty.call(options, 'mcpScopeId')) {

@@ -61,6 +61,17 @@ const TYPESCRIPT_LANGUAGE_SERVER: LanguageServerSpec = {
 };
 const LANGUAGE_SERVER_IDLE_MS = 30_000;
 
+/** Wire language for didOpen. Monaco has no JSX languages, so a `.tsx` model
+ *  reports `typescript`; typescript-language-server turns that id into a
+ *  plain-TS script kind and flags every JSX element as a syntax error
+ *  (1,500+ problems on a clean file). The editor-facing id stays as sent. */
+export function lspDocumentLanguageId(relPath: string, languageId: string): string {
+  const extension = extname(relPath).toLowerCase();
+  if (extension === '.tsx' && languageId === 'typescript') return 'typescriptreact';
+  if (extension === '.jsx' && languageId === 'javascript') return 'javascriptreact';
+  return languageId;
+}
+
 export function languageServerInitializationOptions(
   spec: Pick<LanguageServerSpec, 'id'>,
 ): Readonly<Record<string, unknown>> | undefined {
@@ -78,7 +89,7 @@ export function languageServerInitializationOptions(
   };
 }
 
-const SERVER_BY_LANGUAGE: Readonly<Record<string, LanguageServerSpec>> = {
+export const SERVER_BY_LANGUAGE: Readonly<Record<string, LanguageServerSpec>> = {
   typescript: TYPESCRIPT_LANGUAGE_SERVER,
   javascript: TYPESCRIPT_LANGUAGE_SERVER,
   python: {
@@ -96,8 +107,8 @@ const SERVER_BY_LANGUAGE: Readonly<Record<string, LanguageServerSpec>> = {
   rust: { id: 'rust-analyzer', name: 'rust-analyzer', command: 'rust-analyzer', args: [] },
   c: { id: 'clangd', name: 'clangd', command: 'clangd', args: ['--background-index'] },
   cpp: { id: 'clangd', name: 'clangd', command: 'clangd', args: ['--background-index'] },
-  objective_c: { id: 'clangd', name: 'clangd', command: 'clangd', args: ['--background-index'] },
-  objective_cpp: { id: 'clangd', name: 'clangd', command: 'clangd', args: ['--background-index'] },
+  // Keyed by Monaco language ids: `.m` reports `objective-c`, `.mm` reports `cpp`.
+  'objective-c': { id: 'clangd', name: 'clangd', command: 'clangd', args: ['--background-index'] },
   ruby: { id: 'ruby-lsp', name: 'Ruby LSP', command: 'ruby-lsp', args: [] },
 };
 
@@ -1196,7 +1207,7 @@ export class LanguageServerManager {
       session.connection.sendNotification('textDocument/didOpen', {
         textDocument: {
           uri,
-          languageId: input.languageId,
+          languageId: lspDocumentLanguageId(input.relPath, input.languageId),
           version: input.version,
           text: input.content || '',
         },

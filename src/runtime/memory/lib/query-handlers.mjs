@@ -21,12 +21,18 @@ import {
   renderSessionGroupedLines,
   collapseNearDuplicateRows,
   compactDigestRows,
+  recallSearchHaystack,
 } from './recall-format.mjs'
 import { compactHandoffRows } from './compact-handoff.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
 import { fetchEntriesByIdsScoped } from './memory-recall-id-patch.mjs'
 import { retrieveEntries } from './memory-retrievers.mjs'
-import { buildPromotedExclusionClauses } from './memory-recall-scope-filter.mjs'
+import {
+  VALID_CATEGORY,
+  appendProjectScopeClause,
+  buildPromotedExclusionClauses,
+  projectScopePredicate,
+} from './memory-recall-scope-filter.mjs'
 import { compareRecallNewestFirst } from './recall-order.mjs'
 import { decodeRecallPageCursor, encodeRecallPageCursor } from './recall-page-cursor.mjs'
 import { expandRecallEventContext } from './recall-event-context.mjs'
@@ -45,8 +51,9 @@ import {
   preserveLatestConceptRows,
   prioritizeHistoricalRootEvidence,
   rankLatestRecallRows,
-  recallRowTopicText,
   sampleRecallTimeline,
+  topicTermCoverage,
+  uniqueRowsById,
 } from './query-ranking.mjs'
 import {
   embedText,
@@ -56,6 +63,38 @@ import {
 } from './embedding-provider.mjs'
 import { embedRecallQuery } from './recall-embedding-readiness.mjs'
 import { isSemanticOnlyRecall } from './recall-fusion.mjs'
+
+const SESSION_ENTRY_COLUMNS = `id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
+             element, category, summary, chunk_quality, status, score, last_seen_at, project_id`
+
+function resolveQueryProjectScope(args, resolveProjectScope) {
+  if (typeof args?.projectScope === 'string' && args.projectScope) return args.projectScope
+  const projectId = resolveProjectScope(typeof args?.cwd === 'string' && args.cwd ? args.cwd : null)
+  return projectId !== null ? projectId : 'common'
+}
+
+function mergeUnseenRawRows(rows, rawRows, extraFilter) {
+  const seenIds = new Set()
+  for (const r of rows || []) {
+    seenIds.add(Number(r.id))
+    if (Array.isArray(r.members)) for (const m of r.members) seenIds.add(Number(m.id))
+  }
+  let newRaw = (rawRows || []).filter((r) => !seenIds.has(Number(r.id)))
+  if (typeof extraFilter === 'function') newRaw = newRaw.filter(extraFilter)
+  if (newRaw.length === 0) return rows
+  const merged = [...rows, ...newRaw]
+  merged.sort(compareRecallNewestFirst)
+  return merged
+}
+
+function rowMatchesQueryTerms(row, terms) {
+  if (!Array.isArray(terms) || terms.length === 0) return true
+  if (terms.some((term) => recallSearchHaystack(row).includes(term))) return true
+  if (Array.isArray(row?.members)) {
+    return row.members.some((member) => terms.some((term) => recallSearchHaystack(member).includes(term)))
+  }
+  return false
+}
 
 export function createQueryHandlers({
   getDb,
@@ -82,12 +121,7 @@ export function createQueryHandlers({
       const where = ['chunk_root IS NULL', 'is_root = 0', 'ts >= $1', 'ts <= $2']
       const params = [tsFromMs ?? 0, tsToMs ?? Date.now()]
       let termOrder = ''
-      if (projectScope === 'common') {
-        where.push('project_id IS NULL')
-      } else if (projectScope && projectScope !== 'all') {
-        params.push(projectScope)
-        where.push(`(project_id IS NULL OR project_id = $${params.length})`)
-      }
+      appendProjectScopeClause(where, params, projectScope)
       const sid = String(sessionId || '').trim()
       if (sid) {
         params.push(sid)
@@ -136,11 +170,9 @@ export function createQueryHandlers({
     const skipInFlightCutoff = compactDigest || compactHandoff
     // Over-fetch before compact-only dedupe so duplicated legacy rows cannot
     // consume the requested page and hide distinct older context.
-    const fetchLimit = compactHandoff
-      ? null
-      : compactDigest
-        ? Math.min(100, Math.max(limit, limit * 4))
-        : limit
+    let fetchLimit = limit
+    if (compactHandoff) fetchLimit = null
+    else if (compactDigest) fetchLimit = Math.min(100, Math.max(limit, limit * 4))
     const terms = sessionRecallTerms(args.query)
     const params = [sessionId]
     // Roots + not-yet-chunked leaves only. Once cycle1 turns raw leaves into
@@ -178,10 +210,13 @@ export function createQueryHandlers({
         }
       } catch {}
     }
-    if (!skipInFlightCutoff && Number.isFinite(excludeSourceTurnId)) {
-      params.push(excludeSourceTurnId)
-      where.push(`NOT (chunk_root IS NULL AND source_turn = $${params.length})`)
+    const applyInFlightCutoff = (whereClause, queryParams) => {
+      if (!skipInFlightCutoff && Number.isFinite(excludeSourceTurnId)) {
+        queryParams.push(excludeSourceTurnId)
+        whereClause.push(`NOT (chunk_root IS NULL AND source_turn = $${queryParams.length})`)
+      }
     }
+    applyInFlightCutoff(where, params)
     if (terms.length > 0) {
       const textExpr = `lower(coalesce(content, '') || ' ' || coalesce(element, '') || ' ' || coalesce(summary, ''))`
       const clauses = terms.map((term) => {
@@ -190,39 +225,30 @@ export function createQueryHandlers({
       })
       where.push(`(${clauses.join(' OR ')})`)
     }
-    if (fetchLimit != null) params.push(fetchLimit)
-    const limitClause = fetchLimit == null ? '' : `LIMIT $${params.length}`
-    let rows = (await db.query(`
-      SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-             element, category, summary, status, score, last_seen_at, project_id
-      FROM entries
-      WHERE ${where.join(' AND ')}
-      ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC
-      ${limitClause}
-    `, params)).rows
+    const selectSessionEntries = async (whereClause, queryParams, limit) => {
+      if (limit != null) queryParams.push(limit)
+      const limitClause = limit == null ? '' : `LIMIT $${queryParams.length}`
+      return (await db.query(`
+        SELECT ${SESSION_ENTRY_COLUMNS}
+        FROM entries
+        WHERE ${whereClause.join(' AND ')}
+        ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC
+        ${limitClause}
+      `, queryParams)).rows
+    }
+    let rows = await selectSessionEntries(where, params, fetchLimit)
     if (fetchLimit != null && rows.length < fetchLimit) {
       const seen = new Set(rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)))
       const fillLimit = Math.max(0, fetchLimit - rows.length)
       const fillWhere = ['session_id = $1', 'id <> ALL($2::bigint[])', '(is_root = 1 OR chunk_root IS NULL OR chunk_root = id)']
       const fillParams = [sessionId, [...seen]]
-      if (!skipInFlightCutoff && Number.isFinite(excludeSourceTurnId)) {
-        fillParams.push(excludeSourceTurnId)
-        fillWhere.push(`NOT (chunk_root IS NULL AND source_turn = $${fillParams.length})`)
-      }
-      fillParams.push(fillLimit)
+      applyInFlightCutoff(fillWhere, fillParams)
       const fillRows = fillLimit > 0
-        ? (await db.query(`
-            SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-                   element, category, summary, status, score, last_seen_at, project_id
-            FROM entries
-            WHERE ${fillWhere.join(' AND ')}
-            ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC
-            LIMIT $${fillParams.length}
-          `, fillParams)).rows
+        ? await selectSessionEntries(fillWhere, fillParams, fillLimit)
         : []
       if (fillRows.length > 0) rows = [...rows, ...fillRows]
     }
-    if (args.includeMembers === true) {
+    if (args.includeMembers === true || compactHandoff) {
       const rootIds = rows
         .filter((row) => Number(row.is_root) === 1)
         .map((row) => Number(row.id))
@@ -231,7 +257,7 @@ export function createQueryHandlers({
         const members = (await db.query(`
           SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
           FROM entries
-          WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
+          WHERE chunk_root = ANY($1::bigint[])
           ORDER BY chunk_root ASC, COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
         `, [rootIds])).rows
         const byRoot = new Map(rootIds.map((id) => [id, []]))
@@ -271,12 +297,7 @@ export function createQueryHandlers({
     const params = []
     const where = []
     const scope = normalizeRecallProjectScope(projectScope)
-    if (scope === null) {
-      where.push('project_id IS NULL')
-    } else if (scope !== '*') {
-      params.push(scope)
-      where.push(`(project_id IS NULL OR project_id = $${params.length})`)
-    }
+    appendProjectScopeClause(where, params, scope === null ? 'common' : scope === '*' ? 'all' : scope)
     if (category != null) {
       const cats = (Array.isArray(category) ? category : [category])
         .map((value) => String(value || '').trim().toLowerCase())
@@ -363,13 +384,7 @@ export function createQueryHandlers({
       const category = args.category
       const period = String(args.period ?? '').trim() || undefined
       const temporal = parsePeriod(period, false)
-      let projectScope
-      if (typeof args.projectScope === 'string' && args.projectScope) {
-        projectScope = args.projectScope
-      } else {
-        const projectId = resolveProjectScope(typeof args.cwd === 'string' && args.cwd ? args.cwd : null)
-        projectScope = projectId !== null ? projectId : 'common'
-      }
+      const projectScope = resolveQueryProjectScope(args, resolveProjectScope)
       const excludeStatuses = includeArchived ? [] : ['archived']
       const rows = await fetchEntriesByIdsScoped(db, ids, {
         ts_from: temporal?.startMs,
@@ -541,13 +556,7 @@ export function createQueryHandlers({
     // Derive projectScope from caller cwd (falls back to process.cwd()).
     // Explicit args.projectScope (string) takes priority so callers can
     // override to 'all', 'common', or a specific slug.
-    let projectScope
-    if (typeof args.projectScope === 'string' && args.projectScope) {
-      projectScope = args.projectScope
-    } else {
-      const projectId = resolveProjectScope(typeof args.cwd === 'string' && args.cwd ? args.cwd : null)
-      projectScope = projectId !== null ? projectId : 'common'
-    }
+    const projectScope = resolveQueryProjectScope(args, resolveProjectScope)
 
     // period='last': no time window and no session exclusion — 'last' is a
     // recent-session browse; with a query, filter those recent sessions by
@@ -647,14 +656,7 @@ export function createQueryHandlers({
             .map((row) => ({ ...row, members: [] }))
         : []
       const semanticOnlyRetrieval = isSemanticOnlyRecall(results)
-      const seenHistoricalRoots = new Set()
-      let historicalRootCandidates = [...primaryRootCandidates, ...historicalRootRows]
-        .filter((row) => {
-          const id = String(row?.id ?? '')
-          if (!id || seenHistoricalRoots.has(id)) return false
-          seenHistoricalRoots.add(id)
-          return true
-        })
+      let historicalRootCandidates = uniqueRowsById([...primaryRootCandidates, ...historicalRootRows])
       const lowHistoricalResultMode = deepHistoricalMode
         ? results.length <= 2
         : (results.length <= 5 && historicalRootRows.length <= 2)
@@ -670,20 +672,9 @@ export function createQueryHandlers({
           limit: 50,
         })
         const terms = sessionRecallTerms(retrievalQuery)
-        const coverage = (row) => {
-          const text = recallRowTopicText(row)
-          return terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0)
-        }
-        const seenRoots = new Set()
-        historicalRootCandidates = [...primaryRootCandidates, ...windowRoots, ...historicalRootRows]
-          .filter((row) => {
-            const id = String(row?.id ?? '')
-            if (!id || seenRoots.has(id)) return false
-            seenRoots.add(id)
-            return true
-          })
+        historicalRootCandidates = uniqueRowsById([...primaryRootCandidates, ...windowRoots, ...historicalRootRows])
           .sort((a, b) => (
-            coverage(b) - coverage(a)
+            topicTermCoverage(b, terms) - topicTermCoverage(a, terms)
             || Number(b?.retrievalScore ?? b?.rrf ?? 0) - Number(a?.retrievalScore ?? a?.rrf ?? 0)
             || compareRecallNewestFirst(a, b)
           ))
@@ -742,10 +733,7 @@ export function createQueryHandlers({
         // keep only raw rows whose body actually contains >=1 query term.
         const rawTerms = sessionRecallTerms(retrievalQuery)
         if (rawTerms.length > 0) {
-          newRaw = newRaw.filter((r) => {
-            const hay = `${r.content ?? ''} ${r.element ?? ''} ${r.summary ?? ''}`.toLowerCase()
-            return rawTerms.some((t) => hay.includes(t))
-          })
+          newRaw = newRaw.filter((r) => rawTerms.some((t) => recallSearchHaystack(r).includes(t)))
         }
         if (sort === 'date') {
           for (const r of newRaw) filtered.push(r)
@@ -774,16 +762,12 @@ export function createQueryHandlers({
       // identifier can still surface before cycle1 classifies it.
       if (sort !== 'date' && latestIntent) {
         const terms = latestRecallTopicTerms(retrievalQuery)
-        const coverage = (row) => {
-          const text = recallRowTopicText(row)
-          return terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0)
-        }
         const rawCoverage = filtered
           .filter((row) => Number(row?.is_root) === 0 && row?.chunk_root == null)
-          .reduce((max, row) => Math.max(max, coverage(row)), -1)
+          .reduce((max, row) => Math.max(max, topicTermCoverage(row, terms)), -1)
         const rootCoverage = filtered
           .filter((row) => Number(row?.is_root) === 1)
-          .reduce((max, row) => Math.max(max, coverage(row)), -1)
+          .reduce((max, row) => Math.max(max, topicTermCoverage(row, terms)), -1)
         promoteLatestRaw = rawCoverage > rootCoverage
         if (promoteLatestRaw) filtered = rankLatestRecallRows(filtered, retrievalQuery)
       }
@@ -886,29 +870,16 @@ export function createQueryHandlers({
       const PER_SESSION_ROW_CAP = 10
       const PER_SESSION_SEARCH_CAP = 50
       const queryTerms = sessionRecallTerms(query)
-      const matchesQueryTerms = (row) => {
-        if (queryTerms.length === 0) return true
-        const rowText = `${row?.content ?? ''} ${row?.element ?? ''} ${row?.summary ?? ''}`.toLowerCase()
-        if (queryTerms.some((term) => rowText.includes(term))) return true
-        if (Array.isArray(row?.members)) {
-          return row.members.some((member) => {
-            const memberText = `${member?.content ?? ''} ${member?.element ?? ''} ${member?.summary ?? ''}`.toLowerCase()
-            return queryTerms.some((term) => memberText.includes(term))
-          })
-        }
-        return false
-      }
       const excludeStatuses = includeArchived ? [] : ['archived']
-      const VALID_LAST_CATS = new Set(['rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue'])
       const requestedCats = category == null
         ? []
         : [...new Set((Array.isArray(category) ? category : [category])
             .map((c) => String(c).trim().toLowerCase())
-            .filter((c) => VALID_LAST_CATS.has(c)))]
+            .filter((c) => VALID_CATEGORY.has(c)))]
       // Asking for every public category is semantically unfiltered. Keeping
       // it as a restrictive filter drops fresh unclassified raw turns before
       // cycle1 assigns a category, which can hide the immediately prior chat.
-      const catList = requestedCats.length === VALID_LAST_CATS.size ? [] : requestedCats
+      const catList = requestedCats.length === VALID_CATEGORY.size ? [] : requestedCats
       // 1) Rank sessions by the timestamps the renderer actually exposes.
       //    A root with members renders those members instead of its own ts, so
       //    ranking by root MAX(ts) can disagree with the visible group head and
@@ -921,11 +892,14 @@ export function createQueryHandlers({
         includeRaw ? '(e.is_root = 1 OR e.chunk_root IS NULL OR e.chunk_root = e.id)' : 'e.is_root = 1',
       ]
       const selParams = []
-      if (projectScope === 'common') {
-        selWhere.push('e.project_id IS NULL')
-      } else if (typeof projectScope === 'string' && projectScope && projectScope !== 'all') {
-        selParams.push(projectScope)
-        selWhere.push(`(e.project_id IS NULL OR e.project_id = $${selParams.length})`)
+      const scopePred = projectScopePredicate(
+        typeof projectScope === 'string' ? projectScope : undefined,
+        selParams.length + 1,
+        { column: 'e.project_id' },
+      )
+      if (scopePred.clause) {
+        selWhere.push(scopePred.clause)
+        selParams.push(...scopePred.params)
       }
       if (catList.length > 0) {
         const ph = catList.map((c) => { selParams.push(c); return `$${selParams.length}` }).join(',')
@@ -1022,36 +996,24 @@ export function createQueryHandlers({
           } else {
             rawRows = await readRawRowsInWindow(db, null, Date.now(), perSessionFetchCap, { projectScope, sessionId: sid, terms: [] })
           }
-          const seenIds = new Set(sRows.map((r) => Number(r.id)))
-          for (const r of sRows) if (Array.isArray(r.members)) for (const m of r.members) seenIds.add(Number(m.id))
-          // readRawRowsInWindow carries no category filter, so a category-
-          // scoped last must gate raw rows here to match the ranking/fill
-          // category predicate (unclassified raw rows have no category and
-          // are correctly dropped when a category is requested).
-          let newRaw = rawRows.filter((r) => !seenIds.has(Number(r.id)))
-          if (catList.length > 0) {
-            newRaw = newRaw.filter((r) => catList.includes(String(r.category || '').trim().toLowerCase()))
-          }
-          // readRawRowsInWindow carries no status filter either, so an
-          // includeArchived:false browse must drop archived raw rows here to
-          // match the ranking/root-fill excludeStatuses predicate.
-          if (excludeStatuses.length > 0) {
-            newRaw = newRaw.filter((r) => {
+          // readRawRowsInWindow carries no category/status filter, so a
+          // category-scoped last and includeArchived:false browse must gate
+          // raw rows here to match the ranking/fill predicates.
+          merged = mergeUnseenRawRows(sRows, rawRows, (r) => {
+            if (catList.length > 0 && !catList.includes(String(r.category || '').trim().toLowerCase())) return false
+            if (excludeStatuses.length > 0) {
               const st = String(r.status || '').trim().toLowerCase()
-              return !st || !excludeStatuses.includes(st)
-            })
-          }
-          if (newRaw.length > 0) {
-            merged = [...sRows, ...newRaw]
-            merged.sort(compareRecallNewestFirst)
-          }
+              if (st && excludeStatuses.includes(st)) return false
+            }
+            return true
+          })
         }
         const fetchedCount = merged.length
         let queryFiltered = false
         if (queryTerms.length > 0) {
           const newestRows = merged.slice(0, 3)
           const newestIds = new Set(newestRows.map((r) => r.id))
-          const matchedRows = merged.filter(matchesQueryTerms)
+          const matchedRows = merged.filter((row) => rowMatchesQueryTerms(row, queryTerms))
           // A topic query must not obscure a session's latest activity: keep
           // its three newest rows, then use term matches for the remaining
           // display slots without duplicating rows already kept for recency.
@@ -1102,16 +1064,8 @@ export function createQueryHandlers({
         Math.min(500, Math.max(20, limit + offset)),
         { projectScope },
       )
-      const seenIds = new Set(rows.map(r => Number(r.id)))
       // Drop raw leaves already inlined as some returned root's member.
-      for (const r of rows) {
-        if (Array.isArray(r.members)) for (const m of r.members) seenIds.add(Number(m.id))
-      }
-      const newRaw = rawRows.filter(r => !seenIds.has(Number(r.id)))
-      if (newRaw.length > 0) {
-        merged = [...rows, ...newRaw]
-        merged.sort(compareRecallNewestFirst)
-      }
+      merged = mergeUnseenRawRows(rows, rawRows)
     }
     const sliced = merged.slice(offset, offset + limit)
     // Multi-session grouping: a GLOBAL query-less browse ("recent work") spans

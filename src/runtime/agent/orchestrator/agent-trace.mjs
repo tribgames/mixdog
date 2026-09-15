@@ -1,4 +1,5 @@
 import { isInclusiveProvider } from '../../shared/llm/cost.mjs';
+import { currentUsageContext } from '../../shared/llm/usage-context.mjs';
 import { estimateJsonBytes, hashStructuredValue } from '../../shared/json-metrics.mjs';
 import {
   appendAgentTrace,
@@ -261,6 +262,7 @@ function traceAgentUsage({
     cacheWriteTokens,
     promptTokens,
     model,
+    pricingModel,
     modelDisplay,
     responseId,
     rawUsage,
@@ -272,6 +274,10 @@ function traceAgentUsage({
     continuationResetReason,
     inputTokensInclusive,
 }) {
+    const identity = currentUsageContext();
+    provider = identity?.provider || provider;
+    sessionId = identity?.sessionId || sessionId;
+    inputTokensInclusive = identity?.inputTokensInclusive ?? inputTokensInclusive;
     const accounting = resolveTraceUsageInput({
         provider,
         inputTokens,
@@ -308,6 +314,9 @@ function traceAgentUsage({
         ...(continuationResetReason !== undefined ? { continuation_reset_reason: continuationResetReason } : {}),
         payload: {
             provider: provider || null,
+            requested_model: identity?.requestedModel || null,
+            pricing_model: pricingModel || identity?.pricingModel || null,
+            source_type: identity?.sourceType || null,
             prompt_tokens: promptTotal,
             uncached_input_tokens: accounting.uncachedInputTokens,
             thinking_tokens: thinkingTokens,

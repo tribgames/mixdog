@@ -162,9 +162,7 @@ export function makeUsageRecord(args) {
     const ts = Number(args.ts ?? Date.now());
     if (!Number.isSafeInteger(ts) || ts <= 0) throw new Error('Usage requires a valid timestamp');
     const kind = args.kind || usageRouteKind(provider);
-    const priced = args.inputTokensKnown === false
-        ? { input: 0, costUsd: null, rates: null }
-        : priceUsage({ ...args, provider, model, ts });
+    const priced = priceUsage({ ...args, provider, model, ts });
     const supplied = args.costUsd !== null && args.costUsd !== undefined && args.costUsd !== ''
         && Number.isFinite(Number(args.costUsd)) && Number(args.costUsd) >= 0;
     // OAuth/quota plans have value, not per-request invoices. A backend's
@@ -181,7 +179,10 @@ export function makeUsageRecord(args) {
         costUsd,
         costSource: kind === 'local' ? 'local' : costUsd === null ? 'unpriced'
             : subscription ? 'subscription' : reported ? 'provider' : 'catalog',
-        rates: reported ? null : priced.rates,
+        rates: reported || kind === 'local' ? {
+            requestedModel: priced.rates.requestedModel, pricingModel: priced.rates.pricingModel,
+            pricingProvider: provider, pricingSource: kind === 'local' ? 'local' : 'provider',
+        } : priced.rates,
         responseId: text(args.responseId),
         origin: args.origin || 'live',
         durationMs: number(args.durationMs),
@@ -192,6 +193,7 @@ export function makeUsageRecord(args) {
 
 export class UsageLedger {
     constructor(path) {
+        this.path = path;
         if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
         this.db = new DatabaseSync(path);
         this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
@@ -253,6 +255,27 @@ export class UsageLedger {
         this.db.prepare('INSERT OR IGNORE INTO metadata VALUES (?,?)').run('liveSince', String(ts));
     }
 
+    indexRecord(row, rank) {
+        const conversation = isConversationUsageSource(row.sourceType);
+        this.daily.run(row.day, rank, row.provider, row.model, row.kind, row.costSource,
+            Number(conversation), 1, row.input, row.output, row.cacheRead, row.cacheWrite,
+            row.costUsd ?? 0, row.durationMs, Number(row.origin !== 'live'));
+        if (conversation && row.sessionId) this.session.run(row.day, rank, row.sessionId,
+            row.input + row.output + row.cacheRead + row.cacheWrite);
+    }
+
+    // Caller owns the transaction; only derived indexes are rebuilt.
+    rebuildIndexes() {
+        this.db.exec('DELETE FROM daily; DELETE FROM day_sessions;');
+        for (const row of this.db.prepare('SELECT * FROM events').iterate()) {
+            this.indexRecord({
+                ...row, sourceType: row.source_type, sessionId: row.session_id,
+                costSource: row.cost_source, costUsd: row.cost_usd,
+                cacheRead: row.cache_read, cacheWrite: row.cache_write, durationMs: row.duration_ms,
+            }, row.rank);
+        }
+    }
+
     record(rows) {
         let inserted = 0;
         this.db.exec('BEGIN IMMEDIATE');
@@ -266,12 +289,7 @@ export class UsageLedger {
                     rates: row.rates ? JSON.stringify(row.rates) : null,
                     duration_ms: row.durationMs, rank,
                 })) continue;
-                const conversation = isConversationUsageSource(row.sourceType);
-                this.daily.run(row.day, rank, row.provider, row.model, row.kind, row.costSource,
-                    Number(conversation), 1, row.input, row.output, row.cacheRead, row.cacheWrite,
-                    row.costUsd ?? 0, row.durationMs, Number(row.origin !== 'live'));
-                if (conversation && row.sessionId) this.session.run(row.day, rank, row.sessionId,
-                    row.input + row.output + row.cacheRead + row.cacheWrite);
+                this.indexRecord(row, rank);
                 if (row.origin === 'live' && !this.get('liveSince')) this.set('liveSince', row.ts);
                 inserted += 1;
             }
@@ -298,13 +316,14 @@ export class UsageLedger {
     }
 
     /** Read cached amounts; group retained attribution separately for distinct sessions. */
-    rollup({ hourlyDay = null, fromDay = '0000-01-01', toDay = '9999-12-31' } = {}) {
+    rollup({ hourlyDay = null, fromDay = '0000-01-01', toDay = '9999-12-31',
+        fromMs = null, toMs = null } = {}) {
         const days = {};
         const hourly = hourlyDay ? { rows: [], unallocated: [] } : null;
-        const fromTs = fromDay === '0000-01-01' ? 0 : new Date(`${fromDay}T00:00:00`).getTime();
+        const fromTs = fromMs ?? (fromDay === '0000-01-01' ? 0 : new Date(`${fromDay}T00:00:00`).getTime());
         const end = toDay === '9999-12-31' ? null : new Date(`${toDay}T00:00:00`);
         if (end) end.setDate(end.getDate() + 1);
-        const toTs = end ? end.getTime() : Number.MAX_SAFE_INTEGER;
+        const toTs = toMs == null ? (end ? end.getTime() : Number.MAX_SAFE_INTEGER) : toMs + 1;
         const empty = () => ({
             turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0,
             costBilled: 0, costEstimated: 0, costKnownTurns: 0, durationMs: 0, durationTurns: 0,
@@ -335,17 +354,34 @@ export class UsageLedger {
             const end = new Date(start);
             end.setDate(end.getDate() + 1);
             hourly.rows = this.db.prepare(`
-                SELECT e.ts,e.provider,e.source_type,e.input,e.output,e.cost_usd
+                SELECT e.ts,e.provider,e.source_type,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd
                 FROM events e JOIN (${best}) b USING(day,provider,model,rank)
                 WHERE e.ts>=? AND e.ts<? ORDER BY e.ts
-            `).all(fromDay, toDay, start.getTime(), end.getTime()).map((row) => {
-                const usage = normalizeUsageMeasurement(row.provider,
-                    { turns: 1, input: row.input, costUsd: row.cost_usd });
-                return { ...row, input: usage.input, cost_usd: usage.costUsd,
-                    unmeasuredTurns: usage.unmeasuredTurns || 0 };
+            `).all(fromDay, toDay, fromMs == null ? start.getTime() : fromTs,
+                toMs == null ? end.getTime() : toTs).map((row) => {
+                const usage = normalizeUsageMeasurement(row.provider, { turns: 1, input: row.input,
+                    cacheRead: row.cache_read, cacheWrite: row.cache_write, costUsd: row.cost_usd });
+                return { ...row, input: usage.input, cache_read: usage.cacheRead, cache_write: usage.cacheWrite,
+                    cost_usd: usage.costUsd, unmeasuredTurns: usage.unmeasuredTurns || 0 };
             });
         }
-        for (const row of this.db.prepare(`SELECT d.* FROM daily d JOIN (${best}) b USING(day,provider,model,rank)`).all(fromDay, toDay)) {
+        // Partial calendar days must be rebuilt from retained timestamps;
+        // cached whole-day totals would include usage outside a rolling window.
+        const amounts = fromMs == null
+            ? this.db.prepare(`SELECT d.* FROM daily d JOIN (${best}) b USING(day,provider,model,rank)`).all(fromDay, toDay)
+            : this.db.prepare(`
+                SELECT e.day,e.rank,e.provider,e.model,e.kind,e.cost_source,e.source_type,
+                    COUNT(*) AS turns,SUM(e.input) AS input,SUM(e.output) AS output,
+                    SUM(e.cache_read) AS cache_read,SUM(e.cache_write) AS cache_write,
+                    SUM(e.cost_usd) AS cost_usd,SUM(e.duration_ms) AS duration_ms,
+                    MAX(e.origin!='live') AS imported
+                FROM events e JOIN (${best}) b USING(day,provider,model,rank)
+                WHERE e.ts>=? AND e.ts<?
+                GROUP BY e.day,e.rank,e.provider,e.model,e.kind,e.cost_source,e.source_type
+            `).all(fromDay, toDay, fromTs, toTs).map((row) => ({
+                ...row, conversation: isConversationUsageSource(row.source_type),
+            }));
+        for (const row of amounts) {
             const day = days[row.day] ||= { ...empty(), models: {}, sessions: {}, conversation: empty() };
             const key = `${row.provider}/${row.model}`;
             const route = day.models[key] ||= {
@@ -395,6 +431,9 @@ export class UsageLedger {
                 }
             }
         }
+        // Timeless legacy totals cannot establish membership in a 24-hour window.
+        // They remain available in the calendar/history views.
+        if (fromMs != null) return hourly ? { days, hourly } : { days };
         for (const row of this.db.prepare('SELECT day,document FROM legacy_days WHERE day BETWEEN ? AND ?').all(fromDay, toDay)) {
             const legacy = normalizeLegacyUsageDay(JSON.parse(row.document));
             const day = days[row.day];

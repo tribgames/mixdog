@@ -22,6 +22,7 @@ const summary = [
 function fixture() {
     const session = {
         id: 'rolling-fixture', provider: 'fixture-main', model: 'main-model',
+        compaction: { conversationThresholdTokens: 1 },
         contextWindow: 100_000, tools: [],
         messages: [
             { role: 'system', content: 'immutable system rules' },

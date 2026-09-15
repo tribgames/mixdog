@@ -168,6 +168,31 @@ export function sessionRecallTerms(query) {
   return [...new Set(tokenizeRecallQuery(query, 12))]
 }
 
+export function recallSearchHaystack(row) {
+  return `${row?.content ?? ''} ${row?.element ?? ''} ${row?.summary ?? ''}`.toLowerCase()
+}
+
+function recallRoleTag(role) {
+  if (role === 'user') return 'u'
+  if (role === 'assistant') return 'a'
+  return role || '?'
+}
+
+function historicalEventMark(row, enabled = true) {
+  if (!enabled) return ''
+  const rootElement = cleanMemoryText(String(row?._historicalRootElement ?? ''))
+  const rootSummary = cleanMemoryText(String(row?._historicalRootSummary ?? ''))
+  if (!rootElement && !rootSummary) return ''
+  return ` [event: ${rootElement}${rootSummary ? `${rootElement ? ' — ' : ''}${rootSummary}` : ''}]`
+}
+
+function recallStandaloneBody(r) {
+  const element = r?.element ?? ''
+  const summary = r?.summary ?? ''
+  if (element || summary) return `${element}${summary ? ' — ' + summary : ''}`
+  return r?._compactRaw ? String(r.content ?? '') : cleanMemoryText(String(r.content ?? ''))
+}
+
 export function interleaveRawRows(hybridRows, rawRows) {
   if (!Array.isArray(rawRows) || rawRows.length === 0) return hybridRows
   const out = []
@@ -251,48 +276,38 @@ export function renderEntryLines(rows, {
       })
       continue
     }
+    if (r?._compactBody) {
+      units.push({
+        id: r.id, ts: Number(r.ts) || 0, source_turn: r.source_turn,
+        session_id: r.session_id, text: String(r.summary ?? ''),
+      })
+      continue
+    }
     const hasMembers = Array.isArray(r.members) && r.members.length > 0
     if (hasMembers) {
       // Chunks present: emit each member as its own line. Root row is a
       // grouping artifact for retrieval — the caller wants the chunk
       // content (cycle1 raw), not the cycle2-compressed summary.
       for (const [memberIndex, m] of r.members.entries()) {
-        const role = m.role === 'user' ? 'u' : m.role === 'assistant' ? 'a' : (m.role || '?')
         const content = boundBody(cleanMemoryText(String(m.content ?? '')))
-        const rootElement = memberIndex === 0 ? cleanMemoryText(String(r._historicalRootElement ?? '')) : ''
-        const rootSummary = memberIndex === 0 ? cleanMemoryText(String(r._historicalRootSummary ?? '')) : ''
-        const rootContext = rootElement || rootSummary
-          ? ` [event: ${rootElement}${rootSummary ? `${rootElement ? ' — ' : ''}${rootSummary}` : ''}]`
-          : ''
         units.push({
           id: m.id,
           ts: Number(m.ts) || 0,
           source_turn: m.source_turn,
           session_id: m.session_id,
-          text: `${stamp(m)}${role}: ${content}${rootContext}${timeSourceMark(m)} #${m.id}`,
+          text: `${stamp(m)}${recallRoleTag(m.role)}: ${content}${historicalEventMark(r, memberIndex === 0)}${timeSourceMark(m)} #${m.id}`,
         })
       }
     } else {
       // No chunks (root not yet chunked by cycle1, or orphan leaf): emit
       // the row itself in the same shape. element/summary fall back to
       // raw content when both are absent.
-      const element = r.element ?? ''
-      const summary = r.summary ?? ''
       // Standalone leaf rows (is_root=0, no parent chunks_root resolved
       // into a `members` list) carry their u/a role just like inline
       // chunk members — surface it so the format stays consistent across
       // the two emission paths.
-      const rolePrefix = r.is_root === 0 && r.role
-        ? (r.role === 'user' ? 'u: ' : r.role === 'assistant' ? 'a: ' : `${r.role}: `)
-        : ''
-      const body = element || summary
-        ? `${element}${summary ? ' — ' + summary : ''}`
-        : cleanMemoryText(String(r.content ?? ''))
-      const rootElement = cleanMemoryText(String(r._historicalRootElement ?? ''))
-      const rootSummary = cleanMemoryText(String(r._historicalRootSummary ?? ''))
-      const rootContext = rootElement || rootSummary
-        ? ` [event: ${rootElement}${rootSummary ? `${rootElement ? ' — ' : ''}${rootSummary}` : ''}]`
-        : ''
+      const rolePrefix = r.is_root === 0 && r.role ? `${recallRoleTag(r.role)}: ` : ''
+      const body = recallStandaloneBody(r)
       // Unchunked raw leaf (cycle1 hasn't classified it yet): mark it so
       // callers can tell fresh-but-unprocessed rows from chunked memory.
       const pendingMark = pendingMarks && (r.is_root === 0 && r.chunk_root == null) ? ' [pending]' : ''
@@ -301,7 +316,7 @@ export function renderEntryLines(rows, {
         ts: Number(r.ts) || 0,
         source_turn: r.source_turn,
         session_id: r.session_id,
-        text: `${stamp(r)}${rolePrefix}${boundBody(body)}${rootContext}${pendingMark}${timeSourceMark(r)} #${r.id}`,
+        text: `${stamp(r)}${rolePrefix}${boundBody(body)}${historicalEventMark(r)}${pendingMark}${timeSourceMark(r)} #${r.id}`,
       })
     }
   }
@@ -346,12 +361,7 @@ function exactDuplicateKey(r) {
       cleanMemoryText(String(m?.content ?? '')),
     ])])
   }
-  const element = r?.element ?? ''
-  const summary = r?.summary ?? ''
-  const body = (element || summary)
-    ? `${element}${summary ? ' — ' + summary : ''}`
-    : cleanMemoryText(String(r?.content ?? ''))
-  return JSON.stringify([r?.role ?? '', body])
+  return JSON.stringify([r?.role ?? '', recallStandaloneBody({ ...r, _compactRaw: false })])
 }
 
 // Legacy object-identity-only ingest could mint duplicate rows on JSON reload.

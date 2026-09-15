@@ -7,6 +7,7 @@ import { DESKTOP_IPC, type DesktopBrowserPageFrame } from '../../shared/contract
 import { measureBrowserPresentation } from './input-surface-performance';
 import { exerciseBrowserErrorNotice } from './input-surface-errors';
 import { exerciseBrowserPrompts } from './input-surface-prompts';
+import { exerciseBrowserIme } from './input-surface-ime';
 
 export async function readyBrowserFrame(host: BrowserHost, sessionId: string): Promise<DesktopBrowserPageFrame> {
   const { eventually } = createPolling({ timeoutMs: 8000, intervalMs: 50 });
@@ -65,8 +66,8 @@ export async function exerciseBrowserInputSurface(options: {
     log('waiting for local display');
     await eventually(
       () => shell.executeJavaScript(`(() => {
-        const image = document.querySelector('.browser-isolated-view img');
-        return Boolean(window.fixtureReady && image?.naturalWidth);
+        const image = document.querySelector('.browser-isolated-pixels > :first-child');
+        return Boolean(window.fixtureReady && (image?.naturalWidth || image?.width));
       })()`),
       Boolean,
     );
@@ -85,7 +86,7 @@ export async function exerciseBrowserInputSurface(options: {
       await shell.executeJavaScript(`document.getElementById('browser-dock').style.width = '420px'`);
       await shell.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
       assert.equal(await shell.executeJavaScript(
-        `getComputedStyle(document.querySelector('.browser-isolated-view img')).visibility`), 'hidden',
+        `getComputedStyle(document.querySelector('.browser-isolated-pixels > :first-child')).visibility`), 'hidden',
       'old pixels must not stretch into the resized pane while a new frame is pending');
     } finally {
       host.browserPageFrame = originalCapture;
@@ -96,8 +97,8 @@ export async function exerciseBrowserInputSurface(options: {
     await shell.executeJavaScript(`document.getElementById('browser-dock').style.width = '600px'`);
     await eventually(() => readFrame('visible-session'), value => value.width === 600);
     await eventually(() => shell.executeJavaScript(`(() => {
-      const image = document.querySelector('.browser-isolated-view img');
-      return image?.naturalWidth === 600 && getComputedStyle(image).visibility === 'visible';
+      const image = document.querySelector('.browser-isolated-pixels > :first-child');
+      return (image?.naturalWidth || image?.width) === 600 && getComputedStyle(image).visibility === 'visible';
     })()`), Boolean);
     const point = await guest.executeJavaScript(`(() => {
       const r = document.getElementById('agent').getBoundingClientRect();
@@ -105,7 +106,7 @@ export async function exerciseBrowserInputSurface(options: {
     })()`);
     const frame = await readFrame('visible-session');
     const bounds = await shell.executeJavaScript(`(() => {
-      const r = document.querySelector('.browser-isolated-view img').getBoundingClientRect();
+      const r = document.querySelector('.browser-isolated-pixels > :first-child').getBoundingClientRect();
       return {x:r.x,y:r.y,width:r.width,height:r.height};
     })()`);
     const scale = Math.min(bounds.width / frame.width, bounds.height / frame.height);
@@ -119,6 +120,8 @@ export async function exerciseBrowserInputSurface(options: {
     await eventually(() => guest.executeJavaScript(`document.getElementById('agent').value`), value => value === 'manual 한글');
     assert.equal(await shell.executeJavaScript(`document.getElementById('draft').textContent`), 'keep editing');
     log('local display click and Korean text reached only its page');
+    await exerciseBrowserIme(shell, guest, 'agent', 'manual 한글');
+    log('native Korean composition updates, commits, cancellation and mixed English input passed');
 
     const child = guest.mainFrame.frames.find(frame => frame.url.endsWith('/frame'));
     assert.ok(child);
@@ -141,6 +144,8 @@ export async function exerciseBrowserInputSurface(options: {
     await eventually(() => child.executeJavaScript(`document.getElementById('frame').value`),
       value => value === 'iframe 한글');
     assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'manual 한글');
+    await exerciseBrowserIme(shell, child, 'frame', 'iframe 한글');
+    log('native Korean composition in a cross-origin iframe passed');
     await new Promise(resolve => setTimeout(resolve, 1100));
     let iframeWaitFinished = false;
     const iframeWait = command('visible-session', {
@@ -286,6 +291,14 @@ export async function exerciseBrowserInputSurface(options: {
         paints.push(image);
         if (paints.length > 8) paints.shift();
       };
+      // GPU OSR paints carry textures, not bitmap pixels. Observe the actual
+      // native capture input too, rather than comparing against an empty paint.
+      const capturePage = guest.capturePage;
+      guest.capturePage = async (...args: Parameters<WebContents['capturePage']>) => {
+        const image = await capturePage.apply(guest, args);
+        rememberPaint(undefined, undefined, image);
+        return image;
+      };
       guest.on('paint', rememberPaint);
       let resized: DesktopBrowserPageFrame;
       try {
@@ -294,7 +307,10 @@ export async function exerciseBrowserInputSurface(options: {
         });
         await host.configureGuestViewport('visible-session', guest.id, { ...config, userAgent: null });
         resized = await readFrame('visible-session');
-      } finally { guest.removeListener('paint', rememberPaint); }
+      } finally {
+        guest.removeListener('paint', rememberPaint);
+        guest.capturePage = capturePage;
+      }
       assert.ok(resized.image);
       const decoded = nativeImage.createFromBuffer(Buffer.from(resized.image.data, 'base64'));
       const bitmap = decoded.toBitmap();
@@ -453,8 +469,8 @@ export async function exerciseBrowserInputSurface(options: {
     }
     log(JSON.stringify(await diagnostic(shell.executeJavaScript(`({
       active: document.activeElement?.className,
-      image: (() => { const image = document.querySelector('.browser-isolated-view img');
-        return image ? {width:image.naturalWidth,height:image.naturalHeight,box:image.getBoundingClientRect().toJSON()} : null; })(),
+      image: (() => { const image = document.querySelector('.browser-isolated-pixels > :first-child');
+        return image ? {width:image.naturalWidth || image.width,height:image.naturalHeight || image.height,box:image.getBoundingClientRect().toJSON()} : null; })(),
       notices: [...document.querySelectorAll('[role="status"]')].map(node => node.textContent),
     })`))));
     log(JSON.stringify(guest.isDestroyed() ? { destroyed: true } : await diagnostic(guest.executeJavaScript(`({

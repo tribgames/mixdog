@@ -1,11 +1,13 @@
-// Static asset serving shared by the two browser-facing HTTP surfaces: the
-// relay (apps/relay/server.mjs, plain node on the VPS). The MIME table,
+// Static asset serving for the relay (apps/relay/server.mjs). The MIME table,
 // path-escape guard, SPA fallback rule, gzip negotiation and pairing cookie
 // live here outside the server entrypoint.
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createGzip } from 'node:zlib';
+
+import { HASHED_ASSET_NAME } from './hashed-asset-name.mjs';
+export { HASHED_ASSET_NAME };
 
 export const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -37,6 +39,14 @@ export const DEVICE_COOKIE_NAME = 'mixdog_device';
 // (gzip would only burn CPU).
 const COMPRESSIBLE_TYPE = /^(?:text\/|application\/(?:json|wasm)|image\/svg)/;
 const COMPRESS_MIN_BYTES = 1024;
+const NO_CACHE_SUFFIXES = [
+  'index.html',
+  'manifest.webmanifest',
+  'sw.js',
+  'sw-shell.js',
+  'ui-language.js',
+  'boot.js',
+];
 // Siblings written by `npm run stage:web` next to each text asset.
 const PRECOMPRESSED_EXTENSIONS = new Set(['.br', '.gz']);
 // Keep validators, not asset bodies, across requests. Release swaps and
@@ -129,25 +139,25 @@ export function parseCookieDevice(header) {
   return parseCookieValue(header, DEVICE_COOKIE_NAME);
 }
 
+function cookieHeader(name, value, request, { httpOnly = false } = {}) {
+  if (!value) return {};
+  const secure = request?.socket?.encrypted ? '; Secure' : '';
+  const flags = httpOnly ? 'HttpOnly; ' : '';
+  return {
+    'Set-Cookie': `${name}=${encodeURIComponent(value)}; Path=/; `
+      + `Max-Age=31536000; ${flags}SameSite=Lax${secure}`,
+  };
+}
+
 /** Headers that persist the entry token; empty when the request had none. */
 export function pairingCookieHeaders(queryToken, request) {
-  if (!queryToken) return {};
-  const secure = request?.socket?.encrypted ? '; Secure' : '';
-  return {
-    'Set-Cookie': `${PAIRING_COOKIE_NAME}=${encodeURIComponent(queryToken)}; Path=/; `
-      + `Max-Age=31536000; HttpOnly; SameSite=Lax${secure}`,
-  };
+  return cookieHeader(PAIRING_COOKIE_NAME, queryToken, request, { httpOnly: true });
 }
 
 /** Not HttpOnly on purpose: it names no secret, and the app shell reads it to
  *  recover its device route when a navigation lands outside /d/<id>/. */
 export function deviceCookieHeaders(deviceId, request) {
-  if (!deviceId) return {};
-  const secure = request?.socket?.encrypted ? '; Secure' : '';
-  return {
-    'Set-Cookie': `${DEVICE_COOKIE_NAME}=${encodeURIComponent(deviceId)}; Path=/; `
-      + `Max-Age=31536000; SameSite=Lax${secure}`,
-  };
+  return cookieHeader(DEVICE_COOKIE_NAME, deviceId, request);
 }
 
 /** One response may set both cookies; a plain object spread would drop one. */
@@ -309,17 +319,24 @@ export function selectPrecompressed(target, acceptEncoding, fileExists = existsS
 }
 
 /** Stream a resolved file with cache/compression/HEAD handling. */
+function cacheControlForTarget(target, hashedAsset) {
+  if (NO_CACHE_SUFFIXES.some((suffix) => target.endsWith(suffix))) return 'no-cache';
+  return hashedAsset
+    ? 'public, max-age=31536000, immutable'
+    : 'public, max-age=86400';
+}
+
 export function sendStaticFile(request, response, target, extraHeaders = {}) {
   const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
   const size = statSync(target).size;
   const hashedAsset = target.split(sep).includes('assets')
-    && /-[A-Za-z0-9_-]{8,}\.[^.]+$/.test(target);
-  const precompressed = COMPRESSIBLE_TYPE.test(type) && size > COMPRESS_MIN_BYTES
+    && HASHED_ASSET_NAME.test(target);
+  const compressible = COMPRESSIBLE_TYPE.test(type) && size > COMPRESS_MIN_BYTES;
+  const precompressed = compressible
     ? selectPrecompressed(target, request.headers['accept-encoding'])
     : null;
   const gzip = !precompressed
-    && COMPRESSIBLE_TYPE.test(type)
-    && size > COMPRESS_MIN_BYTES
+    && compressible
     && encodingAccepted(request.headers['accept-encoding'], 'gzip');
   const headers = {
     ...browserSecurityHeadersForTarget(target),
@@ -330,16 +347,7 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
     // (no-cache) handed it a NEW hashed bundle, and the mismatched pair
     // rendered the PWA shrunk to a fraction of the screen. It revalidates with
     // the document it belongs to.
-    'Cache-Control': target.endsWith('index.html')
-      || target.endsWith('manifest.webmanifest')
-      || target.endsWith('sw.js')
-      || target.endsWith('sw-shell.js')
-      || target.endsWith('ui-language.js')
-      || target.endsWith('boot.js')
-      ? 'no-cache'
-      : hashedAsset
-        ? 'public, max-age=31536000, immutable'
-        : 'public, max-age=86400',
+    'Cache-Control': cacheControlForTarget(target, hashedAsset),
     Vary: 'Accept-Encoding',
     ETag: staticEtag(precompressed?.path || target, precompressed?.encoding || (gzip ? 'gzip' : 'identity')),
     ...extraHeaders,
