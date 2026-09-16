@@ -1,0 +1,44 @@
+{
+  "calls": [
+    {
+      "name": "plain",
+      "line": 11,
+      "col": 8,
+      "endCol": 13,
+      "kind": "call",
+      "inSymbol": ""
+    },
+    {
+      "name": "inner",
+      "line": 14,
+      "col": 2,
+      "endCol": 7,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "nest",
+      "line": 15,
+      "col": 2,
+      "endCol": 6,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "leaf",
+      "line": 15,
+      "col": 7,
+      "endCol": 11,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "seed",
+      "line": 20,
+      "col": 26,
+      "endCol": 30,
+      "kind": "call",
+      "inSymbol": "seed_line"
+    }
+  ]
+}

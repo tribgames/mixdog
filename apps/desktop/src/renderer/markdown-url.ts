@@ -13,15 +13,20 @@ function decodePath(value: string): string {
   try { return decodeURIComponent(value); } catch { return value; }
 }
 
-/** A chat link's path relative to the conversation's Project, or null when it
- *  points outside it. A bare name (no folder) comes back unchanged so the
- *  caller can look it up in the Project. */
-export function projectRelativeFilePath(projectPath: string, path: string): string | null {
+/** Decode a local href once, preserving its absolute path outside Projects. */
+export function localMarkdownPath(path: string): string {
   let target = String(path || "").trim();
   if (/^file:/i.test(target)) {
     target = target.replace(/^file:\/\/(?:localhost)?/i, "").replace(/^\/(?=[a-z]:)/i, "");
   }
-  target = decodePath(target.split(/[?#]/, 1)[0]).replace(/\\/g, "/");
+  return decodePath(target.split(/[?#]/, 1)[0]).replace(/\\/g, "/");
+}
+
+/** A chat link's path relative to the conversation's Project, or null when it
+ *  points outside it. A bare name (no folder) comes back unchanged so the
+ *  caller can look it up in the Project. */
+export function projectRelativeFilePath(projectPath: string, path: string): string | null {
+  let target = localMarkdownPath(path);
   const root = String(projectPath || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
   const drivePath = (value: string) => /^[a-z]:\//i.test(value);
   if (drivePath(target) || target.startsWith("/")) {

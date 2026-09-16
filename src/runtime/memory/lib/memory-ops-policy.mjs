@@ -3,6 +3,7 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 import fs from 'node:fs'
 import path from 'node:path'
 import { mixdogHome } from '../../shared/plugin-paths.mjs'
+import { throwIfAborted } from './memory-cycle2-shared.mjs'
 
 function normalizeBackfillWindow(value) {
   const normalized = String(value ?? 'all').trim().toLowerCase()
@@ -30,13 +31,8 @@ function resolveBackfillSinceMs(windowValue, now = Date.now()) {
 }
 
 async function countUnclassified(db) {
-  if (!db) return 0
-  try {
-    const row = (await db.query(`SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL`, [])).rows[0]
-    return Number(row?.c ?? 0)
-  } catch {
-    return 0
-  }
+  const row = (await db.query(`SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL`, [])).rows[0]
+  return Number(row?.c ?? 0)
 }
 
 function selectBackfillTranscripts({ sinceMs = null, limit = null, projectsRoot = null } = {}) {
@@ -77,7 +73,9 @@ export async function runFullBackfill(db, {
   runCycle2,
   now = Date.now(),
   projectsRoot = null,
+  signal,
 } = {}) {
+  throwIfAborted(signal)
   if (typeof ingestTranscriptFile !== 'function') {
     throw new Error('runFullBackfill: ingestTranscriptFile required')
   }
@@ -91,29 +89,39 @@ export async function runFullBackfill(db, {
   const selected = selectBackfillTranscripts({ sinceMs, limit, projectsRoot })
 
   let ingested = 0
+  const errors = []
   let cursor = 0
   const workers = Array.from({ length: BACKFILL_CONCURRENCY }, async () => {
     while (cursor < selected.length) {
+      throwIfAborted(signal)
       const idx = cursor++
       const fp = selected[idx]
       try {
         const cwd = typeof cwdFromTranscriptPath === 'function' ? cwdFromTranscriptPath(fp) : undefined
-        const n = Number(await ingestTranscriptFile(fp, { cwd }) ?? 0)
+        const n = Number(await ingestTranscriptFile(fp, { cwd, signal }) ?? 0)
         ingested += n
       } catch (err) {
+        throwIfAborted(signal)
+        errors.push({ stage: 'ingest', path: fp, error: err.message })
         __mixdogMemoryLog(`[backfill] ingest failed (${fp}): ${err.message}\n`)
       }
     }
   })
-  await Promise.all(workers)
+  const settled = await Promise.allSettled(workers)
+  const failed = settled.find(result => result.status === 'rejected')
+  if (failed) throw failed.reason
+  throwIfAborted(signal)
 
   let cycle1Iters = 0
   let prevUnclassified = await countUnclassified(db)
   while (prevUnclassified > 0 && cycle1Iters < FULL_BACKFILL_MAX_ITERS) {
+    throwIfAborted(signal)
     let result
     try {
-      result = await runCycle1(db, config?.cycle1 || {}, {}, dataDir)
+      result = await runCycle1(db, config?.cycle1 || {}, { signal }, dataDir)
     } catch (err) {
+      throwIfAborted(signal)
+      errors.push({ stage: 'cycle1', error: err.message })
       __mixdogMemoryLog(`[backfill] cycle1 error (iter=${cycle1Iters}): ${err.message}\n`)
       break
     }
@@ -124,22 +132,28 @@ export async function runFullBackfill(db, {
     prevUnclassified = nextUnclassified
   }
 
-  let promoted = 0
+  let reviewed = 0
   try {
-    const c2 = await runCycle2(db, config?.cycle2 || {}, {}, dataDir)
-    promoted = Number(c2?.promoted ?? 0)
+    throwIfAborted(signal)
+    const c2 = await runCycle2(db, config?.cycle2 || {}, { signal })
+    reviewed = Number(c2?.processed ?? 0)
+    if (c2?.ok === false) throw new Error(c2.error || 'cycle2 failed')
   } catch (err) {
+    throwIfAborted(signal)
+    errors.push({ stage: 'cycle2', error: err.message })
     __mixdogMemoryLog(`[backfill] cycle2 error: ${err.message}\n`)
   }
 
   const unclassified = await countUnclassified(db)
   return {
+    ok: errors.length === 0,
+    ...(errors.length ? { error: errors.map(item => `${item.stage}: ${item.error}`).join('; '), errors } : {}),
     window: normalizedWindow,
     scope: normalizedScope,
     files: selected.length,
     ingested,
     cycle1_iters: cycle1Iters,
-    promoted,
+    reviewed,
     unclassified,
   }
 }

@@ -1,53 +1,10 @@
 // Provider request-tool resolution + JSON-safe snapshot machinery, extracted from tool-catalog.mjs.
 import { clean } from './session-text.mjs';
+import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
 import {
   finalizeProviderRequestTools,
 } from './provider-request-tools.mjs';
 import { parseToolSelection, ANTHROPIC_NATIVE_PROVIDERS } from './tool-catalog-schema.mjs';
-
-export function resolveProviderRequestTools({
-  provider,
-  tools,
-  messages,
-  session,
-} = {}) {
-  const activeTools = Array.isArray(tools) ? tools : [];
-  const normalizedProvider = clean(provider || session?.provider).toLowerCase();
-  if (!ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider)
-    || session?.deferredNativeTools !== true
-    || activeTools.length === 0) {
-    return activeTools;
-  }
-  const discovered = new Set(
-    parseToolSelection(session?.deferredDiscoveredTools),
-  );
-  for (const message of Array.isArray(messages) ? messages : []) {
-    const native = message?.nativeToolSearch;
-    const source = clean(native?.provider).toLowerCase();
-    if (source && source !== normalizedProvider
-      && !(ANTHROPIC_NATIVE_PROVIDERS.has(source)
-        && ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider))) continue;
-    for (const name of parseToolSelection(native?.toolReferences)) discovered.add(name);
-  }
-  if (discovered.size === 0) return activeTools;
-  const activeNames = new Set(activeTools.map((tool) => clean(tool?.name)).filter(Boolean));
-  const catalogByName = new Map();
-  for (const tool of [
-    ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
-    ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
-  ]) {
-    const name = clean(tool?.name);
-    if (name) catalogByName.set(name, tool);
-  }
-  const catalog = [...catalogByName.values()];
-  const deferredTools = catalog
-    .filter((tool) => {
-      const name = clean(tool?.name);
-      return name && discovered.has(name) && !activeNames.has(name);
-    })
-    .map((tool) => ({ ...tool, deferLoading: true }));
-  return deferredTools.length ? [...activeTools, ...deferredTools] : activeTools;
-}
 
 const OMIT_REQUEST_TOOL_VALUE = Symbol('omit-request-tool-value');
 const MAX_PROVIDER_SNAPSHOT_ARRAY_LENGTH = 1_000_000;
@@ -265,7 +222,7 @@ export function snapshotProviderRequestTools(options = {}) {
     }
     if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return;
     const name = clean(normalized.name);
-    if (!name || names.has(name)) return;
+    if (!name || names.has(name) || !isDeferredToolAvailable(session, name)) return;
     names.add(name);
     if (!deferred) {
       snapshots.push(normalized);

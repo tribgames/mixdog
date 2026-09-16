@@ -17,7 +17,7 @@ const renderers = {
   }),
 };
 
-async function mount(t, render, text, project = 'C:/Project/conversation') {
+async function mount(t, render, text, project = 'C:/Project/conversation', configure = () => {}) {
   const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'https://mixdog.test/' });
   const previous = new Map(['window', 'document', 'IS_REACT_ACT_ENVIRONMENT']
     .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -49,12 +49,11 @@ async function mount(t, render, text, project = 'C:/Project/conversation') {
   };
   dom.window.open = (...args) => { popups.push(args); };
   dom.window.addEventListener(DESKTOP_TOAST_EVENT, (event) => toasts.push(event.detail));
-  const update = async (nextProject) => act(async () => {
+  const update = async (nextProject, nextText = text) => act(async () => {
     root.render(React.createElement(MarkdownProjectContext.Provider, { value: nextProject },
       React.createElement(MarkdownOpenFileContext.Provider,
-        { value: (...args) => { opened.push(args); } }, render(text))));
+        { value: (...args) => { opened.push(args); } }, render(nextText))));
   });
-  await update(project);
   const links = () => [...dom.window.document.querySelectorAll('a')];
   // Link text without the Seti glyph that file links carry.
   const labels = () => links().map((a) => [...a.childNodes]
@@ -69,7 +68,10 @@ async function mount(t, render, text, project = 'C:/Project/conversation') {
       links()[index].dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
     });
   };
-  return { dom, local, external, popups, toasts, opened, files, links, labels, click, hover, update };
+  const fixture = { dom, local, external, popups, toasts, opened, files, links, labels, click, hover, update };
+  configure(fixture);
+  await update(project);
+  return fixture;
 }
 
 const PROJECT = 'C:/Project/conversation';
@@ -95,11 +97,10 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       `[source](${other}/src/app.ts:12)`,
       `[folder](${other}/output/)`,
       `[script](${other}/run.ps1)`,
-    ].join('\n\n'));
-    installProjectFiles(f, {
+    ].join('\n\n'), PROJECT, (f) => installProjectFiles(f, {
       [PROJECT]: [],
       [other]: ['favicon.svg', 'assets/aiscroll-favicon.svg', 'output/report.pptx', 'src/app.ts', 'output', 'run.ps1'],
-    });
+    }));
     for (let index = 0; index < 7; index++) await f.click(index);
     assert.deepEqual(f.opened, [
       [other, 'favicon.svg', undefined],
@@ -115,8 +116,8 @@ for (const [pipeline, render] of Object.entries(renderers)) {
 
   test(`${pipeline}: cwd changes retarget file links and discard the previous Project tooltip`, async (t) => {
     const other = 'C:/Project/GamerScroll';
-    const f = await mount(t, render, '`src/app.ts`');
-    installProjectFiles(f, { [PROJECT]: ['src/app.ts'], [other]: ['src/app.ts'] });
+    const f = await mount(t, render, '`src/app.ts`', PROJECT, (f) =>
+      installProjectFiles(f, { [PROJECT]: ['src/app.ts'], [other]: ['src/app.ts'] }));
     await f.hover(0);
     assert.equal(f.links()[0].title, `${PROJECT}/src/app.ts`);
     await f.update(other);
@@ -126,11 +127,109 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.toasts.length, 0);
   });
 
+  test(`${pipeline}: explicit external paths open with file-scoped access, including file URLs and line numbers`, async (t) => {
+    const outside = 'C:/private';
+    const f = await mount(t, render, [
+      '`C:/private/source.ts:12`',
+      '[encoded](file:///C:/private/%ED%95%9C%EA%B8%80%20100%25%20%231.ts#L7)',
+      '[document](C:/private/report.pdf)',
+      '[folder](C:/private/output/)',
+      '[script](C:/private/run.ps1)',
+      '[posix](/tmp/outside.ts:9)',
+    ].join('\n\n'), PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: [] });
+      const externalFiles = new Map([
+        [`${outside}/source.ts`, ['source.ts', outside]],
+        [`${outside}/한글 100% #1.ts`, ['한글 100% #1.ts', outside]],
+        [`${outside}/report.pdf`, ['report.pdf', outside]],
+        [`${outside}/run.ps1`, ['run.ps1', outside]],
+        ['/tmp/outside.ts', ['outside.ts', '/tmp']],
+      ]);
+      f.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => {
+        if (absolutePath === `${outside}/output/`) {
+          return [{ absolutePath: `${outside}/output`, dir: true, name: 'output', size: 0 }];
+        }
+        assert.ok(externalFiles.has(absolutePath), absolutePath);
+        const [relPath, projectPath] = externalFiles.get(absolutePath);
+        return [{ absolutePath, dir: false, projectPath, relPath, accessToken: `grant:${relPath}` }];
+      };
+      f.dom.window.mixdogDesktop.statProjectFile = async (project, path, token) => {
+        if (externalFiles.has(`${project}/${path}`) && token === `grant:${path}`) return { size: 10, mtimeMs: 1 };
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      };
+    });
+    assert.equal(f.links().length, 6);
+    for (let index = 0; index < 6; index++) await f.click(index);
+    assert.deepEqual(f.opened, [
+      [outside, 'source.ts', 12, 'grant:source.ts'],
+      [outside, '한글 100% #1.ts', 7, 'grant:한글 100% #1.ts'],
+      [outside, 'run.ps1', undefined, 'grant:run.ps1'],
+      ['/tmp', 'outside.ts', 9, 'grant:outside.ts'],
+    ]);
+    assert.deepEqual(f.local, [[outside, 'report.pdf'], [`${outside}/output`, '.']]);
+    assert.equal(f.toasts.length + f.external.length + f.popups.length, 0);
+  });
+
+  test(`${pipeline}: an external absolute path works without a conversation Project`, async (t) => {
+    const f = await mount(t, render, '[source](C:/private/source.ts)', '', (f) => {
+      installProjectFiles(f, {});
+      f.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => {
+        assert.equal(absolutePath, 'C:/private/source.ts');
+        return [{ absolutePath, projectPath: 'C:/private', relPath: 'source.ts', accessToken: 'grant', dir: false }];
+      };
+    });
+    await f.click();
+    assert.deepEqual(f.opened, [['C:/private', 'source.ts', undefined, 'grant']]);
+    assert.equal(f.toasts.length, 0);
+  });
+
+  test(`${pipeline}: partial paths find a unique suffix in registered Projects, never a fuzzy substitute`, async (t) => {
+    const other = 'C:/Project/game';
+    const f = await mount(t, render, [
+      '[source](Server/ServerConnectionRecovery.cs:8)',
+      '[ambiguous](Server/duplicate.cs)',
+      '[missing](Server/missing.cs)',
+    ].join('\n\n'), PROJECT, (f) => installProjectFiles(f, {
+      [PROJECT]: [],
+      [other]: [
+        'Assets/Scripts/Server/ServerConnectionRecovery.cs',
+        'Assets/Scripts/Server/ServerConnectionRecovery.cs.bak',
+        'a/Server/duplicate.cs', 'b/Server/duplicate.cs', 'Server/missing.cs.bak',
+      ],
+    }));
+    await f.click(0);
+    await f.click(1);
+    await f.click(2);
+    assert.deepEqual(f.opened, [[other, 'Assets/Scripts/Server/ServerConnectionRecovery.cs', 8]]);
+    assert.match(f.toasts[0].text, /Several files/);
+    assert.match(f.toasts[1].text, /File not found/);
+  });
+
+  test(`${pipeline}: missing external files, traversal and network links never open or fall back to a namesake`, async (t) => {
+    const requests = [];
+    const f = await mount(t, render, [
+      '[missing](C:/private/missing.ts)',
+      '[traversal](../../private/missing.ts)',
+      '[network](file://server/share/missing.ts)',
+      '[encoded network](/%2Fserver/share/missing.ts)',
+    ].join('\n\n'), PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: ['src/missing.ts'] });
+      f.dom.window.mixdogDesktop.resolveLocalPaths = async (paths) => {
+        requests.push(paths);
+        throw Object.assign(new Error('ENOENT: external file is missing'), { code: 'ENOENT' });
+      };
+    });
+    for (let index = 0; index < 4; index++) await f.click(index);
+    assert.deepEqual(requests, [['C:/private/missing.ts']]);
+    assert.equal(f.toasts.length, 4);
+    assert.equal(f.opened.length + f.local.length + f.popups.length, 0);
+  });
+
   test(`${pipeline}: missing local files do not guess between other Projects or escape registered roots`, async (t) => {
     const other = 'C:/Project/GamerScroll';
     const third = 'C:/Project/another';
     const f = await mount(t, render, [
-      '`favicon.svg`',
+      '[favicon.svg](./favicon.svg)',
       '[outside](C:/private/secret.svg)',
       '[traversal](../../private/secret.svg)',
       '[network](file://server/share/secret.svg)',
@@ -151,7 +250,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
   });
 
   test(`${pipeline}: access failures are reported rather than redirected to another Project`, async (t) => {
-    const f = await mount(t, render, '`favicon.svg`');
+    const f = await mount(t, render, '[favicon.svg](./favicon.svg)');
     installProjectFiles(f, { [PROJECT]: [], 'C:/Project/other': ['favicon.svg'] });
     f.dom.window.mixdogDesktop.statProjectFile = async () => { throw new Error('Path resolves outside the project.'); };
     await f.click();
@@ -179,7 +278,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.external.length + f.popups.length + f.toasts.length, 0);
   });
 
-  test(`${pipeline}: absolute paths and file URLs resolve inside the Project; outside paths are refused`, async (t) => {
+  test(`${pipeline}: absolute paths and file URLs resolve inside the Project; external paths require desktop file access`, async (t) => {
     const f = await mount(t, render, [
       '[drive](C:/Project/conversation/output/deck.pptx)',
       '[backslashes](<C:\\Project\\conversation\\output\\deck.pptx>)',
@@ -197,7 +296,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', 42]]);
     assert.equal(f.links()[3].getAttribute('title'), 'C:/Project/conversation/src/app.ts:42');
     assert.equal(f.toasts.length, 1);
-    assert.match(f.toasts[0].text, /outside/);
+    assert.match(f.toasts[0].text, /Local file links can only be opened in the desktop app/);
     assert.equal(f.external.length, 0);
   });
 
@@ -207,8 +306,12 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       'Only `retry-classifier.mjs` (line 269) changed; see C:\\Project\\conversation\\docs\\notes.md#L7 too.',
       'Not links: https://example.com/docs/guide.md, node.js, and/or, v1.2/3.4, `npm/registry`.',
       '```\nsrc/skipped.ts:1\n```',
-    ].join('\n\n'));
-    f.files.push('src/runtime/agent/orchestrator/providers/retry-classifier.mjs', 'src/x/retry-classifier.mjs.bak');
+    ].join('\n\n'), PROJECT, (f) => installProjectFiles(f, {
+      [PROJECT]: [
+        'src/runtime/agent.mjs', 'apps/desktop/src/main/ipc.ts', 'docs/notes.md',
+        'src/runtime/agent/orchestrator/providers/retry-classifier.mjs', 'src/x/retry-classifier.mjs.bak',
+      ],
+    }));
     assert.deepEqual(f.links().map((a) => a.getAttribute('href')), [
       'src/runtime/agent.mjs:269',
       'apps/desktop/src/main/ipc.ts:12:4',
@@ -265,8 +368,12 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       '`output/제안서 최종.pptx`와 `output/` 참고. `python scripts/run.py`, `@mixdog/desktop`, `npm run build`는 아닙니다.',
       '선택자 `.workspace`, `.main-panel`도 파일이 아니지만 `.env.local`은 파일입니다.',
       '![차트](output/chart.png)',
-    ].join('\n\n'));
-    f.files.push('Dockerfile', '.gitignore', '.env.local');
+    ].join('\n\n'), PROJECT, (f) => installProjectFiles(f, {
+      [PROJECT]: [
+        'output/report-2026', 'Dockerfile', '.gitignore', 'src/app.ts', 'src/util.ts', 'src/x.ts',
+        'output/제안서 최종.pptx', 'output', '.env.local', 'output/chart.png',
+      ],
+    }));
     assert.equal(f.links().find((a) => a.querySelector('.seti-icon'))?.querySelector('.seti-icon')?.textContent.length, 1);
     // Folder links carry no glyph, like folders in the explorer.
     assert.equal(f.links()[0].querySelector('.seti-icon'), null);
@@ -295,7 +402,8 @@ for (const [pipeline, render] of Object.entries(renderers)) {
   });
 
   test(`${pipeline}: main hands text files back to the editor after probing an extension-less name`, async (t) => {
-    const f = await mount(t, render, 'See `scripts/Dockerfile` and `docs/` here.');
+    const f = await mount(t, render, 'See `scripts/Dockerfile` and `docs/` here.', PROJECT, (f) =>
+      installProjectFiles(f, { [PROJECT]: ['scripts/Dockerfile', 'docs'] }));
     f.dom.window.mixdogDesktop.openLocalFileLink = async (...args) => {
       f.local.push(args);
       return args[1] === 'scripts/Dockerfile' ? 'editor' : 'folder';
@@ -306,15 +414,105 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.deepEqual(f.opened, [[PROJECT, 'scripts/Dockerfile', undefined]]);
   });
 
-  test(`${pipeline}: a bare file name the Project cannot resolve reports instead of opening`, async (t) => {
-    const f = await mount(t, render, 'See `missing.ts` and `dup.ts`.');
-    await f.click(0);
-    assert.match(f.toasts.at(-1).text, /missing\.ts/);
-    f.files.push('a/dup.ts', 'b/dup.ts');
-    await f.click(1);
-    assert.match(f.toasts.at(-1).text, /dup\.ts/);
-    assert.equal(f.toasts.length, 2);
-    assert.equal(f.opened.length + f.local.length, 0);
+  test(`${pipeline}: planned, missing and ambiguous file/folder mentions retain their original text`, async (t) => {
+    const f = await mount(t, render, [
+      '스펙 문서(`special_offer_server_spec.md`)를 작성하겠습니다.',
+      'See docs/planned.md (line 12), `missing.ts`, `dup.ts`, missing/ and `missing-folder/`.',
+    ].join('\n\n'), PROJECT, (f) => installProjectFiles(f, {
+      [PROJECT]: ['a/dup.ts', 'b/dup.ts'],
+    }));
+    assert.equal(f.links().length, 0);
+    assert.deepEqual([...f.dom.window.document.querySelectorAll('p')].map((p) => p.textContent), [
+      '스펙 문서(special_offer_server_spec.md)를 작성하겠습니다.',
+      'See docs/planned.md (line 12), missing.ts, dup.ts, missing/ and missing-folder/.',
+    ]);
+    assert.deepEqual([...f.dom.window.document.querySelectorAll('code')].map((code) => code.textContent),
+      ['special_offer_server_spec.md', 'missing.ts', 'dup.ts', 'missing-folder/']);
+    assert.equal(f.toasts.length + f.opened.length + f.local.length + f.popups.length, 0);
+  });
+
+  test(`${pipeline}: automatic links stay plain until existence is confirmed`, async (t) => {
+    let release;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const f = await mount(t, render, 'See `src/app.ts` (line 12, col 4).', PROJECT, (f) => {
+      f.dom.window.mixdogDesktop.statProjectFile = () => pending;
+    });
+    assert.equal(f.links().length, 0);
+    assert.equal(f.dom.window.document.querySelector('p').textContent, 'See src/app.ts (line 12, col 4).');
+    assert.equal(f.dom.window.document.querySelector('code').textContent, 'src/app.ts');
+    await act(async () => { release({ size: 10, mtimeMs: 1 }); });
+    assert.deepEqual(f.labels(), ['app.ts:12:4']);
+    assert.equal(f.links()[0].title, `${PROJECT}/src/app.ts:12:4`);
+    await f.click();
+    assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', 12]]);
+    assert.equal(f.toasts.length, 0);
+  });
+
+  test(`${pipeline}: automatic mentions cannot use the resolver's no-stat compatibility fallback`, async (t) => {
+    const f = await mount(t, render, '`src/app.ts`, output/ and `found.ts`.', PROJECT, (f) => {
+      f.files.push('found.ts');
+    });
+    assert.equal(f.links().length, 0);
+    assert.equal(f.dom.window.document.querySelector('p').textContent, 'src/app.ts, output/ and found.ts.');
+    assert.equal(f.toasts.length, 0);
+  });
+
+  test(`${pipeline}: stale file-search results do not become automatic links`, async (t) => {
+    const f = await mount(t, render, '`stale.ts`', PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: [] });
+      f.dom.window.mixdogDesktop.searchProjectFiles = async () => ['src/stale.ts'];
+    });
+    assert.equal(f.links().length, 0);
+    assert.equal(f.dom.window.document.querySelector('code').textContent, 'stale.ts');
+    assert.equal(f.toasts.length, 0);
+  });
+
+  test(`${pipeline}: inaccessible automatic mentions remain text without error toasts or redirection`, async (t) => {
+    const f = await mount(t, render, '`favicon.svg` and `C:/private/secret.svg`', PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: [], 'C:/Project/other': ['favicon.svg'] });
+      f.dom.window.mixdogDesktop.statProjectFile = async () => { throw new Error('Path resolves outside the project.'); };
+    });
+    assert.equal(f.links().length, 0);
+    assert.equal(f.toasts.length + f.opened.length + f.local.length, 0);
+  });
+
+  test(`${pipeline}: relative automatic mentions without a conversation Project remain text`, async (t) => {
+    const f = await mount(t, render, '`src/app.ts`', '', (f) =>
+      installProjectFiles(f, { [PROJECT]: ['src/app.ts'] }));
+    assert.equal(f.links().length, 0);
+    assert.equal(f.toasts.length, 0);
+  });
+
+  for (const change of ['Project', 'target']) {
+    test(`${pipeline}: pending automatic verification cannot link a different ${change}`, async (t) => {
+      let release;
+      const pending = new Promise((resolve) => { release = resolve; });
+      const f = await mount(t, render, '`src/app.ts`', PROJECT, (f) => {
+        installProjectFiles(f, {});
+        f.dom.window.mixdogDesktop.statProjectFile = async (project, path) => {
+          if (project === PROJECT && path === 'src/app.ts') return pending;
+          throw Object.assign(new Error(`ENOENT: ${project}/${path}`), { code: 'ENOENT' });
+        };
+      });
+      assert.equal(f.links().length, 0);
+      const nextProject = change === 'Project' ? 'C:/Project/other' : PROJECT;
+      const nextPath = change === 'target' ? 'src/missing.ts' : 'src/app.ts';
+      await f.update(nextProject, `\`${nextPath}\``);
+      await act(async () => { release({ size: 10, mtimeMs: 1 }); });
+      assert.equal(f.links().length, 0);
+      assert.equal(f.dom.window.document.querySelector('code').textContent, nextPath);
+      assert.equal(f.toasts.length, 0);
+    });
+  }
+
+  test(`${pipeline}: changing a verified mention to a missing target removes the link`, async (t) => {
+    const f = await mount(t, render, '`src/app.ts`', PROJECT, (f) =>
+      installProjectFiles(f, { [PROJECT]: ['src/app.ts'] }));
+    assert.equal(f.links().length, 1);
+    await f.update(PROJECT, '`src/missing.ts`');
+    assert.equal(f.links().length, 0);
+    assert.equal(f.dom.window.document.querySelector('code').textContent, 'src/missing.ts');
+    assert.equal(f.toasts.length, 0);
   });
 
   test(`${pipeline}: local errors, absent desktop support and absent Project are visible, never navigated`, async (t) => {

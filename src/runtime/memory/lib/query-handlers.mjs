@@ -30,7 +30,6 @@ import { retrieveEntries } from './memory-retrievers.mjs'
 import {
   VALID_CATEGORY,
   appendProjectScopeClause,
-  buildPromotedExclusionClauses,
   projectScopePredicate,
 } from './memory-recall-scope-filter.mjs'
 import { compareRecallNewestFirst } from './recall-order.mjs'
@@ -63,6 +62,8 @@ import {
 } from './embedding-provider.mjs'
 import { embedRecallQuery } from './recall-embedding-readiness.mjs'
 import { isSemanticOnlyRecall } from './recall-fusion.mjs'
+import { collapseHistoryDuplicates } from './history-duplicates.mjs'
+import { RECALL_LIMIT_CAP, RECALL_OFFSET_CAP, RECALL_WINDOW_CAP } from './recall-limits.mjs'
 
 const SESSION_ENTRY_COLUMNS = `id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
              element, category, summary, chunk_quality, status, score, last_seen_at, project_id`
@@ -500,8 +501,6 @@ export function createQueryHandlers({
       && !latestEntityMode
       && ((Boolean(queryPeriod) && !hasRecallEntity(query)) || latestIntent)
     const structuredTimeMode = timelineMode || latestRootMode
-    const RECALL_LIMIT_CAP = 100
-    const RECALL_OFFSET_CAP = 500
     const requestedLimit = Number(args.limit)
     const requestedOffset = Number(args.offset)
     let limit = Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 10)
@@ -602,7 +601,7 @@ export function createQueryHandlers({
       // Recall is history-first: archived roots hold most prior work. Callers
       // that need only live invariants can pass includeArchived:false.
       const excludeStatuses = includeArchived ? [] : ['archived']
-      const retrievalLimit = Math.min(RECALL_LIMIT_CAP, Math.max(limit + offset, (limit + offset) * 3))
+      const retrievalLimit = Math.max(limit + offset, Math.min(RECALL_LIMIT_CAP, (limit + offset) * 3))
       const searchOptions = {
         limit: retrievalLimit,
         queryVector: Array.isArray(queryVector) ? queryVector : null,
@@ -613,20 +612,6 @@ export function createQueryHandlers({
         category,
         excludeStatuses,
         latestByConcept: latestIntent && args.period == null,
-        // useHotActive was set to true here so default (no-period) calls
-        // routed through the mv_hot_active materialized view — a narrow
-        // active-roots-only pool. Live usage is dominated by vague-time
-        // queries ("recent / lately") where Lead callers omit the period
-        // filter, leaving the MV as the sole source. That hid every
-        // orphan leaf and every pending root — fresh work from the last 1-60
-        // minutes never surfaced. Now that the entries-table CTE legs run
-        // against broaden HNSW + GIN trgm partial indexes (the
-        // is_root=1 predicate was dropped in the same revision), the
-        // entries path is fast enough (1-2 ms ANN on ~10K rows, O(log N)
-        // through 1M+) to be the single source of truth. The MV is left in
-        // place for now but no longer routed to from search; cycle2 may stop
-        // refreshing it in a follow-up commit once nothing else reads it.
-        useHotActive: false,
       }
       const vagueLatestRootMode = latestRootMode && hasVagueLatestWorkIntent(query)
       const [results, historicalRootRows] = await Promise.all([
@@ -802,18 +787,18 @@ export function createQueryHandlers({
         })
         if (deepHistoricalMode) filtered = prioritizeHistoricalRootEvidence(filtered)
       }
-      if (timelineMode) {
-        const roots = filtered.filter((row) => Number(row?.is_root) === 1)
-        filtered = sampleRecallTimeline(roots.length > 1 ? roots : filtered, limit + offset)
-      }
       filtered = annotateRecallRootContext(filtered)
       filtered = boundRecallRowsToTemporal(filtered, temporal)
       // De-duplicate before pagination so member/root pairs do not consume the
       // page and then collapse into a half-empty result set.
-      const deduped = collapseNearDuplicateRows(filtered)
-      const pageRows = latestIntent
+      const deduped = collapseNearDuplicateRows(collapseHistoryDuplicates(filtered))
+      let pageRows = latestIntent
         ? deduped.filter((row) => row?._dupStub !== true)
         : deduped
+      if (timelineMode) {
+        const roots = pageRows.filter((row) => Number(row?.is_root) === 1)
+        pageRows = sampleRecallTimeline(roots.length > 1 ? roots : pageRows, limit + offset)
+      }
       const sliced = pageRows.slice(offset, offset + limit)
       const _t2 = Date.now()
       if (process.env.MIXDOG_DEBUG_MEMORY) {
@@ -884,8 +869,7 @@ export function createQueryHandlers({
       //    A root with members renders those members instead of its own ts, so
       //    ranking by root MAX(ts) can disagree with the visible group head and
       //    invert adjacent sessions/pages. Roots without members and raw leaves
-      //    keep their own ts. projectScope + excludeStatuses + promoted
-      //    exclusion still match the fill filters below.
+      //    keep their own ts. Scope and status filters match the fill below.
       const selWhere = [
         'e.session_id IS NOT NULL',
         "btrim(e.session_id) <> ''",
@@ -909,7 +893,6 @@ export function createQueryHandlers({
         const ph = excludeStatuses.map((s) => { selParams.push(s); return `$${selParams.length}` }).join(',')
         selWhere.push(`(e.status IS NULL OR e.status NOT IN (${ph}))`)
       }
-      for (const c of buildPromotedExclusionClauses('e')) selWhere.push(c)
       const cursorContext = {
         query,
         projectScope,
@@ -1061,7 +1044,7 @@ export function createQueryHandlers({
         db,
         filters.ts_from ?? temporal?.startMs ?? null,
         filters.ts_to ?? temporal?.endMs ?? Date.now(),
-        Math.min(500, Math.max(20, limit + offset)),
+        Math.min(RECALL_WINDOW_CAP, Math.max(20, limit + offset)),
         { projectScope },
       )
       // Drop raw leaves already inlined as some returned root's member.

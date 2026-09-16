@@ -74,7 +74,7 @@ function toolInputSchemaForSession(sessionRef, name) {
     const pools = [
         Array.isArray(sessionRef?.tools) ? sessionRef.tools : [],
         sessionRef ? deferredCatalogUnion(sessionRef) : [],
-        getInternalTools(),
+        getInternalTools(sessionRef?.mcpScopeId),
     ];
     for (const pool of pools) {
         for (const tool of pool) {

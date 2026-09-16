@@ -18,30 +18,39 @@
 import { isToolEnvelope, makeToolEnvelope, normalizeToolEnvelope } from './session/tool-envelope.mjs';
 import { classifyResultKind } from './session/result-classification.mjs';
 
-let _executor = null;
-let _tools = [];
-let _names = new Set();
+// Runtimes share this module, but their executors close over different
+// configuration, sessions and lifecycle state. Use the same scope carried by
+// session.mcpScopeId; an explicit scope must never fall back to another runtime.
+const _providersByScope = new Map();
 
-export function setInternalToolsProvider({ executor, tools }) {
+function providerScopeKey(scopeId) {
+    return String(scopeId || '').trim() || 'global';
+}
+
+export function setInternalToolsProvider({ executor, tools, scopeId = null }) {
     if (typeof executor !== 'function') throw new Error('internal-tools: executor must be a function');
-    _executor = executor;
+    const key = providerScopeKey(scopeId);
     const base = Array.isArray(tools) ? [...tools] : [];
-    _tools = base;
-    _names = new Set(_tools.map(t => t?.name).filter(Boolean));
+    const provider = { executor, tools: base, names: new Set(base.map(t => t?.name).filter(Boolean)) };
+    _providersByScope.set(key, provider);
+    return () => {
+        if (_providersByScope.get(key) !== provider) return false;
+        return _providersByScope.delete(key);
+    };
 }
 
-export function getInternalTools() {
-    return _tools;
+export function getInternalTools(scopeId = null) {
+    return _providersByScope.get(providerScopeKey(scopeId))?.tools || [];
 }
 
-export function isInternalTool(name) {
-    return _names.has(name);
+export function isInternalTool(name, scopeId = null) {
+    return _providersByScope.get(providerScopeKey(scopeId))?.names.has(name) || false;
 }
 
 export async function executeInternalTool(name, args, callerCtx = {}) {
-    if (!_names.has(name)) throw new Error(`internal-tools: "${name}" is not registered`);
-    if (!_executor) throw new Error(`internal-tools: executor not initialized (tool=${name})`);
-    const result = await _executor(name, args ?? {}, callerCtx);
+    const provider = _providersByScope.get(providerScopeKey(callerCtx.scopeId));
+    if (!provider?.names.has(name)) throw new Error(`internal-tools: "${name}" is not registered`);
+    const result = await provider.executor(name, args ?? {}, callerCtx);
     return _normalize(result);
 }
 

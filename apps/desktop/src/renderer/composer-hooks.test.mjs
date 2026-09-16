@@ -258,6 +258,13 @@ test("keyboard hook restores history, inserts mentions, and scrolls only appende
           textarea,
           setCaretOffset() {},
         },
+        slash: {
+          open: false,
+          commands: [],
+          index: 0,
+          setIndex() {},
+          setDismissed() {},
+        },
         mention: {
           match: { start: 0, end: 0, query: "" },
           open: false,

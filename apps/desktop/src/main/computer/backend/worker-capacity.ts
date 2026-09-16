@@ -2,7 +2,9 @@ export const MAX_COMPUTER_WORKERS = 8;
 
 import type { ChildProcess } from 'node:child_process';
 
-export async function waitForComputerWorkerExit(child: ChildProcess | undefined, timeoutMs = 1_000): Promise<boolean> {
+// A worker killed mid UI Automation call can take seconds to unwind; giving
+// up earlier latches a cleanup failure the user then has to clear by hand.
+export async function waitForComputerWorkerExit(child: ChildProcess | undefined, timeoutMs = 5_000): Promise<boolean> {
   if (!child || child.exitCode !== null || child.signalCode !== null) return true;
   return await new Promise<boolean>((resolve) => {
     const finish = (confirmed: boolean) => {

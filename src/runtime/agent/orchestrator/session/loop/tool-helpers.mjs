@@ -77,11 +77,11 @@ export function messagesArrayChanged(before, after) {
 const SKILL_TOOL_NAMES = new Set(['Skill', 'skills_list', 'skill_view']);
 const SPECIAL_TOOL_NAMES = new Set(['apply_patch', 'code_graph']);
 
-export function getToolKind(name) {
+export function getToolKind(name, scopeId = null) {
     if (SKILL_TOOL_NAMES.has(name)) return 'skill';
     if (SPECIAL_TOOL_NAMES.has(name)) return 'builtin';
     if (isMcpTool(name)) return 'mcp';
-    if (isInternalTool(name)) return 'internal';
+    if (isInternalTool(name, scopeId)) return 'internal';
     if (isBuiltinTool(name)) return 'builtin';
     return 'builtin';
 }

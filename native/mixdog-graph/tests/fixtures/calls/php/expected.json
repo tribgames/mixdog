@@ -1,0 +1,87 @@
+{
+  "calls": [
+    {
+      "name": "plain",
+      "line": 12,
+      "col": 0,
+      "endCol": 5,
+      "kind": "call",
+      "inSymbol": ""
+    },
+    {
+      "name": "inner",
+      "line": 15,
+      "col": 2,
+      "endCol": 7,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "nest",
+      "line": 16,
+      "col": 2,
+      "endCol": 6,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "leaf",
+      "line": 16,
+      "col": 7,
+      "endCol": 11,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "b",
+      "line": 17,
+      "col": 6,
+      "endCol": 7,
+      "kind": "method",
+      "recv": "$a",
+      "inSymbol": "run"
+    },
+    {
+      "name": "c",
+      "line": 17,
+      "col": 11,
+      "endCol": 12,
+      "kind": "method",
+      "recv": "$a->b()",
+      "inSymbol": "run"
+    },
+    {
+      "name": "helper",
+      "line": 23,
+      "col": 4,
+      "endCol": 10,
+      "kind": "call",
+      "inSymbol": "act"
+    },
+    {
+      "name": "ping",
+      "line": 24,
+      "col": 11,
+      "endCol": 15,
+      "kind": "method",
+      "recv": "$this",
+      "inSymbol": "act"
+    },
+    {
+      "name": "seed",
+      "line": 28,
+      "col": 13,
+      "endCol": 17,
+      "kind": "call",
+      "inSymbol": ""
+    },
+    {
+      "name": "Widget",
+      "line": 29,
+      "col": 4,
+      "endCol": 10,
+      "kind": "new",
+      "inSymbol": ""
+    }
+  ]
+}

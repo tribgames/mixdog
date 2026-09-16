@@ -1,0 +1,97 @@
+# mixdog-kind: import
+# Ports zig_import `@import("std")` / `@import("./x.zig")` (quotes stripped).
+id: zig-import
+language: zig
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: builtin_function
+    - has:
+        kind: builtin_identifier
+        regex: '^@import$'
+    - has:
+        kind: arguments
+        has:
+          kind: string
+          pattern: $PATH
+transform:
+  SPEC:
+    replace:
+      source: $PATH
+      replace: '^"|"$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# mixdog-kind: function
+id: zig-function
+language: zig
+role: item
+symbolType: function
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  regex: '^pub\b'
+---
+# mixdog-kind: struct
+# Match the `const X = struct {…}` variable_declaration so the span covers
+# the body. Native outline never prunes subtrees, so nested `fn` items stay
+# sibling items. The binding identifier is the first identifier child.
+id: zig-struct
+language: zig
+role: item
+symbolType: struct
+rule:
+  all:
+    - kind: variable_declaration
+    - has:
+        kind: identifier
+        stopBy: neighbor
+        pattern: $NAME
+    - has:
+        kind: struct_declaration
+name: $NAME
+isExported:
+  regex: '^pub\b'
+---
+# mixdog-kind: enum
+id: zig-enum
+language: zig
+role: item
+symbolType: enum
+rule:
+  all:
+    - kind: variable_declaration
+    - has:
+        kind: identifier
+        stopBy: neighbor
+        pattern: $NAME
+    - has:
+        kind: enum_declaration
+name: $NAME
+isExported:
+  regex: '^pub\b'
+---
+# mixdog-kind: union
+id: zig-union
+language: zig
+role: item
+symbolType: struct
+rule:
+  all:
+    - kind: variable_declaration
+    - has:
+        kind: identifier
+        stopBy: neighbor
+        pattern: $NAME
+    - has:
+        kind: union_declaration
+name: $NAME
+isExported:
+  regex: '^pub\b'

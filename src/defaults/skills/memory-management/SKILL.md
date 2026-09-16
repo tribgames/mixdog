@@ -23,7 +23,7 @@ summaries remain searchable history, not standing instructions.
 ## Curate standing memory
 
 Store only user-specific preferences and constraints, as compact English
-statements. Before adding, editing, or promoting one, show its exact content
+statements. Before adding or editing one, show its exact content
 and scope and obtain approval. An explicit request for that exact change
 already supplies approval.
 
@@ -42,10 +42,9 @@ append after its last index. For edit/delete, use the exact `project_id`,
 read the list and identify the intended content again; never blindly retry
 an old number. Internal database keys are not public memory indices.
 
-Memory indices, candidate IDs, and generated-summary IDs are separate namespaces.
-Use the identifier and operation returned for that record type. Generated summaries
-can be excluded from injection without deleting their recall history; never
-edit or delete them as curated records.
+The memory tool manages only user-curated entries. Conversation summaries are
+searchable through `recall`; they never become standing instructions automatically.
+Do not use a recall record ID as a memory index.
 
 Done when the tool reports the approved change in the intended scope.
 Do not reread a successful write merely to confirm it.

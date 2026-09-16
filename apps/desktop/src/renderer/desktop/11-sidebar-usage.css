@@ -49,12 +49,20 @@
 /* Diagonal pushpin (user: 대각핀): a tilted pin reading. */
 .sidebar-usage-heading .sidebar-usage-pin svg { transform: rotate(45deg); }
 .sidebar-usage-heading .sidebar-usage-pin.is-active { color: var(--mx-text-accent); }
+/* The roster is ONE grid: label | track | percentage | reset. Every provider
+   row and quota line subgrids these columns, so the label column is exactly
+   as wide as the longest label on screen (capped at 84px) and every track
+   starts right after it (user: 앞쪽 글자 영역까지 최대한 확장). The 10px side
+   inset lives here, not on the rows: a subgrid's own padding would eat into
+   its edge columns. */
 .sidebar-usage-list {
   display: grid;
-  gap: 0;
+  grid-template-columns: fit-content(84px) minmax(64px, 1fr) 38px 52px;
+  column-gap: 6px;
+  row-gap: 0;
   min-width: 0;
   overflow: hidden;
-  padding: 0;
+  padding: 0 10px;
   border: 0;
 }
 .sidebar-usage > .pane-surface-gate {
@@ -73,18 +81,30 @@
    period | meter | percentage columns underneath. */
 .sidebar-usage-row {
   position: relative;
+  grid-column: 1 / -1;
   min-width: 0;
   display: grid;
-  gap: 6px;
-  padding: 8px 10px;
+  grid-template-columns: subgrid;
+  row-gap: 6px;
+  padding: 8px 0;
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
   border-radius: 0;
   color: var(--mx-text);
   background: transparent;
   text-align: left;
 }
-.sidebar-usage-row:last-child { border-bottom: 0; }
+/* Full-bleed hairline between providers: drawn past the list inset so it
+   still runs edge to edge of the popup. */
+.sidebar-usage-row::after {
+  content: "";
+  position: absolute;
+  right: -10px;
+  bottom: 0;
+  left: -10px;
+  height: 1px;
+  background: color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
+}
+.sidebar-usage-row:last-child::after { display: none; }
 .sidebar-usage-provider-icon {
   display: grid;
   place-items: center;
@@ -94,7 +114,7 @@
 }
 .sidebar-usage-provider-icon { width: 20px; height: 20px; flex: 0 0 20px; }
 .sidebar-usage-provider-icon svg { width: var(--mx-icon-md); height: var(--mx-icon-md); }
-.sidebar-usage-line { min-width: 0; min-height: 20px; display: flex; align-items: center; gap: 6px; }
+.sidebar-usage-line { grid-column: 1 / -1; min-width: 0; min-height: 20px; display: flex; align-items: center; gap: 6px; }
 .sidebar-usage-line > b {
   min-width: 0;
   flex: 1;
@@ -122,25 +142,23 @@
 }
 /* Detail-style quota block: each window is one row — label, progress
    track, percentage, its OWN reset schedule (user: 리셋날짜랑 % 좌우로 자리바꿔).
-   Fixed side columns keep every bar the same length across rows. */
+   Both levels subgrid the roster columns, so quota rows start at the
+   provider icon's left edge and every track shares one start and length. */
 .sidebar-usage-meters {
+  grid-column: 1 / -1;
   display: grid;
-  gap: 6px;
-  /* Use the provider icon's left edge for every quota row. This removes the
-     nested-list indent and gives the meter more room in the narrow flyout. */
-  padding-left: 0;
+  grid-template-columns: subgrid;
+  row-gap: 6px;
 }
 .sidebar-usage-meter {
+  grid-column: 1 / -1;
   min-width: 0;
   display: grid;
-  /* Give labels and reset times priority over the progress track. At the
-     default flyout width, "7D SONNET", "FLASH" and "29d 13h" fit in full. */
-  grid-template-columns: minmax(46px, auto) minmax(64px, 1fr) 38px 64px;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 8px;
 }
-/* Per-window reset reading: quiet, right-aligned so "5d 13h" and "12h" share
-   the row's trailing edge just past the percentage. */
+/* Reset text ends flush with the row edge, so every row's time lines up
+   under the header's "…" action (user: 시간정렬이 라인하고 안 맞고). */
 .sidebar-usage-meter > em {
   min-width: 0;
   overflow: hidden;

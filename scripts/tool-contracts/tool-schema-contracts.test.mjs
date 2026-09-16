@@ -369,10 +369,9 @@ test('cwd and memory schemas stay minimal and direct', () => {
   if (memoryTool?.title !== 'Memory'
     || memoryTool?.annotations?.title !== 'Memory'
     || !/standing user preferences/i.test(memoryTool?.description || '')
-    // Curated memory plus candidate curation (promote/dismiss/exclude) and the
-    // revisioned per-project index that edit/delete pair with.
-    || Object.keys(memoryProps).sort().join(',') !== 'id,include_inactive,index_revision,limit,offset,op,project_id,source,summary'
-    || memoryProps.op?.enum?.join(',') !== 'add,edit,delete,list,candidates,promote,dismiss,exclude'
+    // Direct curated memory and the revisioned per-project edit/delete index.
+    || Object.keys(memoryProps).sort().join(',') !== 'id,include_inactive,index_revision,limit,offset,op,project_id,summary'
+    || memoryProps.op?.enum?.join(',') !== 'add,edit,delete,list'
     || memoryTool?.inputSchema?.required?.join(',') !== 'op'
     || memoryProps.id?.type !== 'integer'
     || memoryProps.id?.minimum !== 1

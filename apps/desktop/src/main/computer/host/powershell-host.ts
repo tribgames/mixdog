@@ -6,7 +6,7 @@
  * Engine: one resident PowerShell worker per agent session holds .NET UI
  * Automation state (an element map that survives between snapshot and invoke,
  * which spawning per command could not) and dispatches Win32 input. Screenshots are captured
- * on demand in Electron via desktopCapturer, not PowerShell. The runtime half discovers
+ * on demand from window-owned Electron or native render surfaces. The runtime half discovers
  * this bridge through a heartbeated data-dir file, so the tool surface exists
  * only while the desktop app runs with Computer Use enabled — no daemon
  * protocol change.
@@ -28,6 +28,7 @@ import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
 import { mixdogDataDirectory } from '../shared/common';
 import { createWorkerPool } from '../backend/worker-pool';
 import { createCaptureEngine } from '../observation/capture';
+import { electronWindowForNativeId } from '../observation/window-handles';
 import { createInspection } from '../observation/inspect';
 import { createSessionState } from '../session/state';
 import { createWindowTargeting } from '../input/targeting';
@@ -43,6 +44,7 @@ import { createWindowReads } from './window-reads';
 import { createSessionLifecycle } from './session-lifecycle';
 import { createInputResolution } from './input-resolution';
 import { createSequenceRunner, suppressCaptureAfter } from './sequence-runner';
+import { createInputPreflight } from './input-preflight';
 import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
 import { loadComputerExecutionPolicy } from './execution-policy';
@@ -66,8 +68,8 @@ export interface PowerShellComputerHost {
   configureIdleResume(seconds: number): void;
   /** Stop one session and perform its normal input-state cleanup. */
   abortSession(sessionId: string): Promise<void>;
-  /** Stop every live or paused Computer Use session. */
-  stopAllSessions(): Promise<void>;
+  /** Stop every live or paused session; reopen input only after optional turn confirmation. */
+  stopAllSessions(turnsStopped?: Promise<void>): Promise<void>;
   /** Live native worker PIDs, retained until each child actually exits. */
   residentWorkerPids(): number[];
   inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
@@ -198,6 +200,11 @@ export function createPowerShellComputerHost(
     assertExecutionNotAborted,
   });
   const sequenceRunner = createSequenceRunner({
+    preflightSteps: createInputPreflight({
+      callPowerShell, sessionIdFor, assertExecutionNotAborted,
+      resolveElementAliases: sessionState.resolveElementAliases,
+      isAppOwnedWindow: windowId => Boolean(electronWindowForNativeId(windowId)),
+    }),
     sessionIdFor,
     recordProgress: (completed, inFlight) => {
       const state = execution.executionContext.getStore();
@@ -283,10 +290,10 @@ export function createPowerShellComputerHost(
       userWait.cancel(sessionId);
       await lifecycle.abortComputerSession({ action: 'session_abort', session_id: sessionId });
     },
-    async stopAllSessions(): Promise<void> {
+    async stopAllSessions(turnsStopped?: Promise<void>): Promise<void> {
       computerUseCoordinator.pauseForUser('user_stop');
       userWait.cancel();
-      await lifecycle.stopAllComputerSessions();
+      await lifecycle.stopAllComputerSessions(true, turnsStopped);
     },
     residentWorkerPids: workerPool.residentWorkerPids,
     inspectChromeRemoteDebuggingTarget: chromeSetup.inspectChromeRemoteDebuggingTarget,

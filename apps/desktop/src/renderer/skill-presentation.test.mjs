@@ -9,6 +9,7 @@ import { BUILT_IN_FEATURES } from './settings/built-in-feature-registry.ts';
 const names = [
   'browser-use', 'computer-use', 'docx', 'pdf', 'xlsx', 'pptx', 'image', 'video',
   'goal-management', 'history-recall', 'memory-management', 'local-provider', 'setup', 'skill-creator',
+  'code-tidy',
 ];
 
 test('every shipped skill and built-in feature has translated UI descriptions in every supported non-English language', async () => {
@@ -67,6 +68,7 @@ test('composer skill titles follow the active catalog; product names and custom 
     assert.equal(skillTitle('history-recall'), '이전 대화 검색');
     assert.equal(skillTitle('skill-creator'), '스킬 만들기');
     assert.equal(skillTitle('memory-management'), '메모리');
+    assert.equal(skillTitle('code-tidy'), '코드 정리');
     assert.equal(skillTitle('pdf'), 'PDF');
     assert.equal(skillTitle('team-review'), 'team-review');
   } finally {

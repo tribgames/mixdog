@@ -11,6 +11,10 @@
   ranges. Reconnaissance returns locations (`context:0`, `mode:files`); fetch
   content only for ranges you will edit or verify. Never combine `overview`
   and `symbols` for one need. Prior sessions need a request or open decision.
+- Structure questions (a file's exports, API or signatures, a class's or
+  object's members, who calls or imports something) go to `code_graph` first;
+  its `symbols` rows already carry the export marker and signature, so never
+  re-read a file to confirm them.
 - Supplied/home/environment paths need no locator; project-relative inside,
   explicit outside; one parent listing, not sibling walks.
 - Sample each unknown format once, not every file of a known structure; list

@@ -17,6 +17,7 @@ const DESCRIPTIONS: Record<string, () => string> = {
   'local-provider': () => t('Download and run AI models on this device.'),
   setup: () => t('Configure models, tools, and application settings.'),
   'skill-creator': () => t('Create, review, and improve reusable skills.'),
+  'code-tidy': () => t('Format, lint, and tidy code across languages.'),
 };
 
 /** Shipped with the app, as opposed to a global, project or plugin skill.

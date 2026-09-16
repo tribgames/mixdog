@@ -1,0 +1,12 @@
+id: no-empty-catch
+language: TypeScript
+severity: warning
+message: Catch blocks must not be empty.
+note: An empty catch swallows errors. Handle the exception or rethrow; this rule has no autofix.
+rule:
+  kind: catch_clause
+  has:
+    kind: statement_block
+    not:
+      has:
+        pattern: $_

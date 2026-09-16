@@ -7,7 +7,7 @@ import {
   pruneEmbeddingCache,
   resolveEmbeddingCacheMaxRows,
 } from './embedding-cache-retention.mjs'
-import { throwIfAborted } from './memory-cycle2-shared.mjs'
+import { throwIfAborted, markStoreFault } from './memory-cycle2-shared.mjs'
 
 // Restart-survivable embedding dedup cache (DDL created on first flush).
 // Keyed per-db handle so a second DB instance in the same process re-runs the
@@ -247,15 +247,21 @@ export async function flushEmbeddingDirty(db, options = {}) {
         ids = res.rows.map(r => Number(r.id))
         throwIfAborted(signal)
       } catch (err) {
-        try { await client.query('ROLLBACK') } catch {}
-        client.release()
+        let failure = err
+        try { await client.query('ROLLBACK') } catch (rollbackError) {
+          failure = new AggregateError([err, rollbackError], `${err.message}; rollback failed: ${rollbackError.message}`)
+        }
+        client.release(failure)
         if (signal?.aborted) throw signal.reason ?? err
         __mixdogMemoryLog(`[embed] flush SKIP LOCKED claim failed: ${err.message}\n`)
-        break
+        throw markStoreFault(failure)
       }
 
       if (ids.length === 0) {
-        try { await client.query('COMMIT') } catch {}
+        try { await client.query('COMMIT') } catch (err) {
+          client.release(err)
+          throw markStoreFault(err)
+        }
         client.release()
         break
       }
@@ -283,11 +289,16 @@ export async function flushEmbeddingDirty(db, options = {}) {
         __mixdogMemoryLog(`[embed] batch failed (ids=${ids[0]}..${ids[ids.length-1]}): ${err.message}\n`)
         for (const id of ids) allFailed.push(id)
       } finally {
+        let transactionError
         try {
           if (batchDone) await client.query('COMMIT')
           else await client.query('ROLLBACK')
-        } catch {}
-        client.release()
+        } catch (err) {
+          transactionError = err
+          throw markStoreFault(err)
+        } finally {
+          client.release(transactionError)
+        }
       }
 
       if (ids.length < BATCH_SIZE) break

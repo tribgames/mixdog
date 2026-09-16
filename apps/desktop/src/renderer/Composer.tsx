@@ -11,6 +11,8 @@ import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { shouldStopComposerGeneration } from "./renderer-logic.mjs";
 import {
+  desktopComposerSlashCommands,
+  desktopSlashCommandDescription,
   resolveDesktopSlashCommand,
   type CommandSurface as CommandSurfaceName,
   type SettingsSection,
@@ -227,6 +229,8 @@ export const Composer = memo(function Composer({
   }, []);
   const [composerFocused, setComposerFocused] = useState(false);
   const [caretOffset, setCaretOffset] = useState(0);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState('');
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionResults, setMentionResults] = useState<string[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
@@ -250,6 +254,7 @@ export const Composer = memo(function Composer({
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
   const messagePalette = useRef<HTMLDivElement>(null);
+  const slashPalette = useRef<HTMLDivElement>(null);
   const mentionPalette = useRef<HTMLDivElement>(null);
   const mentionSearchGeneration = useRef(0);
   const composerPaintSamplePending = useRef(false);
@@ -412,6 +417,8 @@ export const Composer = memo(function Composer({
     setComposerNotice('');
     setComposerFocused(false);
     setCaretOffset(0);
+    setSlashIndex(0);
+    setSlashDismissed('');
     setMentionIndex(0);
     setMentionResults([]);
     setMentionLoading(false);
@@ -470,11 +477,10 @@ export const Composer = memo(function Composer({
     : turnBusy ? t('Steer the active turn or queue a follow-up…')
       : commandBusy ? t('Queue a message after the current command…')
         : t(COMPOSER_PLACEHOLDERS[0]);
-  // The desktop composer has NO slash palette (user: 컴포저에서 슬래시 커맨드가
-  // 보이지만 않게). Every /command still executes through executeSlash, and the
-  // command registry still routes the setup tool's UI-open requests — only the
-  // typeahead list is gone, because this app already exposes each destination
-  // as a real control.
+  // Only frequent commands appear here; direct input still uses the full registry.
+  const slashCommands = useMemo(() => desktopComposerSlashCommands(draft), [draft]);
+  const slashOpen = Boolean(composerFocused && paneActive && !selectorOpen && !transitioning
+    && caretOffset === draft.length && slashDismissed !== draft && slashCommands.length);
   const mentionMatch = useMemo(() => {
     const beforeCaret = draft.slice(0, Math.max(0, Math.min(caretOffset, draft.length)));
     const match = /(^|[\s([{"'])@([^\s@]*)$/.exec(beforeCaret);
@@ -489,6 +495,7 @@ export const Composer = memo(function Composer({
     mentionDismissed !== mentionSignature);
   // ABB: each open composer palette answers hardware back with the same
   // dismissal its own Escape performs.
+  useMobileBack(slashOpen, () => setSlashDismissed(draft));
   useMobileBack(mentionOpen, () => setMentionDismissed(mentionSignature));
   useMobileBack(selectorOpen, () => setSelectorOpen(false));
   // Autosize is CSS-native now (field-sizing: content). The old layout-effect
@@ -501,6 +508,7 @@ export const Composer = memo(function Composer({
   }, [transitioning]);
   useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
 
+  useEffect(() => setSlashIndex(0), [draft]);
   useEffect(() => setMentionIndex(0), [mentionMatch?.query]);
   useEffect(() => {
     if (!mentionOpen || !mentionMatch) {
@@ -535,6 +543,11 @@ export const Composer = memo(function Composer({
     messagePalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [selectorIndex, selectorOpen]);
+  useEffect(() => {
+    if (!slashOpen) return;
+    slashPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [slashIndex, slashOpen, slashCommands]);
   useEffect(() => {
     if (!mentionOpen) return;
     mentionPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
@@ -875,6 +888,13 @@ export const Composer = memo(function Composer({
       textarea,
       setCaretOffset,
     },
+    slash: {
+      open: slashOpen,
+      commands: slashCommands,
+      index: slashIndex,
+      setIndex: setSlashIndex,
+      setDismissed: setSlashDismissed,
+    },
     mention: {
       match: mentionMatch,
       open: mentionOpen,
@@ -958,7 +978,7 @@ export const Composer = memo(function Composer({
         dropTargetRef.current,
       )}
       <form ref={paletteAnchor} className="composer" onSubmit={onSubmit}
-        data-composer-palette-open={selectorOpen || mentionOpen ? "true" : undefined}
+        data-composer-palette-open={selectorOpen || slashOpen || mentionOpen ? "true" : undefined}
         aria-busy={transitioning} onMouseDown={(event) => {
           if (touchPrimaryPointer()) return;
           const target = event.target as HTMLElement;
@@ -975,6 +995,21 @@ export const Composer = memo(function Composer({
               onMouseEnter={() => setSelectorIndex(index)}
               onClick={() => { void rewindToMessage(message.id); }}>
               <span>{oneLine(queuedFollowupPreview(message.text), 90)}</span>
+            </button>
+          ))}
+        </ComposerPalette>
+      )}
+      {slashOpen && (
+        <ComposerPalette anchor={paletteAnchor} panel={slashPalette} id="composer-slash-palette"
+          label={t("Slash commands")}>
+          <header><span>{t("Commands")}</span></header>
+          {slashCommands.map((command, index) => (
+            <button type="button" role="option" aria-selected={index === slashIndex} key={command.name}
+              id={`composer-slash-option-${index}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setSlashIndex(index)}
+              onClick={() => { void send(command.usage); }}>
+              <code>{command.usage}</code><span>{desktopSlashCommandDescription(command)}</span>
             </button>
           ))}
         </ComposerPalette>
@@ -1075,6 +1110,7 @@ export const Composer = memo(function Composer({
         if (attachmentError) setAttachmentError('');
         if (composerNotice) setComposerNotice('');
         setCaretOffset(event.currentTarget.selectionStart);
+        if (slashDismissed) setSlashDismissed('');
         if (mentionDismissed) setMentionDismissed('');
         historyNavigation.current = { index: -1, seed: '' };
       }} onFocus={() => setComposerFocused(true)} onBlur={() => {
@@ -1122,11 +1158,10 @@ export const Composer = memo(function Composer({
         }}
         rows={1} placeholder={placeholder}
         disabled={transitioning}
-        aria-controls={mentionOpen ? 'composer-mention-palette' : undefined}
-        aria-expanded={mentionOpen}
-        aria-activedescendant={mentionOpen && mentionResults.length
-          ? `composer-mention-option-${mentionIndex}`
-          : undefined}
+        aria-controls={slashOpen ? 'composer-slash-palette' : mentionOpen ? 'composer-mention-palette' : undefined}
+        aria-expanded={slashOpen || mentionOpen}
+        aria-activedescendant={slashOpen ? `composer-slash-option-${slashIndex}`
+          : mentionOpen && mentionResults.length ? `composer-mention-option-${mentionIndex}` : undefined}
         aria-label={t("Message Mixdog")} />
       </div>
       <div className="composer-footer">

@@ -57,6 +57,12 @@ export function _serializeGraph(graph) {
       if (Array.isArray(node.symbols) && node.symbols.length) {
         out.symbols = node.symbols;
       }
+      // `calls` is deliberately NOT part of this payload: AST call sites are
+      // several times the size of the rest of a node and only callers/callees/
+      // references need them, so they live in a lazily loaded sidecar
+      // (calls-cache.mjs) written next to this entry. Keeping them here grew
+      // the main cache ~3x and added ~1.5s to every cold reload of modes that
+      // never read a call site.
       return out;
     }),
   };
@@ -90,6 +96,11 @@ export function _deserializeGraph(cwd, payload) {
       topLevelTypes: Array.isArray(item.topLevelTypes) ? item.topLevelTypes : [],
       tokenSymbols: Array.isArray(item.tokenSymbols) ? item.tokenSymbols : null,
       symbols: Array.isArray(item.symbols) ? item.symbols : [],
+      // Always unknown at load time — including for a legacy payload that
+      // still carries an inline `calls` (v1 object wire, no longer decoded).
+      // hydrateGraphCallsFromSidecar() fills this in on the first
+      // callers/callees/references query of the process.
+      calls: null,
     };
     nodes.set(node.rel, node);
     // reverse is derived from the FORWARD edges of every node, not from the
@@ -115,6 +126,10 @@ export function _deserializeGraph(cwd, payload) {
   // hits keep emitting the WARN line in find_symbol/overview output instead
   // of silently working with a partial graph.
   if (graph && payload.truncated) graph.truncated = true;
+  // A cache-loaded graph has no call sites yet. The marker is what makes the
+  // sidecar read LAZY: only a callers/callees/references query pays for it,
+  // and only once per graph object.
+  if (graph) graph._callsHydration = 'pending';
   return graph;
 }
 

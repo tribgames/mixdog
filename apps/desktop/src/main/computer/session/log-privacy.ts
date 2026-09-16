@@ -1,4 +1,6 @@
 /** Diagnostics retain categories, never arbitrary provider or launch payloads. */
+import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+
 export function computerLogTarget(value: string): string {
   const target = value.trim();
   if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !/^[a-z]:[\\/]/i.test(target)) {
@@ -15,6 +17,5 @@ export function computerLogTarget(value: string): string {
 }
 
 export function computerLogError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return /^([a-z][a-z0-9_]{0,79}):/.exec(message)?.[1] || 'computer_command_failed';
+  return computerErrorCode(error) || 'computer_command_failed';
 }

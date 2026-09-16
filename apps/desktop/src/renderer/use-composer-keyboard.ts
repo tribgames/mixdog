@@ -7,6 +7,7 @@ import {
   shouldNavigatePromptHistory,
 } from "./renderer-logic.mjs";
 import { type ComposerAttachment, type ComposerHistoryEntry } from "./composer-support";
+import type { DesktopSlashCommand } from "./slash-commands";
 import { classifyPromptEscape, PROMPT_ESCAPE_HINT_TIMEOUT_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 import { paletteOwnsPromptVerticalArrow } from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
 
@@ -14,6 +15,7 @@ type TextareaKeyEvent = KeyboardEvent<HTMLTextAreaElement>;
 
 export function useComposerKeyboard({
   draft,
+  slash,
   mention,
   selector,
   history,
@@ -28,6 +30,13 @@ export function useComposerKeyboard({
     ref: RefObject<string>;
     textarea: RefObject<HTMLTextAreaElement | null>;
     setCaretOffset(offset: number): void;
+  };
+  slash: {
+    open: boolean;
+    commands: ReadonlyArray<DesktopSlashCommand>;
+    index: number;
+    setIndex: Dispatch<SetStateAction<number>>;
+    setDismissed(value: string): void;
   };
   mention: {
     match: { start: number; end: number; query: string } | null;
@@ -113,6 +122,42 @@ export function useComposerKeyboard({
       draft.textarea.current?.setSelectionRange(caret, caret);
     }, 0);
   }, [draft, history.navigation, mention]);
+
+  const navigateSlashPalette = useCallback((event: TextareaKeyEvent) => {
+    if (!slash.open || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      slash.setDismissed(draft.value);
+      runtime.escapeClearAt.current = 0;
+      return true;
+    }
+    const command = slash.commands[slash.index] || slash.commands[0];
+    if (!command) return false;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void actions.send(command.usage, "keyboard-enter");
+      return true;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      const value = `${command.usage} `;
+      draft.ref.current = value;
+      draft.set(value);
+      draft.setCaretOffset(value.length);
+      history.navigation.current = { index: -1, seed: "" };
+      window.setTimeout(() => draft.textarea.current?.setSelectionRange(value.length, value.length), 0);
+      return true;
+    }
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown")
+      && paletteOwnsPromptVerticalArrow(slash.commands.length)) {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      slash.setIndex((index) => (index + direction + slash.commands.length) % slash.commands.length);
+      return true;
+    }
+    return false;
+  }, [actions, draft, history.navigation, runtime.escapeClearAt, slash]);
 
   const navigateMentionPalette = useCallback((event: TextareaKeyEvent) => {
     if (!mention.open) return false;
@@ -248,6 +293,7 @@ export function useComposerKeyboard({
       return;
     }
     if (navigateMessageSelector(event)) return;
+    if (navigateSlashPalette(event)) return;
     if (navigateMentionPalette(event)) return;
     if (event.key === "Escape") {
       const element = event.currentTarget;
@@ -370,6 +416,7 @@ export function useComposerKeyboard({
     mention,
     navigateMentionPalette,
     navigateMessageSelector,
+    navigateSlashPalette,
     queue,
     runtime,
     selector,

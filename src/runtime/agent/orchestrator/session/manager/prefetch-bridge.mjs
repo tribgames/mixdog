@@ -93,7 +93,12 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch, sign
                     readArgs.mode = 'head';
                     readArgs.n = Number.isFinite(opts.n) ? opts.n : 120;
                 }
-                const out = await executeInternalTool('read', readArgs).catch((e) => {
+                const out = await executeInternalTool('read', readArgs, {
+                    scopeId: session.mcpScopeId || null,
+                    callerSessionId: session.id,
+                    callerCwd: session.cwd,
+                    signal,
+                }).catch((e) => {
                     process.stderr.write(`[agent-prefetch] file read failed (${f}): ${e && e.message || e}\n`);
                     return null;
                 });

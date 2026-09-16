@@ -25,7 +25,7 @@ export async function checkOverlayOutline(contents: WebContents): Promise<void> 
     animation.play();
     const bounds = highlight.getBoundingClientRect();
     const pill = document.getElementById('pill').getBoundingClientRect();
-    const button = document.getElementById('toggle');
+    const button = document.getElementById('stop');
     const buttonBounds = button.getBoundingClientRect();
     return {
       running, repeating:timing.iterations === Infinity, offsets,

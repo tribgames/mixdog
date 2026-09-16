@@ -63,8 +63,10 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
     let closed = 0;
     for (const [page, owner] of pages) {
       if (owned.get(page) !== owner) continue;
-      owned.delete(page);
       if (!page.isDestroyed()) { host.close(page); closed++; }
+      // Keep failed closes owned so a later cleanup can retry. Destruction
+      // callbacks may also have retained or reassigned the page meanwhile.
+      if (owned.get(page) === owner) owned.delete(page);
     }
     group?.delete(turnId);
     if (!group?.size) turns.delete(sessionId);

@@ -1,0 +1,67 @@
+# Call-site rules for JavaScript. Same node vocabulary as the TypeScript
+# rules (`call_expression` / `new_expression`), separate documents because
+# `language:` is part of the rule, not of the file.
+#
+# mixdog-call-kind: method
+id: js-call-method
+language: JavaScript
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: member_expression
+    all:
+      - has:
+          field: property
+          pattern: $NAME
+      - has:
+          field: object
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: js-call-plain
+language: JavaScript
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: new
+id: js-new-qualified
+language: JavaScript
+role: item
+symbolType: function
+rule:
+  kind: new_expression
+  has:
+    field: constructor
+    kind: member_expression
+    all:
+      - has:
+          field: property
+          pattern: $NAME
+      - has:
+          field: object
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: new
+id: js-new
+language: JavaScript
+role: item
+symbolType: function
+rule:
+  kind: new_expression
+  has:
+    field: constructor
+    kind: identifier
+    pattern: $NAME
+name: $NAME

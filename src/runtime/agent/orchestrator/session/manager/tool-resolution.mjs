@@ -26,7 +26,7 @@ function _getMcpTools(mcpScopeId = null, cwd = null) {
     // rewrites/dispatch, but must never enter any model-visible schema (Lead
     // full/mcp included). Filter before mapping because the projection below
     // intentionally drops module-private metadata such as `public`.
-    const internalRaw = (getInternalTools() || []).filter(t => t?.public !== false);
+    const internalRaw = (getInternalTools(mcpScopeId) || []).filter(t => t?.public !== false);
     const internal = internalRaw.map(t => ({
         name: t.name,
         description: typeof t.description === 'string' ? t.description : '',

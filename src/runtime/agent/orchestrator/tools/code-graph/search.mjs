@@ -2,391 +2,109 @@
 // built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
 // verbatim from code-graph.mjs.
 import { readFile } from 'node:fs/promises';
+import { existsSync, statSync } from 'node:fs';
+import { resolve as pathResolve, dirname as pathDirname, basename as pathBasename } from 'node:path';
+import { normalizeOutputPath } from '../builtin/path-utils.mjs';
 import { codeGraphSourceIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
-import { _isJsLike, REGEX_PRECEDENT_CHARS, REGEX_PRECEDENT_KEYWORDS } from './lang-predicates.mjs';
-import { _maskNonCodeText } from './text-mask.mjs';
 import {
-  _graphRel,
   _getSourceTextForNode,
   _getSourceLinesForNode,
   _getMaskedLinesForNode,
+  _graphRel,
 } from './source-access.mjs';
 import {
   _unicodeBoundaryPattern,
   _lookupCandidateNodes,
-  _collectCheapSymbols,
+  _symbolLine,
 } from './symbol-index.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
-import {
-  _toByteColumn,
-  _byteColToCharCol,
-  _nearestEnclosingSymbol,
-  _symbolPathForSymbol,
-} from './text-columns.mjs';
+import { _symbolPathForSymbol } from './text-columns.mjs';
 import {
   _keywordSymbolSortKey,
   _tokenizeKeyword,
   _keywordMatchesSymbolName,
 } from './keyword-match.mjs';
+import {
+  _astCalleeCallSites,
+  _astCallDisplayCol,
+  _astImportedRels,
+} from './ast-calls.mjs';
 
-export { _formatRelated, _formatImpact, _impactSourceNodes, _findSymbolAcrossGraph, _resolveReferenceLanguageNode, _formatReferenceDetails, _formatCallerReferences, _formatTransitiveCallers } from './search-references.mjs';
+export { _formatRelated, _formatImpact, _impactSourceNodes, _findSymbolAcrossGraph, _resolveReferenceLanguageNode, _formatReferenceDetails, _formatCallerReferences, _formatTransitiveCallers, _astCallerTargetRels } from './search-references.mjs';
 
-// `/` at an expression position opens a RegExp literal, not a comment or a
-// division. The callee body scanners below walk RAW source (the mask runs
-// afterwards), so without this a literal like /[{}]/ moved the brace depth and
-// truncated — or ran past — the declaration body.
-// Does the `{` at `idx` open an OBJECT LITERAL (value) or a BLOCK (statement)?
-// The scanners track this per brace so the matching `}` can disambiguate a
-// following `/` — a line break cannot: `const x = {}\n/ 2` is still division.
-const _STATEMENT_BLOCK_KEYWORDS = new Set(['else', 'do', 'try', 'finally', 'static']);
-
-// Does the `:` at `colonIdx` belong to a ternary (value) rather than a label
-// or a `case`? Scan back to the nearest statement boundary.
-function _colonIsTernary(text, colonIdx) {
-  // Pair colons with question marks while scanning back: a `?` only belongs to
-  // OUR colon when no inner `:` has claimed it. `case c ? a : b:` therefore
-  // stays a case label instead of borrowing the ternary's `?`.
-  let pendingColons = 0;
-  for (let i = colonIdx - 1; i >= 0; i -= 1) {
-    const ch = text[i];
-    if (ch === ';' || ch === '{' || ch === '}') return false;
-    if (ch === ':') { pendingColons += 1; continue; }
-    if (ch === '?') {
-      if (pendingColons === 0) return true;
-      pendingColons -= 1;
-      continue;
-    }
-    if (/[A-Za-z0-9_$]/.test(ch)) {
-      let start = i;
-      while (start >= 0 && /[A-Za-z0-9_$]/.test(text[start])) start -= 1;
-      const word = text.slice(start + 1, i + 1);
-      // `case …:` / `default:` introduce STATEMENTS, so their colon is a label.
-      if (word === 'case' || word === 'default') return false;
-      i = start + 1;
-    }
-  }
-  return false;
-}
-
-export function _jsBraceKindAt(text, idx, lastClosedBraceKind = null, enclosingBraceKind = null) {
-  let k = idx - 1;
-  while (k >= 0 && (text[k] === ' ' || text[k] === '\t' || text[k] === '\r' || text[k] === '\n')) k -= 1;
-  if (k < 0) return 'block'; // program start — statement position
-  const prev = text[k];
-  // `key: {…}` inside an object literal is a value; `label: {…}` and
-  // `case x: {…}` inside a block are STATEMENTS, so their braces open blocks.
-  if (prev === ':') {
-    if (enclosingBraceKind === 'object') return 'object';
-    return _colonIsTernary(text, k) ? 'object' : 'block';
-  }
-  // Statement boundaries and block introducers, whatever the operator table
-  // says: `; {`, `{ {`, `} {`, `=> {`, `else {`.
-  if (prev === ';' || prev === '{' || prev === '}') return 'block';
-  if (prev === '>' && text[k - 1] === '=') return 'block';
-  if (/[A-Za-z0-9_$]/.test(prev)) {
-    let s = k;
-    while (s >= 0 && /[A-Za-z0-9_$]/.test(text[s])) s -= 1;
-    if (_STATEMENT_BLOCK_KEYWORDS.has(text.slice(s + 1, k + 1))) return 'block';
-  }
-  // Otherwise decide by GRAMMATICAL POSITION rather than a character list: a
-  // brace where a regex literal could start is an expression, i.e. an object
-  // literal (`= {}`, `!{}`, `1 - {}`, `f({})`, `return {}`); a brace in value
-  // position (`) {`, `] {`) opens a block. Sharing the test with the
-  // regex/division rule keeps the two consistent by construction.
-  return _atJsRegexPosition(text, idx, lastClosedBraceKind) ? 'object' : 'block';
-}
-
-export function _atJsRegexPosition(text, idx, lastClosedBraceKind = null) {
-  let k = idx - 1;
-  let sawNewline = false;
-  while (k >= 0 && (text[k] === ' ' || text[k] === '\t' || text[k] === '\r' || text[k] === '\n')) {
-    if (text[k] === '\n') sawNewline = true;
-    k -= 1;
-  }
-  if (k < 0) return true; // start of file — statement position
-  const prev = text[k];
-  // `}` is ambiguous: it closes a block (statement position → regex) or an
-  // object literal (value position → division, `const x = {} / 2`). The
-  // scanners pass the kind of the brace that actually closed; only a stateless
-  // caller falls back to the line-break heuristic.
-  if (prev === '}') {
-    if (lastClosedBraceKind) return lastClosedBraceKind === 'block';
-    return sawNewline;
-  }
-  if (REGEX_PRECEDENT_CHARS.has(prev)) {
-    // `a++ / b` and `a-- / b` are divisions: the operand is the postfix
-    // expression, not the `+`/`-` operator this would otherwise look like.
-    if ((prev === '+' || prev === '-') && text[k - 1] === prev) return false;
-    return true;
-  }
-  if (/[A-Za-z0-9_$]/.test(prev)) {
-    let s = k;
-    while (s >= 0 && /[A-Za-z0-9_$]/.test(text[s])) s -= 1;
-    return REGEX_PRECEDENT_KEYWORDS.has(text.slice(s + 1, k + 1));
-  }
-  // Identifier / `)` / `]` / literal → value position, so `/` is division.
-  return false;
-}
-
-// Index just past the closing `/flags` of the regex literal starting at `idx`.
-function _skipJsRegexLiteral(text, idx) {
-  let j = idx + 1;
-  let inCharClass = false;
-  while (j < text.length) {
-    const c = text[j];
-    if (c === '\n') return j; // unterminated on this line — treat as division
-    if (c === '\\') { j += 2; continue; }
-    if (c === '[' && !inCharClass) { inCharClass = true; j += 1; continue; }
-    if (c === ']' && inCharClass) { inCharClass = false; j += 1; continue; }
-    if (c === '/' && !inCharClass) {
-      j += 1;
-      while (j < text.length && text[j] >= 'a' && text[j] <= 'z') j += 1;
-      return j;
-    }
-    j += 1;
-  }
-  return j;
-}
+// callees — native AST call sites of the declaring file, the only source.
+//
+// Selection: F.calls whose inSymbol is the queried symbol, plus — when the
+// symbol is a container type (class/interface/enum/…) the outline can delimit
+// by line span — the calls sitting in its member symbols. Members are matched
+// by NAME, since inSymbol is a name; when the outline cannot prove containment
+// the match stays exact.
+//
+// Recursive self-calls are real call sites (the AST separates them from the
+// declaration) and builtin names are not blacklisted: a callee the graph
+// cannot resolve is simply reported as external. Rows are deduped by
+// (kind, recv, name) and carry kind/recv. A file whose `calls` is absent or
+// malformed contributes no rows at all.
 export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol = null, language = null } = {}) {
-  if (!declHit || !_CALLEES_BRACE_LANGS.has(declHit.lang)) return [];
+  if (!declHit) return [];
   const declNode = graph.nodes.get(declHit.rel);
   if (!declNode) return [];
-  const sourceText = _getSourceTextForNode(graph, declNode);
-  if (!sourceText) return [];
-  let declLineIdx = Math.max(0, (declHit.line || 1) - 1);
-  let nativeStartCol = null;
-  if (callerSymbol && Array.isArray(declNode.symbols)) {
-    const rec = declNode.symbols
-      .filter((s) => s && s.name === callerSymbol
-        && Number.isFinite(Number(s.startLine)) && Number.isFinite(Number(s.startCol)))
-      .sort((a, b) => Math.abs(Number(a.startLine) - (declHit.line || 1))
-        - Math.abs(Number(b.startLine) - (declHit.line || 1)))[0];
-    if (rec) {
-      declLineIdx = Math.max(0, Number(rec.startLine) - 1);
-      nativeStartCol = Number(rec.startCol);
-    }
-  }
-  let i = 0;
-  {
-    let ln = 0;
-    while (i < sourceText.length && ln < declLineIdx) {
-      if (sourceText[i] === '\n') ln += 1;
-      i += 1;
-    }
-  }
-  let declColChar;
-  if (nativeStartCol != null) {
-    const lineEnd0 = sourceText.indexOf('\n', i);
-    const lineText0 = sourceText.slice(i, lineEnd0 < 0 ? sourceText.length : lineEnd0);
-    declColChar = _byteColToCharCol(lineText0, nativeStartCol);
-  } else {
-    declColChar = (Number.isFinite(declHit.col) && declHit.col > 1) ? declHit.col : 1;
-  }
-  if (declColChar > 1) {
-    const lineEnd = sourceText.indexOf('\n', i);
-    const maxI = lineEnd < 0 ? sourceText.length : lineEnd;
-    i = Math.min(i + (declColChar - 1), maxI);
-  }
-  const jsLike = _isJsLike(declHit.lang);
-  let inLineComment = false;
-  let inBlockComment = false;
-  let quote = '';
-  let scanI = i;
-  let parenDepth = 0;
-  let bodyStart = -1;
-  while (scanI < sourceText.length) {
-    const ch = sourceText[scanI];
-    const next = sourceText[scanI + 1];
-    if (inLineComment) {
-      if (ch === '\n') inLineComment = false;
-      scanI += 1; continue;
-    }
-    if (inBlockComment) {
-      if (ch === '*' && next === '/') { inBlockComment = false; scanI += 2; continue; }
-      scanI += 1; continue;
-    }
-    if (quote) {
-      if (ch === '\\') { scanI += 2; continue; }
-      if (ch === quote) { quote = ''; }
-      scanI += 1; continue;
-    }
-    if (ch === '/' && next === '/') { inLineComment = true; scanI += 2; continue; }
-    if (ch === '/' && next === '*') { inBlockComment = true; scanI += 2; continue; }
-    if (ch === '/' && jsLike && _atJsRegexPosition(sourceText, scanI)) {
-      scanI = _skipJsRegexLiteral(sourceText, scanI);
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; scanI += 1; continue; }
-    if (ch === '(') { parenDepth += 1; scanI += 1; continue; }
-    if (ch === ')') { if (parenDepth > 0) parenDepth -= 1; scanI += 1; continue; }
-    if (ch === '{' && parenDepth === 0) { bodyStart = scanI; break; }
-    if (ch === ';' && parenDepth === 0) break;
-    scanI += 1;
-  }
-  if (bodyStart < 0) return [];
-  let depth = 0;
-  let bodyEnd = -1;
-  inLineComment = false; inBlockComment = false; quote = '';
-  // Brace context: each `{` records whether it opened a block or an object
-  // literal, so the matching `}` tells a following `/` apart (regex vs
-  // division) without guessing from line breaks.
-  const braceKinds = [];
-  let lastClosedBraceKind = null;
-  let j = bodyStart;
-  while (j < sourceText.length) {
-    const ch = sourceText[j];
-    const next = sourceText[j + 1];
-    if (inLineComment) {
-      if (ch === '\n') inLineComment = false;
-      j += 1; continue;
-    }
-    if (inBlockComment) {
-      if (ch === '*' && next === '/') { inBlockComment = false; j += 2; continue; }
-      j += 1; continue;
-    }
-    if (quote) {
-      if (ch === '\\') { j += 2; continue; }
-      if (ch === quote) { quote = ''; }
-      j += 1; continue;
-    }
-    if (ch === '/' && next === '/') { inLineComment = true; j += 2; continue; }
-    if (ch === '/' && next === '*') { inBlockComment = true; j += 2; continue; }
-    if (ch === '/' && jsLike && _atJsRegexPosition(sourceText, j, lastClosedBraceKind)) {
-      j = _skipJsRegexLiteral(sourceText, j);
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') { quote = ch; j += 1; continue; }
-    if (ch === '{') {
-      braceKinds.push(_jsBraceKindAt(
-        sourceText,
-        j,
-        lastClosedBraceKind,
-        braceKinds.length ? braceKinds[braceKinds.length - 1] : null,
-      ));
-      depth += 1;
-    } else if (ch === '}') {
-      lastClosedBraceKind = braceKinds.pop() || 'block';
-      depth -= 1;
-      if (depth === 0) { bodyEnd = j; break; }
-    }
-    j += 1;
-  }
-  if (bodyEnd < 0) bodyEnd = sourceText.length;
-  const rawBody = sourceText.slice(bodyStart + 1, bodyEnd);
-  const maskedBody = _maskNonCodeText(rawBody, declNode.lang);
-  const bodyStartLine = sourceText.slice(0, bodyStart + 1).split('\n').length;
-  const callRe = /(?<![\p{ID_Continue}$.])([\p{ID_Start}_][\p{ID_Continue}]*)(?=\s*\()/gu;
-  const memberCallRe = /\.\s*\??\.?\s*([\p{ID_Start}_][\p{ID_Continue}]*)(?=\s*\()/gu;
+  const callSites = _astCalleeCallSites(declNode, callerSymbol || declHit?.name || '') || [];
+  if (!callSites.length) return [];
   const seen = new Map();
-  const selfName = callerSymbol || null;
-  const _CALLEES_JS_METHODS = new Set([
-    'trim','trimStart','trimEnd','slice','splice','substring','substr','split',
-    'join','concat','includes','indexOf','lastIndexOf','startsWith','endsWith',
-    'padStart','padEnd','repeat','charAt','charCodeAt','codePointAt','at',
-    'toUpperCase','toLowerCase','normalize','match','matchAll','search',
-    'replace','replaceAll','push','pop','shift','unshift','reverse','sort',
-    'flat','flatMap','forEach','map','filter','every','some','reduce',
-    'reduceRight','find','findIndex','findLast','findLastIndex','fill',
-    'copyWithin','toString','valueOf','hasOwnProperty','keys','values',
-    'entries','assign','freeze','then','catch','finally','resolve','reject',
-    'all','allSettled','race','any','get','set','has','add','delete','clear',
-    'max','min','floor','ceil','round','abs','sqrt','pow','log','sign','trunc',
-    'random','hypot','parse','stringify','parseInt','parseFloat','isInteger',
-    'isFinite','isNaN','toFixed','isArray','from','of','addEventListener',
-    'removeEventListener','dispatchEvent','bind','call','apply',
-  ]);
-  // One memoized declaration lookup per callee name, shared by the blacklist
-  // check below and the row resolution further down.
-  const declLookupCache = new Map();
-  const resolveCalleeDecl = (name) => {
-    if (declLookupCache.has(name)) return declLookupCache.get(name);
-    let decl = null;
-    try {
-      decl = _resolveCalleeDeclaration(graph, name, { language, preferRel: declHit.rel });
-    } catch {
-      decl = null; // identifier shapes that trip the lookup regex
-    }
-    declLookupCache.set(name, decl);
-    return decl;
-  };
-  const recordHit = (name, index, isMember) => {
-    if (!name) return;
-    if (_CALLEES_JS_KEYWORDS.has(name)) return;
-    if (_isJsLike(declHit.lang)) {
-      if (_CALLEES_JS_BUILTINS.has(name)) return;
-      // The member blacklist exists to drop BUILT-IN methods (arr.map, set.add
-      // …). A project that declares its own get/set/add/delete/find/… was
-      // silenced with them, so keep any name the graph resolves to a real
-      // declaration.
-      if (isMember && _CALLEES_JS_METHODS.has(name)) {
-        const decl = resolveCalleeDecl(name);
-        if (!decl?.declarationLike) return;
-      }
-    }
-    if (selfName && name === selfName) return;
-    if (seen.has(name)) return;
-    const upto = maskedBody.slice(0, index);
-    const lineInBody = upto.split('\n').length - 1;
-    const absLine = bodyStartLine + lineInBody;
-    const absIndex = bodyStart + 1 + index;
-    const lineStart = sourceText.lastIndexOf('\n', absIndex - 1) + 1;
-    const charCol = absIndex - lineStart + 1;
-    seen.set(name, { line: absLine, col: charCol, isMember });
-  };
-  let m = null;
-  while ((m = callRe.exec(maskedBody))) recordHit(m[1], m.index, false);
-  let mm = null;
-  while ((mm = memberCallRe.exec(maskedBody))) {
-    const methodStart = mm.index + mm[0].length - mm[1].length;
-    recordHit(mm[1], methodStart, true);
+  for (const call of callSites) {
+    const key = `${call.kind}\u0000${call.recv}\u0000${call.name}`;
+    if (!seen.has(key)) seen.set(key, call);
   }
-  if (seen.size === 0) return [];
-  const allUnique = [...seen.entries()];
-  const sliced = allUnique.slice(0, cap);
-  const sourceLines = sourceText.split(/\r?\n/);
+  const all = [...seen.values()];
+  const sliced = all.slice(0, cap);
+  const sourceLines = _getSourceLinesForNode(graph, declNode);
+  const importedRels = _astImportedRels(declNode, graph?.cwd || _cwd);
+  const declLookupCache = new Map();
   const rows = [];
-  for (const [name, info] of sliced) {
-    let resolvedPath = '';
-    let resolvedLine = 0;
-    let resolvedDecl = false;
+  for (const call of sliced) {
+    let declPath = '';
+    let declLine = 0;
+    let resolved = false;
     try {
-      const calleeDecl = resolveCalleeDecl(name);
-      if (calleeDecl && calleeDecl.declarationLike) {
-        const memberOk = !info.isMember
-          || calleeDecl.rel === declHit.rel
-          || (Array.isArray(declNode.resolvedImports)
-            && declNode.resolvedImports.some((p) => _graphRel(p, _cwd) === calleeDecl.rel));
-        if (memberOk) {
-          resolvedPath = calleeDecl.rel;
-          resolvedLine = calleeDecl.line || 0;
-          resolvedDecl = true;
+      if (!declLookupCache.has(call.name)) {
+        declLookupCache.set(
+          call.name,
+          _resolveCalleeDeclaration(graph, call.name, { language, preferRel: declNode.rel }),
+        );
+      }
+      const calleeDecl = declLookupCache.get(call.name);
+      if (calleeDecl?.declarationLike) {
+        // A qualified method call only resolves to a declaration this file can
+        // actually reach: its own file or a directly imported one.
+        const reachable = call.kind !== 'method'
+          || !call.recv
+          || calleeDecl.rel === declNode.rel
+          || importedRels.includes(calleeDecl.rel);
+        if (reachable) {
+          declPath = calleeDecl.rel;
+          declLine = calleeDecl.line || 0;
+          resolved = true;
         }
       }
     } catch {
-      // Identifier shapes that trip the lookup regex fall through.
-    }
-    const snippetRaw = String(sourceLines[info.line - 1] || '').trim();
-    const snippet = snippetRaw.slice(0, 80);
-    let enclosing = '';
-    try {
-      const _encByteCol = _toByteColumn(sourceLines[info.line - 1] || '', info.col);
-      const enc = _nearestEnclosingSymbol(declNode, sourceText, info.line, _encByteCol);
-      enclosing = enc?.name || '';
-    } catch {
-      // Falls through to empty enclosing — non-fatal.
+      // Identifier shapes that trip the lookup regex fall through as external.
     }
     rows.push({
-      name,
-      callsitePath: declHit.rel,
-      callsiteLine: info.line,
-      declPath: resolvedPath,
-      declLine: resolvedLine,
-      external: !resolvedDecl,
-      enclosing,
-      snippet,
+      name: call.name,
+      callsitePath: declNode.rel,
+      callsiteLine: call.line,
+      callsiteCol: _astCallDisplayCol(call),
+      declPath,
+      declLine,
+      external: !resolved,
+      enclosing: call.inSymbol || '',
+      snippet: String(sourceLines[call.line - 1] || '').trim().slice(0, 80),
+      kind: call.kind,
+      recv: call.recv,
     });
   }
-  if (allUnique.length > sliced.length) {
+  if (all.length > sliced.length) {
     rows.push({
       name: '...',
       callsitePath: '',
@@ -394,7 +112,7 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
       declPath: '',
       declLine: 0,
       enclosing: '',
-      snippet: `+${allUnique.length - sliced.length} more callees (cap=${cap})`,
+      snippet: `+${all.length - sliced.length} more callees (cap=${cap})`,
       truncationFooter: true,
     });
   }
@@ -403,14 +121,18 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
 
 export function _formatCalleeRow(row) {
   if (row.truncationFooter) return `... ${row.snippet}`;
-  const callsite = row.callsitePath ? `callsite ${row.callsitePath}:${row.callsiteLine}` : 'callsite (unknown)';
+  const position = Number.isFinite(Number(row.callsiteCol))
+    ? `${row.callsiteLine}:${row.callsiteCol}`
+    : `${row.callsiteLine}`;
+  const callsite = row.callsitePath ? `callsite ${row.callsitePath}:${position}` : 'callsite (unknown)';
+  const origin = `\tkind=${row.kind}${row.recv ? ` recv=${row.recv}` : ''}`;
   if (row.external) {
     const enclosingExt = row.enclosing ? `(in ${row.enclosing})` : '(in ?)';
-    return `${row.name}\t${callsite}\tdecl (external/builtin)\t${enclosingExt}`;
+    return `${row.name}\t${callsite}\tdecl (external/builtin)\t${enclosingExt}${origin}`;
   }
   const decl = row.declPath ? `decl ${row.declPath}:${row.declLine}` : 'decl (unresolved)';
   const enclosing = row.enclosing ? `(in ${row.enclosing})` : '(in ?)';
-  return `${row.name}\t${callsite}\t${decl}\t${enclosing}`;
+  return `${row.name}\t${callsite}\t${decl}\t${enclosing}${origin}`;
 }
 const CODE_GRAPH_SOURCE_READ_CONCURRENCY = Math.max(
   1,
@@ -563,12 +285,50 @@ export function _formatSymbolHitLocation(hit) {
   return `${hit.rel}:${line}:${col}`;
 }
 
+// A `.d.ts` / `.d.mts` / `.d.cts` file declares a TYPE for an implementation
+// that lives elsewhere: it is a real declaration, but never the one a caller
+// asking "where is this defined" wants to read first. It ranks below any
+// non-declaration file that declares the same name.
+const _TYPE_DECLARATION_RE = /\.d\.(?:ts|mts|cts)$/i;
+
+export function _isTypeDeclarationRel(rel) {
+  return _TYPE_DECLARATION_RE.test(String(rel || ''));
+}
+
+// …of THAT implementation. A `.d.ts` is the type face of the module it sits
+// next to (`error-code.d.mts` ↔ `error-code.mjs`), and of nothing else: a
+// same-named declaration in another package/directory is a RIVAL declaration,
+// so it keeps its place in the ambiguity count instead of being filed under
+// the primary as its type face — which would both hide a real second
+// declaration and assert a module relationship that does not exist.
+const _IMPL_EXTENSION_RE = /\.(?:mjs|cjs|js|jsx|mts|cts|ts|tsx)$/i;
+
+function _moduleStem(rel) {
+  const base = String(rel || '').replace(/\\/g, '/').split('/').pop() || '';
+  const stem = _isTypeDeclarationRel(base)
+    ? base.replace(_TYPE_DECLARATION_RE, '')
+    : base.replace(_IMPL_EXTENSION_RE, '');
+  return stem.toLowerCase();
+}
+
+function _dirOf(rel) {
+  const path = String(rel || '').replace(/\\/g, '/');
+  const cut = path.lastIndexOf('/');
+  return (cut < 0 ? '' : path.slice(0, cut)).toLowerCase();
+}
+
+export function _isTypeFaceOf(implRel, typeRel) {
+  if (!implRel || !typeRel) return false;
+  return _dirOf(implRel) === _dirOf(typeRel) && _moduleStem(implRel) === _moduleStem(typeRel);
+}
+
 function _sortSymbolHits(hits) {
   if (!hits?.length) return hits;
   const depthOf = (rel) => String(rel || '').split('/').length;
   const isCanonicalSrc = (rel) => /^src\//.test(rel || '');
   hits.sort((a, b) =>
     Number(b.declarationLike) - Number(a.declarationLike)
+    || Number(_isTypeDeclarationRel(a.rel)) - Number(_isTypeDeclarationRel(b.rel))
     || Number(isCanonicalSrc(b.rel)) - Number(isCanonicalSrc(a.rel))
     || depthOf(a.rel) - depthOf(b.rel)
     || b.matchCount - a.matchCount
@@ -608,6 +368,7 @@ export function _findSymbolHits(graph, symbol, { language = null } = {}) {
           namePath: nativePath,
           content: String(sourceLines[line - 1] || '').trim(),
           context: sourceLines.slice(line - 1, line + 2).map((item) => String(item || '').trim()).filter(Boolean),
+          ..._symbolFacts(nativeSymbol),
         });
       }
     }
@@ -616,19 +377,27 @@ export function _findSymbolHits(graph, symbol, { language = null } = {}) {
   return _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language });
 }
 
+// Declarations come from the native record ONLY. The regex declaration
+// matchers that used to run for files without symbols are gone: they marked
+// `declarationLike` on lines the extractor never called a declaration, so the
+// hit ranking (and, through it, the caller/callee anchors) depended on which
+// path produced the hit. A file with no symbols still yields reference hits —
+// it just declares nothing.
 function _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language = null } = {}) {
   if (!cleanSymbol) return [];
   const escaped = cleanSymbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const declRe = new RegExp(
-    `(?:^|[\\s;{(,])(?:export\\s+(?:default\\s+)?)?(?:public\\s+|private\\s+|protected\\s+|internal\\s+|static\\s+|abstract\\s+|final\\s+|sealed\\s+|virtual\\s+|override\\s+|async\\s+|pub\\s+(?:\\([^)]*\\)\\s+)?)*(?:const|let|var|function\\*?|class|interface|type|enum|def|func|fn|struct|union|trait|impl|mod|record|object|typedef|namespace|package)\\s+${escaped}\\b`
-  );
-  const assignDeclRe = new RegExp(
-    `(?:^|[\\s;{(,])(?:export\\s+(?:default\\s+)?)?(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s+)?(?:function\\b|(?:\\([^)]*\\)|[A-Za-z_$][\\w$]*)\\s*=>)`
-  );
   const hits = [];
   for (const node of candidateNodes) {
+    const nativeSymbols = (Array.isArray(node.symbols) ? node.symbols : [])
+      .filter((symbol) => symbol?.name === cleanSymbol);
     const sourceText = _getSourceTextForNode(graph, node);
-    if (!sourceText.includes(cleanSymbol)) continue;
+    if (!sourceText.includes(cleanSymbol)) {
+      for (const nativeSymbol of nativeSymbols) {
+        const hit = _nativeSymbolHit(node, nativeSymbol);
+        if (hit) hits.push(hit);
+      }
+      continue;
+    }
     const boundaryLang = language || node.lang;
     const re = new RegExp(_unicodeBoundaryPattern(escaped, boundaryLang, cleanSymbol), 'gu');
     const sourceLines = _getSourceLinesForNode(graph, node);
@@ -639,20 +408,16 @@ function _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language =
     let firstContent = '';
     let contextLines = [];
     let declarationLike = Array.isArray(node.topLevelTypes) && node.topLevelTypes.includes(cleanSymbol);
+    const nativeDeclSymbols = new Map();
+    for (const nativeSymbol of nativeSymbols) {
+      const line = _symbolLine(nativeSymbol);
+      if (line && !nativeDeclSymbols.has(line)) nativeDeclSymbols.set(line, nativeSymbol);
+    }
     let declLine = null;
     let declCol = null;
     let declContent = '';
     let declContext = [];
-    const hasNativeSymbols = Array.isArray(node.symbols) && node.symbols.length > 0;
-    const nativeDeclLines = new Set();
-    const nativeSymbolSource = hasNativeSymbols ? node.symbols : _collectCheapSymbols(sourceText, node.lang);
-    for (const sym of nativeSymbolSource) {
-      if (sym && sym.name === cleanSymbol) nativeDeclLines.add(sym.line);
-    }
-    let nativeDeclLine = null;
-    let nativeDeclCol = null;
-    let nativeDeclContent = '';
-    let nativeDeclContext = [];
+    let declSymbol = null;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (!line.trim()) continue;
@@ -668,28 +433,17 @@ function _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language =
           firstContent = String(sourceLines[i] || '').trim();
           contextLines = sourceLines.slice(i, i + 3).map((line) => String(line || '').trim()).filter(Boolean);
         }
-        if (declLine == null && (assignDeclRe.test(line) || (!hasNativeSymbols && declRe.test(line)))) {
+        if (declLine == null && nativeDeclSymbols.has(i + 1)) {
           declLine = i + 1;
           declCol = match.index + 1;
           declContent = String(sourceLines[i] || '').trim();
           declContext = sourceLines.slice(i, i + 3).map((l) => String(l || '').trim()).filter(Boolean);
-        }
-        if (nativeDeclLine == null && nativeDeclLines.has(i + 1)) {
-          nativeDeclLine = i + 1;
-          nativeDeclCol = match.index + 1;
-          nativeDeclContent = String(sourceLines[i] || '').trim();
-          nativeDeclContext = sourceLines.slice(i, i + 3).map((l) => String(l || '').trim()).filter(Boolean);
+          declSymbol = nativeDeclSymbols.get(i + 1);
         }
       }
-      if (localHit && (nativeDeclLines.has(i + 1) || assignDeclRe.test(line) || (!hasNativeSymbols && declRe.test(line)))) declarationLike = true;
+      if (localHit && nativeDeclSymbols.has(i + 1)) declarationLike = true;
     }
     if (firstLine == null) continue;
-    if (nativeDeclLine != null) {
-      declLine = nativeDeclLine;
-      declCol = nativeDeclCol;
-      declContent = nativeDeclContent;
-      declContext = nativeDeclContext;
-    }
     const hasDeclPos = declLine != null;
     const declLineForEnd = hasDeclPos ? declLine : firstLine;
     const endLine = _nativeEndLineForDecl(node, cleanSymbol, declLineForEnd);
@@ -707,52 +461,12 @@ function _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language =
       firstCol: firstCol || 1,
       firstContent,
       firstContext: contextLines,
+      ..._symbolFacts(declSymbol),
     });
   }
   if (!hits.length) return [];
   return _sortSymbolHits(hits);
 }
-
-// Brace-delimited languages the callee body scanner supports. Non-brace
-// languages get a deterministic skip downstream.
-export const _CALLEES_BRACE_LANGS = new Set([
-  'javascript', 'typescript', 'java', 'csharp', 'kotlin', 'go',
-  'rust', 'c', 'cpp', 'php', 'swift', 'scala', 'dart', 'objc', 'zig',
-]);
-
-// JS/TS reserved words / syntactic keywords that look like call expressions
-// but are not function invocations.
-const _CALLEES_JS_KEYWORDS = new Set([
-  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
-  'return', 'yield', 'await', 'throw', 'try', 'catch', 'finally',
-  'break', 'continue', 'with', 'in', 'of', 'new', 'delete', 'typeof',
-  'void', 'instanceof', 'function', 'class', 'const', 'let', 'var',
-  'this', 'super', 'extends', 'import', 'export', 'from', 'as',
-  'static', 'async', 'true', 'false', 'null', 'undefined',
-  'sizeof', 'using', 'namespace', 'interface', 'type', 'enum',
-]);
-
-// JS/TS built-in globals / constructors / namespaces. Filtered only when
-// scanning JS/TS bodies so Go/Rust/etc. callees named Map/Set/parse/get
-// are not suppressed.
-const _CALLEES_JS_BUILTINS = new Set([
-  'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError',
-  'EvalError', 'URIError', 'AggregateError',
-  'String', 'Number', 'Boolean', 'Array', 'Object', 'Function',
-  'Set', 'Map', 'WeakSet', 'WeakMap', 'WeakRef', 'FinalizationRegistry',
-  'Promise', 'Symbol', 'BigInt', 'Date', 'RegExp', 'Proxy',
-  'ArrayBuffer', 'SharedArrayBuffer', 'DataView', 'Int8Array', 'Uint8Array',
-  'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array',
-  'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array',
-  'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURI',
-  'encodeURIComponent', 'decodeURI', 'decodeURIComponent', 'eval',
-  'globalThis', 'NaN', 'Infinity',
-  'JSON', 'Math', 'Reflect', 'Atomics', 'Intl', 'console', 'process',
-  'fetch', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
-  'queueMicrotask', 'structuredClone', 'requestAnimationFrame',
-  'cancelAnimationFrame', 'alert', 'confirm', 'prompt',
-  'require',
-]);
 
 function _pickCalleeDeclHit(hits, preferRel) {
   if (!hits?.length) return null;
@@ -762,6 +476,7 @@ function _pickCalleeDeclHit(hits, preferRel) {
   const isCanonicalSrc = (rel) => /^src\//.test(rel || '');
   const sorted = [...hits].sort((a, b) =>
     Number(b.declarationLike) - Number(a.declarationLike)
+    || Number(_isTypeDeclarationRel(a.rel)) - Number(_isTypeDeclarationRel(b.rel))
     || Number(isCanonicalSrc(b.rel)) - Number(isCanonicalSrc(a.rel))
     || depthOf(a.rel) - depthOf(b.rel)
     || b.matchCount - a.matchCount
@@ -773,6 +488,25 @@ function _pickCalleeDeclHit(hits, preferRel) {
 
 function _resolveCalleeDeclaration(graph, name, { language = null, preferRel = null } = {}) {
   return _pickCalleeDeclHit(_findSymbolHits(graph, name, { language }), preferRel);
+}
+
+// The record facts every symbol-mode row reports: the unified kind, the
+// declaration head and the export marker. Absent on a hit that no native
+// symbol backs (a pure reference), which is exactly when there is nothing to
+// report about a declaration.
+export function _symbolFacts(sym) {
+  if (!sym) return {};
+  const out = { symbolKind: String(sym.kind || '') || 'symbol' };
+  if (typeof sym.sig === 'string' && sym.sig.trim()) out.symbolSig = sym.sig.trim();
+  if (sym.exported === true) out.symbolExported = true;
+  return out;
+}
+
+// `export class`, `function`, `export method` — the same leading marker the
+// outline rows use, so one reading rule covers every symbol-mode output.
+export function _formatSymbolFacts(hit) {
+  if (!hit?.symbolKind) return '';
+  return `${hit.symbolExported ? 'export ' : ''}${hit.symbolKind}`;
 }
 
 function _nativeSymbolHit(node, sym) {
@@ -789,6 +523,7 @@ function _nativeSymbolHit(node, sym) {
     matchCount: 1,
     content: '',
     context: [],
+    ..._symbolFacts(sym),
   };
 }
 
@@ -845,30 +580,157 @@ function _collectNativeKeywordSymbolEntries(graph, keyword, { language = null, f
   return entries;
 }
 
-function _collectCheapKeywordSymbolEntries(graph, keyword, { language = null, fileRel = null, scopeRelPrefix = null } = {}) {
-  const lowerKey = String(keyword || '').toLowerCase();
-  if (!lowerKey) return [];
-  const keyTokens = _tokenizeKeyword(keyword);
-  const entries = [];
-  for (const node of graph?.nodes?.values?.() || []) {
-    if (language && node.lang !== language) continue;
-    if (!_nodeInGraphScope(node, fileRel, scopeRelPrefix)) continue;
-    if (Array.isArray(node?.symbols) && node.symbols.length) continue;
-    const sourceText = _getSourceTextForNode(graph, node);
-    for (const sym of _collectCheapSymbols(sourceText, node.lang)) {
-      const name = String(sym?.name || '').trim();
-      if (!_keywordMatchesSymbolName(name, lowerKey, keyTokens)) continue;
-      const hit = _nativeSymbolHit(node, sym);
-      if (!hit) continue;
-      entries.push({ name, hit, resolved: true });
+// ── declarations outside a requested scope ─────────────────────────────────
+// A `file`/`files` anchor scopes the answer, so the only hit inside it is
+// regularly the IMPORT of a symbol declared elsewhere. Reporting that as "no
+// user declaration found; likely a global/builtin" is wrong twice over: the
+// symbol is a project symbol, and its declaration is one hop away.
+//
+// Resolution order — the MODULE THE SCOPE ASKED ABOUT first: the file the
+// scoped import points at, then any declaration the graph knows outside the
+// scope, then the unresolved import target as path text. Ranking the graph
+// first answered with a same-named declaration from an unrelated package
+// whenever one existed, which is precisely the file the caller did NOT import.
+// Returns null only when nothing in the scope imports the symbol and no
+// declaration exists — the one case where the builtin wording still holds.
+const _IMPORT_SPECIFIER_PATTERNS = [
+  /\bfrom\s*['"]([^'"]+)['"]/,
+  /\brequire\(\s*['"]([^'"]+)['"]\s*\)/,
+  /\bimport\(\s*['"]([^'"]+)['"]\s*\)/,
+];
+
+function _importedSpecifierForSymbol(graph, node, symbol) {
+  const escaped = String(symbol || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!escaped) return null;
+  const mention = new RegExp(_unicodeBoundaryPattern(escaped, node?.lang, symbol), 'u');
+  for (const line of _getSourceLinesForNode(graph, node)) {
+    // `export { x } from './y'` is an import edge too — a re-export barrel is
+    // exactly the kind of file a scoped query lands in.
+    if (!/\b(?:import|require|export)\b/.test(line)) continue;
+    if (!mention.test(line)) continue;
+    for (const pattern of _IMPORT_SPECIFIER_PATTERNS) {
+      const match = pattern.exec(line);
+      if (match) return match[1];
     }
   }
-  return entries;
+  return null;
 }
 
+// A dependency tree is not this project's source: it is excluded from the
+// graph, and indexing one file out of it to answer a path question would pull
+// in a tree the caller never asked to index.
+export function _isVendorPath(value) {
+  return /(?:^|[\\/])node_modules[\\/]/.test(String(value || ''));
+}
+
+// An import specifier is written without an extension (`./x`, `./dir`), so the
+// file it names has to be recovered before it can be reported: the raw
+// `./x` path exists nowhere, and printing it sends the caller to a file that
+// is not there. Candidates are checked against the GRAPH first (a full graph
+// answers without touching the disk) and only then against the filesystem,
+// which is what a single-file scoped graph needs.
+const _SPECIFIER_EXTENSIONS = ['.mjs', '.js', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.json'];
+
+function _specifierCandidates(abs) {
+  return [
+    abs,
+    ..._SPECIFIER_EXTENSIONS.map((ext) => `${abs}${ext}`),
+    ..._SPECIFIER_EXTENSIONS.map((ext) => pathResolve(abs, `index${ext}`)),
+  ];
+}
+
+function _isExistingFile(abs) {
+  try { return statSync(abs).isFile(); } catch { return false; }
+}
+
+// Relative specifiers only: a bare package name (or an unresolved TS path
+// alias) is not a file of this project, so there is nothing to point at.
+function _specifierTarget(graph, node, specifier) {
+  const value = String(specifier || '');
+  if (!value.startsWith('./') && !value.startsWith('../')) return null;
+  const cwd = graph?.cwd || '';
+  const base = pathResolve(pathDirname(String(node?.abs || '')), value);
+  const hasExtension = /\.[A-Za-z0-9]+$/.test(pathBasename(base));
+  const candidates = hasExtension ? [base] : _specifierCandidates(base);
+  for (const abs of candidates) {
+    const rel = normalizeOutputPath(_graphRel(abs, cwd));
+    if (graph?.nodes?.has(rel)) return { abs, rel };
+  }
+  for (const abs of candidates) {
+    if (_isVendorPath(abs)) break;
+    if (!existsSync(abs) || !_isExistingFile(abs)) continue;
+    return { abs, rel: normalizeOutputPath(_graphRel(abs, cwd)) };
+  }
+  // Nothing resolved: report the literal target rather than inventing one.
+  return { abs: base, rel: normalizeOutputPath(_graphRel(base, cwd)) };
+}
+
+export function _declarationOutsideScope(graph, symbol, { language = null, fileRel = null, scopeRelPrefix = null } = {}) {
+  if (!graph?.nodes || (!fileRel && !scopeRelPrefix)) return null;
+  const name = String(symbol || '').trim();
+  if (!name) return null;
+  let viaImport = null;
+  let unresolvedSpecifier = '';
+  for (const node of graph.nodes.values()) {
+    if (!_nodeInGraphScope(node, fileRel, scopeRelPrefix)) continue;
+    const specifier = _importedSpecifierForSymbol(graph, node, name);
+    if (!specifier) continue;
+    const target = _specifierTarget(graph, node, specifier);
+    if (!target) {
+      // A bare/aliased specifier names a module this project cannot resolve —
+      // still an import, so the builtin verdict below must not be reached.
+      if (!unresolvedSpecifier) unresolvedSpecifier = specifier;
+      continue;
+    }
+    const known = graph.nodes.get(target.rel);
+    const declared = known
+      ? (Array.isArray(known.symbols) ? known.symbols : []).find((item) => item?.name === name)
+      : null;
+    if (declared) {
+      return {
+        rel: target.rel,
+        line: _symbolLine(declared),
+        lang: known.lang || '',
+        facts: _formatSymbolFacts({ ..._symbolFacts(declared) }),
+      };
+    }
+    // A barrel that re-exports without declaring resolves through the graph
+    // below; keep the path as the last resort.
+    if (!viaImport) viaImport = { rel: target.rel, abs: target.abs, viaImport: true, line: 0, lang: '', facts: '' };
+  }
+  const outside = _findSymbolHits(graph, name, { language })
+    .filter((hit) => hit.declarationLike && !_nodeInGraphScope({ rel: hit.rel }, fileRel, scopeRelPrefix));
+  if (outside.length) {
+    const hit = outside[0];
+    return {
+      rel: hit.rel,
+      line: Number(hit.line) || 0,
+      lang: hit.lang || '',
+      facts: _formatSymbolFacts(hit),
+    };
+  }
+  if (viaImport) return viaImport;
+  if (unresolvedSpecifier) return { specifier: unresolvedSpecifier, line: 0, lang: '', facts: '' };
+  return null;
+}
+
+export function _formatOutsideDeclaration(outside) {
+  if (outside?.specifier && !outside?.rel) {
+    return `imported from '${outside.specifier}' (specifier does not resolve to a file of this project)`;
+  }
+  if (!outside?.rel) return '';
+  if (!outside.line) return `${outside.rel} (resolved from the import specifier)`;
+  const facts = [outside.lang, outside.facts].filter(Boolean).join(', ');
+  return `${outside.rel}:${outside.line}${facts ? ` (${facts})` : ''}`;
+}
+
+// One row per matched symbol: name, location, then the record facts —
+// `kind[ export]` and the declaration head when the record carries one.
 function _formatSearchSymbolRow(name, hit) {
   const loc = hit ? _formatSymbolHitLocation(hit) : '(unresolved)';
-  return `${name}\t${loc}`;
+  const facts = _formatSymbolFacts(hit);
+  const sig = hit?.symbolSig ? `\t${hit.symbolSig}` : '';
+  return `${name}\t${loc}${facts ? `\t${facts}` : ''}${sig}`;
 }
 
 const KEYWORD_SEARCH_CACHE_MAX_ENTRIES = Math.max(
@@ -920,9 +782,9 @@ export function _searchSymbolsByKeyword(graph, keyword, cwd, { language = null, 
   const cached = graph?._keywordSearchCache?.get(cacheKey);
   if (typeof cached === 'string') return cached;
   const _memo = (s) => _setKeywordSearchCache(graph, cacheKey, s);
-  const nativeEntries = _collectNativeKeywordSymbolEntries(graph, clean, scope);
-  const cheapEntries = _collectCheapKeywordSymbolEntries(graph, clean, scope);
-  const entries = [...nativeEntries, ...cheapEntries];
+  // Native symbols are the only source: a node without them contributes no
+  // keyword match (it has no declarations the extractor could name).
+  const entries = _collectNativeKeywordSymbolEntries(graph, clean, scope);
   if (!entries.length) {
     const nodeCount = graph?.nodes?.size ?? 0;
     return _memo(`(no symbol keyword matches in cwd=${cwd}${scopeLabel ? ` scope=${scopeLabel}` : ''})\ngraph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`);

@@ -156,8 +156,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /never roots, `~` or\s+unresolved variables\/globs/i);
   assert.match(full, /Report deletion recoverability/i);
   assert.match(full, /Shortest route: missing evidence → implement → verify once → deliver/i);
-  assert.match(full, /Wait only for actual result dependencies or correctness\/safety ordering/i);
-  assert.match(full, /collect all known independent next actions across tool types/i);
+  assert.match(full, /Wait only for true data dependencies or safety ordering/i);
+  assert.match(full, /issue every known independent action in the same turn/i);
   assert.match(full, /Cheapest decisive evidence first: existing state, diff or a failing test\s+before any search/i);
   assert.match(full, /Trust documented\s+guarantees; no availability checks or defensive branches, in scripts included/i);
   assert.match(full, /take the backup\s+inside the first inspection call, never as a separate step/i);
@@ -165,8 +165,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Use supplied commands unchanged except inputs, else documented defaults/i);
   assert.match(full, /Tools own their work; shell never substitutes\. Route by missing evidence:/i);
   assert.match(full, /Tool names are not shell commands; `shell` only runs programs and computation/i);
-  assert.match(full, /issue them together in the same response/i);
-  assert.match(full, /Prefer supported arrays when options, query combinations and required outputs are preserved; otherwise use separate calls/i);
+  assert.match(full, /Never issue one lookup and wait when several targets are already known; no serial wait-and-see/i);
+  assert.match(full, /batch arguments \(path\/URL arrays\) where the tool supports them and options, query combinations and required outputs are preserved; concurrent calls across tools or targets otherwise/i);
   assert.match(full, /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i);
   assert.match(full, /An open\s+shell is never a routing reason/i);
   assert.match(full, /Git→`git`/i);
@@ -178,7 +178,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Use non-mutating readers directly/i);
   assert.match(full, /keep an unchanged\s+backup of every source artifact and work on a separate copy/i);
   assert.match(full, /Keep it after\s+replacing originals unless the user requires purging/i);
-  assert.match(full, /known files\/ranges→`read`, content→`grep`, symbols\/relations→`code_graph`/i);
+  assert.match(full, /known files\/ranges→`read`, literal text or regex→`grep`, declarations, signatures, exports, members and relations→`code_graph`/i);
+  assert.match(full, /Structure questions \(a file's exports, API or signatures, a class's or object's members, who calls or imports something\) go to `code_graph` first/i);
   assert.match(full, /Retry only after a relevant change, at most one bounded transient retry/i);
   assert.match(full, /never bypass denial or cancellation/i);
   assert.match(full, /never hide errors, timeouts or cancellation\s+behind later success/i);
@@ -202,7 +203,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Commit, push, release and deployment only on the user's explicit request/i);
   assert.match(full, /Past sessions and decisions→`recall`/i);
   assert.match(full, /show exact content and scope and ask/i);
-  assert.match(full, /Never promote\s+inferred lessons/i);
+  assert.match(full, /Never store\s+inferred lessons as standing instructions/i);
   const headings = ['# General', '# Tool Workflow', '# Research', '# Exploration', '# Editing', '# Execution', '# Verification', '# Delivery', '# Memory'];
   assert.deepEqual(headings.map((heading) => full.indexOf(heading)), headings.map((heading) => full.indexOf(heading)).toSorted((a, b) => a - b));
   assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git'));
@@ -282,10 +283,11 @@ test('modelStandaloneTools hides agent and disabled first-party feature tools', 
     { name: 'memory' },
     { name: 'recall' },
     { name: 'office' },
+    { name: 'tidy' },
   ];
   const { modelStandaloneTools } = surfaceFor({
     session: { workflow: { id: 'solo', delegatesAgents: false } },
-    denied: ['git', 'git_stage', 'web_search', 'web_fetch', 'memory', 'recall', 'office'],
+    denied: ['git', 'git_stage', 'web_search', 'web_fetch', 'memory', 'recall', 'office', 'tidy'],
     standalone,
   });
   assert.deepEqual(modelStandaloneTools().map((tool) => tool.name), ['read']);
@@ -341,6 +343,7 @@ test('headless tool profile keeps task-scoped tools and removes persistent or in
     { name: 'read' },
     { name: 'load_tool' },
     { name: 'office' },
+    { name: 'tidy' },
     { name: 'git_stage' },
     { name: 'web_search' },
     { name: 'goal' },
@@ -360,10 +363,11 @@ test('headless tool profile keeps task-scoped tools and removes persistent or in
   const catalogNames = new Set((surface.deferredToolCatalog || []).map((tool) => tool.name));
   const activeNames = new Set((surface.tools || []).map((tool) => tool.name));
 
-  for (const name of ['read', 'load_tool', 'office', 'git_stage', 'web_search']) {
+  for (const name of ['read', 'load_tool', 'office', 'tidy', 'git_stage', 'web_search']) {
     assert.equal(catalogNames.has(name), true, `${name} should remain available`);
   }
   assert.equal(activeNames.has('office'), false);
+  assert.equal(activeNames.has('tidy'), false);
   assert.equal(activeNames.has('git_stage'), false);
   for (const name of ['goal', 'agent', 'memory', 'recall', 'cwd', 'Skill', 'browser', 'browser_devtools', 'computer']) {
     assert.equal(catalogNames.has(name), false, `${name} should be absent`);

@@ -15,16 +15,13 @@ export function createSessionFlow(bag) {
     snapshotTranscriptSpill, restoreTranscriptSpill, releaseTranscriptSpill,
   } = bag;
 
-  // Upper bound on the awaited compacting clear. requireCompactSuccess makes
-  // runtime.clear() resolve only after compaction finishes; without a bound a
-  // stalled compaction wedges autoClearRunning/commandBusy forever, which
-  // suppresses the input drain. On timeout we abandon this attempt.
+  // Upper bound on the awaited idle compaction. Without a bound a stalled
+  // compaction wedges autoClearRunning/commandBusy and suppresses input drain.
   // NOTE: this bounds how long the INPUT stays blocked (commandBusy), not the
-  // compaction itself — the clear path's worst case (Memory cold retries plus
-  // a size-scaled handoff summary call) may exceed it, and that is fine: the
+  // compaction itself — a size-scaled summary call may exceed it, and the
   // abandoned promise keeps running and the late-fulfillment path below
-  // (autoClearInFlight / pendingClearedSessionUi) applies the clear when it
-  // settles. Do NOT raise this to cover compaction worst cases.
+  // (autoClearInFlight / pendingClearedSessionUi) syncs the compacted session
+  // when it settles. Do NOT raise this to cover compaction worst cases.
   const AUTO_CLEAR_COMPACT_TIMEOUT_MS = 60_000;
 
   // Submission-id memory for idempotent re-delivery. A prompt can legitimately
@@ -517,98 +514,76 @@ export function createSessionFlow(bag) {
         return false;
       }
     }
-    return performSessionClear({
-      verb: 'Auto-clearing idle conversation',
-      doneLabel: 'Auto-clear complete',
-      skipLabel: 'Auto-clear skipped',
-      surface: 'auto-clear',
-      useCompaction: true,
-    });
+    return performAutoClear();
   }
 
-  // Shared session-clear body.
-  // useCompaction=true mirrors auto-clear (fresh-context handoff carries
-  // forward); false is a plain /clear wipe.
-  async function performSessionClear({
-    verb, doneLabel, skipLabel, surface, useCompaction,
+  // Idle cleanup retains the compactor's complete result, including rules-only
+  // results without a summary. Plain /clear remains a separate explicit wipe.
+  async function performAutoClear({
     compactTimeoutMs = AUTO_CLEAR_COMPACT_TIMEOUT_MS,
-  }) {
+  } = {}) {
     flags.autoClearRunning = true;
     const startedAt = Date.now();
     // commandBusy blocks concurrent session commands (resume/newSession/
     // setModel) AND new submits for the duration of the async clear — the
-    // clear swaps the live session object, so racing commands could act on
+    // compact swaps the live session object, so racing commands could act on
     // the wrong session.
-    set({ commandBusy: true, commandStatus: { active: true, verb, startedAt, mode: 'auto-clear' } });
+    set({ commandBusy: true, commandStatus: { active: true, verb: 'Auto-clearing idle conversation', startedAt, mode: 'auto-clear' } });
     try {
       // Give Ink one event-loop turn to paint the auto-clear status before the
-      // clear/compact path starts doing synchronous session/transcript work.
+      // compact path starts doing synchronous session/transcript work.
       // Without this, long idle clears can look like a frozen prompt followed by
       // an already-complete status row.
       await new Promise((resolve) => setTimeout(resolve, 0));
-      let clearResult;
-      if (useCompaction) {
-        // Bounded watchdog around the compacting clear. On timeout we throw so
-        // the catch below keeps the conversation, surfaces a user-visible
-        // notice, and the finally releases autoClearRunning/commandBusy so
-        // input drains. The runtime clear cannot be cancelled, so we do NOT
-        // walk away blind: an in-flight latch (autoClearInFlight) suppresses
-        // new auto-clear attempts until the abandoned promise settles, and on
-        // late fulfillment we run the same post-success UI sync as the normal
-        // path so the UI cannot diverge from a runtime session that actually
-        // got cleared. Late rejection or a false result is a no-op.
-        const clearPromise = runtime.clear({ compact: true, requireCompactSuccess: true });
-        let timer = null;
-        const timeout = new Promise((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`compaction timed out after ${compactTimeoutMs}ms; auto-clear deferred to next idle`)),
-            compactTimeoutMs,
-          );
+      // Validate both rejected calls and error results before either normal or
+      // late completion can reset the UI. Never follow compact with clear:
+      // that would discard conversation/execution records the compactor kept.
+      const compactPromise = runtime.compact().then((result) => {
+        if (!result) throw new Error('no active session');
+        if (result.error) throw new Error(result.error);
+        return result;
+      });
+      let timer = null;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`compaction timed out after ${compactTimeoutMs}ms; auto-clear deferred to next idle`)),
+          compactTimeoutMs,
+        );
+      });
+      let result;
+      try {
+        result = await Promise.race([compactPromise, timeout]);
+      } catch (raceError) {
+        flags.autoClearInFlight = true;
+        compactPromise.then(
+          (lateResult) => {
+            if (getState().busy) {
+              // Do not wipe items/queued or force busy=false mid-turn.
+              flags.pendingClearedSessionUi = { result: lateResult };
+            } else {
+              applyAutoClearUi(lateResult);
+              pushNotice('auto-clear completed late; compacted conversation retained', 'info');
+            }
+          },
+          () => {},
+        ).finally(() => {
+          if (!flags.pendingClearedSessionUi) flags.autoClearInFlight = false;
         });
-        try {
-          clearResult = await Promise.race([clearPromise, timeout]);
-        } catch (raceError) {
-          flags.autoClearInFlight = true;
-          clearPromise.then(
-            (lateResult) => {
-              if (lateResult === false) return;
-              if (getState().busy) {
-                // A turn started after commandBusy released; applying the
-                // cleared-session UI now would wipe items/queued and force
-                // busy=false mid-turn. Defer until the current turn settles.
-                flags.pendingClearedSessionUi = { doneLabel, surface };
-              } else {
-                applyClearedSessionUi(doneLabel);
-                pushNotice(`${surface} completed late; session cleared`, 'info');
-              }
-            },
-            () => {},
-          ).finally(() => {
-            // Keep suppressing new auto-clears until any deferred UI sync is
-            // flushed at turn completion.
-            if (!flags.pendingClearedSessionUi) flags.autoClearInFlight = false;
-          });
-          throw raceError;
-        } finally {
-          if (timer) clearTimeout(timer);
-        }
-      } else {
-        clearResult = await runtime.clear({});
+        throw raceError;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
-      if (clearResult === false) {
-        throw new Error('runtime clear returned false');
-      }
-      applyClearedSessionUi(doneLabel);
+      applyAutoClearUi(result);
       return true;
     } catch (error) {
-      const message = presentErrorText(error, { surface });
+      const message = presentErrorText(error, { surface: 'compact' });
       pushItem({
         kind: 'statusdone',
         id: nextId(),
-        label: skipLabel,
+        label: 'Auto-clear skipped',
         detail: `conversation kept · ${message}`,
       });
-      pushNotice(`${surface} skipped: ${message}`, 'error');
+      pushNotice(`auto-clear skipped: ${message}`, 'error');
       return false;
     } finally {
       flags.lastUserActivityAt = Date.now();
@@ -689,34 +664,30 @@ export function createSessionFlow(bag) {
     displayedExecutionNotificationKeys.clear();
     clearExecutionDedupState?.();
   };
-  // Post-success UI sync shared by the normal clear path and a late-fulfilling
-  // abandoned compacting clear, so the UI always matches the cleared runtime
-  // session (no divergence / kept-items message loss).
-  const applyClearedSessionUi = (doneLabel) => {
-    resetStats();
-    clearUiActivityBeforeContextSync();
-    syncContextStats({ allowEstimated: true });
+  // Only an actual compaction resets the visible transcript; an unchanged
+  // success keeps it. The model transcript always belongs to runtime.compact.
+  const applyAutoClearUi = (result) => {
+    const compactChanged = result.changed !== false;
+    if (compactChanged) {
+      resetStats();
+      clearUiActivityBeforeContextSync();
+    }
+    syncContextStats({ allowEstimated: true, invalidateExact: compactChanged });
     set({
-      items: replaceItems([]),
-      toasts: [],
-      queued: [],
-      thinking: null,
-      spinner: null,
-      lastTurn: null,
       ...routeState(),
       stats: { ...getState().stats },
     });
-    pushItem({ kind: 'statusdone', id: nextId(), label: doneLabel });
+    pushItem({ kind: 'statusdone', id: nextId(), label: 'Auto-clear complete' });
   };
   // Flush a deferred cleared-session UI sync once the active turn has settled.
   // Never forces busy=false mid-turn: bails while a turn is in flight.
   const flushDeferredClearedSessionUi = () => {
     if (!flags.pendingClearedSessionUi || getState().busy) return;
-    const { doneLabel, surface } = flags.pendingClearedSessionUi;
+    const { result } = flags.pendingClearedSessionUi;
     flags.pendingClearedSessionUi = null;
     flags.autoClearInFlight = false;
-    applyClearedSessionUi(doneLabel);
-    pushNotice(`${surface} completed late; session cleared`, 'info');
+    applyAutoClearUi(result);
+    pushNotice('auto-clear completed late; compacted conversation retained', 'info');
   };
   const resetTuiForPendingSessionReset = () => {
     flags.pendingSessionReset = true;
@@ -791,5 +762,5 @@ export function createSessionFlow(bag) {
     return getState().stats;
   };
 
-  return { leadSessionId, shouldMirrorSteeringEntry, commitSteeringQueueEntries, makeQueueEntry, removeQueuedEntries, requeueEntriesFront, dequeueQueueBatch, drain, enqueue, drainPendingSteering, restoreLeadSteeringFromDisk, autoClearBeforeSubmit, performSessionClear, restoreQueued, prioritizeQueued, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext };
+  return { leadSessionId, shouldMirrorSteeringEntry, commitSteeringQueueEntries, makeQueueEntry, removeQueuedEntries, requeueEntriesFront, dequeueQueueBatch, drain, enqueue, drainPendingSteering, restoreLeadSteeringFromDisk, autoClearBeforeSubmit, performAutoClear, restoreQueued, prioritizeQueued, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext };
 }

@@ -111,7 +111,7 @@ test('unavailable window compositor never falls back to pixels belonging to anot
     ...stateAdapters(),
     sessionIdFor: () => 'test', assertExecutionNotAborted() {},
     callPowerShell: async (request) => {
-      calls.push(request.action);
+      calls.push(request);
       return { ok: true, result: {
         window_id: 'hwnd:0x1', title: 'Fixture', x: 0, y: 0, width: 600, height: 600,
         visible_samples: 5, image_base64: 'cHJpdmF0ZQ==',
@@ -125,7 +125,8 @@ test('unavailable window compositor never falls back to pixels belonging to anot
     assert.equal(result.pixelUnavailable.code, 'pixel_unavailable');
   }
   delete globalThis.auditCaptureSources;
-  assert.deepEqual(calls, ['window_bounds', 'window_bounds']);
+  assert.equal(calls.filter(request => request.action === 'window_capture').length, 2);
+  assert.ok(calls.every(request => request.window_id === 'hwnd:0x1' && request.read_only === true));
 });
 
 test('pending command admission is bounded per session and globally and releases once', () => {

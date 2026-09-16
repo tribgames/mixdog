@@ -82,30 +82,21 @@ export const BROWSER_CREDENTIAL_AUTOFILL_FUNCTION = String.raw`async function(cr
     if (!setter) return false;
     element.focus();
     await Promise.resolve();
-    const dispatch = (event) => {
-      try { element.dispatchEvent(event); } catch { /* unsupported synthetic event */ }
-    };
-    dispatch(new FocusEvent('focusin', { bubbles: true }));
-    dispatch(new KeyboardEvent('keydown', { bubbles: true }));
-    try {
-      dispatch(new InputEvent('beforeinput', {
-        bubbles: true,
-        inputType: 'insertText',
-        data: null,
-      }));
-    } catch { /* older pages may not expose InputEvent */ }
+    element.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+    element.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true,
+      inputType: 'insertText',
+      data: null,
+    }));
     setter.call(element, value);
-    try {
-      dispatch(new InputEvent('input', {
-        bubbles: true,
-        inputType: 'insertText',
-        data: null,
-      }));
-    } catch {
-      dispatch(new Event('input', { bubbles: true }));
-    }
-    dispatch(new KeyboardEvent('keyup', { bubbles: true }));
-    dispatch(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      inputType: 'insertText',
+      data: null,
+    }));
+    element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
     return element.value === value;
   };
 

@@ -16,7 +16,8 @@ import {
   isSurfaceCacheable,
   LOADERS,
   readSurfaceDataCache,
-  setStatsDataCache,
+  refreshStatsDataCache,
+  subscribeStatsDataCache,
   writeSurfaceDataCache,
   type SurfaceApi,
 } from './command-surface-cache';
@@ -70,8 +71,8 @@ export function useCommandSurfaceLifecycle({
   // 튐): context payloads cache per session exactly like /usage, so the
   // dialog opens full-size with the last data while a silent refresh runs.
   const cacheKey = commandSurfaceCacheKey(surface, sessionId);
-  // Paint the last statistics immediately, then revalidate. Scope the snapshot
-  // to its API owner so another host cannot inherit its figures.
+  // The desktop keeps statistics warm while this surface is closed. Scope the
+  // snapshot to its API owner so another host cannot inherit its figures.
   const cacheable = isSurfaceCacheable(surface);
   const cachedSurface = surface === 'stats' ? getStatsDataCache(api)
     : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
@@ -80,6 +81,18 @@ export function useCommandSurfaceLifecycle({
   const [refreshing, setRefreshing] = useState(false);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
+  const [displayOwner, setDisplayOwner] = useState({ api, surface, open });
+  if (displayOwner.api !== api || displayOwner.surface !== surface || displayOwner.open !== open) {
+    setDisplayOwner({ api, surface, open });
+    if (surface === 'stats') {
+      // Reset before React commits the opening frame, not in an effect: the
+      // retained dialog state may predate several background usage updates.
+      setData(cachedSurface ?? {});
+      setLoading(!cachedSurface);
+      setRefreshing(false);
+      setError('');
+    }
+  }
 
   const capabilityRequest = useCallback((capability: DesktopCapability, args: unknown[] = []) => ({
     capability,
@@ -99,21 +112,26 @@ export function useCommandSurfaceLifecycle({
     setRefreshing(true);
     setError('');
     try {
+      if (surface === 'stats') {
+        const next = await refreshStatsDataCache(api);
+        if (loadSequence.current === request) setData(next);
+        return;
+      }
       const capabilities = LOADERS[surface];
       const results = await Promise.all(capabilities.map((capability) => (
-        readSurfaceCapability(api, capabilityRequest(capability, capability === 'getUsageStats' ? [{ view: 'hour' }] : []))
+        readSurfaceCapability(api, capabilityRequest(capability))
       )));
       if (loadSequence.current === request) {
         const next: Record<string, unknown> = {
           ...Object.fromEntries(capabilities.map((capability, index) => [capability, results[index]?.value])),
           ...(surface === 'context' ? { snapshot: results[0]?.snapshot ?? null } : {}),
         };
-        if (surface === 'stats') setStatsDataCache(api, next);
-        else if (cacheable) writeSurfaceDataCache(cacheKey, next);
+        if (cacheable) writeSurfaceDataCache(cacheKey, next);
         setData(next);
       }
     } catch (reason) {
       if (loadSequence.current === request) {
+        if (surface === 'stats') setData(getStatsDataCache(api, true) ?? {});
         setError(reason instanceof Error ? reason.message : String(reason));
       }
     } finally {
@@ -124,14 +142,25 @@ export function useCommandSurfaceLifecycle({
   }, [api, cacheKey, cacheable, capabilityRequest, surface]);
 
   useEffect(() => {
+    if (surface !== 'stats' || !open) return undefined;
+    return subscribeStatsDataCache(api, () => {
+      setData(getStatsDataCache(api) ?? {});
+      setLoading(false);
+      setError('');
+    });
+  }, [api, open, surface]);
+
+  useEffect(() => {
     if (open) void load();
     else if (surface === 'stats') {
-      ++loadSequence.current;
-      loadingSurface.current = null;
       setLoading(!hasStatsDataCache(api));
       setRefreshing(false);
       setError('');
     }
+    return () => {
+      ++loadSequence.current;
+      loadingSurface.current = null;
+    };
   }, [api, load, open, surface]);
 
   useEffect(() => {

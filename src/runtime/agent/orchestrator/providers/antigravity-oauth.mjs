@@ -7,7 +7,7 @@
  *
  *   - requests wrap the Gemini payload in { project, model, request, … }
  *   - responses nest it back under `response` (see unwrapChunk below)
- *   - the host is an IDE-internal daily/sandbox channel with a fallback chain
+ *   - the host is the IDE-internal daily channel (no automatic host fallback)
  *
  * Auth, endpoints, and headers live in antigravity-oauth-tokens.mjs.
  */
@@ -32,7 +32,7 @@ import {
     parseGeminiTextPartMetadata,
 } from './gemini-schema.mjs';
 import {
-    CONTENT_ENDPOINTS,
+    CONTENT_ENDPOINT,
     ANTIGRAVITY_MODELS,
     DEFAULT_ANTIGRAVITY_MODEL,
     antigravityHeaders,
@@ -46,6 +46,7 @@ import {
     antigravityModelCache,
     antigravityQuotaWindows,
     fetchAvailableModels,
+    fetchUserQuotaSummary,
     normalizeAntigravityCatalog,
     resolveAntigravityWireModel,
 } from './antigravity-oauth-catalog.mjs';
@@ -82,27 +83,6 @@ function antigravityError(res, text, endpoint) {
         err.unsafeToRetry = true;
     }
     return err;
-}
-
-// Endpoint failover only makes sense when the HOST is the suspect. A
-// deterministic 4xx — malformed request, revoked/expired auth, permission
-// denial, unknown route — and a quota decision (429) are answers from the
-// account or the request itself: replaying them across every alternate host
-// repeats the identical rejection, hides the real error behind the last host's
-// message, and can duplicate an accepted-but-throttled generation. Only 5xx and
-// transport-level failures (status 0: DNS/connect/TLS/timeout) fail over.
-function antigravityFailoverEligible(err) {
-    if (err?.unsafeToRetry === true || err?.liveTextEmitted === true || err?.emittedToolCall === true) {
-        return false;
-    }
-    const status = Number(err?.status || err?.httpStatus || 0);
-    // Strictly 5xx or transport. status 0 means no HTTP response reached us at
-    // all (DNS/connect/TLS/first-byte timeout) — the only genuine "this host is
-    // the problem" evidence besides a server-side 5xx. ANY other answer,
-    // including a 3xx redirect the host chose to return, is that host's real
-    // reply and would be reproduced identically everywhere else.
-    if (status >= 500) return true;
-    return status === 0;
 }
 
 async function storedAuth(options) {
@@ -144,20 +124,12 @@ export class AntigravityOAuthProvider {
         this._ensureVersion = typeof config.ensureVersionFn === 'function'
             ? config.ensureVersionFn
             : () => ensureAntigravityVersion({ fetchFn: this._fetch });
-        // Remember the endpoint that last answered so a session stops paying the
-        // failover cost on every turn.
-        this._lastGoodEndpoint = null;
-        this._preconnect(CONTENT_ENDPOINTS[0]);
+        this._preconnect(this._contentEndpoint());
     }
 
-    _endpointOrder() {
+    _contentEndpoint() {
         const configured = String(this.config.baseURL || '').trim();
-        if (configured) return [configured];
-        const ordered = [...CONTENT_ENDPOINTS];
-        if (this._lastGoodEndpoint && ordered.includes(this._lastGoodEndpoint)) {
-            return [this._lastGoodEndpoint, ...ordered.filter((e) => e !== this._lastGoodEndpoint)];
-        }
-        return ordered;
+        return configured || CONTENT_ENDPOINT;
     }
 
     _buildBody(messages, model, tools, opts) {
@@ -185,7 +157,7 @@ export class AntigravityOAuthProvider {
             throw reason instanceof Error ? reason : new Error('Antigravity request aborted');
         }
 
-        this._preconnect(this._endpointOrder()[0]);
+        this._preconnect(this._contentEndpoint());
         // Normalize history while version discovery and token refresh run.
         // The authenticated project is bound only after those tasks finish.
         const [, auth, request] = await Promise.all([
@@ -242,18 +214,13 @@ export class AntigravityOAuthProvider {
             emitGeminiToolCalls(calls, dispatchToolCall);
         };
         const passthrough = createPassthroughSignal(signal);
-        const endpoints = this._endpointOrder();
+        const endpoint = this._contentEndpoint();
         let lastErr = null;
         let response = null;
         // One forced token refresh per send: a second 401 after a fresh token is
         // a real authorization failure, not a stale bearer.
         let refreshedAuth = false;
-        try {
-            for (let index = 0; index < endpoints.length; index += 1) {
-                const endpoint = endpoints[index];
-                const isLast = index === endpoints.length - 1;
-                try {
-                    response = await withRetry(
+        const requestOnce = () => withRetry(
                         async ({ signal: attemptSignal }) => {
                             try { opts.onStageChange?.('requesting'); } catch { /* heartbeat */ }
                             const firstByte = createTimeoutSignal(
@@ -270,6 +237,14 @@ export class AntigravityOAuthProvider {
                                     signal: firstByte.signal,
                                     dispatcher: getLlmDispatcher(),
                                 });
+                            } catch (err) {
+                                // Fetch surfaces AbortError; rethrow the timer/parent
+                                // reason so same-host retry sees EPROVIDERTIMEOUT and
+                                // a caller cancel stays a cancel.
+                                if (firstByte.signal.aborted && firstByte.signal.reason instanceof Error) {
+                                    throw firstByte.signal.reason;
+                                }
+                                throw err;
                             } finally {
                                 firstByte.cleanup();
                             }
@@ -307,7 +282,7 @@ export class AntigravityOAuthProvider {
                                 const error = retiredModelError(streamErr, streamedText, useModel) || streamErr;
                                 // Native calls now run before EOF. Preserve
                                 // their history and prohibit resampling after
-                                // a tool callback, including on another host.
+                                // a tool callback.
                                 if (emittedToolIds.size) {
                                     error.emittedToolCall = true;
                                     error.unsafeToRetry = true;
@@ -322,58 +297,46 @@ export class AntigravityOAuthProvider {
                         },
                         {
                             signal: passthrough.signal,
-                            // Only the final endpoint is worth backing off on. An
-                            // earlier one that fails is more likely down than busy,
-                            // so spend the attempt on the alternate host instead.
-                            ...(isLast ? {} : { maxAttempts: 1 }),
                             onRetry: ({ attempt, lastErr: retryErr }) => {
                                 try { opts.onStageChange?.('requesting'); } catch { /* heartbeat */ }
                                 process.stderr.write(`[antigravity] retry ${attempt + 1} after ${retryErr?.message || 'transient error'}\n`);
                             },
                         },
                     );
-                    this._lastGoodEndpoint = endpoint;
-                    break;
-                } catch (err) {
-                    lastErr = err;
-                    const status = Number(err?.status || err?.httpStatus || 0);
-                    const emitted = err?.unsafeToRetry === true
-                        || err?.liveTextEmitted === true
-                        || err?.emittedToolCall === true;
-                    // A typed 401 says THIS access token is no longer accepted —
-                    // every host would reject it identically. Force one
-                    // credential refresh and replay the same endpoint instead of
-                    // failing over with the same dead token (and instead of
-                    // surfacing a re-login prompt for a token that only needed a
-                    // refresh). shouldRefresh() alone never covers this: a
-                    // server-side revocation/rotation happens while the local
-                    // expiry still looks valid.
-                    if (status === 401 && !emitted && !refreshedAuth) {
-                        refreshedAuth = true;
-                        let refreshed = null;
-                        try {
-                            refreshed = await this._ensureAuth({ fetchFn: this._fetch, force: true });
-                        } catch {
-                            // Refresh itself failed (revoked / no refresh token):
-                            // the original 401 is the actionable error.
-                            throw err;
-                        }
-                        // refreshTokens() preserves project_id/email, so only the
-                        // bearer changes; the already-serialized body stays valid.
-                        this._projectId = refreshed.projectId;
-                        headers.Authorization = `Bearer ${refreshed.accessToken}`;
-                        textLeakGuard = null;
-                        process.stderr.write('[antigravity] 401 — refreshed credentials and retrying once\n');
-                        index -= 1;
-                        continue;
-                    }
-                    // Anything already streamed to the user must not be replayed on
-                    // another endpoint, and a terminal decision is not transport luck.
-                    if (isLast || !antigravityFailoverEligible(err)) {
+        try {
+            try {
+                response = await requestOnce();
+            } catch (err) {
+                lastErr = err;
+                const status = Number(err?.status || err?.httpStatus || 0);
+                const emitted = err?.unsafeToRetry === true
+                    || err?.liveTextEmitted === true
+                    || err?.emittedToolCall === true;
+                // A typed 401 says THIS access token is no longer accepted.
+                // Force one credential refresh and replay the same host instead
+                // of surfacing a re-login prompt for a token that only needed a
+                // refresh. shouldRefresh() alone never covers this: a
+                // server-side revocation/rotation happens while the local
+                // expiry still looks valid.
+                if (status === 401 && !emitted && !refreshedAuth) {
+                    refreshedAuth = true;
+                    let refreshed = null;
+                    try {
+                        refreshed = await this._ensureAuth({ fetchFn: this._fetch, force: true });
+                    } catch {
+                        // Refresh itself failed (revoked / no refresh token):
+                        // the original 401 is the actionable error.
                         throw err;
                     }
-                    process.stderr.write(`[antigravity] ${endpoint} failed (${err?.message || err}); trying next endpoint\n`);
+                    // refreshTokens() preserves project_id/email, so only the
+                    // bearer changes; the already-serialized body stays valid.
+                    this._projectId = refreshed.projectId;
+                    headers.Authorization = `Bearer ${refreshed.accessToken}`;
                     textLeakGuard = null;
+                    process.stderr.write('[antigravity] 401 — refreshed credentials and retrying once\n');
+                    response = await requestOnce();
+                } else {
+                    throw err;
                 }
             }
         } finally {
@@ -496,12 +459,23 @@ export class AntigravityOAuthProvider {
         return models;
     }
 
+    async _fetchQuotaSummary(signal = null) {
+        await this._ensureVersion();
+        const auth = await this._ensureAuth({ fetchFn: this._fetch });
+        return fetchUserQuotaSummary({
+            accessToken: auth.accessToken,
+            projectId: auth.projectId,
+            fetchFn: this._fetch,
+            signal,
+        });
+    }
+
     async getUsageSnapshot() {
         return {
             provider: this.name,
             model: null,
-            source: 'antigravity-models',
-            quotaWindows: antigravityQuotaWindows(await this._fetchRawModels()),
+            source: 'antigravity-quota-summary',
+            quotaWindows: antigravityQuotaWindows(await this._fetchQuotaSummary()),
         };
     }
 

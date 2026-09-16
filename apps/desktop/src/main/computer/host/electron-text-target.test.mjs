@@ -93,3 +93,30 @@ test('observation-only enabled during focus confirmation prevents text after the
     assert.equal(textWrites, 0);
   } finally { delete globalThis.typingWindows; }
 });
+
+test('a failed preparatory click retains uncertainty and never sends app-owned text', async () => {
+  const { createInputDispatch } = await import('./input-dispatch.ts');
+  for (const uncertain of [true, false]) {
+    let textWrites = 0;
+    globalThis.typingWindows = [{
+      isDestroyed: () => false, getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
+      webContents: { isDestroyed: () => false, insertText: async () => { textWrites++; } },
+    }];
+    const dispatch = createInputDispatch({
+      assertExecutionNotAborted() {}, isObserveOnly: () => false, sessionIdFor: () => 'typing-fixture',
+      callPowerShell: async () => ({ ok: true, result: {
+        action: 'click', code: 'background_unsupported', text: 'fixture refusal',
+        delivery_accepted: uncertain ? null : false, input_may_have_executed: uncertain,
+      } }),
+    }, { assertAction() {}, dispatchAuthority: () => ({}) });
+    try {
+      const response = await dispatch({ action: 'type', text: 'must not be typed' }, 'type',
+        { targetWindowId: 'hwnd:0x1', physicalX: 2, physicalY: 2, allowedWindowIds: ['hwnd:0x1'] });
+      assert.equal(response.result.action, 'type');
+      assert.equal(response.result.code, 'background_unsupported');
+      assert.equal(response.result.input_may_have_executed, uncertain);
+      assert.equal(response.result.delivery_accepted, uncertain ? null : false);
+      assert.equal(textWrites, 0);
+    } finally { delete globalThis.typingWindows; }
+  }
+});

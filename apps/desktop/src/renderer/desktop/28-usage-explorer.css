@@ -57,14 +57,14 @@
   color: var(--mx-text-faint);
   background: var(--mx-bg-layer-1);
   text-align: left;
-  font-size: var(--mx-font-micro);
+  font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-semibold);
   letter-spacing: var(--mx-tracking-wide);
   line-height: var(--mx-line-meta);
   text-transform: uppercase;
 }
 .usage-table td {
-  padding: 5px 12px;
+  padding: 7px 12px;
   border-bottom: .5px solid var(--mx-border);
   vertical-align: middle;
 }
@@ -307,8 +307,8 @@
 .stats-sort:hover { color: var(--mx-text); }
 .stats-sort[data-active="true"] { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
 .stats-sort[data-active="true"]::after { content: " ↓"; }
-.stats-table td:not(:first-child) { color: var(--mx-text-muted); }
-.stats-table .stats-total-cell, .stats-table .stats-cost-cell { color: var(--mx-text); }
+.stats-table td:not(:first-child) { color: var(--mx-text); }
+.stats-table .stats-total-cell, .stats-table .stats-cost-cell { font-weight: var(--mx-weight-semibold); }
 /* Provider groups own their own <tbody>. The summary row carries a slightly
    lighter background and a top hairline so the group hierarchy is clear. */
 .stats-provider td { border-bottom: 0; }
@@ -378,9 +378,11 @@
   line-height: var(--mx-line-meta);
 }
 .stats-provider[data-open="true"] .stats-provider-toggle b { color: var(--mx-text); }
-.stats-model-row td { color: var(--mx-text-faint); font-size: var(--mx-font-minor); }
+.stats-model-row td { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.stats-model-row .stats-total-cell, .stats-model-row .stats-cost-cell { font-weight: var(--mx-weight-regular); }
 .stats-model-cell {
   padding-left: 32px !important;
+  color: var(--mx-text);
   overflow-wrap: anywhere;
   white-space: normal;
 }
@@ -497,7 +499,9 @@
   border: var(--mx-popup-border); border-radius: var(--mx-radius-md);
   color: var(--mx-text); background: var(--mx-popup-bg); box-shadow: var(--mx-popup-shadow);
   font-size: var(--mx-font-meta); line-height: var(--mx-line-meta);
+  pointer-events: none;
 }
+.stats-trend-detail[data-pinned="true"] { pointer-events: auto; }
 .stats-trend-detail-heading { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
 .stats-trend-detail-heading > b { min-width: 0; }
 .stats-trend-detail-heading button {

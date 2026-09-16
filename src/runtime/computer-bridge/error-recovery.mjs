@@ -1,7 +1,9 @@
+import { computerErrorCode } from './error-code.mjs';
+
 function errorCode(message) {
   const text = String(message || '').trim().replace(/^Error:\s*/i, '');
-  const explicit = /^([a-z][a-z0-9_]+):/i.exec(text);
-  if (explicit) return explicit[1].toLowerCase();
+  const explicit = computerErrorCode(text);
+  if (explicit) return explicit;
   if (/window_id is stale|window is stale/i.test(text)) return 'window_stale';
   if (/fresh capture.*first|unknown frame_id/i.test(text)) return 'stale_frame';
   return '';
@@ -42,6 +44,12 @@ function recaptureLeaseGuidance(code, target) {
 
 function recoveryForCode(code, args) {
   const target = targetLabel(args);
+  if (code === 'computer_background_cleanup_unconfirmed') {
+    return {
+      code, next: 'user',
+      guidance: 'The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released.',
+    };
+  }
   if (LIST_WINDOW_CODES.has(code)) {
     return { code, next: 'list', guidance: 'List windows and retry with one current exact window_id.' };
   }
@@ -71,10 +79,16 @@ function recoveryForCode(code, args) {
   if (CLEANUP_CODES.has(code)) {
     return {
       code, next: 'user',
-      guidance: 'Worker exit and input release are not confirmed. Do not resume or reset the guard; wait for cleanup. Failed cleanup requires an explicitly approved host restart.',
+      guidance: 'Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Stop: the host must verify worker exit and release of automation-owned input before recovery. If Stop cannot confirm cleanup, an explicitly approved host restart is required.',
     };
   }
-  if (code.startsWith('menu_') || code === 'computer_command_timeout') {
+  if (code === 'computer_command_timeout') {
+    return {
+      code, next: 'diagnose',
+      guidance: `The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture ${target} and inspect the effect before issuing any new input.`,
+    };
+  }
+  if (code.startsWith('menu_')) {
     return {
       code, next: 'capture',
       guidance: `Capture ${target} again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged.`,
@@ -113,6 +127,19 @@ export function computerToolErrorRecovery(message, args = {}) {
 
 export function computerResultRecovery(result, args = {}) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return undefined;
+  if (result.code === 'observation_unavailable') {
+    return {
+      code: result.code, next: 'capture',
+      guidance: `The action and its observation have separate outcomes. Preserve completed steps and inspect ${targetLabel(args)} with a fresh capture. Do not repeat input merely because the final observation failed.`,
+    };
+  }
+  if (result.code === 'background_unsupported'
+    && result.delivery_accepted === false && result.input_may_have_executed !== true) {
+    return {
+      code: result.code, next: 'select_delivery',
+      guidance: 'This action was refused before input delivery. Choose a supported semantic action or explicit foreground delivery only within the user-approved scope. Keep the selected app/browser session. Reuse an observation only while it is still valid; do not assume earlier steps in a sequence were also unexecuted.',
+    };
+  }
   return recoveryForCode(String(result.code || '').toLowerCase(), args);
 }
 

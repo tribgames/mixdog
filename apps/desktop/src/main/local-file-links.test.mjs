@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { DESKTOP_IPC } from '../shared/contract';
 import { registerDesktopIpc } from './ipc';
+import * as projectFiles from './project-files';
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-file-links-'));
@@ -20,6 +21,8 @@ async function fixture(t) {
   const remove = registerDesktopIpc({ webContents, isDestroyed: () => false }, {
     subscribe: () => () => {},
     subscribeSessionStates: () => () => {},
+    listProjects: async () => [],
+    invokeDesktopOperation: async (method, args) => projectFiles[method](...args),
   }, {
     app: { quit() {} },
     ipcMain: {
@@ -39,7 +42,7 @@ async function fixture(t) {
   const handler = handlers.get(DESKTOP_IPC.openLocalFileLink);
   assert.equal(typeof handler, 'function');
   return {
-    directory, project, opened, handler, event,
+    directory, project, opened, handler, event, handlers,
     invoke: (href, root = project) => handler(event, root, href),
     fail: (message) => { failure = message; },
   };
@@ -65,6 +68,28 @@ test('chat file IPC opens relative, absolute and file URLs with decoded document
   assert.equal(f.opened.at(-1), await realpath(join(f.project, 'output', 'preview.pdf')));
   await f.invoke('output%5Cverification-summary.docx');
   assert.equal(f.opened.at(-1), await realpath(join(f.project, 'output', names[2])));
+});
+
+test('external chat files use existing selected-file access for reading and saving without registering a Project', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.directory, 'external.ts');
+  await writeFile(file, 'export const value = 1;\n');
+  const invoke = (channel, ...args) => f.handlers.get(channel)(f.event, ...args);
+  const [target] = await invoke(DESKTOP_IPC.resolveLocalPaths, [file]);
+  assert.ok(target.accessToken);
+  assert.equal(target.absolutePath, file);
+  const read = () => invoke(DESKTOP_IPC.readProjectFile, target.projectPath, target.relPath, target.accessToken);
+  const initial = await read();
+  assert.equal(initial.content, 'export const value = 1;\n');
+  assert.equal(initial.binary, false);
+  await invoke(DESKTOP_IPC.statProjectFile, target.projectPath, target.relPath, target.accessToken);
+  assert.equal(await f.invoke(target.relPath, target.projectPath), 'editor');
+  await invoke(DESKTOP_IPC.writeProjectFile, target.projectPath, target.relPath,
+    'export const value = 2;\n', initial.content, target.accessToken, initial.encoding);
+  assert.equal((await read()).content, 'export const value = 2;\n');
+  await assert.rejects(invoke(DESKTOP_IPC.readProjectFile, target.projectPath, 'other.ts', target.accessToken),
+    /does not match/);
+  assert.deepEqual(f.opened, []);
 });
 
 test('chat file IPC rejects traversal, network paths, schemes and malformed paths before launch', async (t) => {

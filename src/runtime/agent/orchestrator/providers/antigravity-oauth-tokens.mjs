@@ -6,9 +6,9 @@
  * API. The endpoints are internal (`/v1internal:`) and live on the IDE's daily
  * sandbox channel rather than a public product surface, so every value here is
  * pinned to what the real client sends. Two independent reference
- * implementations agree on the client credentials; they diverge on endpoint
- * order, headers, and PKCE, and this module follows the newer one that is
- * verified against the live backend (see LICENSES for attribution).
+ * implementations agree on the client credentials; they diverge on headers
+ * and PKCE, and this module follows the newer one that is verified against
+ * the live daily backend (see LICENSES for attribution).
  *
  * Credentials live in Mixdog's own store (antigravity-oauth.json): access +
  * refresh token, the resolved Cloud project, and the account email.
@@ -52,18 +52,13 @@ export const CALLBACK_PATH = '/oauth-callback';
 // Use the same literal loopback address in authorization and token exchange.
 export const REDIRECT_URI = `http://${CALLBACK_HOST}:${CALLBACK_PORT}${CALLBACK_PATH}`;
 
-// Content requests ride the IDE's own daily channel first (the host the
-// shipped client is launched with). The sandbox daily host is an older
-// channel that has answered with version-gating stubs; autopush is the
-// fastest alternate when daily is saturated. Production is kept last: it
-// answers, but not for every Antigravity-only model.
-const ENDPOINT_DAILY = 'https://daily-cloudcode-pa.googleapis.com';
-const ENDPOINT_DAILY_SANDBOX = 'https://daily-cloudcode-pa.sandbox.googleapis.com';
-const ENDPOINT_AUTOPUSH = 'https://autopush-cloudcode-pa.sandbox.googleapis.com';
-const ENDPOINT_PROD = 'https://cloudcode-pa.googleapis.com';
-export const CONTENT_ENDPOINTS = Object.freeze([ENDPOINT_DAILY, ENDPOINT_AUTOPUSH, ENDPOINT_DAILY_SANDBOX, ENDPOINT_PROD]);
-// Account provisioning uses the hub control plane, not the content sandboxes.
-export const PROJECT_ENDPOINT = ENDPOINT_DAILY;
+// Generation stays on the IDE's daily channel. Alternate Cloud Code Assist
+// hosts (autopush / sandbox / prod) carry different entitlements, so they
+// are never used as automatic fallbacks.
+export const CONTENT_ENDPOINT = 'https://daily-cloudcode-pa.googleapis.com';
+export const CONTENT_ENDPOINTS = Object.freeze([CONTENT_ENDPOINT]);
+// Account provisioning uses the same daily control plane as generation.
+export const PROJECT_ENDPOINT = CONTENT_ENDPOINT;
 
 export const DEFAULT_ANTIGRAVITY_MODEL = ANTIGRAVITY_MODELS[0].id;
 

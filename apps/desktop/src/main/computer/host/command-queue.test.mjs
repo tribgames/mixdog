@@ -35,6 +35,50 @@ function fixture(t, overrides = {}) {
   return { coordinator, execution, host, calls };
 }
 
+test('a dispatched menu timeout survives worker cancellation without replay or recovery capture', async (t) => {
+  let f;
+  let dispatched = 0;
+  f = fixture(t, {
+    runCommand: async () => {
+      dispatched++;
+      f.host.onSessionWorkerRetired('a', undefined, true);
+      throw new Error('computer_command_timeout: menu provider did not respond');
+    },
+  });
+  await assert.rejects(f.host.executeSerialized({ action: 'invoke_menu', session_id: 'a' }),
+    /computer_command_timeout: menu provider did not respond/);
+  await f.host.waitForCleanup();
+  assert.equal(dispatched, 1);
+  assert.deepEqual(f.calls, []);
+  f.coordinator.assertAutomationAllowed();
+});
+
+test('failed or interrupted recovery preserves the original error and never publishes stale state', async (t) => {
+  for (const interrupted of [false, true]) {
+    let f;
+    let dispatched = 0;
+    const diagnostics = [];
+    f = fixture(t, {
+      runCommand: async () => {
+        dispatched++;
+        throw new Error('menu_path_not_found: fixture menu is unavailable');
+      },
+      recaptureRequiredReply: async () => {
+        if (interrupted) {
+          await f.host.abortComputerSession({ action: 'session_abort', session_id: 'a' });
+          return { text: 'stale observation' };
+        }
+        throw new Error('pixel_unavailable: recovery capture failed');
+      },
+      recordDiagnostic: (_session, record) => diagnostics.push(record),
+    });
+    await assert.rejects(f.host.executeSerialized({ action: 'invoke_menu', session_id: 'a' }),
+      /menu_path_not_found: fixture menu is unavailable/);
+    assert.equal(dispatched, 1);
+    assert.ok(diagnostics.some(record => record.stage === 'recovery' && record.ok === false));
+  }
+});
+
 test('background semantic focus guards cannot interrupt another session pointer and remain background', { timeout: 3000 }, async (t) => {
   let release;
   const events = [];

@@ -11,6 +11,8 @@ import type {
   DesktopWorkspaceTextWrite,
 } from "../shared/contract";
 import {
+  codeGraphDocumentSymbols,
+  codeGraphOutlineItems,
   parseCodeGraphLocations,
   parseCodeGraphSymbols,
   type EditorCodeGraphMode,
@@ -30,7 +32,6 @@ import {
   monacoRange,
   normalizedFilePath,
   recordOf,
-  symbolKind,
 } from "./editor-lsp-conversion";
 import {
   applyLspTextEdits,
@@ -289,37 +290,7 @@ export function lspDocumentSymbols(
   return { symbols, outline };
 }
 
-type ParsedCodeGraphSymbol = ReturnType<typeof parseCodeGraphSymbols>[number];
-
-export function codeGraphOutlineItems(
-  model: import("monaco-editor").editor.ITextModel,
-  context: EditorGraphContext,
-  sourceRows: readonly ParsedCodeGraphSymbol[],
-): EditorOutlineItem[] {
-  const rows = [...sourceRows].sort((left, right) =>
-    left.line - right.line || right.endLine - left.endLine || left.name.localeCompare(right.name));
-  const parents: Array<{ endLine: number }> = [];
-  return rows.slice(0, 200).map((row, index) => {
-    const line = Math.min(model.getLineCount(), Math.max(1, row.line));
-    const endLine = Math.min(model.getLineCount(), Math.max(line, row.endLine));
-    while (parents.length && line > parents.at(-1)!.endLine) parents.pop();
-    const level = parents.length;
-    if (endLine > line) parents.push({ endLine });
-    return {
-      key: `${model.uri.toString()}:${line}:${index}:${row.name}`,
-      projectPath: context.projectPath,
-      relPath: context.relPath,
-      uri: model.uri.toString(),
-      name: row.name,
-      detail: row.kind,
-      kind: row.kind,
-      line,
-      column: 1,
-      endLine,
-      level,
-    };
-  });
-}
+export { codeGraphDocumentSymbols, codeGraphOutlineItems };
 
 type WorkspaceEditGroup = {
   edits: Array<Record<string, unknown>>;
@@ -618,26 +589,14 @@ export function ensureGraphProviders(languageId: string): void {
           if (!context.codeGraph) return [];
           const rows = parseCodeGraphSymbols(await context.codeGraph("symbols", context.relPath));
           if (token.isCancellationRequested) return [];
-          const symbols = rows.slice(0, 200).map((row) => {
-            const line = Math.min(model.getLineCount(), Math.max(1, row.line));
-            const endLine = Math.min(model.getLineCount(), Math.max(line, row.endLine));
-            const selectionColumn = Math.max(1, model.getLineContent(line).indexOf(row.name) + 1);
-            return {
-              name: row.name,
-              detail: row.kind,
-              kind: symbolKind(row.kind),
-              tags: [],
-              range: new monaco.Range(line, 1, endLine, model.getLineMaxColumn(endLine)),
-              selectionRange: new monaco.Range(
-                line,
-                selectionColumn,
-                line,
-                Math.min(model.getLineMaxColumn(line), selectionColumn + row.name.length),
-              ),
-            };
-          });
+          const symbols = codeGraphDocumentSymbols(
+            model,
+            rows,
+            (startLine, startColumn, endLine, endColumn) =>
+              new monaco.Range(startLine, startColumn, endLine, endColumn),
+          );
           context.onOutline?.(codeGraphOutlineItems(model, context, rows));
-          return symbols;
+          return symbols as import("monaco-editor").languages.DocumentSymbol[];
         } catch {
           return [];
         }

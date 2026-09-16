@@ -21,6 +21,7 @@ action('clipboard_read', { ...nativeRead, ...hostRead, ...replay, foreground: tr
 action('wait', { ...nativeRead, ...hostRead, ...replay, policy: 'act' });
 action('window_bounds', { ...nativeRead, ...hostRead, policy: 'capture' });
 action('window_capture', nativeRead);
+action('validate_background_input', nativeRead);
 action('window_predicates', { ...nativeRead, ...hostRead });
 action('window_integrity', nativeRead);
 action('input_recovery_state', nativeRead);
@@ -40,6 +41,7 @@ for (const name of ['invoke', 'set_value', 'toggle', 'click', 'double_click', 'r
   action(name, {
     observationBound: true,
     autoCapture: true,
+    backgroundPressRelease: ['click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'drag', 'key'].includes(name),
     focusGuard: ['invoke', 'set_value', 'toggle'].includes(name),
     focusContinuation: ['invoke', 'click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move', 'drag', 'scroll'].includes(name),
     policy: 'act',

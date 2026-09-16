@@ -53,7 +53,7 @@ export function createHttpRouter({
   dataDir,
   log,
   pluginVersion,
-  bootPromotionCodeFingerprint,
+  bootMemoryCodeFingerprint,
   touchDaemonIdleTimer,
   entryStats,
   cycleScheduler,
@@ -75,14 +75,12 @@ export function createHttpRouter({
 }) {
   const DATA_DIR = dataDir
   const PLUGIN_VERSION = pluginVersion
-  // Admin mutations that change what a new session injects (curated rows or
-  // the status of a root carrying a core_summary) must republish the
-  // core-memory.json snapshot; otherwise the change waits for the next cycle.
+  // Explicit curated mutations republish the session-injection snapshot.
   async function republishCoreSnapshot(reason) {
     if (typeof refreshCoreMemoryFile !== 'function') return
     try { await refreshCoreMemoryFile(reason) } catch {}
   }
-  const BOOT_PROMOTION_CODE_FINGERPRINT = bootPromotionCodeFingerprint
+  const BOOT_MEMORY_CODE_FINGERPRINT = bootMemoryCodeFingerprint
 
   function createHttpMcpServer() {
     const s = new Server(
@@ -201,7 +199,7 @@ export function createHttpRouter({
           worker_pid: process.pid,
           server_pid: Number(process.env.MIXDOG_SERVER_PID) || null,
           owner_lead_pid: Number(process.env.MIXDOG_OWNER_LEAD_PID) || null,
-          code_fingerprint: BOOT_PROMOTION_CODE_FINGERPRINT,
+          code_fingerprint: BOOT_MEMORY_CODE_FINGERPRINT,
           bootstrap: await isBootstrapComplete(db),
           entries: stats.total,
           roots: stats.roots,
@@ -211,9 +209,6 @@ export function createHttpRouter({
           cycle2_pending_roots: stats.cycle2_pending_roots,
           core_entries: stats.core_entries,
           core_embed_null: stats.core_embed_null,
-          active_core_summaries: stats.active_core_summaries,
-          active_core_summary_missing: stats.active_core_summary_missing,
-          mv_hot_active_populated: stats.mv_hot_active_populated,
           cycle_running: cycleScheduler.getCycleRunning(),
           cycle_health: cycleScheduler.getCycleHealth(),
           cycle_backlog: cycleScheduler.getCycleBacklogSnapshot(),
@@ -278,32 +273,6 @@ export function createHttpRouter({
         const removed = await deleteCore(DATA_DIR, body.id)
         await republishCoreSnapshot('admin-core-delete')
         sendJson(res, { ok: true, item: removed })
-      } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
-      return
-    }
-
-    if (req.method === 'POST' && req.url === '/admin/entries/status') {
-      if (!isLocalOrigin(req)) {
-        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
-        return
-      }
-      try {
-        const db = getDb()
-        const body = await readBody(req)
-        const id = Number(body.id)
-        const status = String(body.status ?? '').trim().toLowerCase()
-        const VALID = ['pending', 'active', 'archived']
-        if (!Number.isInteger(id) || id <= 0 || !VALID.includes(status)) {
-          sendJson(res, { ok: false, error: 'valid id and status required' }, 400)
-          return
-        }
-        const result = await db.query(
-          `UPDATE entries SET status = $1 WHERE id = $2 AND is_root = 1`,
-          [status, id]
-        )
-        const changes = Number(result.rowCount ?? result.affectedRows ?? 0)
-        if (changes > 0) await republishCoreSnapshot('admin-entry-status')
-        sendJson(res, { ok: true, changes })
       } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
       return
     }

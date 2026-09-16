@@ -5,6 +5,74 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Computer Use overlay: two controls, Stop and Resume. The pause button is
+  gone (touching the desktop already hands control to the user); the pill now
+  shows why a control is unavailable or why a request failed instead of
+  reacting silently. Stop recovers a latched cleanup failure once every input
+  worker has exited, so the host no longer needs an app restart, and worker
+  exit confirmation waits up to 5 seconds instead of 1.
+- Computer Use captures a window from its own rendered surface rather than
+  copying the desktop, with a bounded capture budget; an unconfirmed resource
+  release retires that worker. Background keyboard and type are checked
+  before any input is sent, so an unsupported route does nothing. A new
+  command waits until the previous session release is confirmed. Stop also
+  waits for agent-turn cancellation, independently of native input cleanup.
+- Browser Use waits honor cancel and refuse to mix a URL with text from a
+  later document; a failed full-page screenshot restore is terminal. CSS
+  selectors keep interior whitespace, refuse oversized match sets, and
+  address each match uniquely. Concurrent downloads share one session byte
+  total; approval prompts describe actions and addresses, never form values.
+- Code Tidy is an installable built-in, like Office: Settings → Built-in
+  installs and toggles it, and the `code-tidy` skill drives the `tidy` tool.
+  Scan detects a project's languages and resolves each formatter or linter
+  from project config, then project-local binaries, PATH, or a sha256-verified
+  managed download (ask, auto, or never). It runs Biome, ruff, clang-format,
+  shfmt, shellcheck, StyLua, gofumpt, dprint, Air, and Mago, plus toolchain
+  rustfmt, gofmt, and PSScriptAnalyzer, and applies structural packs
+  (history-comment removal, `debugger`, empty catch, TODO markers) across 31
+  languages. `fix` is dry-run unless apply is set, and writes go through the
+  same pipeline as other edits. Engine licenses ship with the tool.
+- `code_graph` callers and callees come from parsed call sites, not text
+  search; call-shaped references use those sites too. An older graph binary
+  that cannot emit them fails with a rebuild remedy instead of an empty
+  answer. Outline rows use one kind vocabulary, mark exports, show
+  signatures, and nest members under their parent. `find_symbol` prefers an
+  implementation file over a companion `.d.ts` and reports when the
+  declaration sits outside the requested files. Identifier tokens come from
+  the parse tree, so a name that appears only in a comment no longer counts
+  as a reference. Solidity, Haskell, and HCL join the extraction set with
+  import edges (24 extraction languages, 31 parsed). Call-site data lives in
+  a sidecar cache so the main graph cache stays the same size.
+- The native graph binary embeds tree-sitter 0.27 and ast-grep 0.45.3, adds
+  `--scan`, `--langs`, and `--outline` modes, and extracts symbols, imports,
+  and identifier tokens from YAML rules.
+- The desktop editor's graph-fallback outline parses the new symbol rows into
+  a nested outline with kind icons.
+- Structure questions (exports, signatures, members, callers, importers) go
+  to `code_graph` before `read` or `grep`; the tool-workflow parallelism
+  wording is one rule.
+- Memory maintenance no longer promotes conversation summaries into standing
+  instructions: there is no third cycle. Cycle 2 reviews search history for
+  duplicates and lineage without rewriting summaries. Standing memory stays
+  user-curated through `memory`; `recall` searches all history by default,
+  including previously archived rows.
+- Antigravity Gemini usage shows shared 5-hour and weekly windows from the
+  account quota summary, not per-model catalog counters, and requests use the
+  daily channel without automatic host failover.
+- The Agents pane expands only rows you open, shows a descendant count on
+  the lead, and says "Waiting for agents" while descendants are still
+  working instead of treating the parent as idle or complete.
+- The composer offers a small slash-command palette for frequent commands
+  (`/new`, `/model`, `/compact`, `/context`, `/goal`, `/inherit`, `/fast`);
+  the full registry still runs when typed directly.
+- Conversation file mentions stay plain text until the path is confirmed in
+  the owning Project; folders and documents still open in the OS, and editor
+  opens pass an access token.
+- The sidebar usage roster aligns provider labels, meters, percentages, and
+  reset times on one grid; the model catalog keeps seven recents.
+- A new session waits until pending settings saves finish, and MCP tools
+  that left the current catalog are not called mid-turn.
+
 ## v0.9.167 - 2026-09-15
 
 - Session start reports which common shell tools are present ("Shell tools

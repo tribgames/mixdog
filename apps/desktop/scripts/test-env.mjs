@@ -1,5 +1,12 @@
 import { createRequire, registerHooks } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// A fixture must never write diagnostic history into the signed-in app's store.
+// Each test process owns its directory, including when the caller set a live path.
+process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-desktop-tests-'));
 
 // Test preload: React only exports `act` from its development build, so a
 // machine-level NODE_ENV=production silently breaks every DOM suite. Loaded

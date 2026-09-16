@@ -44,6 +44,57 @@ Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.
   assert.equal(output, 'compiled');
 });
 
+test('native typing retains a completed preparatory click when text input is unsupported', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(String.raw`
+$ErrorActionPreference = 'Stop'
+foreach ($source in @('input.ps1','runtime.ps1')) {
+  $tokens = $null; $errors = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $env:AUDIT_DIRECTORY $source), [ref]$tokens, [ref]$errors)
+  if ($errors.Count) { throw 'fixture source did not parse' }
+  foreach ($name in @('New-ActionResult','Background-Unavailable','Native-BackgroundFailure','Do-Type')) {
+    $node = $ast.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name}, $true)
+    if ($null -ne $node) { . ([scriptblock]::Create($node.Extent.Text)) }
+  }
+}
+Add-Type @'
+using System;
+public static class MixWin32 {
+  public static int Clicks;
+  public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static string BackgroundPointer(IntPtr target, int x, int y, string action, string modifiers) {
+    Clicks++; return "hwnd:0x1";
+  }
+  public static string BackgroundText(IntPtr target, IntPtr preferred, string text) {
+    throw new InvalidOperationException("background_unsupported|renderer rejected text; no text sent");
+  }
+}
+'@
+function Resolve-WindowInfo($window, $id) { return @{ Handle=[IntPtr]1; Id='hwnd:0x1' } }
+function Get-ObservableTargetState($record, $action) { return $null }
+function Assert-ExecutionAuthorization($req, $target) {}
+$rows = @()
+foreach ($point in @($false, $true)) {
+  [MixWin32]::Clicks = 0
+  $request = @{action='type';window_id='hwnd:0x1';delivery='background';text='fixture'}
+  if ($point) { $request.x=10; $request.y=20 }
+  $result = Do-Type $request
+  $rows += @{clicks=[MixWin32]::Clicks;result=$result}
+}
+$rows | ConvertTo-Json -Compress -Depth 6
+`, { 'input.ps1': PS_INPUT, 'runtime.ps1': PS_RUNTIME });
+  const rows = JSON.parse(output);
+  assert.equal(rows[0].clicks, 0);
+  assert.equal(rows[0].result.delivery_accepted, false);
+  assert.notEqual(rows[0].result.input_may_have_executed, true);
+  assert.equal(rows[1].clicks, 1);
+  assert.equal(rows[1].result.code, 'background_unsupported');
+  assert.equal(rows[1].result.delivery_accepted, null);
+  assert.equal(rows[1].result.input_may_have_executed, true);
+});
+
 test('native authority and drag endpoint guards reject before any desktop effect', {
   skip: process.platform !== 'win32',
 }, async () => {

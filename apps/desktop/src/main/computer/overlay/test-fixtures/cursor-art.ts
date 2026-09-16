@@ -86,7 +86,16 @@ void app.whenReady().then(async () => {
       for (let index = 0; index < pixels.length; index += 4) {
         if (pixels[index] > pixels[index + 2] + 15 && pixels[index + 3] > 0) colored++;
       }
-      assert.ok(colored > 15, `${effect} did not produce visible colored pixels`);
+      const rendered = await window.webContents.executeJavaScript(`(() => {
+        const surface = document.getElementById('surface');
+        return { effect: surface.className, opacity: getComputedStyle(surface).opacity,
+          accent: getComputedStyle(surface).getPropertyValue('--accent'),
+          ring: getComputedStyle(document.getElementById('ring')).opacity,
+          visibility: document.visibilityState, scale: devicePixelRatio };
+      })()`);
+      assert.ok(colored > 15, `${effect} did not produce visible colored pixels: ${JSON.stringify({
+        rendered, size: image.getSize(), bytes: pixels.length, colored,
+      })}`);
     }
     process.stdout.write(`CURSOR_ART_OK ${JSON.stringify(result)}\n`);
   } finally { window.destroy(); app.quit(); }

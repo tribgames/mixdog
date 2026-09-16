@@ -15,20 +15,6 @@ export function scheduledCycle1Signature(config) {
 
 export function scheduledCycle2Signature(config) {
   return makeCycleRequestSignature('cycle2', config, {
-    cascadePreset: undefined,
     concurrency: undefined,
-  })
-}
-
-function scheduledCycle3ApplyMode(config) {
-  const raw = String(config?.cycle3?.applyMode || 'conservative').trim().toLowerCase()
-  return (raw === 'proposal' || raw === 'dry-run' || raw === 'dryrun') ? 'proposal' : 'conservative'
-}
-
-export function scheduledCycle3Signature(config) {
-  const retryConfig = config?.cycle3 || config
-  return makeCycleRequestSignature('cycle3', retryConfig, {
-    applyMode: scheduledCycle3ApplyMode(config),
-    apply: undefined,
   })
 }

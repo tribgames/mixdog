@@ -12,6 +12,22 @@ function context(overrides = {}) {
   };
 }
 
+test('a native browser refusal preserves the selected browser session', async () => {
+  const reply = await buildActionReply(async () => ({ metadata: { ok: true } }), context({
+    command: { action: 'key', delivery: 'background' },
+    result: { action: 'key', code: 'background_unsupported', delivery_accepted: false,
+      effect: 'suspected_noop', verified: false },
+    windowTransition: {
+      observed: true, opened_windows: [], closed_windows: [],
+      changed_windows: [{ id: 'hwnd:0x1', app: 'chrome', className: 'Chrome_WidgetWin_1' }],
+    },
+  }));
+  const payload = JSON.parse(reply.text);
+  assert.equal(payload.window_id, 'hwnd:0x1');
+  assert.equal(payload.verdict.recommended, 'recapture');
+  assert.equal(payload.escalation, 'recapture');
+});
+
 test('input recovery failure takes precedence over a successful native action', async () => {
   const result = await buildActionReply(async () => { throw new Error('unexpected capture'); }, context({
     inputRecoveryVerification: { ok: false },

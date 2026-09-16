@@ -1,0 +1,37 @@
+# Call-site rules for Python.
+#
+# Python has no constructor syntax: `Widget()` is an ordinary call, so no rule
+# here declares `new`. A decorator written with call syntax (`@deco()`)
+# contains a `call` node and is therefore a call site; a bare `@deco` is not.
+#
+# mixdog-call-kind: method
+id: python-call-method
+language: Python
+role: item
+symbolType: function
+rule:
+  kind: call
+  has:
+    field: function
+    kind: attribute
+    all:
+      - has:
+          field: attribute
+          pattern: $NAME
+      - has:
+          field: object
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: python-call-plain
+language: Python
+role: item
+symbolType: function
+rule:
+  kind: call
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME

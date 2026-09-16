@@ -1,0 +1,56 @@
+# Call-site rules for R.
+#
+# `self$ping()` extracts the function from a list before calling it, which is
+# R's method form (kind `method`, receiver `self`). `Widget()` is a plain
+# call: R has no constructor syntax, so no rule here declares `new`.
+#
+# mixdog-call-kind: method
+id: r-call-extract
+language: r
+role: item
+symbolType: function
+rule:
+  kind: call
+  has:
+    field: function
+    kind: extract_operator
+    all:
+      - has:
+          field: rhs
+          pattern: $NAME
+      - has:
+          field: lhs
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: method
+id: r-call-namespace
+language: r
+role: item
+symbolType: function
+rule:
+  kind: call
+  has:
+    field: function
+    kind: namespace_operator
+    all:
+      - has:
+          field: rhs
+          pattern: $NAME
+      - has:
+          field: lhs
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: r-call-plain
+language: r
+role: item
+symbolType: function
+rule:
+  kind: call
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME

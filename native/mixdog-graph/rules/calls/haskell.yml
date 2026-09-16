@@ -1,0 +1,48 @@
+# Call-site rules for Haskell.
+#
+# Application is juxtaposition: the call site is the HEAD identifier of an
+# `apply` node (`plain 1` → `plain`). Multi-argument application nests
+# (`f a b` = `apply (apply f a) b`), so requiring the head to be an identifier
+# reports the call exactly once. A qualified head (`Foo.bar x`) is kind
+# `method` with the module as the receiver — the `module` node itself carries
+# the trailing dot, so the receiver is read from its `module_id`.
+# Constructor application (`Widget 1`) is a call: Haskell has no `new`.
+# Operator sections (`x + y`) are not application nodes and are not reported.
+#
+# mixdog-call-kind: method
+id: haskell-apply-qualified
+language: Haskell
+role: item
+symbolType: function
+rule:
+  kind: apply
+  has:
+    field: function
+    kind: qualified
+    all:
+      - has:
+          field: id
+          pattern: $NAME
+      - has:
+          field: module
+          kind: module
+          has:
+            kind: module_id
+            pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: haskell-apply
+language: Haskell
+role: item
+symbolType: function
+rule:
+  kind: apply
+  has:
+    field: function
+    any:
+      - kind: variable
+        pattern: $NAME
+      - kind: constructor
+        pattern: $NAME
+name: $NAME

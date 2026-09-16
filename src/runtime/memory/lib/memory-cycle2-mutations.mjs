@@ -1,630 +1,73 @@
-// Entry-mutation + phase_merge cluster extracted from memory-cycle2.mjs.
-// DB status/update/merge writers plus the cosine-similarity dedup pass.
-// Facade (memory-cycle2.mjs) re-exports the public members unchanged.
-import { deleteRootEmbedding, syncRootEmbedding } from './memory-embed.mjs'
-import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
-import { callAgentDispatch } from './agent-ipc.mjs'
-import { __mixdogMemoryLog, throwIfAborted, markStoreFault } from './memory-cycle2-shared.mjs'
-import { ensurePhaseMergeVerdictTable, readPhaseMergeVerdict, writePhaseMergeVerdict } from './phase-merge-verdicts.mjs'
+import { markStoreFault } from './memory-cycle2-shared.mjs'
 
-const TIER1_THRESHOLD = 0.78
-const TIER2_LOW = 0.65
-const LLM_JUDGE_CAP = 20
-// Judge calls held back from the active/active loop so the core_overlap sweep
-// (active entry vs user-curated core) always gets a budget of its own.
-const CORE_OVERLAP_JUDGE_RESERVE = 8
-
-const TRANSIENT_PROMOTE_CATEGORIES = new Set(['task', 'issue'])
-
-// Category grades the pipeline trusts outright: user/cycle1 tagged durable
-// knowledge. These are NEVER content-scanned — a curated constraint like
-// "95% pass threshold" or a rule that cites a metric must still promote.
-const DURABLE_TRUSTED_CATEGORIES = new Set(['rule', 'constraint', 'decision', 'preference', 'goal'])
-
-// Deterministic (non-LLM) signature for transient work-state: status/review
-// churn and benchmark/measurement RESULT snapshots. Narrow on purpose — it
-// requires snapshot phrasing (a measurement verb or an explicit result-metric
-// noun), NOT a bare percentage, so SLO/threshold constraints don't trip it.
-// Applied only to non-durable categories (e.g. 'fact'), catching benchmark
-// snapshots mis-tagged as durable-ish. The gate prompt only *discourages*
-// these; this is the structural enforcement.
-const TRANSIENT_SNAPSHOT_RE = new RegExp(
-  [
-    'terminal-bench',
-    '\\bbenchmark(ed|ing|\\s+(run|result|score))\\b',
-    'pass@\\d',
-    '\\btokens?\\s?\\/\\s?s(ec)?\\b',
-    'status\\s+snapshot',
-    'review(er)?\\s+(validation\\s+)?cycles?',
-    'in[-\\s]progress',
-    '\\bWIP\\b',
-    '\\b(scored|achieved|measured|reached)\\b[^.]{0,40}\\d+(\\.\\d+)?\\s?%',
-    '\\d+(\\.\\d+)?\\s?%\\s+(pass\\s+rate|accuracy|score|throughput|latency)',
-  ].join('|'),
-  'i',
-)
-
-// Structural promotion gate: is this row transient content (task/issue chatter
-// or a status/benchmark snapshot) that must not be promoted pending→active?
-// task/issue block by category. Durable knowledge categories are trusted and
-// skip the content scan. Everything else (e.g. 'fact') is content-scanned so
-// snapshots mis-categorized as durable are still blocked.
-function isTransientPromotion(row) {
-  if (!row) return false
-  const cat = String(row.category ?? '').toLowerCase()
-  if (TRANSIENT_PROMOTE_CATEGORIES.has(cat)) return true
-  if (DURABLE_TRUSTED_CATEGORIES.has(cat)) return false
-  return TRANSIENT_SNAPSHOT_RE.test(`${row.element ?? ''} ${row.summary ?? ''}`)
-}
-
-// Strip pending→active promotions for transient content out of the status
-// batch BEFORE the cap clamp. Blocked rows are simply dropped from the batch,
-// so they stay pending (held for re-confirmation on a later cycle) — never
-// archived here, and reviewed_at is still bumped via the caller's reviewedIds.
-export function blockTransientPromotions(statusBatch, rowsById) {
-  if (!statusBatch?.length) return { batch: statusBatch ?? [], blocked: 0 }
-  let blocked = 0
-  const batch = statusBatch.filter((item) => {
-    if (item.was_pending && item.new_status === 'active'
-        && isTransientPromotion(rowsById.get(Number(item.entry_id)))) {
-      blocked += 1
-      return false
-    }
-    return true
-  })
-  return { batch, blocked }
-}
-
-// After the gate, cap how many pending→active promotions may land in one batch.
-// Overflow stays pending (not archived). Tiebreak: durable category before
-// task/issue, then score DESC, then older last_seen_at, then id ASC.
-export function clampPendingPromotions(statusBatch, rowsById, activeCount, activeTargetCap) {
-  if (!statusBatch?.length) return { batch: statusBatch ?? [], clamped: 0 }
-  const archives = []
-  const promotions = []
-  for (const item of statusBatch) {
-    if (item.was_pending && item.new_status === 'active') promotions.push(item)
-    else archives.push(item)
-  }
-  const slots = Math.max(0, Number(activeTargetCap) - Number(activeCount))
-  if (promotions.length <= slots) return { batch: statusBatch, clamped: 0 }
-
-  promotions.sort((a, b) => {
-    const ra = rowsById.get(Number(a.entry_id))
-    const rb = rowsById.get(Number(b.entry_id))
-    const ta = TRANSIENT_PROMOTE_CATEGORIES.has(String(ra?.category ?? '').toLowerCase()) ? 1 : 0
-    const tb = TRANSIENT_PROMOTE_CATEGORIES.has(String(rb?.category ?? '').toLowerCase()) ? 1 : 0
-    if (ta !== tb) return ta - tb
-    const sa = Number(ra?.score ?? 0)
-    const sb = Number(rb?.score ?? 0)
-    if (sb !== sa) return sb - sa
-    const la = Number(ra?.last_seen_at ?? 0)
-    const lb = Number(rb?.last_seen_at ?? 0)
-    if (la !== lb) return la - lb
-    return Number(a.entry_id) - Number(b.entry_id)
-  })
-
-  const allowed = promotions.slice(0, slots)
-  const clamped = promotions.length - allowed.length
-  return { batch: [...archives, ...allowed], clamped }
-}
-
-// Batch CTE UPDATE for status-only verdicts (active/archived from pending or active rows).
-// Trigger handles score recompute automatically — no app-side score writes.
-export async function applyBatchStatusVerdicts(db, batch, nowMs) {
-  if (!batch || batch.length === 0) return { promoted: 0, archived: 0 }
-  // Optimistic guard: each item may carry expected {status, reviewedAt} — the
-  // snapshot the verdict was computed against. NULL expected_* means "no guard"
-  // (legacy blind update). The UPDATE only fires when the row still matches, so
-  // a concurrent write skips the stale verdict.
-  const valueRows = batch.map((item, i) => {
-    const base = i * 5
-    return `($${base + 1}::bigint, $${base + 2}::text, $${base + 3}::boolean, $${base + 4}::entry_status, $${base + 5}::bigint)`
-  })
-  const params = []
-  for (const item of batch) {
-    const exp = item.expected ?? null
-    const expStatus = exp && typeof exp.status === 'string' ? exp.status : null
-    const expReviewed = exp && Number.isFinite(Number(exp.reviewedAt)) ? Number(exp.reviewedAt) : null
-    params.push(item.entry_id, item.new_status, item.was_pending, expStatus, expReviewed)
-  }
-  params.push(nowMs)
-  const lastParam = `$${params.length}`
-  const res = await db.query(
-    `WITH actions(entry_id, new_status, was_pending, exp_status, exp_reviewed) AS (
-       VALUES ${valueRows.join(', ')}
-     )
-     UPDATE entries
-     SET status = a.new_status::entry_status,
-         last_seen_at = ${lastParam},
-         promoted_at = CASE
-           WHEN a.was_pending AND a.new_status = 'active' THEN ${lastParam}
-           ELSE promoted_at
-         END
-     FROM actions a
-     WHERE entries.id = a.entry_id AND entries.is_root = 1
-       AND (a.exp_status   IS NULL OR entries.status      IS NOT DISTINCT FROM a.exp_status)
-       AND (a.exp_reviewed IS NULL OR entries.reviewed_at IS NOT DISTINCT FROM a.exp_reviewed)
-     RETURNING entries.id, entries.status, a.was_pending, a.new_status`,
-    params,
-  )
-  let promoted = 0
-  let archived = 0
-  let archived_active = 0
-  for (const r of (res.rows ?? [])) {
-    if (r.was_pending && r.new_status === 'active') promoted += 1
-    else if (r.new_status === 'archived') {
-      archived += 1
-      if (!r.was_pending) archived_active += 1
-    }
-  }
-  return { promoted, archived, archived_active }
-}
-
-// Generic status update for archived/active terminal transitions.
-// Optimistic concurrency: when the caller passes `expected` (the status and/or
-// reviewed_at it observed when it made the verdict), the UPDATE only fires if
-// the row still matches. A concurrent cycle/recall write that changed status or
-// bumped reviewed_at makes the guard fail (0 rows) so a stale LLM verdict does
-// not overwrite the newer state. Omitting `expected` preserves legacy blind
-// update-by-id behavior for callers that don't track a baseline.
-export async function applySimpleStatus(db, entryId, nextStatus, expected = null) {
-  const params = [nextStatus, entryId]
-  const guards = []
-  if (expected && typeof expected.status === 'string') {
-    guards.push(`status IS NOT DISTINCT FROM $${params.length + 1}::entry_status`)
-    params.push(expected.status)
-  }
-  if (expected && Number.isFinite(Number(expected.reviewedAt))) {
-    guards.push(`reviewed_at IS NOT DISTINCT FROM $${params.length + 1}::bigint`)
-    params.push(Number(expected.reviewedAt))
-  }
-  const guardSql = guards.length ? ` AND ${guards.join(' AND ')}` : ''
-  const res = await db.query(
-    `UPDATE entries SET status = $1 WHERE id = $2 AND is_root = 1${guardSql}`,
-    params,
-  )
-  return Number(res.rowCount ?? res.affectedRows ?? 0) > 0
-}
-
-export async function applyUpdate(db, entryId, element, summary, options = {}) {
-  const setClauses = []
-  const params = []
-  let paramIdx = 1
-  const newElement = (typeof element === 'string' && element.trim()) ? element.trim() : null
-  const newSummary = (typeof summary === 'string' && summary.trim()) ? summary.trim() : null
-  if (newElement) {
-    setClauses.push(`element = $${paramIdx++}`); params.push(newElement)
-  }
-  if (newSummary) {
-    setClauses.push(`summary = $${paramIdx++}`); params.push(newSummary)
-    setClauses.push('summary_hash = NULL')
-  }
-  if (setClauses.length === 0) return false
-  params.push(entryId)
-  const idParam = paramIdx++
-  // Optimistic guard (see applySimpleStatus): skip the write if the row moved
-  // on since the verdict was computed. options.expected = { status, reviewedAt }.
-  const guards = []
-  const expected = options?.expected
-  if (expected && typeof expected.status === 'string') {
-    guards.push(`status IS NOT DISTINCT FROM $${paramIdx++}::entry_status`)
-    params.push(expected.status)
-  }
-  if (expected && Number.isFinite(Number(expected.reviewedAt))) {
-    guards.push(`reviewed_at IS NOT DISTINCT FROM $${paramIdx++}::bigint`)
-    params.push(Number(expected.reviewedAt))
-  }
-  const guardSql = guards.length ? ` AND ${guards.join(' AND ')}` : ''
-  const res = await db.query(
-    `UPDATE entries SET ${setClauses.join(', ')} WHERE id = $${idParam} AND is_root = 1${guardSql}`,
-    params,
-  )
-  if (Number(res.rowCount ?? res.affectedRows ?? 0) === 0) return false
-  await syncRootEmbedding(db, entryId, options)
-  return true
-}
-
-export async function applyLineage(db, entryId, predecessorId) {
-  const newerId = Number(entryId)
-  const olderId = Number(predecessorId)
-  if (!Number.isFinite(newerId) || !Number.isFinite(olderId) || newerId === olderId) return false
-  return await db.transaction(async (tx) => {
-    const valid = await tx.query(`
-      SELECT newer.id
-      FROM entries newer
-      JOIN entries older ON older.id = $2
-      WHERE newer.id = $1
-        AND newer.is_root = 1
-        AND older.is_root = 1
-        AND newer.project_id IS NOT DISTINCT FROM older.project_id
-        AND (older.ts < newer.ts OR (older.ts = newer.ts AND older.id < newer.id))
-    `, [newerId, olderId])
-    if (valid.rows.length === 0) return false
-    const concepts = await tx.query(`
-      SELECT concept_id FROM entry_concepts WHERE entry_id = $1
-      UNION
-      SELECT id AS concept_id FROM entries WHERE id = $1
-      UNION
-      SELECT concept_id FROM entries WHERE id = $1 AND concept_id IS NOT NULL
-    `, [olderId])
-    const conceptIds = [...new Set(concepts.rows.map(row => Number(row.concept_id)).filter(Number.isFinite))]
-    if (conceptIds.length === 0) return false
-    for (const conceptId of conceptIds) {
-      await tx.query(`
-        INSERT INTO entry_concepts(entry_id, concept_id, supersedes_id, created_at)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (entry_id, concept_id) DO UPDATE
-          SET supersedes_id = EXCLUDED.supersedes_id
-      `, [newerId, conceptId, olderId, Date.now()])
-    }
-    await tx.query(`
-      UPDATE entries
-      SET concept_id = COALESCE(concept_id, $2),
-          supersedes_id = COALESCE(supersedes_id, $3)
-      WHERE id = $1 AND is_root = 1
-    `, [newerId, conceptIds[0], olderId])
-    return true
-  })
-}
-
-export async function applyMerge(db, targetId, sourceIds, options = {}) {
-  const signal = options?.signal
-  throwIfAborted(signal)
-  if (!Number.isFinite(targetId)) return 0
-  // Optimistic guards keyed by source id: { status, summary } as observed when
-  // the merge verdict was produced (same contract as applyUpdate's `expected`).
-  const expectedBySource = options?.expectedBySource ?? null
-  const readExpected = (sid) => (
-    typeof expectedBySource?.get === 'function' ? expectedBySource.get(sid) : expectedBySource?.[sid]
-  ) ?? null
-  // Snapshot of the merge TARGET as the verdict saw it. A merge is a statement
-  // about both rows, so the target has to be validated exactly like a source.
-  const expectedTarget = options?.expectedTarget ?? null
-  let moved = 0
-  for (const src of sourceIds) {
-    throwIfAborted(signal)
-    const sid = Number(src)
-    if (!Number.isFinite(sid) || sid === targetId) continue
-    let reserved = false
-    let archived = false
-    let skip = null
-    try {
-      // Archive is the guarded mutation unit: the reservation is only kept if
-      // this transaction commits. Embedding cleanup is deliberately OUTSIDE
-      // this try — a post-commit cleanup failure must NOT refund the budget,
-      // since the active row is already archived.
-      await db.transaction(async (tx) => {
-        // Target AND source are read inside the transaction and locked in id
-        // order (deterministic ordering, so two concurrent merges cannot
-        // deadlock). Reading them outside meant the verdict was applied to
-        // state that could already have changed content or status.
-        const { rows } = await tx.query(
-          `SELECT id, project_id, status, summary FROM entries
-           WHERE id = ANY($1::bigint[]) AND is_root = 1
-           ORDER BY id FOR UPDATE`,
-          [[targetId, sid]],
-        )
-        const target = rows.find((r) => Number(r.id) === Number(targetId))
-        const srcRow = rows.find((r) => Number(r.id) === sid)
-        if (!target) { skip = `target ${targetId} is not a root`; return }
-        if (!srcRow) { skip = `source ${sid} is not a root`; return }
-        if (target.project_id !== srcRow.project_id) {
-          skip = `cross-pool (target=${targetId} project_id=${target.project_id ?? 'COMMON'} src=${sid} project_id=${srcRow.project_id ?? 'COMMON'})`
-          return
-        }
-        // Target guards: folding a live source into a target that has since been
-        // archived (or rewritten) destroys the source without a surviving
-        // consolidated row.
-        if (target.status === 'archived') { skip = `target ${targetId} is archived`; return }
-        if (expectedTarget && typeof expectedTarget.status === 'string' && target.status !== expectedTarget.status) {
-          skip = `target ${targetId} status moved (${expectedTarget.status} → ${target.status})`
-          return
-        }
-        if (expectedTarget && typeof expectedTarget.summary === 'string' && target.summary !== expectedTarget.summary) {
-          skip = `target ${targetId} content changed since the verdict`
-          return
-        }
-        // Status guard: never re-archive an already archived source.
-        if (srcRow.status === 'archived') { skip = `source ${sid} already archived`; return }
-        // Content guard: the source must still say what the verdict judged.
-        const expected = readExpected(sid)
-        if (expected && typeof expected.status === 'string' && srcRow.status !== expected.status) {
-          skip = `source ${sid} status moved (${expected.status} → ${srcRow.status})`
-          return
-        }
-        if (expected && typeof expected.summary === 'string' && srcRow.summary !== expected.summary) {
-          skip = `source ${sid} content changed since the verdict`
-          return
-        }
-        // Floor guard: archiving an active source row shrinks the active pool,
-        // so it must reserve from the shared floor budget. Over-budget merges
-        // are skipped (source stays active); pending sources never reserve.
-        if (srcRow.status === 'active' && options.floorGuard) {
-          if (!options.floorGuard.reserve()) {
-            skip = `floor guard: target=${targetId} src=${sid}`
-            return
-          }
-          reserved = true
-        }
-        await tx.query(
-          `UPDATE entries SET chunk_root = $1, project_id = $2 WHERE chunk_root = $3 AND id != $4 AND is_root = 0`,
-          [targetId, target.project_id, sid, sid],
-        )
-        const ar = await tx.query(
-          `UPDATE entries SET status = 'archived'
-           WHERE id = $1 AND is_root = 1 AND status IS NOT DISTINCT FROM $2::entry_status`,
-          [sid, srcRow.status],
-        )
-        archived = Number(ar.rowCount ?? ar.affectedRows ?? 0) > 0
-      })
-    } catch (err) {
-      // Store fault: the transaction rolled back, or its COMMIT outcome is
-      // unknown. The reservation is deliberately NOT refunded — the source may
-      // in fact be archived, so returning the budget would let a later archive
-      // spend it twice and breach the active floor. Marked so callers can tell
-      // it apart from the guard rejections above, which return normally.
-      if (reserved && options.floorGuard) {
-        __mixdogMemoryLog(`[cycle2] merge floor reservation withheld after store fault: target=${targetId} src=${sid}\n`)
+// Review and graph changes commit together. Original content, summaries and
+// legacy status values are never deleted or rewritten by maintenance.
+export async function applyHistoryReview(db, row, action, prior = null, now = Date.now()) {
+  const relations = (Array.isArray(action) ? action : action === 'keep' ? [] : [{ action, prior }])
+    .slice().sort((a, b) => Number(a.prior.older_ts) - Number(b.prior.older_ts))
+  try {
+    return await db.transaction(async tx => {
+      const ids = [Number(row.id), ...relations.map(item => Number(item.prior.older_id))]
+      const { rows } = await tx.query(`
+        SELECT id, ts, element, project_id, summary, cycle2_reviewed_at, duplicate_of
+        FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1
+        ORDER BY id FOR UPDATE
+      `, [ids])
+      const current = rows.find(item => Number(item.id) === Number(row.id))
+      if (!current || current.summary !== row.summary || current.project_id !== row.project_id
+        || (current.element ?? null) !== (row.element ?? null) || Number(current.ts) !== Number(row.ts)
+        || current.cycle2_reviewed_at != null || current.duplicate_of != null) return false
+      // Validate every reviewed snapshot before writing any relation. A split
+      // review is still one atomic decision for the source row.
+      for (const { prior: candidate } of relations) {
+        const older = rows.find(item => Number(item.id) === Number(candidate.older_id))
+        if (!older || older.summary !== candidate.older_summary || older.project_id !== current.project_id
+          || (older.element ?? null) !== (candidate.older_element ?? null)
+          || Number(older.ts) !== Number(candidate.older_ts)
+          || older.duplicate_of != null) return false
+        if (!(Number(older.ts) < Number(current.ts)
+          || (Number(older.ts) === Number(current.ts) && Number(older.id) < Number(current.id)))) return false
       }
-      __mixdogMemoryLog(`[cycle2] merge failed (target=${targetId} src=${sid}): ${err.message}\n`)
-      throw markStoreFault(err)
-    }
-    if (skip) __mixdogMemoryLog(`[cycle2] merge source skipped: ${skip}\n`)
-    if (!archived) {
-      if (reserved && options.floorGuard) options.floorGuard.refund()
-      continue
-    }
-    // Archive committed — best-effort embedding cleanup only. The next abort
-    // checkpoint is before the next source.
-    moved += 1
-    try {
-      await deleteRootEmbedding(db, sid)
-    } catch (err) {
-      // The cleanup is a SECOND transaction, so its failure is a store fault of
-      // exactly the same kind — including the commit-ambiguous case. Absorbing
-      // it here kept archiving later sources against a store whose state is
-      // already unknown, which is the invariant the archive path enforces.
-      __mixdogMemoryLog(`[cycle2] merge embedding cleanup failed (target=${targetId} src=${sid}): ${err.message}\n`)
-      throw markStoreFault(err)
-    }
-  }
-  return moved
-}
-
-// ─── phase_merge: cosine-similarity dedup pass ───────────────────────────────
-
-function _pickKeeper(a, b) {
-  if ((a.score ?? 0) !== (b.score ?? 0)) return (a.score ?? 0) > (b.score ?? 0) ? a : b
-  if ((a.last_seen_at ?? 0) !== (b.last_seen_at ?? 0)) return (a.last_seen_at ?? 0) > (b.last_seen_at ?? 0) ? a : b
-  return a.id < b.id ? a : b
-}
-
-async function _llmJudgePair(summaryA, summaryB, siblingContext = [], options = {}) {
-  const signal = options?.signal
-  throwIfAborted(signal)
-  const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callAgentDispatch
-  const siblings = Array.isArray(siblingContext) && siblingContext.length > 0
-    ? `\n\nSibling near-matches (recall context only — do not absorb these into the verdict):\n${siblingContext.slice(0, 5).map((p, i) => `${i + 1}. ${String(p.a?.summary ?? '')} ↔ ${String(p.b?.summary ?? '')}`).join('\n')}`
-    : ''
-  const prompt =
-    `Two memory entries below. Are they restating the same principle? Reply ONE WORD: merge or distinct.\n\nA: ${summaryA}\nB: ${summaryB}${siblings}`
-  try {
-    const raw = await llmCall({
-      agent: 'cycle2-agent',
-      taskType: 'maintenance',
-      mode: 'cycle2-phase_merge_judge',
-      preset: options.preset || resolveMaintenancePreset('memory'),
-      timeout: 30000,
-      cwd: null,
-      signal,
-    }, prompt)
-    throwIfAborted(signal)
-    return String(raw ?? '').trim().toLowerCase().startsWith('merge')
-  } catch (err) {
-    if (signal?.aborted) throw signal.reason ?? err
-    __mixdogMemoryLog(`[cycle2] phase_merge llm-judge error: ${err.message}\n`)
-    return false
-  }
-}
-
-export async function runPhaseMerge(db, options = {}) {
-  const signal = options?.signal
-  const floorGuard = options?.floorGuard
-  throwIfAborted(signal)
-  // PG-side lateral nearest-neighbor via HNSW index — replaces JS O(n²) double loop.
-  const pairRes = await db.query(
-    `WITH active AS (
-       SELECT id, category, summary, score, last_seen_at, status, embedding, project_id
-       FROM entries
-       WHERE is_root = 1 AND status = 'active' AND embedding IS NOT NULL
-     )
-     SELECT a.id AS a_id, a.category AS a_category, a.summary AS a_summary, a.score AS a_score, a.last_seen_at AS a_last_seen_at, a.status AS a_status,
-            b.id AS b_id, b.category AS b_category, b.summary AS b_summary, b.score AS b_score, b.last_seen_at AS b_last_seen_at, b.status AS b_status,
-            1 - (a.embedding <=> b.embedding)::float8 AS sim
-     FROM active a
-     CROSS JOIN LATERAL (
-       SELECT id, category, summary, score, last_seen_at, status, embedding
-       FROM active inner_b
-       WHERE inner_b.id != a.id AND inner_b.category = a.category
-         AND inner_b.project_id IS NOT DISTINCT FROM a.project_id
-       ORDER BY inner_b.embedding <=> a.embedding
-       LIMIT 8
-     ) b
-     WHERE a.id < b.id
-       AND 1 - (a.embedding <=> b.embedding) >= $1
-     ORDER BY sim DESC`,
-    [TIER2_LOW],
-  )
-  throwIfAborted(signal)
-
-  const tier1Pairs = []
-  const tier2Pairs = []
-  for (const row of pairRes.rows) {
-    throwIfAborted(signal)
-    const a = { id: row.a_id, category: row.a_category, summary: row.a_summary, score: row.a_score, last_seen_at: row.a_last_seen_at, status: row.a_status }
-    const b = { id: row.b_id, category: row.b_category, summary: row.b_summary, score: row.b_score, last_seen_at: row.b_last_seen_at, status: row.b_status }
-    if (row.sim >= TIER1_THRESHOLD) tier1Pairs.push({ a, b, sim: row.sim })
-    else tier2Pairs.push({ a, b, sim: row.sim })
-  }
-
-  // No active/active similarity pairs is NOT a reason to skip the
-  // core_entries overlap sweep below — that pass archives active entries
-  // that restate a user-curated core row and is independent of intra-
-  // entry pairing. Falling through with merged=0 keeps the cross-table
-  // sweep running and the per-phase log shape intact.
-  let merged = 0
-  let llmCalls = 0
-  let cachedDistinct = 0
-  const mergedIds = new Set()
-  let verdictCache = true
-  try {
-    await ensurePhaseMergeVerdictTable(db)
-  } catch (err) {
-    verdictCache = false
-    __mixdogMemoryLog(`[cycle2] phase_merge verdict cache unavailable: ${err.message}\n`)
-  }
-  const cachedVerdict = async (kind, a, b) => {
-    if (!verdictCache) return null
-    try { return await readPhaseMergeVerdict(db, kind, a, b) } catch { return null }
-  }
-  const rememberVerdict = async (kind, a, b, verdict) => {
-    if (!verdictCache) return
-    try { await writePhaseMergeVerdict(db, kind, a, b, verdict) } catch (err) {
-      __mixdogMemoryLog(`[cycle2] phase_merge verdict cache write failed: ${err.message}\n`)
-    }
-  }
-
-  const doMerge = async (a, b, sim) => {
-    throwIfAborted(signal)
-    if (mergedIds.has(a.id) || mergedIds.has(b.id)) return
-    const keeper = _pickKeeper(a, b)
-    const loser = keeper.id === a.id ? b : a
-    // phase_merge only pairs active rows, so the loser archive is an active
-    // demotion — thread the floor budget through applyMerge.
-    const moved = await applyMerge(db, keeper.id, [loser.id], {
-      signal,
-      floorGuard,
-      expectedBySource: { [loser.id]: { status: loser.status, summary: loser.summary } },
-      expectedTarget: { status: keeper.status, summary: keeper.summary },
+      for (const { action: relation, prior: candidate } of relations) {
+        const older = rows.find(item => Number(item.id) === Number(candidate.older_id))
+        // Carry all predecessor concepts forward for both changes and
+        // duplicates, retaining the older record as the evidence for the edge.
+        const concepts = await tx.query(`
+          SELECT concept_id FROM entry_concepts WHERE entry_id = $1
+          UNION SELECT id AS concept_id FROM entries WHERE id = $1
+          UNION SELECT concept_id FROM entries WHERE id = $1 AND concept_id IS NOT NULL
+        `, [older.id])
+        const conceptIds = [...new Set(concepts.rows.map(item => Number(item.concept_id)))]
+        for (const conceptId of conceptIds) {
+          await tx.query(`
+            INSERT INTO entry_concepts(entry_id, concept_id, supersedes_id, created_at)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (entry_id, concept_id) DO UPDATE SET supersedes_id = EXCLUDED.supersedes_id
+          `, [current.id, conceptId, older.id, now])
+        }
+        await tx.query(`
+          UPDATE entries SET concept_id = COALESCE(concept_id, $2),
+                             supersedes_id = COALESCE(supersedes_id, $3)
+          WHERE id = $1
+        `, [current.id, conceptIds[0], older.id])
+        if (relation === 'merge') {
+          // A search alias, not a chunk merge: membership and provenance must
+          // remain valid for each session's original Cycle 1 summary.
+          // Flatten aliases so filtered searches need no recursive lookup.
+          await tx.query(`
+            UPDATE entries SET duplicate_of = $1
+            WHERE duplicate_of = $2
+          `, [current.id, older.id])
+          await tx.query(`
+            UPDATE entries SET duplicate_of = $1, cycle2_reviewed_at = $3
+            WHERE id = $2
+          `, [current.id, older.id, now])
+        }
+      }
+      await tx.query('UPDATE entries SET cycle2_reviewed_at = $2 WHERE id = $1', [current.id, now])
+      return true
     })
-    if (moved > 0) {
-      merged += moved
-      mergedIds.add(loser.id)
-      __mixdogMemoryLog(
-        `[cycle2] phase_merge merged id=${loser.id} -> keeper=${keeper.id} category=${keeper.category} sim=${typeof sim === 'number' ? sim.toFixed(3) : '?'}\n`,
-      )
-    }
-  }
-
-  // Only tier1 pairs enter the LLM judge. Tier2 pairs (0.65 ≤ sim < 0.78)
-  // are recall context only — passed as sibling examples to the judge, never
-  // as judge input themselves, and never archived here.
-  const tier1Budget = Math.max(1, LLM_JUDGE_CAP - CORE_OVERLAP_JUDGE_RESERVE)
-  for (const pair of tier1Pairs) {
-    throwIfAborted(signal)
-    if (llmCalls >= tier1Budget) break
-    if (mergedIds.has(pair.a.id) || mergedIds.has(pair.b.id)) continue
-    if ((await cachedVerdict('active', pair.a, pair.b)) === 'distinct') { cachedDistinct++; continue }
-    llmCalls++
-    const shouldMerge = await _llmJudgePair(
-      String(pair.a.summary ?? ''),
-      String(pair.b.summary ?? ''),
-      tier2Pairs,
-      // Thread the in-process LLM adapter through — omitting it falls back to
-      // callAgentDispatch (IPC), which is unavailable in the standalone
-      // memory service and failed every judge call with
-      // `agent-ipc: IPC channel unavailable`.
-      { signal, preset: options?.preset, callLlm: options?.callLlm },
-    )
-    throwIfAborted(signal)
-    if (shouldMerge) await doMerge(pair.a, pair.b, pair.sim)
-    else await rememberVerdict('active', pair.a, pair.b, 'distinct')
-  }
-
-  // Cross-table sweep: surface every active entry whose embedding sits near
-  // a user-curated core_entries row (sim ≥ TIER2_LOW for broad recall) and
-  // ask the LLM whether the entry is a restatement of that user rule. Only
-  // the LLM verdict moves the entry to archived — embedding sim alone is
-  // never authoritative. Project-scoped core only matches the same pool;
-  // COMMON core is global and may absorb duplicate generated project memory.
-  throwIfAborted(signal)
-  const coreOverlapRes = await db.query(
-    `WITH active_e AS (
-       SELECT id, project_id, summary, embedding
-       FROM entries
-       WHERE is_root = 1 AND status = 'active' AND embedding IS NOT NULL
-     )
-     SELECT e.id AS entry_id, e.summary AS entry_summary, c.core_id, c.core_summary, c.sim
-     FROM active_e e
-     CROSS JOIN LATERAL (
-       SELECT inner_c.id AS core_id, inner_c.summary AS core_summary,
-              1 - (e.embedding <=> inner_c.embedding)::float8 AS sim
-       FROM core_entries inner_c
-       WHERE inner_c.embedding IS NOT NULL
-         AND (inner_c.status IS NULL OR inner_c.status = 'active')
-         AND (inner_c.project_id IS NULL OR inner_c.project_id IS NOT DISTINCT FROM e.project_id)
-       ORDER BY
-         CASE WHEN inner_c.project_id IS NOT DISTINCT FROM e.project_id THEN 0 ELSE 1 END,
-         inner_c.embedding <=> e.embedding
-       LIMIT 1
-     ) c
-     WHERE c.sim >= $1`,
-    [TIER1_THRESHOLD],
-  )
-  throwIfAborted(signal)
-  let coreOverlap = 0
-  for (const row of coreOverlapRes.rows) {
-    throwIfAborted(signal)
-    if (llmCalls >= LLM_JUDGE_CAP) break
-    const entrySide = { id: row.entry_id, summary: row.entry_summary }
-    const coreSide = { id: row.core_id, summary: row.core_summary }
-    if ((await cachedVerdict('core', entrySide, coreSide)) === 'distinct') { cachedDistinct++; continue }
-    llmCalls++
-    const verdictMerge = await _llmJudgePair(
-      String(row.entry_summary ?? ''),
-      String(row.core_summary ?? ''),
-      [],
-      { signal, preset: options?.preset, callLlm: options?.callLlm },
-    )
-    throwIfAborted(signal)
-    if (!verdictMerge) { await rememberVerdict('core', entrySide, coreSide, 'distinct'); continue }
-    // Core-overlap archive is an active demotion — reserve floor budget and
-    // refund if the guarded UPDATE turns out not to fire.
-    if (floorGuard && !floorGuard.reserve()) continue
-    // Archiving one overlap and deleting its embedding is one mutation unit;
-    // cancellation resumes at the next row boundary.
-    const r = await db.query(
-      // Clear a live core-candidate flag on the same UPDATE: an archived root
-      // must not stay listed as a candidate or keep eating CANDIDATE_CAP. Set
-      // it to 'dismissed' (terminal) since the fact already restates a core row.
-      `UPDATE entries
-       SET status = 'archived',
-           core_candidate_status = CASE WHEN core_candidate_status = 'candidate' THEN 'dismissed' ELSE core_candidate_status END
-       WHERE id = $1 AND is_root = 1 AND status = 'active'`,
-      [Number(row.entry_id)],
-    )
-    if (Number(r.rowCount ?? r.affectedRows ?? 0) > 0) {
-      coreOverlap++
-      await deleteRootEmbedding(db, Number(row.entry_id))
-    } else if (floorGuard) {
-      floorGuard.refund()
-    }
-  }
-  throwIfAborted(signal)
-  if (coreOverlap > 0) {
-    __mixdogMemoryLog(
-      `[cycle2] phase_merge core_overlap archived=${coreOverlap} (LLM-judged restatements of user-curated core_entries)\n`,
-    )
-  }
-
-  __mixdogMemoryLog(
-    `[cycle2] phase_merge tier1_pairs=${tier1Pairs.length} tier2_pairs=${tier2Pairs.length}` +
-    ` llm_calls=${llmCalls} cached_distinct=${cachedDistinct} merged=${merged} core_overlap=${coreOverlap}\n`,
-  )
-
-  return {
-    merged, llm_calls: llmCalls, cached_distinct: cachedDistinct,
-    tier1_pairs: tier1Pairs.length, tier2_pairs: tier2Pairs.length, core_overlap: coreOverlap,
+  } catch (error) {
+    throw markStoreFault(error)
   }
 }

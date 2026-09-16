@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 import { indexedCoreRecord, resolveCoreMemoryIndex, syncCoreMemoryIndexes } from './core-memory-index.mjs'
-import { listManagedMemories, formatManagedMemories } from './generated-memory-management.mjs'
+import { listManagedMemories, formatManagedMemories } from './core-memory-management.mjs'
 import { parseMemoryCoreRows } from '../../../tui/app/input-parsers.mjs'
 import { createMemoryActionHandlers } from './memory-action-handlers.mjs'
 

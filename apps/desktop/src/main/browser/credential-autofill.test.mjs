@@ -95,3 +95,42 @@ test('navigation while preparing a stored login prevents secret input on the rep
   ), /page changed.*input was not sent/);
   assert.deepEqual(sent, ['Page.getFrameTree', 'Page.createIsolatedWorld']);
 });
+
+test('credential input dispatch failures stop before writing and are not reported as success', async () => {
+  const dom = new JSDOM('<input type="password">', { runScripts: 'outside-only' });
+  try {
+    const input = dom.window.document.querySelector('input');
+    input.getBoundingClientRect = () => ({ width: 200, height: 30 });
+    const events = [];
+    input.dispatchEvent = event => {
+      events.push(event.type);
+      if (event.type === 'beforeinput') throw new Error('input event rejected');
+      return true;
+    };
+    const fill = dom.window.eval(`(${BROWSER_CREDENTIAL_AUTOFILL_FUNCTION})`);
+    await assert.rejects(fill({ password: 'private-fixture' }), /input event rejected/);
+    assert.equal(input.value, '');
+    assert.deepEqual(events, ['focusin', 'keydown', 'beforeinput']);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('credential script errors retain their reason without exposing a remembered password', async () => {
+  const secret = 'private-fixture';
+  const remembered = new Set();
+  const service = createBrowserCredentialFill({
+    cdp: { call: async (_guest, method) => {
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main' } } };
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 1 };
+      return { exceptionDetails: { exception: { description: `input event rejected: ${secret}\nstack` } } };
+    } },
+    rememberSecret: (_guest, value) => remembered.add(value),
+    forgetSecret: () => assert.fail('a failed dispatched fill must retain secret redaction'),
+    redactText: (_guest, text) => text.replaceAll(secret, '[REDACTED]'),
+  });
+  await assert.rejects(service.fillCredentialInGuest({
+    getURL: () => 'https://fixture.example/', isDestroyed: () => false,
+  }, { username: 'fixture-user', password: secret }), /^Error: input event rejected: \[REDACTED\]$/);
+  assert.ok(remembered.has(secret));
+});

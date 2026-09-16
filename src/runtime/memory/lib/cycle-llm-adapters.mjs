@@ -28,10 +28,8 @@ export function createCycleLlmAdapters({ callAgentDispatch }) {
   // contract: each getter returns the (memoized) adapter function.
   const cycle1 = buildAdapter('cycle1-agent')
   const cycle2 = buildAdapter('cycle2-agent')
-  const cycle3 = buildAdapter('cycle3-agent')
   return {
     getCycle1CallLlm: () => cycle1,
     getCycle2CallLlm: () => cycle2,
-    getCycle3CallLlm: () => cycle3,
   }
 }

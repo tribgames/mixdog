@@ -1,0 +1,36 @@
+# Call-site rules for C.
+#
+# C has no constructor syntax, so no rule here declares `new`. A call through
+# a struct member (`ops->run()`) keeps the struct expression as the receiver.
+#
+# mixdog-call-kind: method
+id: c-call-member
+language: C
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: field_expression
+    all:
+      - has:
+          field: field
+          pattern: $NAME
+      - has:
+          field: argument
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: c-call-plain
+language: C
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME

@@ -176,7 +176,7 @@ export async function processToolBatch(ctx) {
             }
             // A cached or deduplicated result cannot bypass the current
             // session's tool surface, including after a profile change.
-            const denied = preDispatchDenyForSession(sessionRef, call, getToolKind(call.name));
+            const denied = preDispatchDenyForSession(sessionRef, call, getToolKind(call.name, sessionRef?.mcpScopeId));
             if (denied !== null) {
                 _stageToolResultMessage({
                     role: 'tool', content: denied, toolCallId: call.id, toolKind: 'error',
@@ -307,7 +307,7 @@ export async function processToolBatch(ctx) {
             let toolEndedAt;
             let _localSearchTelemetry = null;
             let _resultTelemetry = {};
-            const toolKind = getToolKind(call.name);
+            const toolKind = getToolKind(call.name, sessionRef?.mcpScopeId);
             // Cross-turn read dedup: if the path's stat tuple (mtime/ctime/size/ino/dev)
             // is unchanged since a prior read in THIS session, return the cached
             // body instead of executing. Both scalar and array/object-array path

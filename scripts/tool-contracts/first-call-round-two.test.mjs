@@ -66,7 +66,7 @@ test('setup forwards valid false values, inheritance and open MCP configuration 
 
 test('setup names distinguish built-in toggles from Memory installation and toggling', async () => {
   const note = SETUP_TOOL_DEFS[0].inputSchema.properties.name.description;
-  assert.match(note, /set_builtin_enabled: git\|office\|localProvider/);
+  assert.match(note, /set_builtin_enabled: git\|office\|tidy\|localProvider/);
   assert.match(note, /install_builtin also accepts memory/);
   assert.match(note, /set_memory_enabled/);
   const calls = [];

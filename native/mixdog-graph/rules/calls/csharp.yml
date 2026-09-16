@@ -1,0 +1,162 @@
+# Call-site rules for C#.
+#
+# `new Widget()` / `new List<int>()` are explicit constructor syntax (kind
+# `new`); a target-typed `new()` has no type name and is not reported.
+#
+# The C# grammar keeps the `this` / `base` keyword receivers as ANONYMOUS
+# tokens inside `member_access_expression` (no `expression` field), so those
+# two shapes are matched by text and name their receiver with
+# `# mixdog-call-recv:`; every other receiver is read from the tree.
+#
+# A callee that carries type arguments (`Resolve<T>()`, `sp.GetService<T>()`)
+# is a `generic_name`, NOT an identifier: the name node has to be its inner
+# identifier, or the emitted name would be `GetService<IFoo>` and `endCol`
+# would cover the type argument list. Null-conditional invocations
+# (`sp?.Run()`) put the callee in a `member_binding_expression` and keep the
+# receiver on the `conditional_access_expression` the invocation calls: in
+# this grammar `sp?.Run()` is `invocation(function: conditional_access(sp,
+# member_binding(.Run)))`, not an invocation of a member access.
+#
+# mixdog-call-kind: method
+id: csharp-call-method
+language: CSharp
+role: item
+symbolType: function
+rule:
+  kind: invocation_expression
+  has:
+    field: function
+    kind: member_access_expression
+    all:
+      - has:
+          field: name
+          any:
+            - kind: identifier
+              pattern: $NAME
+            - kind: generic_name
+              has:
+                kind: identifier
+                pattern: $NAME
+      - has:
+          field: expression
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: method
+# mixdog-call-recv: this
+id: csharp-call-this
+language: CSharp
+role: item
+symbolType: function
+rule:
+  kind: invocation_expression
+  has:
+    field: function
+    kind: member_access_expression
+    regex: '^this\s*[.?]'
+    has:
+      field: name
+      any:
+        - kind: identifier
+          pattern: $NAME
+        - kind: generic_name
+          has:
+            kind: identifier
+            pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: method
+# mixdog-call-recv: base
+id: csharp-call-base
+language: CSharp
+role: item
+symbolType: function
+rule:
+  kind: invocation_expression
+  has:
+    field: function
+    kind: member_access_expression
+    regex: '^base\s*[.?]'
+    has:
+      field: name
+      any:
+        - kind: identifier
+          pattern: $NAME
+        - kind: generic_name
+          has:
+            kind: identifier
+            pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: method
+id: csharp-call-conditional
+language: CSharp
+role: item
+symbolType: function
+rule:
+  kind: invocation_expression
+  has:
+    field: function
+    kind: conditional_access_expression
+    all:
+      - has:
+          field: condition
+          pattern: $RECV
+      - has:
+          kind: member_binding_expression
+          has:
+            field: name
+            any:
+              - kind: identifier
+                pattern: $NAME
+              - kind: generic_name
+                has:
+                  kind: identifier
+                  pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: call
+id: csharp-call-plain
+language: CSharp
+role: item
+symbolType: function
+rule:
+  kind: invocation_expression
+  has:
+    field: function
+    any:
+      - kind: identifier
+        pattern: $NAME
+      - kind: generic_name
+        has:
+          kind: identifier
+          pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: new
+id: csharp-new
+language: CSharp
+role: item
+symbolType: function
+rule:
+  kind: object_creation_expression
+  has:
+    field: type
+    any:
+      - kind: identifier
+        pattern: $NAME
+      - kind: generic_name
+        has:
+          kind: identifier
+          pattern: $NAME
+      - kind: qualified_name
+        has:
+          field: name
+          any:
+            - kind: identifier
+              pattern: $NAME
+            - kind: generic_name
+              has:
+                kind: identifier
+                pattern: $NAME
+name: $NAME

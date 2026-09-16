@@ -1,6 +1,7 @@
 import type { ComputerCommand } from '../shared/types';
 import { computerTimings } from '../shared/timings';
 import { computerCursorFeedback } from '../shared/cursor-feedback';
+import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
 
 interface SequenceWindowTransition {
   next_target?: { id?: string };
@@ -36,7 +37,7 @@ export async function executeComputerSequenceSteps(
       payload = await executeStep(stepCommand, index);
     } catch (error) {
       const message = (error as Error).message || String(error);
-      const explicitCode = /^([a-z][a-z0-9_]+):/i.exec(message.trim())?.[1]?.toLowerCase();
+      const explicitCode = computerErrorCode(error);
       payload = {
         ok: false,
         action: stepAction,

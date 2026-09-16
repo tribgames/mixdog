@@ -73,6 +73,29 @@ for (const stage of ['load', 'script']) {
   });
 }
 
+test('an unresponsive control window pauses input without automatically resuming it', async () => {
+  fault = '';
+  const start = windows.length;
+  const overlay = createComputerUseOverlay({
+    stop: async () => {}, resume: async () => {},
+    pause: async () => coordinator.pauseForUser('user_pause'),
+  });
+  try {
+    coordinator.beginCommand({ sessionId: 'hung-fixture', action: 'capture', mode: 'background' });
+    await settle();
+    windows[start].emit('unresponsive');
+    await settle();
+    assert.equal(coordinator.snapshot().userControlActive, true);
+    assert.equal(windows[start].isDestroyed(), false);
+    windows[start].emit('responsive');
+    await settle();
+    assert.equal(coordinator.snapshot().userControlActive, true);
+  } finally {
+    overlay.dispose();
+    coordinator.reset();
+  }
+});
+
 test('a crashed control renderer pauses input and is replaced with live controls', async () => {
   fault = '';
   const start = windows.length;

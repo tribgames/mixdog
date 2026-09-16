@@ -152,7 +152,7 @@ export function Conversation({
   onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
   onDraftWorkflow?: (workflow: DesktopWorkflowState) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
-  onOpenFile?: (project: string, rel: string, line?: number) => void;
+  onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string) => void;
   /** Selector-driven live row; keeps token publications out of this shell. */
   streamingTailSlot?: ReactNode;
   /** Selector-driven runtime status; progress publications do not rerender the

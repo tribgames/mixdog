@@ -345,6 +345,8 @@ public class MixWin32 {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll", SetLastError = true)] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
+  [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
   [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attribute, out RECT value, int size);
   [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attribute, out int value, int size);
   [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
@@ -376,7 +378,7 @@ public class MixWin32 {
   }
   public sealed class WindowCaptureInfo {
     public string PngBase64 = "";
-    public int X, Y, Width, Height, VisibleSamples;
+    public int X, Y, Width, Height;
   }
   public sealed class WindowIntegrityInfo {
     public bool Known, Higher;
@@ -451,62 +453,65 @@ public class MixWin32 {
     }
     return GetWindowRect(h, out bounds);
   }
-  public static WindowCaptureInfo CaptureVisibleWindow(IntPtr h) {
+  public static WindowCaptureInfo CaptureWindowSurface(IntPtr h) {
+    WindowCaptureTarget target = BeginWindowCapture(h, false);
+    using (Bitmap bitmap = new Bitmap(target.Width, target.Height, PixelFormat.Format32bppRgb))
+    using (Graphics graphics = Graphics.FromImage(bitmap))
+    using (MemoryStream stream = new MemoryStream()) {
+      // Ask the exact window to render into our bitmap. Never read a desktop DC.
+      IntPtr dc = graphics.GetHdc();
+      bool rendered;
+      try { rendered = PrintWindow(h, dc, 0); }
+      finally { graphics.ReleaseHdc(dc); }
+      if (!rendered) throw new InvalidOperationException("capture_source_unavailable|window-owned rendering is unavailable");
+      AssertWindowCaptureStable(target);
+      bitmap.Save(stream, ImageFormat.Png);
+      return target.Result(Convert.ToBase64String(stream.ToArray()));
+    }
+  }
+  public sealed class WindowCaptureTarget {
+    internal IntPtr Handle;
+    internal uint Pid, Thread;
+    internal bool Composited;
+    public int X, Y, Width, Height;
+    public WindowCaptureInfo Result(string png) {
+      return new WindowCaptureInfo { PngBase64 = png, X = X, Y = Y, Width = Width, Height = Height };
+    }
+  }
+  public static WindowCaptureTarget BeginWindowCapture(IntPtr h, bool composited) {
     if (!IsWindowHandle(h)) {
       throw new InvalidOperationException("capture_source_unavailable|exact native window is stale or invalid");
     }
     if (IsIconic(h)) {
-      throw new InvalidOperationException("capture_source_unavailable|minimized native window has no visible pixels");
+      throw new InvalidOperationException("capture_minimized|minimized native window has no rendered surface");
     }
     if (IsCloaked(h)) {
       throw new InvalidOperationException(
-        "capture_source_unavailable|native window is cloaked (another virtual desktop or suspended app) and has no visible pixels");
+        "capture_cloaked|native window is cloaked and has no available surface");
     }
     RECT bounds;
-    if (!TryVisibleWindowBounds(h, out bounds)) {
+    if (!(composited ? TryVisibleWindowBounds(h, out bounds) : GetWindowRect(h, out bounds))) {
       throw new InvalidOperationException("capture_source_unavailable|could not read exact native window bounds");
     }
     int width = bounds.right - bounds.left;
     int height = bounds.bottom - bounds.top;
-    if (width <= 0 || height <= 0) {
-      throw new InvalidOperationException("capture_source_unavailable|exact native window has empty bounds");
+    if (width <= 0 || height <= 0 || (long)width * height > 16777216L) {
+      throw new InvalidOperationException("capture_source_unavailable|exact native window bounds exceed the capture budget");
     }
-    int insetX = Math.Max(4, width / 6);
-    int insetY = Math.Max(4, height / 6);
-    POINT[] samples = new POINT[] {
-      new POINT { x = bounds.left + width / 2, y = bounds.top + height / 2 },
-      new POINT { x = bounds.left + insetX, y = bounds.top + height / 2 },
-      new POINT { x = bounds.right - insetX, y = bounds.top + height / 2 },
-      new POINT { x = bounds.left + width / 2, y = bounds.top + insetY },
-      new POINT { x = bounds.left + width / 2, y = bounds.bottom - insetY }
+    uint pid;
+    uint thread = GetWindowThreadProcessId(h, out pid);
+    if (thread == 0 || pid == 0) throw new InvalidOperationException("capture_source_unavailable|native window identity is unavailable");
+    return new WindowCaptureTarget {
+      Handle = h, Pid = pid, Thread = thread, Composited = composited,
+      X = bounds.left, Y = bounds.top, Width = width, Height = height
     };
-    int visibleSamples = 0;
-    foreach (POINT sample in samples) {
-      if (WindowAtPoint(sample.x, sample.y) == h) visibleSamples++;
-    }
-    if (visibleSamples < 3) {
-      throw new InvalidOperationException(
-        "capture_occluded|exact native window is not topmost at enough sampled points");
-    }
-    using (Bitmap bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
-    using (Graphics graphics = Graphics.FromImage(bitmap))
-    using (MemoryStream stream = new MemoryStream()) {
-      graphics.CopyFromScreen(
-        bounds.left,
-        bounds.top,
-        0,
-        0,
-        new Size(width, height),
-        CopyPixelOperation.SourceCopy);
-      bitmap.Save(stream, ImageFormat.Png);
-      return new WindowCaptureInfo {
-        PngBase64 = Convert.ToBase64String(stream.ToArray()),
-        X = bounds.left,
-        Y = bounds.top,
-        Width = width,
-        Height = height,
-        VisibleSamples = visibleSamples
-      };
+  }
+  public static void AssertWindowCaptureStable(WindowCaptureTarget before) {
+    WindowCaptureTarget after = BeginWindowCapture(before.Handle, before.Composited);
+    if (before.Pid != after.Pid || before.Thread != after.Thread
+      || before.X != after.X || before.Y != after.Y
+      || before.Width != after.Width || before.Height != after.Height) {
+      throw new InvalidOperationException("capture_geometry_changed|native window changed during capture");
     }
   }
   static string Text(IntPtr h) {
@@ -887,33 +892,78 @@ public class MixWin32 {
   }
   public static bool SupportsBackgroundKeyboardClass(string name) {
     return !String.Equals(name, "ApplicationFrameWindow", StringComparison.OrdinalIgnoreCase)
-      && !String.Equals(name, "Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase);
+      && !String.Equals(name, "Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase)
+      && !String.Equals(name, "WinUIDesktopWin32WindowClass", StringComparison.OrdinalIgnoreCase)
+      && !String.Equals(name, "Microsoft.UI.Content.DesktopChildSiteBridge", StringComparison.OrdinalIgnoreCase)
+      && !String.Equals(name, "Chrome_RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase)
+      && !(name ?? "").StartsWith("Chrome_WidgetWin_", StringComparison.OrdinalIgnoreCase);
+  }
+  public static void ValidateBackgroundInput(IntPtr top, IntPtr preferred, string action, string keys) {
+    // Grammar validation precedes all delivery, including a sequence's first click.
+    if (action == "key") ParseBackgroundKeys(keys);
+    if (action != "key" && action != "type") return;
+    if (!IsWindowHandle(top)) throw new InvalidOperationException("stale_target|background input window is stale");
+    if (preferred != IntPtr.Zero) { KeyboardTarget(top, preferred); return; }
+    if (!SupportsBackgroundKeyboardClass(ClassNameOf(top))) {
+      throw new InvalidOperationException(
+        "background_unsupported|target renderer does not accept posted keyboard input; use semantic value input or explicit foreground delivery; no input sent");
+    }
+  }
+  static IntPtr FocusedKeyboardDescendant(IntPtr top) {
+    var threads = new HashSet<uint>();
+    threads.Add(GetWindowThreadProcessId(top, IntPtr.Zero));
+    EnumChildWindows(top, delegate(IntPtr child, IntPtr state) {
+      if (BelongsToTop(top, child)) threads.Add(GetWindowThreadProcessId(child, IntPtr.Zero));
+      return true;
+    }, IntPtr.Zero);
+    var candidates = new List<KeyValuePair<IntPtr, int>>();
+    foreach (uint thread in threads) {
+      GUITHREADINFO info = new GUITHREADINFO();
+      info.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
+      if (thread == 0 || !GetGUIThreadInfo(thread, ref info) || !BelongsToTop(top, info.hwndFocus)) continue;
+      IntPtr current = info.hwndFocus;
+      int depth = 0;
+      while (current != top && current != IntPtr.Zero && depth < 64) {
+        current = GetParent(current);
+        depth++;
+      }
+      if (current == top) candidates.Add(new KeyValuePair<IntPtr, int>(info.hwndFocus, depth));
+    }
+    return SelectDeepestKeyboardFocus(top, candidates);
+  }
+  internal static IntPtr SelectDeepestKeyboardFocus(IntPtr top, IEnumerable<KeyValuePair<IntPtr, int>> candidates) {
+    IntPtr selected = top;
+    int selectedDepth = 0;
+    bool ambiguous = false;
+    foreach (var candidate in candidates) {
+      if (candidate.Value < selectedDepth) continue;
+      if (candidate.Value > selectedDepth) {
+        selected = candidate.Key;
+        selectedDepth = candidate.Value;
+        ambiguous = false;
+      } else if (selected != candidate.Key) {
+        ambiguous = true;
+      }
+    }
+    if (ambiguous) throw new InvalidOperationException(
+      "background_target_ambiguous|multiple focused child windows; use an exact native ref");
+    return selected;
   }
   static IntPtr KeyboardTarget(IntPtr top, IntPtr preferred) {
     if (!IsWindowHandle(top)) {
       throw new InvalidOperationException("stale_target|background keyboard target is stale or invalid");
     }
-    // Packaged application hosts do not route posted keyboard messages to
-    // their application input pipeline. Use semantic value operations or
-    // explicitly authorized foreground input instead of a silent no-op.
-    string topClass = ClassNameOf(top);
-    if (!SupportsBackgroundKeyboardClass(topClass)) {
-      throw new InvalidOperationException(
-        "background_unsupported|packaged application keyboard messages are unsupported; use semantic controls or explicit foreground delivery");
-    }
     if (preferred != IntPtr.Zero) {
       if (!BelongsToTop(top, preferred)) {
         throw new InvalidOperationException("target_mismatch|background keyboard ref belongs to a different window");
       }
-      return preferred;
     }
-    uint thread = GetWindowThreadProcessId(top, IntPtr.Zero);
-    GUITHREADINFO info = new GUITHREADINFO();
-    info.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
-    if (thread != 0 && GetGUIThreadInfo(thread, ref info) && BelongsToTop(top, info.hwndFocus)) {
-      return info.hwndFocus;
+    // The addressed child owns keyboard delivery, not the outer host's toolkit.
+    IntPtr focused = preferred != IntPtr.Zero ? preferred : FocusedKeyboardDescendant(top);
+    if (!SupportsBackgroundKeyboardClass(ClassNameOf(focused))) {
+      throw new InvalidOperationException("background_unsupported|focused renderer does not accept posted keyboard input; no input sent");
     }
-    return top;
+    return focused;
   }
   public static ushort NamedVirtualKey(string name) {
     switch (name) {

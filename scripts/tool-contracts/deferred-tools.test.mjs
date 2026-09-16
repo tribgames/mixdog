@@ -290,13 +290,13 @@ test('late MCP reconciliation: Gemini manifests and native typed deltas', () => 
   applyDeferredToolSurface(geminiManifestSession, 'full', manifestBase, { provider: 'gemini' });
   const geminiTurnManifest = JSON.stringify(geminiManifestSession.tools);
   const geminiLate = { name: 'mcp__gemini__late', inputSchema: { type: 'object', properties: {} } };
-  // Continuations use the same array; only the next user-turn reconciliation may replace it.
+  // An unchanged live catalog leaves the manifest stable until reconciliation.
   if (JSON.stringify(geminiManifestSession.tools) !== geminiTurnManifest) {
     throw new Error('Gemini manifest changed within a user turn');
   }
   reconcileDeferredMcpToolCatalog(geminiManifestSession, [geminiLate]);
   if (!geminiManifestSession.tools.some((tool) => tool.name === 'mcp__gemini__late')) {
-    throw new Error('Gemini must adopt the complete ordered live manifest at the next user turn');
+    throw new Error('Gemini must adopt the complete ordered live manifest at reconciliation');
   }
   const nativeLateSession = {
     provider: 'openai-oauth',
@@ -315,24 +315,16 @@ test('late MCP reconciliation: Gemini manifests and native typed deltas', () => 
     ],
   };
   const nativeLateMessagesBefore = JSON.stringify(nativeLateSession.messages);
-  let nativeLateEnqueueCalls = 0;
   reconcileDeferredMcpToolCatalog(nativeLateSession, [{
     name: 'mcp__demo__late',
     description: 'Late tool metadata.',
     inputSchema: { type: 'object', properties: {} },
-  }], {
-    enqueue() {
-      nativeLateEnqueueCalls += 1;
-      return true;
-    },
-  });
+  }]);
   const nativeLateDelta = snapshotPendingDeferredToolDelta(nativeLateSession);
-  if (nativeLateEnqueueCalls !== 0
-    || JSON.stringify(nativeLateSession.messages) !== nativeLateMessagesBefore
+  if (JSON.stringify(nativeLateSession.messages) !== nativeLateMessagesBefore
     || nativeLateSession.pendingDeferredToolDelta?.type !== 'deferred_tools_delta'
     || !nativeLateDelta?.content.includes('mcp__demo__late: Late tool metadata.')) {
     throw new Error(`late MCP reconcile must persist one typed delta without creating a turn: ${JSON.stringify({
-      nativeLateEnqueueCalls,
       messages: nativeLateSession.messages,
       delta: nativeLateSession.pendingDeferredToolDelta,
     })}`);

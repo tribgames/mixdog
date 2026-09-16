@@ -1,0 +1,1100 @@
+# Outline rules that keep mixdog-graph's FileRecord symbol/import contract
+# intact on top of ast-grep's `DEFAULT_OUTLINE_RULES`.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The upstream default rules are written for a code-outline view: they stop at
+# the first matching item, they name exported declarations after the wrapping
+# `export`/`type` statement, and they skip declaration shapes an outline does
+# not need (nested functions, `var`, type aliases, macros, ...). The code graph
+# contract is different: every declaration at every nesting depth, with the
+# span of the declaration node itself, in the per-language `kind` vocabulary
+# the tree-sitter queries used before Stage 2.
+#
+# Each rule below therefore either
+#   (a) covers a declaration shape the defaults do not match at all, or
+#   (b) matches the SAME node as a default rule but with the name/flag shape
+#       the graph needs — rules in this file are registered BEFORE the
+#       defaults, and the first item rule that matches a node wins.
+#
+# `symbolType` is LSP-ish metadata; the graph `kind` is decided by
+# `outline.rs::symbol_kind` (ast_kind first, then symbolType), so a rule here
+# only has to pick the closest LSP category.
+#
+# TSX is NOT written out: `.tsx` parses with the separate `tsx` grammar, and
+# `outline.rs::tsx_variant` loads every `language: TypeScript` document below a
+# second time with the language line rewritten to `Tsx`. A genuinely
+# TSX-specific rule would have to be written here as `language: Tsx`.
+
+# ---------------------------------------------------------------- TypeScript
+# `export ... from './x'` is an import edge for the graph (the pre-Stage-2
+# regex matched `import|export ... from '...'` alike); the default rule marks
+# it isImport:false, so this one has to win.
+id: mixdog-ts-export-from
+language: TypeScript
+role: item
+symbolType: module
+rule:
+  kind: export_statement
+  has:
+    field: source
+    pattern: $SOURCE
+name: $SOURCE
+isImport: true
+isExported: true
+---
+# CommonJS `require('x')` and dynamic `import('x')`.
+# The callee only has to END in `require`, because the pre-Stage-2 regex
+# matched the substring `require("x")` anywhere: an ESM file that loads a CJS
+# module through `const _require = createRequire(import.meta.url)` calls
+# `_require('../../lib/x.cjs')`, and that edge is a real dependency the graph
+# carried before. `import` stays exact so `import.meta` cannot match.
+id: mixdog-ts-require
+language: TypeScript
+role: item
+symbolType: module
+rule:
+  kind: call_expression
+  all:
+    - has:
+        field: function
+        regex: 'require$|^import$'
+    - has:
+        field: arguments
+        has:
+          kind: string
+          pattern: $SOURCE
+name: $SOURCE
+isImport: true
+isExported: false
+---
+# Declarations report the declaration node (not the `export` wrapper the
+# default rules match) and derive `isExported` from the wrapper instead of
+# hardcoding it.
+id: mixdog-ts-function
+language: TypeScript
+role: item
+symbolType: function
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+# Keeps the default rule id so `ts-class-method` / `ts-class-field` still
+# attach as members of this item.
+id: ts-class
+language: TypeScript
+role: item
+symbolType: class
+rule:
+  kind: class_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+id: ts-interface
+language: TypeScript
+role: item
+symbolType: interface
+rule:
+  kind: interface_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+id: mixdog-ts-type
+language: TypeScript
+role: item
+symbolType: struct
+rule:
+  kind: type_alias_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+id: ts-enum
+language: TypeScript
+role: item
+symbolType: enum
+rule:
+  kind: enum_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+id: mixdog-ts-function-signature
+language: TypeScript
+role: item
+symbolType: function
+rule:
+  kind: function_signature
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+id: mixdog-ts-abstract-class
+language: TypeScript
+role: item
+symbolType: class
+rule:
+  kind: abstract_class_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+# A class EXPRESSION (`const X = class Named {}`) is never exported itself;
+# the binding that holds it may be. `isExported` has to be spelled out because
+# an item rule that omits it defaults to TRUE.
+id: mixdog-ts-class-expression
+language: TypeScript
+role: item
+symbolType: class
+rule:
+  kind: class
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+id: mixdog-ts-function-expression
+language: TypeScript
+role: item
+symbolType: function
+rule:
+  kind: function_expression
+  has:
+    field: name
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+id: mixdog-ts-generator-function
+language: TypeScript
+role: item
+symbolType: function
+rule:
+  kind: generator_function
+  has:
+    field: name
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+# Methods anywhere (class bodies are covered by the default member rules, this
+# also reaches object literals and classes inside functions). A method is
+# never `export`ed on its own.
+#
+# The key has to be a `property_identifier`, which is what a NAME is on the
+# wire: a `symbols` row carries the name as one bare word, so a QUOTED key
+# (`'handle-dialog'() {}`, a `string` node) and a COMPUTED key (`[name]() {}`,
+# `[Symbol.iterator]() {}`) report no symbol at all. Unquoting the string would
+# hand the row a name with spaces or punctuation in it, and a computed key has
+# no name until run time.
+id: mixdog-ts-method
+language: TypeScript
+role: item
+symbolType: method
+rule:
+  kind: method_definition
+  has:
+    field: name
+    kind: property_identifier
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+# A METHOD SIGNATURE of an interface or a type literal
+# (`preflightSteps?(cmd: C, steps: C[]): Promise<void>;`) is the one place that
+# method's name is declared: `references preflightSteps` finds no declaration
+# without it. Both `interface_body` and `object_type` (`type L = { on(): void }`)
+# spell it `method_signature`.
+#
+# PROPERTY signatures (`flag: boolean`) stay out: a data field is not a
+# declaration a caller can jump to as a function, and interfaces carry far more
+# of them than of methods. That holds for a FUNCTION TYPE as well
+# (`onClick: () => void`, `subscribe: (fn: Fn) => Unsubscribe`): the type
+# states a shape, never a body, and the callable that fills it is declared by
+# the object literal or class that implements the interface — which
+# `mixdog-ts-object-method` and the method rules already report. A
+# `method_signature` is the opposite case: it is a method declaration with its
+# body left to the implementor.
+id: mixdog-ts-method-signature
+language: TypeScript
+role: item
+symbolType: method
+rule:
+  kind: method_signature
+  has:
+    field: name
+    kind: property_identifier
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+# `abstract run(): void;` in an abstract class — same shape, different node.
+id: mixdog-ts-abstract-method-signature
+language: TypeScript
+role: item
+symbolType: method
+rule:
+  kind: abstract_method_signature
+  has:
+    field: name
+    kind: property_identifier
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+# A FUNCTION-VALUED PROPERTY of an object literal declares that function under
+# the property's name, and that name is the only one a caller can reference:
+#   `fill: async (ctx) => {}`          arrow
+#   `foo: function () {}`              anonymous function / generator expression
+#   `preflightSteps: createInputPreflight({ … })`   factory call
+# Method shorthand and `get`/`set` are `method_definition` nodes, which
+# `mixdog-ts-method` already reports.
+#
+# The FACTORY form is deliberately narrow: a plain identifier callee whose ONLY
+# argument is a CONFIGURATION OBJECT (`createInputPreflight({ … })`) builds one
+# named unit and binds it under the property name. Every other call is a
+# computed VALUE — `generatedAt: new Date().toISOString()`,
+# `index: resolve(dir, 'x')`, `atMs: Math.round(n)`, `rows: items.flatMap(fn)` —
+# and matching those adds 8.5k data properties to this repo alone, which is the
+# flood a property rule has to stay out of.
+#
+# "Only argument" is what keeps an OPTIONS BAG out: `headers: authHeaders(key,
+# { Accept: 'application/json' })`, `description: t('{{name}} …', { name })` and
+# `body: encodeMessage('Request', { … })` all carry an object argument, and all
+# of them compute a value from their leading arguments instead of naming a
+# unit. `nthChild: 1` pins the object to the first argument, and no second
+# argument may exist.
+#
+# A NAMED function expression (`named: function inner() {}`) is skipped: the
+# expression already declares `inner`, and a pair item would land on the same
+# line as a competing symbol.
+#
+# Data properties — literals, arrays, objects, `new X()`, and references such
+# as `runCommand: router.runCommand` (an alias of a declaration elsewhere) —
+# are not declarations and stay out.
+id: mixdog-ts-object-method
+language: TypeScript
+role: item
+symbolType: method
+rule:
+  kind: pair
+  all:
+    - has:
+        field: key
+        kind: property_identifier
+        pattern: $NAME
+    - has:
+        field: value
+        any:
+          - kind: arrow_function
+          - all:
+              - kind: call_expression
+              - has:
+                  field: function
+                  kind: identifier
+              - has:
+                  field: arguments
+                  all:
+                    - has:
+                        kind: object
+                        nthChild: 1
+                    - not:
+                        has:
+                          nthChild: 2
+          - all:
+              - any:
+                  - kind: function_expression
+                  - kind: generator_function
+              - not:
+                  has:
+                    field: name
+                    kind: identifier
+name: $NAME
+isExported: false
+---
+# Top-level `const`/`let`/`var` bindings, exported or not. The declarator node
+# is the span the graph reports, not the wrapping export statement.
+id: mixdog-ts-binding
+language: TypeScript
+role: item
+symbolType: variable
+rule:
+  kind: variable_declarator
+  all:
+    - has:
+        field: name
+        kind: identifier
+        pattern: $NAME
+    - inside:
+        any:
+          - kind: lexical_declaration
+            inside:
+              any:
+                - kind: program
+                - kind: export_statement
+          - kind: variable_declaration
+            inside:
+              any:
+                - kind: program
+                - kind: export_statement
+name: $NAME
+isExported:
+  inside:
+    any:
+      - kind: lexical_declaration
+      - kind: variable_declaration
+    inside:
+      kind: export_statement
+---
+# `module Foo {}` (the identifier form; the string form is ambient and covered
+# by the default ambient-module rules).
+id: mixdog-ts-module
+language: TypeScript
+role: item
+symbolType: module
+rule:
+  kind: module
+  has:
+    field: name
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+# ---------------------------------------------------------------- JavaScript
+id: mixdog-js-export-from
+language: JavaScript
+role: item
+symbolType: module
+rule:
+  kind: export_statement
+  has:
+    field: source
+    pattern: $SOURCE
+name: $SOURCE
+isImport: true
+isExported: true
+---
+id: mixdog-js-require
+language: JavaScript
+role: item
+symbolType: module
+rule:
+  kind: call_expression
+  all:
+    - has:
+        field: function
+        regex: 'require$|^import$'
+    - has:
+        field: arguments
+        has:
+          kind: string
+          pattern: $SOURCE
+name: $SOURCE
+isImport: true
+isExported: false
+---
+# The default js rules only take top-level functions/classes; the graph needs
+# every nesting depth.
+id: mixdog-js-function
+language: JavaScript
+role: item
+symbolType: function
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+id: js-class
+language: JavaScript
+role: item
+symbolType: class
+rule:
+  kind: class_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  inside:
+    kind: export_statement
+---
+id: mixdog-js-class-expression
+language: JavaScript
+role: item
+symbolType: class
+rule:
+  kind: class
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+id: mixdog-js-function-expression
+language: JavaScript
+role: item
+symbolType: function
+rule:
+  kind: function_expression
+  has:
+    field: name
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+id: mixdog-js-generator-function
+language: JavaScript
+role: item
+symbolType: function
+rule:
+  kind: generator_function
+  has:
+    field: name
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+id: mixdog-js-method
+language: JavaScript
+role: item
+symbolType: method
+rule:
+  kind: method_definition
+  has:
+    field: name
+    kind: property_identifier
+    pattern: $NAME
+name: $NAME
+isExported: false
+---
+# Same shape as `mixdog-ts-object-method` (JavaScript has no interfaces, so
+# there is no signature counterpart here).
+id: mixdog-js-object-method
+language: JavaScript
+role: item
+symbolType: method
+rule:
+  kind: pair
+  all:
+    - has:
+        field: key
+        kind: property_identifier
+        pattern: $NAME
+    - has:
+        field: value
+        any:
+          - kind: arrow_function
+          - all:
+              - kind: call_expression
+              - has:
+                  field: function
+                  kind: identifier
+              - has:
+                  field: arguments
+                  all:
+                    - has:
+                        kind: object
+                        nthChild: 1
+                    - not:
+                        has:
+                          nthChild: 2
+          - all:
+              - any:
+                  - kind: function_expression
+                  - kind: generator_function
+              - not:
+                  has:
+                    field: name
+                    kind: identifier
+name: $NAME
+isExported: false
+---
+id: mixdog-js-binding
+language: JavaScript
+role: item
+symbolType: variable
+rule:
+  kind: variable_declarator
+  all:
+    - has:
+        field: name
+        kind: identifier
+        pattern: $NAME
+    - inside:
+        any:
+          - kind: lexical_declaration
+            inside:
+              any:
+                - kind: program
+                - kind: export_statement
+          - kind: variable_declaration
+            inside:
+              any:
+                - kind: program
+                - kind: export_statement
+name: $NAME
+isExported:
+  inside:
+    any:
+      - kind: lexical_declaration
+      - kind: variable_declaration
+    inside:
+      kind: export_statement
+---
+# -------------------------------------------------------------------- Python
+# The default `from $MODULE import $NAME` pattern only matches a single-segment
+# module (`from pathlib import Path`); this reports the module node itself, so
+# dotted (`a.b.c`) and relative (`.pkg`) modules resolve too.
+id: mixdog-python-import-from
+language: Python
+role: item
+symbolType: module
+rule:
+  kind: import_from_statement
+  has:
+    field: module_name
+    pattern: $MODULE
+name: $MODULE
+isImport: true
+isExported: false
+---
+# `from __future__ import ...` is its own node kind.
+id: mixdog-python-future-import
+language: Python
+role: item
+symbolType: module
+rule:
+  kind: future_import_statement
+name: __future__
+isImport: true
+isExported: false
+---
+# `import a, b` carries one dotted_name per module; matching the spec node
+# instead of the statement reports both.
+id: mixdog-python-import-name
+language: Python
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: dotted_name
+    - pattern: $NAME
+    - inside:
+        any:
+          - kind: import_statement
+          - kind: aliased_import
+            inside:
+              kind: import_statement
+name: $NAME
+isImport: true
+isExported: false
+---
+# ------------------------------------------------------------------------ Go
+# The default rules name the whole `type (...)` declaration; the graph reports
+# one symbol per spec, spanning the spec node.
+id: mixdog-go-type-spec
+language: Go
+role: item
+symbolType: struct
+rule:
+  kind: type_spec
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# An interface method (`Read(p []byte) (int, error)`) is a bodyless method
+# DECLARATION — the same kind (`method`) a `func (r *R) Read(…)` gets, and the
+# only declaration of that name in a package that only defines the interface.
+id: mixdog-go-interface-method
+language: Go
+role: item
+symbolType: method
+rule:
+  kind: method_elem
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# ---------------------------------------------------------------------- Rust
+# `use` is an import; `pub use` was NOT matched by the pre-Stage-2 regex
+# (`^\s*use`), so it stays a non-import item that maps to no symbol.
+id: mixdog-rust-use
+language: Rust
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: use_declaration
+    - pattern: $DECL
+transform:
+  UNPREFIXED:
+    replace:
+      source: $DECL
+      replace: '^(pub\s*(\([^)]*\))?\s*)?use\s+'
+      by: ''
+  SPEC:
+    replace:
+      source: $UNPREFIXED
+      replace: ';\s*$'
+      by: ''
+name: $SPEC
+isImport:
+  not:
+    has:
+      kind: visibility_modifier
+---
+# `mod x;` is both a module symbol and a `mod::x` import edge; `mod x { .. }`
+# is only a symbol.
+id: mixdog-rust-mod
+language: Rust
+role: item
+symbolType: module
+rule:
+  kind: mod_item
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isImport:
+  not:
+    has:
+      kind: declaration_list
+---
+id: mixdog-rust-type
+language: Rust
+role: item
+symbolType: struct
+rule:
+  kind: type_item
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+id: mixdog-rust-macro
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: macro_definition
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+id: mixdog-rust-const
+language: Rust
+role: item
+symbolType: constant
+rule:
+  kind: const_item
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+id: mixdog-rust-static
+language: Rust
+role: item
+symbolType: variable
+rule:
+  kind: static_item
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# A trait method signature (`fn handle(&self) -> bool;`) is a declaration with
+# no body. Rust has no separate `method` kind — a `fn` with a body in the same
+# trait is reported as `function` — so a signature is one too.
+id: mixdog-rust-function-signature
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: function_signature_item
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# ---------------------------------------------------------------------- Java
+# The import spec keeps the `static ` prefix the graph resolver strips itself.
+id: mixdog-java-import
+language: Java
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: import_declaration
+    - pattern: $DECL
+transform:
+  UNPREFIXED:
+    replace:
+      source: $DECL
+      replace: '^import\s+'
+      by: ''
+  SPEC:
+    replace:
+      source: $UNPREFIXED
+      replace: '\s*;\s*$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+id: mixdog-java-record
+language: Java
+role: item
+symbolType: class
+rule:
+  kind: record_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# Methods/constructors in every container (the default member rules only cover
+# class/interface/enum bodies, not records or annotation types).
+id: mixdog-java-method
+language: Java
+role: item
+symbolType: method
+rule:
+  kind: method_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+id: mixdog-java-constructor
+language: Java
+role: item
+symbolType: constructor
+rule:
+  kind: constructor_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# -------------------------------------------------------------------- Kotlin
+# `import a.b.C as D` keeps the whole spec (the default rule names it after
+# the alias).
+id: mixdog-kotlin-import
+language: Kotlin
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: import_header
+    - pattern: $DECL
+transform:
+  UNPREFIXED:
+    replace:
+      source: $DECL
+      replace: '^import\s+'
+      by: ''
+  SPEC:
+    replace:
+      source: $UNPREFIXED
+      replace: '[;\s]+$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# -------------------------------------------------------------------- C#
+id: mixdog-csharp-using
+language: CSharp
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: using_directive
+    - pattern: $DECL
+transform:
+  UNPREFIXED:
+    replace:
+      source: $DECL
+      replace: '^using\s+'
+      by: ''
+  SPEC:
+    replace:
+      source: $UNPREFIXED
+      replace: '\s*;\s*$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+id: mixdog-csharp-local-function
+language: CSharp
+role: item
+symbolType: function
+rule:
+  kind: local_function_statement
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# ------------------------------------------------------------------------- C
+# Functions returning a pointer nest the declarator one level deeper.
+id: mixdog-c-pointer-function
+language: C
+role: item
+symbolType: function
+rule:
+  kind: function_definition
+  has:
+    field: declarator
+    kind: pointer_declarator
+    has:
+      field: declarator
+      kind: function_declarator
+      has:
+        field: declarator
+        kind: identifier
+        pattern: $NAME
+name: $NAME
+---
+# ----------------------------------------------------------------------- C++
+# Out-of-line definition `void Foo::bar() {}` is named after the member, not
+# the qualified path.
+id: mixdog-cpp-qualified-function
+language: Cpp
+role: item
+symbolType: function
+rule:
+  kind: function_definition
+  has:
+    field: declarator
+    kind: function_declarator
+    has:
+      field: declarator
+      kind: qualified_identifier
+      has:
+        field: name
+        kind: identifier
+        pattern: $NAME
+name: $NAME
+---
+# In-class method definition (the declarator is a field_identifier).
+id: mixdog-cpp-method
+language: Cpp
+role: item
+symbolType: method
+rule:
+  kind: function_definition
+  has:
+    field: declarator
+    kind: function_declarator
+    has:
+      field: declarator
+      kind: field_identifier
+      pattern: $NAME
+name: $NAME
+---
+id: mixdog-cpp-pointer-function
+language: Cpp
+role: item
+symbolType: function
+rule:
+  kind: function_definition
+  has:
+    field: declarator
+    kind: pointer_declarator
+    has:
+      field: declarator
+      kind: function_declarator
+      has:
+        field: declarator
+        kind: identifier
+        pattern: $NAME
+name: $NAME
+---
+# ---------------------------------------------------------------------- Ruby
+id: mixdog-ruby-require-relative
+language: Ruby
+role: item
+symbolType: module
+rule:
+  pattern: require_relative $NAME
+name: $NAME
+isImport: true
+isExported: false
+---
+# `def self.x` outside a class/module body.
+id: mixdog-ruby-singleton-method
+language: Ruby
+role: item
+symbolType: method
+rule:
+  kind: singleton_method
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# ----------------------------------------------------------------------- PHP
+id: mixdog-php-namespace-use
+language: Php
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: namespace_use_declaration
+    - pattern: $DECL
+transform:
+  UNPREFIXED:
+    replace:
+      source: $DECL
+      replace: '^use\s+'
+      by: ''
+  SPEC:
+    replace:
+      source: $UNPREFIXED
+      replace: '\s*;\s*$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# `use SomeTrait;` inside a class body was also picked up by the old regex.
+id: mixdog-php-trait-use
+language: Php
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: use_declaration
+    - pattern: $DECL
+transform:
+  UNPREFIXED:
+    replace:
+      source: $DECL
+      replace: '^use\s+'
+      by: ''
+  SPEC:
+    replace:
+      source: $UNPREFIXED
+      replace: '\s*;\s*$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# Methods in every container (the default member rules skip enum bodies).
+id: mixdog-php-method
+language: Php
+role: item
+symbolType: method
+rule:
+  kind: method_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+id: mixdog-php-require
+language: Php
+role: item
+symbolType: module
+rule:
+  any:
+    - kind: require_expression
+    - kind: require_once_expression
+    - kind: include_expression
+    - kind: include_once_expression
+  has:
+    kind: string
+    pattern: $SPEC
+name: $SPEC
+isImport: true
+isExported: false
+---
+# --------------------------------------------------------------------- Swift
+# `import class Foo.Bar` / `@preconcurrency import Foo` keep the module path.
+id: mixdog-swift-import
+language: Swift
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: import_declaration
+    - pattern: $DECL
+transform:
+  UNPREFIXED:
+    replace:
+      source: $DECL
+      replace: '^(@[A-Za-z_][A-Za-z0-9_]*\s+)*import\s+((typealias|struct|class|enum|protocol|let|var|func)\s+)?'
+      by: ''
+  SPEC:
+    replace:
+      source: $UNPREFIXED
+      replace: '\s+[\s\S]*$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# A protocol requirement (`func start()`) is a bodyless declaration under its
+# own node kind. Swift reports every `func` as `function`, protocol or not.
+id: mixdog-swift-protocol-function
+language: Swift
+role: item
+symbolType: function
+rule:
+  kind: protocol_function_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME

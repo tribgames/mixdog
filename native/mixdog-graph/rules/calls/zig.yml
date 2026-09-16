@@ -1,0 +1,38 @@
+# Call-site rules for Zig.
+#
+# `Widget.init()` is a qualified call (kind `method`, receiver `Widget`); Zig
+# has no constructor syntax, so no rule here declares `new`. Compiler builtins
+# (`@import("std")`, `@sizeOf(T)`) are intrinsics rather than call sites and
+# are not reported — `@import` is already an import edge in the outline rules.
+#
+# mixdog-call-kind: method
+id: zig-call-method
+language: zig
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: field_expression
+    all:
+      - has:
+          field: member
+          pattern: $NAME
+      - has:
+          field: object
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: zig-call-plain
+language: zig
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME

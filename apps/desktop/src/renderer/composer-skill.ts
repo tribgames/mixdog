@@ -16,6 +16,7 @@ const TITLES: Record<string, () => string> = {
   'history-recall': () => t('History recall'), 'memory-management': () => t('Memory'),
   'local-provider': () => t('Local Provider'), setup: () => t('Settings'),
   'skill-creator': () => t('Create skill'),
+  'code-tidy': () => t('Code Tidy'),
 };
 export const skillTitle = (name: string) => Object.hasOwn(TITLES, name) ? TITLES[name]() : name;
 

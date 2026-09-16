@@ -165,6 +165,7 @@ test('MCP dependencies load only registered server tools, and never follow insta
 test('every bundled skill declares its mandatory existing tools without eagerly linking optional capabilities', () => {
   const expected = {
     'browser-use': ['browser'], 'computer-use': ['computer'],
+    'code-tidy': ['tidy'],
     docx: ['office'], pdf: ['office'], pptx: ['office'], xlsx: ['office'],
     image: ['media'], video: ['media'], setup: ['setup'], 'local-provider': ['setup'],
     'skill-creator': ['read', 'shell'],

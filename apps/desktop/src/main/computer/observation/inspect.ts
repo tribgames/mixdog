@@ -159,7 +159,7 @@ export function createInspection(host: InspectHost) {
           focus_recovery: 'session_release',
           cursor_recovery: 'preserve_position_restore_appearance',
           app_owned_electron_text: true,
-          browser_content_route: 'browser_use',
+          browser_content_route: 'preserve_selected_session',
           capture_probe: 'run capture against an exact target; diagnostics does not expose screen pixels',
         },
         permissions: {

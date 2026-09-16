@@ -59,6 +59,7 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} 
         memory: { enabled: true, installed: true },
         git: { enabled: true, installed: true },
         office: { enabled: true, installed: true },
+        tidy: { enabled: true, installed: true },
         ...toolModules,
       },
       recap: { enabled: true },
@@ -504,10 +505,13 @@ test('built-in feature switches route to their existing authoritative settings',
     await act(async () => document.querySelector('[data-feature-id="memory"] input').click());
     await openFeature('office');
     await act(async () => document.querySelector('[data-feature-id="office"] input').click());
+    await openFeature('tidy');
+    await act(async () => document.querySelector('[data-feature-id="tidy"] input').click());
     assert.equal(document.querySelector('input[aria-label="Observation only"]'), null);
     assert.deepEqual(calls, [
       ['setMemoryToolsEnabled', [false]],
       ['setBuiltinToolEnabled', ['office', false]],
+      ['setBuiltinToolEnabled', ['tidy', false]],
     ]);
   } finally {
     await act(async () => root.unmount());
@@ -658,6 +662,7 @@ test('runtime-backed Built-ins stay installed through OFF and ON', async () => {
     memory: { enabled: true, installed: true },
     git: { enabled: true, installed: true },
     office: { enabled: true, installed: true },
+    tidy: { enabled: true, installed: true },
   };
   let voice = { enabled: true, installed: true };
   const api = {
@@ -690,9 +695,10 @@ test('runtime-backed Built-ins stay installed through OFF and ON', async () => {
 
   try {
     await render();
-    for (const id of ['memory', 'git', 'office', 'voice']) {
+    for (const id of ['memory', 'git', 'office', 'tidy', 'voice']) {
       const label = id === 'voice' ? 'Voice transcription'
         : id === 'git' ? 'Git & GitHub'
+        : id === 'tidy' ? 'Code Tidy'
         : id[0].toUpperCase() + id.slice(1);
       await openFeature(id);
       let toggle = labelled(id, 'input', label);
@@ -710,13 +716,15 @@ test('runtime-backed Built-ins stay installed through OFF and ON', async () => {
       toggle = labelled(id, 'input', label);
       assert.equal(toggle.checked, true, `${id} turns back on`);
     }
-    assert.deepEqual(calls.slice(-8), [
+    assert.deepEqual(calls.slice(-10), [
       ['setMemoryToolsEnabled', [false]],
       ['setMemoryToolsEnabled', [true]],
       ['setBuiltinToolEnabled', ['git', false]],
       ['setBuiltinToolEnabled', ['git', true]],
       ['setBuiltinToolEnabled', ['office', false]],
       ['setBuiltinToolEnabled', ['office', true]],
+      ['setBuiltinToolEnabled', ['tidy', false]],
+      ['setBuiltinToolEnabled', ['tidy', true]],
       ['toggleVoice', [false]],
       ['toggleVoice', [true]],
     ]);

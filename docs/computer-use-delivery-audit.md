@@ -15,7 +15,8 @@ claim that the installed app has passed the final live acceptance scenario.
 | Background semantic provider that can temporarily take focus | Background with a shared focus guard | Serialize against foreground work without changing delivery mode. Never restore focus over intervening user input. |
 | User intervention during visible work | Pending | Retain progress, wait for control, obtain fresh observation, then continue intent. Never replay completed or uncertain input. |
 | Unsupported route or uncertain result | Inspect first | Do not automatically switch modes. A different route requires evidence that no input was sent and must remain within the user's scope. |
-| Web content | Browser Use | Native input is not a workaround for a Browser Use refusal. |
+| Mixdog browser content | Browser Use | Native input is not a workaround for a Browser Use refusal. |
+| User-selected external browser content | Computer Use | Preserve the selected window and signed-in session; a native delivery refusal does not authorize moving to Mixdog's browser. |
 
 Background is a delivery choice, not a promise that arbitrary application code
 cannot create a dialog or change focus. Choose it for known supported work;

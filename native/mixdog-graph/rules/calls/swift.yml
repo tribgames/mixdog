@@ -1,0 +1,41 @@
+# Call-site rules for Swift.
+#
+# Swift has no `new` keyword: `Widget()` is an initializer call written as an
+# ordinary call, so no rule here declares `new`. The Swift grammar names no
+# field on `call_expression`, so the callee is addressed positionally.
+#
+# mixdog-call-kind: method
+id: swift-call-method
+language: Swift
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    nthChild: 1
+    kind: navigation_expression
+    all:
+      - has:
+          field: target
+          pattern: $RECV
+      - has:
+          field: suffix
+          kind: navigation_suffix
+          has:
+            field: suffix
+            kind: simple_identifier
+            pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: call
+id: swift-call-plain
+language: Swift
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    nthChild: 1
+    kind: simple_identifier
+    pattern: $NAME
+name: $NAME

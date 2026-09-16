@@ -1,0 +1,58 @@
+# Call-site rules for Elixir.
+#
+# Elixir files EVERYTHING under `call`, including the definition macros:
+# `defmodule Widget do`, `def run(a) do` and the head `run(a)` inside a `def`
+# are `call` nodes. Those are declarations — the outline rules already report
+# them as symbols — so the plain-call rule excludes the definition/aliasing
+# macro family by name, and excludes a call that IS the head of such a
+# definition (its parent is the `arguments` of a `def`-family call). A call
+# written inside a default argument still has a different parent and is
+# therefore still reported.
+#
+# `Widget.new()` is a qualified call (kind `method`, receiver `Widget`);
+# Elixir has no constructor syntax.
+#
+# mixdog-call-kind: method
+id: elixir-call-dot
+language: Elixir
+role: item
+symbolType: function
+rule:
+  kind: call
+  has:
+    field: target
+    kind: dot
+    all:
+      - has:
+          field: right
+          pattern: $NAME
+      - has:
+          field: left
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: elixir-call-plain
+language: Elixir
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: call
+    - has:
+        field: target
+        kind: identifier
+        pattern: $NAME
+    - not:
+        has:
+          field: target
+          regex: '^(def|defp|defmacro|defmacrop|defmodule|defstruct|defexception|defprotocol|defimpl|defdelegate|defguard|defguardp|defoverridable|alias|import|require|use)$'
+    - not:
+        inside:
+          kind: arguments
+          inside:
+            kind: call
+            has:
+              field: target
+              regex: '^(def|defp|defmacro|defmacrop|defdelegate|defguard|defguardp)$'
+name: $NAME

@@ -1,0 +1,133 @@
+name: tidy-engines-mirror
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tidy-engines-mirror
+  cancel-in-progress: false
+
+env:
+  MANIFEST: src/runtime/tidy/engines-manifest.json
+
+jobs:
+  mirror:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download, verify, and publish non-GPL engine assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$MANIFEST"
+          node <<'NODE'
+          const { createHash } = require('node:crypto');
+          const { createWriteStream, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+          const { finished } = require('node:stream/promises');
+
+          const MAX = 200 * 1024 * 1024;
+          const manifest = JSON.parse(readFileSync(process.env.MANIFEST, 'utf8'));
+          if (manifest.version == null) throw new Error('manifest missing version');
+          const generatedAt = String(manifest.generatedAt || '');
+          const date = generatedAt.slice(0, 10);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            throw new Error(`manifest generatedAt is not ISO: ${generatedAt}`);
+          }
+          const tag = `tidy-engines-v${manifest.version}.${date}`;
+          mkdirSync('_mirror', { recursive: true });
+
+          const headers = {
+            'User-Agent': 'mixdog-tidy-engines-mirror',
+            Authorization: `Bearer ${process.env.GH_TOKEN}`,
+          };
+
+          function isGpl(license) {
+            return /GPL/i.test(String(license || ''));
+          }
+
+          function sortValue(value) {
+            if (Array.isArray(value)) return value.map(sortValue);
+            if (value && typeof value === 'object') {
+              const out = {};
+              for (const key of Object.keys(value).sort()) out[key] = sortValue(value[key]);
+              return out;
+            }
+            return value;
+          }
+
+          async function download(url, dest, expected) {
+            const response = await fetch(url, { headers, redirect: 'follow' });
+            if (!response.ok) throw new Error(`HTTP ${response.status} ${url}`);
+            const declared = Number(response.headers.get('content-length') || 0);
+            if (declared > MAX) throw new Error(`asset exceeds 200MB: ${url}`);
+            const file = createWriteStream(dest);
+            const hash = createHash('sha256');
+            let received = 0;
+            for await (const chunk of response.body) {
+              const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+              received += buf.length;
+              if (received > MAX) throw new Error(`download exceeded 200MB: ${url}`);
+              hash.update(buf);
+              if (!file.write(buf)) await new Promise((resolve) => file.once('drain', resolve));
+            }
+            file.end();
+            await finished(file);
+            const sha256 = hash.digest('hex');
+            if (sha256 !== expected) {
+              throw new Error(`sha256 mismatch for ${url}: ${sha256} != ${expected}`);
+            }
+          }
+
+          const uploads = [];
+          const mirrored = structuredClone(manifest);
+          for (const [id, engine] of Object.entries(mirrored.engines || {})) {
+            if (isGpl(engine.license)) {
+              engine.source = 'upstream';
+              continue;
+            }
+            for (const [platform, asset] of Object.entries(engine.assets || {})) {
+              const expected = String(asset.sha256 || '').toLowerCase();
+              if (!/^[a-f0-9]{64}$/.test(expected)) {
+                throw new Error(`${id} ${platform} missing sha256`);
+              }
+              const original = String(asset.url).split('/').pop();
+              const fileName = `${id}-${platform}-${original}`;
+              const dest = `_mirror/${fileName}`;
+              await download(asset.url, dest, expected);
+              uploads.push(dest);
+              asset.url = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${tag}/${fileName}`;
+            }
+            engine.source = 'mirror';
+          }
+          if (uploads.length === 0) throw new Error('no non-GPL assets to mirror');
+
+          writeFileSync('_mirror/engines-manifest.json', `${JSON.stringify(sortValue(mirrored), null, 2)}\n`);
+          writeFileSync('_mirror/tag.txt', tag);
+          writeFileSync('_mirror/uploads.txt', uploads.join('\n'));
+          NODE
+
+          TAG=$(tr -d '\n' < _mirror/tag.txt)
+          mapfile -t FILES < _mirror/uploads.txt
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists"
+          else
+            gh release create "$TAG" --latest=false --target "$GITHUB_SHA" \
+              --title "Tidy engines ${TAG}" \
+              --notes "Mirrored non-GPL tidy engine binaries from src/runtime/tidy/engines-manifest.json. GPL assets (shellcheck) stay upstream and are not attached."
+          fi
+          gh release upload "$TAG" "${FILES[@]}" _mirror/engines-manifest.json --clobber
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tidy-engines-manifest-mirror-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _mirror/engines-manifest.json
+          if-no-files-found: error
+          retention-days: 14

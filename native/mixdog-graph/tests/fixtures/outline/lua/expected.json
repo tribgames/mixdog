@@ -1,0 +1,65 @@
+[
+  {
+    "name": "socket.http",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "json",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "config.loader",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "greet",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "helper",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "encode",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "reset",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "deep",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "run",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  }
+]

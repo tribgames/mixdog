@@ -24,6 +24,9 @@ import { createComputerCommandQueue } from './command-queue';
 import { waitForResumeBarrier } from './resume-barrier';
 
 const ABORT_CLEANUP_TIMEOUT_MS = 5_000;
+/** Stop holds this long for retired workers to actually exit before it may
+ * declare the host quiet. */
+const STOP_WORKER_EXIT_TIMEOUT_MS = 5_000;
 // Resident workers remain warm longer than target leases. A window lease is
 // deliberately short-lived in the coordinator so an abandoned session
 // cannot reserve a user's app for this whole worker-idle period.
@@ -45,6 +48,7 @@ export interface SessionLifecycleHost extends
   coordinator?: ComputerUseCoordinator;
   cleanupInput?: (recovery: InputRecoveryState | undefined, restoreDesktop: boolean) => Promise<boolean>;
   hasUnconfirmedBackgroundInput?: WorkerPool['hasUnconfirmedBackgroundInput'];
+  waitForResidentWorkersExit?: WorkerPool['waitForResidentWorkersExit'];
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
   pauseWaitMs?: number;
 }
@@ -150,9 +154,13 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
     return { text: 'computer session released' };
   }
 
-  async function cleanupAbortedInput(recovery?: InputRecoveryState, restoreDesktop = true): Promise<boolean> {
+  /** `sweep` runs the owned-input release even without a recorded target:
+   * Stop's recovery must release whatever the host still holds. */
+  async function cleanupAbortedInput(
+    recovery?: InputRecoveryState, restoreDesktop = true, sweep = false,
+  ): Promise<boolean> {
     if (host.cleanupInput) return host.cleanupInput(recovery, restoreDesktop);
-    if (!recovery?.targetWindowId) return true;
+    if (!sweep && !recovery?.targetWindowId) return true;
     return await new Promise<boolean>((resolve) => {
       const child = spawn('powershell.exe', [
         '-NoProfile',
@@ -167,10 +175,10 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
         env: {
           ...process.env,
           MIXDOG_COMPUTER_INPUT_MARKER: host.inputMarker,
-          MIXDOG_ABORT_TARGET: restoreDesktop ? recovery.targetWindowId : '',
-          MIXDOG_ABORT_RESTORE: restoreDesktop ? recovery.restoreWindowId : '',
-          MIXDOG_ABORT_CURSOR_X: String(recovery.cursorX),
-          MIXDOG_ABORT_CURSOR_Y: String(recovery.cursorY),
+          MIXDOG_ABORT_TARGET: restoreDesktop ? recovery?.targetWindowId || '' : '',
+          MIXDOG_ABORT_RESTORE: restoreDesktop ? recovery?.restoreWindowId || '' : '',
+          MIXDOG_ABORT_CURSOR_X: String(recovery?.cursorX ?? 0),
+          MIXDOG_ABORT_CURSOR_Y: String(recovery?.cursorY ?? 0),
         },
       });
       let settled = false;
@@ -271,7 +279,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
     }
   }
 
-  async function stopAllComputerSessions(resume = true): Promise<void> {
+  async function stopAllComputerSessions(resume = true, turnsStopped?: Promise<void>): Promise<void> {
     const generation = computerUseCoordinator.snapshot().takeoverGeneration;
     const sessionIds = new Set([
       ...powerShellBySession.keys(),
@@ -281,16 +289,45 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
       ...cleanupJobs.keys(),
       ...computerUseCoordinator.snapshot().activities.map((activity) => activity.sessionId),
     ]);
-    const stopped = await Promise.allSettled([...sessionIds]
-      .filter((sessionId) => sessionId !== HOST_WARMUP_SESSION_ID)
-      .map((sessionId) => abortComputerSession({
-        action: 'session_abort',
-        session_id: sessionId,
-      })));
-    if (stopped.some((result) => result.status === 'rejected')) {
-      throw new Error('computer_abort_cleanup_unconfirmed: not every session confirmed cleanup');
-    }
+    const stopNative = async (): Promise<void> => {
+      const stopped = await Promise.allSettled([...sessionIds]
+        .filter((sessionId) => sessionId !== HOST_WARMUP_SESSION_ID)
+        .map((sessionId) => abortComputerSession({
+          action: 'session_abort',
+          session_id: sessionId,
+        })));
+      if (stopped.some((result) => result.status === 'rejected')
+        || computerUseCoordinator.snapshot().cleanupState === 'failed') {
+        await recoverLatchedCleanup();
+      }
+    };
+    // Daemon cancellation cannot serialize or bypass native cleanup. Either
+    // failure keeps the pause latched, including late replies after a timeout.
+    await Promise.all([stopNative(), turnsStopped]);
     if (resume) computerUseCoordinator.resumeAfterUserTakeover(generation);
+  }
+
+  /** Stop is the way out of a latched cleanup failure. It waits for every
+   * retired worker to actually exit, releases any input the host still owns,
+   * and only that evidence clears the barrier; a click alone never does. */
+  async function recoverLatchedCleanup(): Promise<void> {
+    const workersExited = host.waitForResidentWorkersExit
+      ? await host.waitForResidentWorkersExit(STOP_WORKER_EXIT_TIMEOUT_MS)
+      : true;
+    if (!workersExited || elevatedSessionIds().length > 0) {
+      throw new Error('computer_abort_cleanup_unconfirmed: input workers are still running; press Stop again once they exit');
+    }
+    if (!await cleanupAbortedInput(undefined, false, true)) {
+      throw new Error('computer_abort_cleanup_unconfirmed: held input could not be released');
+    }
+    // The global ownership ledger cannot prove a target-local window message
+    // released its key/button. Worker exit must not erase that uncertainty.
+    if (host.hasUnconfirmedBackgroundInput?.()) {
+      throw new Error('computer_background_cleanup_unconfirmed: target-local input release is unconfirmed; user recovery of the affected window is required before an approved host restart');
+    }
+    if (!computerUseCoordinator.clearFailedCleanup()) {
+      throw new Error('computer_cleanup_pending: a session cleanup is still running; press Stop again');
+    }
   }
 
   return {

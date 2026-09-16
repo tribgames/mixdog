@@ -35,13 +35,17 @@
 The overlay uses a dedicated sandboxed preload and per-WebContents IPC, rather
 than custom-scheme navigation. The handler validates its owning main frame,
 action, generation and payload. Requests receive acknowledgements. The visible
-surface distinguishes "Mixdog 사용 중", "사용자 조작 중" and "확인 필요", with
-quiet-resume, manual-pause or cleanup guidance. Separate pause/resume and Stop
-buttons remain available. Pause does not end the agent task; it marks a manual
-pause that cannot auto-resume. During a pending resume the toggle can pause
-again, cancelling that request; Stop cancels the queued work and ends the
-owning agent turns. Failed requests show confirmation guidance, while cleanup
-and stale-generation guards remain. Ctrl+Alt+Esc remains an emergency Stop.
+surface distinguishes "Mixdog 사용 중", "사용자 조작 중" and "확인 필요", and
+shows the guidance line (quiet-resume countdown, cleanup state, request
+failure) on the pill itself. Two controls exist: Stop is always present;
+Resume appears only while the user holds control. There is no pause button:
+touching the mouse or keyboard already hands control to the user. Stop cancels
+the queued work, ends the owning agent turns, and is the recovery path for a
+latched cleanup failure: it waits for every input worker to exit, releases any
+owned input, and only that evidence clears the barrier. A rejected Stop is
+reported on the pill even though Stop moves the takeover generation. The
+`user_pause` takeover remains as an internal safety pause when the control
+renderer is lost. Ctrl+Alt+Esc remains an emergency Stop.
 
 The user waiter and parked command requests live outside the active operations
 that Resume drains. Old frame/target state is invalidated before control

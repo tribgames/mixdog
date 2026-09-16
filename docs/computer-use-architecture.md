@@ -9,6 +9,11 @@ This layout preserves the existing public tool schema and native host protocol.
 - `host/command-router.ts` owns ordering, target resolution, leases, invalidation
   and transitions. `input-dispatch.ts` authorizes immediately before delivery;
   `action-reply.ts` interprets evidence and attaches the resulting observation.
+- `host/input-preflight.ts` shares keyboard normalization and app-owned text
+  route selection with dispatch. Preflight sends no text and validates all
+  native keyboard steps before the first mutation; dispatch still checks the
+  live target and authority. A completed preparatory click remains possible
+  input even if the later text operation is refused.
 - `src/runtime/computer-bridge/actions.mjs` is the shared action catalogue.
   Public replay safety, native read-only status, reference retention, foreground
   serialization, observation requirements and policy names are distinct flags.
@@ -32,3 +37,6 @@ It accesses the real clipboard and attempts to restore its original contents.
 temporary directory without adjacent source assets, and compares the generated
 host program to source execution. This catches missing build-plugin wiring
 without launching the desktop app or interacting with a user window.
+
+See `computer-use-parity.md` for reference comparisons, deliberate policy
+differences, and the installed-app acceptance that source tests cannot replace.

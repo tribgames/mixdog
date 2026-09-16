@@ -15,7 +15,8 @@ process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-antigravity-tes
 
 import { AntigravityOAuthProvider } from './antigravity-oauth.mjs';
 import {
-  ANTIGRAVITY_MODELS, antigravityHeaders, codeAssistMetadata,
+  ANTIGRAVITY_MODELS, CONTENT_ENDPOINT, CONTENT_ENDPOINTS,
+  antigravityHeaders, codeAssistMetadata,
   parseAntigravityManifestVersion, _resetAntigravityVersionForTest,
 } from './antigravity-oauth-tokens.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
@@ -156,8 +157,20 @@ test('picker families send the tiered wire id and drop the effort field', async 
 test('the catalog is served from the gateway and cached, with the curated list as the offline fallback', async (t) => {
   let calls = 0;
   const provider = providerWith(async (url) => {
+    const href = String(url);
+    if (href.includes(':retrieveUserQuotaSummary')) {
+      return Response.json({
+        groups: [{
+          displayName: 'Gemini Models',
+          buckets: [
+            { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.5, resetTime: '2030-01-01T00:00:00Z' },
+            { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.8, resetTime: '2030-01-08T00:00:00Z' },
+          ],
+        }],
+      });
+    }
     calls += 1;
-    assert.match(String(url), /:fetchAvailableModels$/);
+    assert.match(href, /:fetchAvailableModels$/);
     return Response.json({ models: {
       'gemini-3.8-flash-high': { displayName: 'Gemini 3.8 Flash (High)', maxTokens: 1048576, quotaInfo: { remainingFraction: 0.5, resetTime: '2030-01-01T00:00:00Z' } },
       'gemini-3.8-flash-low': { displayName: 'Gemini 3.8 Flash (Low)', maxTokens: 1048576, quotaInfo: { remainingFraction: 1 } },
@@ -170,9 +183,11 @@ test('the catalog is served from the gateway and cached, with the curated list a
   await provider.listModels();
   assert.equal(calls, 1, 'second listing is served from the disk cache');
   const usage = await provider.getUsageSnapshot();
-  assert.deepEqual(usage.quotaWindows, [{
-    label: 'FLASH', usedPct: 50, resetAt: Date.parse('2030-01-01T00:00:00Z'), source: 'antigravity-models',
-  }]);
+  assert.equal(usage.source, 'antigravity-quota-summary');
+  assert.deepEqual(usage.quotaWindows, [
+    { label: '5H', usedPct: 50, resetAt: Date.parse('2030-01-01T00:00:00Z'), source: 'antigravity-quota-summary' },
+    { label: '7D', usedPct: 20, resetAt: Date.parse('2030-01-08T00:00:00Z'), source: 'antigravity-quota-summary' },
+  ]);
 
   const offline = providerWith(async () => { throw new Error('offline'); });
   t.after(() => { delete process.env.MIXDOG_DATA_DIR; });
@@ -286,24 +301,117 @@ test('nested response chunks stream text and tool calls', async () => {
   assert.equal(result.usage.outputTokens, 5);
 });
 
-test('a failing endpoint fails over to the next one before surfacing an error', async () => {
+const DAILY_HOST = new URL(CONTENT_ENDPOINT).host;
+
+function firstByteTimeoutError() {
+  return Object.assign(new Error('Antigravity first byte timed out'), {
+    name: 'ProviderTimeoutError',
+    code: 'EPROVIDERTIMEOUT',
+  });
+}
+
+test('generation stays on the daily host', async () => {
+  assert.deepEqual([...CONTENT_ENDPOINTS], [CONTENT_ENDPOINT]);
+  assert.equal(CONTENT_ENDPOINT, 'https://daily-cloudcode-pa.googleapis.com');
   const tried = [];
   const provider = providerWith(async (url) => {
-    tried.push(new URL(url).host);
-    if (tried.length === 1) {
-      return new Response(JSON.stringify({ error: { code: 500, message: 'backend' } }), {
-        status: 500,
+    tried.push(new URL(url).origin);
+    return sseResponse([candidateChunk([{ text: 'ok' }], 'STOP')]);
+  });
+  const result = await provider.send([{ role: 'user', content: 'hi' }], 'gemini-3-pro-high', [], {});
+  assert.equal(result.content, 'ok');
+  assert.deepEqual(tried, [CONTENT_ENDPOINT]);
+});
+
+for (const fixture of [
+  {
+    name: '5xx',
+    fail: () => new Response(JSON.stringify({ error: { code: 500, message: 'backend' } }), {
+      status: 500,
+      headers: { 'content-type': 'application/json', 'retry-after': '0' },
+    }),
+  },
+  {
+    name: '429',
+    fail: () => new Response(JSON.stringify({ error: { code: 429, message: 'rate limited' } }), {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'retry-after': '0' },
+    }),
+  },
+  {
+    name: 'timeout',
+    fail: () => { throw firstByteTimeoutError(); },
+  },
+]) {
+  test(`${fixture.name} retries the daily host and never switches hosts`, async () => {
+    const tried = [];
+    const provider = providerWith(async (url) => {
+      tried.push(new URL(url).host);
+      if (tried.length === 1) return fixture.fail();
+      return sseResponse([candidateChunk([{ text: 'recovered' }], 'STOP')]);
+    });
+    const result = await provider.send([{ role: 'user', content: 'hi' }], 'gemini-3-pro-high', [], {});
+    assert.equal(result.content, 'recovered');
+    assert.deepEqual(tried, [DAILY_HOST, DAILY_HOST]);
+  });
+}
+
+test('an injected baseURL is the only generation host', async () => {
+  const tried = [];
+  const provider = providerWith(async (url) => {
+    tried.push(new URL(url).origin);
+    return sseResponse([candidateChunk([{ text: 'ok' }], 'STOP')]);
+  }, { baseURL: 'https://injected.example' });
+  await provider.send([{ role: 'user', content: 'hi' }], 'gemini-3-pro-high', [], {});
+  assert.deepEqual(tried, ['https://injected.example']);
+});
+
+test('401 refreshes credentials once on the same daily host', async () => {
+  const tried = [];
+  const auths = [];
+  let token = 'stale-token';
+  const provider = providerWith(async (url, init) => {
+    tried.push({ host: new URL(url).host, auth: init.headers.Authorization });
+    if (token === 'stale-token') {
+      return new Response(JSON.stringify({ error: { message: 'invalid credentials' } }), {
+        status: 401,
         headers: { 'content-type': 'application/json' },
       });
     }
-    return sseResponse([candidateChunk([{ text: 'recovered' }], 'STOP')]);
+    return sseResponse([candidateChunk([{ text: 'ok' }], 'STOP')]);
+  }, {
+    ensureAuthFn: async ({ force } = {}) => {
+      auths.push(Boolean(force));
+      if (force) token = 'fresh-token';
+      return { accessToken: token, projectId: 'test-project', email: 'dev@example.com' };
+    },
   });
-
   const result = await provider.send([{ role: 'user', content: 'hi' }], 'gemini-3-pro-high', [], {});
-  assert.equal(result.content, 'recovered');
-  assert.equal(tried.length, 2);
-  assert.equal(tried[0], 'daily-cloudcode-pa.googleapis.com');
-  assert.equal(tried[1], 'autopush-cloudcode-pa.sandbox.googleapis.com');
+  assert.equal(result.content, 'ok');
+  assert.deepEqual(tried, [
+    { host: DAILY_HOST, auth: 'Bearer stale-token' },
+    { host: DAILY_HOST, auth: 'Bearer fresh-token' },
+  ]);
+  assert.deepEqual(auths, [false, true]);
+});
+
+test('caller cancellation does not switch hosts', async () => {
+  const ac = new AbortController();
+  const tried = [];
+  const provider = providerWith(async (url, init) => {
+    tried.push(new URL(url).host);
+    ac.abort(Object.assign(new Error('stop'), { name: 'AbortError' }));
+    await new Promise((_, reject) => {
+      const fail = () => reject(init.signal.reason instanceof Error ? init.signal.reason : new Error('stop'));
+      if (init.signal.aborted) { fail(); return; }
+      init.signal.addEventListener('abort', fail, { once: true });
+    });
+  });
+  await assert.rejects(
+    provider.send([{ role: 'user', content: 'hi' }], 'gemini-3-pro-high', [], { signal: ac.signal }),
+    (error) => error.message === 'stop',
+  );
+  assert.deepEqual(tried, [DAILY_HOST]);
 });
 
 test('the hub identity tracks the version from the update manifest', async (t) => {
@@ -411,24 +519,18 @@ test('version, authentication and request preparation overlap and bind the refre
   assert.equal(posted.model, 'gemini-3.8-flash-low');
 });
 
-test('each send rewarms the selected endpoint, including the last successful fallback', async () => {
+test('each send rewarms the daily host', async () => {
   const warmed = [];
   const requested = [];
   const provider = providerWith(async (url) => {
     requested.push(new URL(url).origin);
-    return requested.length === 1
-      ? new Response('backend unavailable', { status: 503 })
-      : sseResponse([candidateChunk([{ text: 'OK' }], 'STOP')]);
+    return sseResponse([candidateChunk([{ text: 'OK' }], 'STOP')]);
   }, { preconnectFn: (endpoint) => warmed.push(endpoint) });
   const messages = [{ role: 'user', content: 'Hello.' }];
   await provider.send(messages, 'gemini-3.8-flash', [], { effort: 'low' });
   await provider.send(messages, 'gemini-3.8-flash', [], { effort: 'low' });
-  assert.deepEqual(warmed, [
-    'https://daily-cloudcode-pa.googleapis.com',
-    'https://daily-cloudcode-pa.googleapis.com',
-    'https://autopush-cloudcode-pa.sandbox.googleapis.com',
-  ]);
-  assert.equal(requested[2], warmed[2]);
+  assert.deepEqual(warmed, [CONTENT_ENDPOINT, CONTENT_ENDPOINT, CONTENT_ENDPOINT]);
+  assert.deepEqual(requested, [CONTENT_ENDPOINT, CONTENT_ENDPOINT]);
 });
 
 test('native calls dispatch before EOF with stable IDs, signatures and no final redispatch', async () => {

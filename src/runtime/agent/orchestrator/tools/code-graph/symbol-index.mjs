@@ -1,13 +1,22 @@
-// Identifier tokenization, cheap regex symbol extraction, lazy per-symbol
-// candidate-node lookup, and explainer anchor lines. Extracted verbatim
-// from code-graph.mjs.
+// Native symbol/token access: candidate-node lookup over the binary's `tokens`,
+// outline rendering over the v2 `symbols` record, and the per-file overview
+// summary.
+//
+// Symbols and tokens have NO text fallback. `node.symbols` (record v2:
+// {name, kind, startLine, endLine, startCol, endCol, exported?, sig?, parent?})
+// and `node.tokenSymbols` are the only sources; a node that carries neither
+// contributes nothing to an outline or a candidate set. The cheap regex outline
+// matchers and the JS identifier re-tokenizer that used to stand in for them
+// are gone — they disagreed with the extractor, so an answer's content depended
+// on which of the two produced it.
 import {
   _langUsesDollarInIdentifiers,
   _langAllowsBangQuestionSuffix,
 } from './lang-predicates.mjs';
+import { EXTRACTION_SYMBOL_LANGS } from './constants.mjs';
 import { _getSourceTextForNode } from './source-access.mjs';
 import { _graphRel } from './source-access.mjs';
-import { _symbolPathForSymbol } from './text-columns.mjs';
+import { _symbolParentIndex, _symbolLevel } from './text-columns.mjs';
 
 // Unicode-aware word-boundary wrapper for an already-regex-escaped
 // symbol. JS `\b` only fires at ASCII [A-Za-z0-9_] transitions, so
@@ -25,35 +34,23 @@ export function _unicodeBoundaryPattern(escaped, lang = null, symbol = null) {
   return `${before}${escaped}${after}`;
 }
 
-function _extractIdentifierTokens(text, lang = null) {
-  const out = new Set();
-  const allowDollar = !lang || _langUsesDollarInIdentifiers(lang);
-  const before = allowDollar ? '(?<![\\p{ID_Continue}$])' : '(?<![\\p{ID_Continue}])';
-  const suffix = lang && _langAllowsBangQuestionSuffix(lang) ? '[!?]?' : '';
-  const after = allowDollar ? '(?![\\p{ID_Continue}$])' : '(?![\\p{ID_Continue}])';
-  const re = new RegExp(`${before}[$@]?[\\p{ID_Start}_][\\p{ID_Continue}]*${suffix}${after}`, 'gu');
-  let match = null;
-  const src = String(text || '');
-  while ((match = re.exec(src))) {
-    out.add(match[0]);
-  }
-  return [...out];
+// Native identifier tokens of a node, or null when the binary shipped none
+// (older build, un-hydrated cache entry, file it did not parse). null means
+// UNKNOWN — never "no identifiers" — and there is no re-tokenization: a JS
+// regex pass produced a DIFFERENT token set than the extractor, so candidate
+// sets silently depended on which of the two ran.
+export function _getTokenSymbolsForNode(node) {
+  return Array.isArray(node?.tokenSymbols) ? node.tokenSymbols : null;
 }
 
-export function _getTokenSymbolsForNode(graph, node) {
-  if (Array.isArray(node?.tokenSymbols)) return node.tokenSymbols;
-  const text = _getSourceTextForNode(graph, node);
-  const tokens = _extractIdentifierTokens(text, node.lang);
-  node.tokenSymbols = tokens;
-  return tokens;
-}
-
-// Lazy per-symbol candidate lookup. Caches the result back into
-// `_symbolTokenIndex` so repeat lookups are O(1). Compared to a full
-// _ensureSymbolTokenIndex sweep, the per-symbol scan is O(N) where N is
-// the node count (~7000 on refs/), and each node's check is a cheap
-// Array.includes on its pre-extracted tokenSymbols. Cold-process first
-// lookup drops from ~1-2s to ~50ms.
+// Per-symbol candidate lookup over the native token lists, memoized in
+// `_symbolTokenIndex` so repeat lookups are O(1). The scan is O(N) over the
+// node count and each node's check is an Array.includes on its shipped tokens.
+//
+// A node without tokens contributes nothing, and a miss is cached as the empty
+// set: the previous "no candidate → return EVERY node" fallback turned a token
+// miss into a full-graph text scan, which hid missing token data behind a slow
+// answer instead of reporting it.
 export function _lookupCandidateNodes(graph, symbol, language = null) {
   if (!graph?.nodes) return [];
   const cacheKey = `${language || '*'}|${symbol}`;
@@ -64,211 +61,118 @@ export function _lookupCandidateNodes(graph, symbol, language = null) {
   const candidates = [];
   for (const node of graph.nodes.values()) {
     if (language && node.lang !== language) continue;
-    const tokens = _getTokenSymbolsForNode(graph, node);
-    if (tokens.includes(symbol)) candidates.push(node);
+    const tokens = _getTokenSymbolsForNode(node);
+    if (tokens?.includes(symbol)) candidates.push(node);
   }
-  if (candidates.length > 0) {
-    if (graph._symbolTokenIndex) {
-      graph._symbolTokenIndex.set(cacheKey, candidates.map((n) => n.rel));
-    }
-    return candidates;
-  }
-  // Token-index miss → fall back to language-filtered full graph scan.
-  // _extractIdentifierTokens uses ASCII `\b` word-boundary which misses
-  // unicode (Korean/CJK), $-prefixed identifiers in some positions, and
-  // certain multi-byte language tokens (Rust raw idents, Go method
-  // receivers). The downstream search loop's sourceText.includes()
-  // still catches these — we just need to give it the full node set.
-  // Not cached: caching the fallback would mask token-extractor
-  // improvements and would also keep returning the heavy scan after a
-  // future graph rebuild populated the token map for the symbol.
-  const fallback = [];
-  for (const node of graph.nodes.values()) {
-    if (language && node.lang !== language) continue;
-    fallback.push(node);
-  }
-  return fallback;
+  graph._symbolTokenIndex?.set(cacheKey, candidates.map((n) => n.rel));
+  return candidates;
 }
 
-export function _extractSymbolsCheap(text, lang) {
-  const all = _collectCheapSymbols(text, lang).map((item) => `${item.kind} ${item.name} (L${item.line})`);
-  return all.length ? _capGraphList(all).join('\n') : '(no symbols)';
+export function _symbolLine(symbol) {
+  const n = Number(symbol?.line ?? symbol?.startLine);
+  return Number.isFinite(n) && n >= 1 ? n : 0;
 }
 
-function _symbolHierarchyLines(node, depth = 1) {
-  const symbols = Array.isArray(node?.symbols) ? node.symbols : [];
-  const maxDepth = Math.max(0, Math.min(5, Math.floor(Number(depth) || 0)));
-  return symbols
-    .map((symbol) => ({ symbol, path: _symbolPathForSymbol(node, symbol) }))
-    .filter(({ path }) => path && path.split('/').length - 1 <= maxDepth)
-    .sort((a, b) => {
-      const aLine = Number(a.symbol.startLine ?? a.symbol.line) || 0;
-      const bLine = Number(b.symbol.startLine ?? b.symbol.line) || 0;
-      return (aLine - bLine) || ((Number(a.symbol.startCol) || 0) - (Number(b.symbol.startCol) || 0));
-    })
-    .slice(0, 120)
-    .map(({ symbol, path }) => {
-      const level = path.split('/').length - 1;
-      const start = Number(symbol.startLine ?? symbol.line);
-      const end = Number(symbol.endLine);
-      const range = Number.isFinite(end) && end > start ? `${start}-${end}` : `${start}`;
-      return `${'  '.repeat(level)}${symbol.kind} ${symbol.name} (L${range})`;
-    });
+// ── outline rendering (record v2) ──────────────────────────────────────────
+// FIXED row grammar for `overview` and `symbols`, every language — consumers
+// (the desktop editor outline parser included) read the NAME out of it:
+//
+//   {indent}[export ]{kind} {name} (L{start}[-{end}])[  {sig}]
+//
+//   export class Service (L27-45)
+//     function run (L33-37)  def run(self, payload) -> str
+//   variable handler (L11)
+//
+// - indent: two spaces per containment level, derived from `parent`.
+// - export: present only for `exported: true` — one marker across languages
+//   (JS/TS export, Rust pub, Python public, Java public, …), since the record
+//   normalizes visibility the same way it normalizes kinds.
+// - kind: the unified vocabulary, always before the name, so a row is
+//   filterable without knowing the language.
+// - name: the BARE symbol name, always in the same position — never the
+//   signature, which is what a parser would otherwise have to split apart.
+//   It is USUALLY one whitespace-free token, but the record's name is taken
+//   verbatim and a few languages legitimately name a declaration with inner
+//   whitespace (C++/Scala `operator ==`, and the Solidity pragma the
+//   extractor records as `constant "solidity ^0.8.19"`). A consumer therefore
+//   terminates the name at the trailing ` (L<start>[-<end>])` anchor — the
+//   desktop outline parser's rule — instead of splitting on the first space.
+// - anchor: unchanged, single line or start-end.
+// - sig: appended after TWO spaces when the record carries one that adds
+//   information; a sig that is just `name` or `kind name` is redundant with
+//   the row itself and omitted. It never contains "(L", so the anchor stays
+//   unambiguous.
+//
+// ONE ROW IS ONE LINE: name and sig are folded onto a single line here, so a
+// record whose span text carried a newline/tab cannot split one symbol across
+// two rows and desynchronize every indentation level below it.
+function _symbolKindOf(symbol) {
+  const kind = String(symbol?.kind || '').trim();
+  return kind || 'symbol';
 }
 
-// Control-flow keywords that the bare `name(args) {?$` patterns below
-// would otherwise mis-collect as function/method symbols (e.g. an
-// `if (...) {` line). Excluding at the collection stage keeps the
-// invariant out of every downstream label/summarizer.
-const _CHEAP_SYMBOL_CONTROL_FLOW = new Set([
-  'if', 'else', 'elif', 'for', 'foreach', 'while', 'do',
-  'switch', 'case', 'default', 'when', 'select',
-  'try', 'catch', 'finally', 'throw', 'throws',
-  'return', 'yield', 'await', 'goto', 'break', 'continue',
-  'with', 'using', 'lock', 'synchronized', 'unless',
-]);
+function _rowField(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
 
-export function _collectCheapSymbols(text, lang) {
-  const lines = String(text || '').split(/\r?\n/);
-  const out = [];
-  const push = (kind, name, idx) => {
-    if (!name) return;
-    // Skip control-flow keywords so `if(...) {`, `for(...) {`,
-    // `while(...) {`, `switch(...) {`, `catch(...) {` no longer leak
-    // as function/method symbols through the bare `name(args)` shapes.
-    if (_CHEAP_SYMBOL_CONTROL_FLOW.has(name)) return;
-    out.push({ kind, name, line: idx + 1 });
-  };
-  // Slash (`//` `/*`) comments: all C-family langs incl. new kotlin/swift/
-  // scala. Excluded: python/ruby (hash), bash (hash), lua (`--`; also `//`
-  // is lua integer-division, so slash-stripping would delete code). Second
-  // batch: dart/objc/zig are C-family slash-comment (kept by the default);
-  // elixir/r are hash-comment (excluded below).
-  const supportsSlash = lang !== 'python' && lang !== 'ruby'
-    && lang !== 'bash' && lang !== 'lua'
-    && lang !== 'elixir' && lang !== 'r';
-  // Hash (`#`) comments: python/ruby/php and bash. lua uses `--` (handled by
-  // _maskNonCodeText, not needed here since lua has no cheap-symbol matcher).
-  // Second batch: elixir and r are `#`-only line-comment langs → included.
-  const supportsHash = lang === 'python' || lang === 'ruby' || lang === 'php'
-    || lang === 'bash' || lang === 'elixir' || lang === 'r';
-  let inBlockComment = false;
-  for (let i = 0; i < lines.length; i++) {
-    // Per-line comment stripping at the collection stage so header/JSDoc
-    // words like "These", "side", "effects" cannot bleed into the
-    // overview `symbols:` token list or the cheap summarizer output.
-    // An unclosed `/*` keeps the code before it and flips the block flag
-    // so code-before-comment lines (and spaced generators like `* gen()`)
-    // still reach the per-language matchers below.
-    let line = lines[i];
-    if (supportsSlash) {
-      if (inBlockComment) {
-        const endIdx = line.indexOf('*/');
-        if (endIdx < 0) continue;
-        line = line.slice(endIdx + 2);
-        inBlockComment = false;
-      }
-      while (true) {
-        const startIdx = line.indexOf('/*');
-        if (startIdx < 0) break;
-        // A `//` comment that begins before the `/*` owns the rest of the
-        // line (e.g. `// see rules/agent/*.md`), so that `/*` must not open a
-        // block comment — doing so swallowed every symbol after such a line.
-        const lineCommentIdx = line.indexOf('//');
-        if (lineCommentIdx >= 0 && lineCommentIdx < startIdx) {
-          line = line.slice(0, lineCommentIdx);
-          break;
-        }
-        const endIdx = line.indexOf('*/', startIdx + 2);
-        if (endIdx < 0) {
-          line = line.slice(0, startIdx);
-          inBlockComment = true;
-          break;
-        }
-        line = line.slice(0, startIdx) + ' ' + line.slice(endIdx + 2);
-      }
-      const slashIdx = line.indexOf('//');
-      if (slashIdx >= 0) line = line.slice(0, slashIdx);
-    }
-    if (supportsHash) {
-      if (/^\s*#/.test(line)) continue;
-    }
-    if (!line.trim()) continue;
-    let m = null;
-    if (lang === 'typescript' || lang === 'javascript') {
-      if ((m = /\b(class|interface|type|enum)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push(m[1], m[2], i);
-      else if ((m = /\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line))) push('function', m[1], i);
-      // Module-level only. A function-local `const`/`let`, or the head of a
-      // `for (const x of …)`, is not file structure: on a measured outline of
-      // a 90-line module the local bindings outnumbered the real declarations
-      // (11 noise rows vs 6 functions), which is enough for a caller to
-      // distrust the outline and go back to reading the whole file. Class
-      // fields never use const/let/var, so indentation is a sound test here —
-      // this matcher is line-based and has no scope information.
-      else if ((m = /\b(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b/.exec(line))) {
-        if (/^(?:export\s+)?(?:const|let|var)\s/.test(line)) push('binding', m[1], i);
-      }
-      else if ((m = /^\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^;]*\)\s*\{?$/.exec(line))) push('method', m[1], i);
-    } else if (lang === 'python') {
-      if ((m = /^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push('class', m[1], i);
-      else if ((m = /^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push('function', m[1], i);
-    } else if (lang === 'go') {
-      if ((m = /^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s+struct\b/.exec(line))) push('struct', m[1], i);
-      else if ((m = /^\s*func(?:\s*\([^)]*\))?\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line))) push('function', m[1], i);
-    } else if (lang === 'rust') {
-      if ((m = /^\s*(?:pub\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push('struct', m[1], i);
-      else if ((m = /^\s*(?:pub\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line))) push('function', m[1], i);
-    } else if (lang === 'kotlin') {
-      // Kotlin: `fun name(...)` is the canonical function declaration whether
-      // the body is a `{` block or an `= expr` expression body. The shared
-      // Java/C#-style `name(...) {` pattern misses expression bodies that
-      // end with the expression itself (no trailing `{` or `;`), so caller
-      // names disappear for those functions.
-      if ((m = /\b(class|interface|enum|object)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push(m[1], m[2], i);
-      else if ((m = /^\s*(?:public\s+|private\s+|protected\s+|internal\s+)?(?:open\s+|abstract\s+|final\s+)?(?:override\s+)?(?:suspend\s+)?(?:inline\s+)?fun\s+(?:<[^>]+>\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line))) push('function', m[1], i);
-      else if ((m = /^\s*(?:public\s+|private\s+|protected\s+|internal\s+)?(?:const\s+)?(?:val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b/.exec(line))) push('binding', m[1], i);
-    } else if (lang === 'java' || lang === 'csharp') {
-      if ((m = /\b(class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push(m[1], m[2], i);
-      else if ((m = /\b([A-Za-z_][A-Za-z0-9_]*)\s*\([^;]*\)\s*\{?$/.exec(line))) push('function', m[1], i);
-    } else if (lang === 'c' || lang === 'cpp') {
-      if ((m = /\b(class|struct|enum)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push(m[1], m[2], i);
-      else if ((m = /^\s*[A-Za-z_][\w\s:*<>~]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;]*\)\s*\{?$/.exec(line))) push('function', m[1], i);
-    } else if (lang === 'ruby' || lang === 'php') {
-      if ((m = /^\s*class\s+([A-Za-z_][A-Za-z0-9_:]*)/.exec(line))) push('class', m[1], i);
-      else if ((m = /^\s*def\s+([A-Za-z_][A-Za-z0-9_!?=]*)/.exec(line))) push('function', m[1], i);
-    }
-    // No cheap-regex matcher for swift/scala/bash/lua or the second batch
-    // (dart/objc/elixir/zig/r): the native indexer now emits symbols for these
-    // langs, so _collectCheapSymbols runs only as a fallback when native
-    // symbols are absent. They are deliberately left without a branch (yield no
-    // cheap anchors) rather than guessing with a loose pattern; callers
-    // (overview/anchors) fall back to native symbols.
+export function _symbolRowLabel(symbol) {
+  const start = _symbolLine(symbol);
+  const end = Number(symbol?.endLine);
+  const range = Number.isFinite(end) && end > start ? `${start}-${end}` : `${start}`;
+  const kind = _symbolKindOf(symbol);
+  const name = _rowField(symbol?.name);
+  const exported = symbol?.exported === true ? 'export ' : '';
+  const sig = typeof symbol?.sig === 'string' ? _rowField(symbol.sig) : '';
+  const redundant = !sig || sig === name || sig === `${kind} ${name}`;
+  return `${exported}${kind} ${name} (L${range})${redundant ? '' : `  ${sig}`}`;
+}
+
+// Rows for one file's outline, ordered by (line, column) — the record order a
+// reader follows through the file. `depth` (overview) drops rows deeper than
+// that containment level; `cap` bounds the row count. Both are applied at the
+// same place as before the v2 switch.
+//
+// A cap cuts wherever the row budget runs out — mid-class, mid-impl — so the
+// truncation is ANNOUNCED. Without the marker the outline of a symbol-dense
+// file (contract.ts: 137 rows, outline.rs: 136) ended at an arbitrary member
+// and read like the file's complete structure. The marker sits at column 0,
+// so it can never be mistaken for a nested row.
+export function _symbolOutlineRows(node, { depth = null, cap = 0 } = {}) {
+  const symbols = (Array.isArray(node?.symbols) ? node.symbols : [])
+    .filter((symbol) => symbol?.name && _symbolLine(symbol));
+  if (!symbols.length) return [];
+  const parentOf = _symbolParentIndex(node);
+  const maxDepth = depth == null ? null : Math.max(0, Math.min(5, Math.floor(Number(depth) || 0)));
+  const rows = symbols
+    .map((symbol) => ({ symbol, level: _symbolLevel(node, symbol, parentOf) }))
+    .filter(({ level }) => maxDepth == null || level <= maxDepth)
+    .sort((a, b) => (_symbolLine(a.symbol) - _symbolLine(b.symbol))
+      || ((Number(a.symbol.startCol) || 0) - (Number(b.symbol.startCol) || 0)))
+    .map(({ symbol, level }) => `${'  '.repeat(level)}${_symbolRowLabel(symbol)}`);
+  if (cap > 0 && rows.length > cap) {
+    return [...rows.slice(0, cap), `… +${rows.length - cap} more (mode:symbols for the full outline)`];
   }
-  return out;
+  return rows;
 }
 
-// Raised from 6 to 50 after HS-A6 surfaced that overview on a ~46KB file
-// returned only the first 6 anchors (all within the first 87 lines, 5%
-// of the file). tail-trim still bounds output payload, so a higher cap
-// surfaces full structure on large files without hurting small ones.
-function _extractExplainerAnchorLines(node, graph, { limit = 50, maxLineChars = 180 } = {}) {
-  const sourceLines = _getSourceTextForNode(graph, node).split(/\r?\n/);
-  const symbols = Array.isArray(node.symbols) && node.symbols.length
-    ? node.symbols
-    : _collectCheapSymbols(sourceLines.join('\n'), node.lang);
-  const out = [];
-  const seen = new Set();
-  for (const item of symbols) {
-    if (out.length >= limit) break;
-    const idx = item.line - 1;
-    const line = String(sourceLines[idx] || '').trim();
-    if (!line) continue;
-    const key = `${item.name}:${item.line}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(`${item.kind} ${item.name} (L${item.line}): ${line.slice(0, maxLineChars)}`);
+// Does ANY node of this graph carry native symbols? Symbol modes have no
+// fallback, so a false here is a capability failure rather than an empty
+// answer — the same rule AST call sites follow.
+export function _graphHasNativeSymbols(graph) {
+  for (const node of graph?.nodes?.values?.() || []) {
+    if (Array.isArray(node?.symbols) && node.symbols.length) return true;
   }
-  return out;
+  return false;
+}
+
+// …but only for a file set the extractor is supposed to parse. A graph of
+// pure non-extraction languages has no symbols by definition, and that is an
+// answer ("(no symbols)"), not a broken binary.
+export function _graphExpectsNativeSymbols(graph) {
+  for (const node of graph?.nodes?.values?.() || []) {
+    if (EXTRACTION_SYMBOL_LANGS.has(node?.lang)) return true;
+  }
+  return false;
 }
 
 // Bound model-facing structural list output (imports/dependents/related,
@@ -281,20 +185,15 @@ export function _capGraphList(arr, cap = 200) {
     : arr;
 }
 
+// Per-file overview. The outline is the native record and nothing else: a file
+// the extractor produced no symbols for shows its head instead of a regex
+// guess at its structure (the old `symbols:` token dump and `anchors:` block
+// re-derived both from source text and disagreed with the extractor).
 export function _buildExplainerFileSummary(node, graph, cwd, { depth = 1 } = {}) {
   const topTypes = Array.isArray(node?.topLevelTypes) ? node.topLevelTypes.slice(0, 8) : [];
   const importsAll = Array.isArray(node?.resolvedImports) ? node.resolvedImports.map((p) => _graphRel(p, cwd)) : [];
   const imports = importsAll.slice(0, 8);
-  const tokensAll = _getTokenSymbolsForNode(graph, node);
-  // Prefer native tree-sitter symbol names; fall back to the regex token
-  // dump only when the native graph path didn't populate node.symbols.
-  const hasNativeSymbols = Array.isArray(node?.symbols) && node.symbols.length > 0;
-  const symbolsAll = hasNativeSymbols
-    ? [...new Set(node.symbols.map((s) => s.name))]
-    : tokensAll;
-  const symbolNames = symbolsAll.slice(0, hasNativeSymbols ? 30 : 20);
-  const hierarchy = hasNativeSymbols ? _symbolHierarchyLines(node, depth) : [];
-  const anchors = _extractExplainerAnchorLines(node, graph);
+  const outline = _symbolOutlineRows(node, { depth, cap: 120 });
   const sourceHead = _getSourceTextForNode(graph, node)
     .split(/\r?\n/)
     .slice(0, 6)
@@ -306,17 +205,11 @@ export function _buildExplainerFileSummary(node, graph, cwd, { depth = 1 } = {})
     `language: ${node.lang}`,
   ];
   if (topTypes.length) parts.push(`top-level: ${topTypes.join(', ')}`);
-  if (hierarchy.length) {
-    parts.push(`outline:\n${hierarchy.join('\n')}`);
-  } else if (symbolNames.length) {
-    const more = symbolsAll.length - symbolNames.length;
-    parts.push(`symbols: ${symbolNames.join(', ')}${more > 0 ? `, … +${more} more (use symbol_search for keywords)` : ''}`);
-  }
+  if (outline.length) parts.push(`outline:\n${outline.join('\n')}`);
   if (imports.length) {
     const more = importsAll.length - imports.length;
     parts.push(`imports: ${imports.join(', ')}${more > 0 ? `, … +${more} more (mode:imports for full list)` : ''}`);
   }
-  if (!hierarchy.length && anchors.length) parts.push(`anchors:\n${anchors.join('\n')}`);
-  if (!hierarchy.length && sourceHead) parts.push(`head:\n${sourceHead}`);
+  if (!outline.length && sourceHead) parts.push(`head:\n${sourceHead}`);
   return parts.join('\n');
 }

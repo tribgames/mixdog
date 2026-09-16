@@ -1,0 +1,91 @@
+# Call-site rules for C++.
+#
+# `a.b()` and `this->b()` are member calls, `Foo::bar()` a qualified call
+# (receiver `Foo`), and `new Widget()` explicit constructor syntax.
+#
+# mixdog-call-kind: method
+id: cpp-call-member
+language: Cpp
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: field_expression
+    all:
+      - has:
+          field: field
+          pattern: $NAME
+      - has:
+          field: argument
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: method
+id: cpp-call-qualified
+language: Cpp
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: qualified_identifier
+    all:
+      - has:
+          field: name
+          pattern: $NAME
+      - has:
+          field: scope
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: cpp-call-plain
+language: Cpp
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: new
+id: cpp-new
+language: Cpp
+role: item
+symbolType: function
+rule:
+  kind: new_expression
+  has:
+    field: type
+    any:
+      - kind: type_identifier
+        pattern: $NAME
+      - kind: template_type
+        has:
+          field: name
+          any:
+            - kind: type_identifier
+              pattern: $NAME
+            - kind: qualified_identifier
+              has:
+                field: name
+                pattern: $NAME
+      # `new std::vector<T>` is a qualified name whose LAST segment carries
+      # the template arguments, so the name node is one level further in.
+      - kind: qualified_identifier
+        has:
+          field: name
+          any:
+            - kind: type_identifier
+              pattern: $NAME
+            - kind: template_type
+              has:
+                field: name
+                pattern: $NAME
+name: $NAME

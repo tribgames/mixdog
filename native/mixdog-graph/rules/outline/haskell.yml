@@ -1,0 +1,219 @@
+# mixdog-kind: module
+id: haskell-module
+language: Haskell
+role: item
+symbolType: module
+rule:
+  kind: header
+  has:
+    field: module
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: import
+id: haskell-import
+language: Haskell
+role: item
+symbolType: module
+rule:
+  kind: import
+  has:
+    field: module
+    pattern: $NAME
+name: $NAME
+isImport: true
+isExported: false
+---
+# mixdog-kind: function
+# Top-level function definitions (not class/instance/where binds).
+id: haskell-function
+language: Haskell
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: function
+    - has:
+        field: name
+        pattern: $NAME
+    - not:
+        inside:
+          kind: local_binds
+          stopBy: end
+    - not:
+        inside:
+          kind: class
+          stopBy: end
+    - not:
+        inside:
+          kind: instance
+          stopBy: end
+name: $NAME
+isExported: true
+---
+# mixdog-kind: function
+# Top-level type signatures (`foo :: a -> a`).
+id: haskell-signature
+language: Haskell
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: signature
+    - has:
+        field: name
+        pattern: $NAME
+    - not:
+        inside:
+          kind: local_binds
+          stopBy: end
+    - not:
+        inside:
+          kind: class
+          stopBy: end
+    - not:
+        inside:
+          kind: instance
+          stopBy: end
+name: $NAME
+isExported: true
+---
+# mixdog-kind: function
+# Simple top-level binds (`foo = ...`) that are not local.
+id: haskell-bind
+language: Haskell
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: bind
+    - has:
+        field: name
+        pattern: $NAME
+    - not:
+        inside:
+          kind: local_binds
+          stopBy: end
+    - not:
+        inside:
+          kind: class
+          stopBy: end
+    - not:
+        inside:
+          kind: instance
+          stopBy: end
+name: $NAME
+isExported: true
+---
+# mixdog-kind: data
+id: haskell-data
+language: Haskell
+role: item
+symbolType: struct
+rule:
+  kind: data_type
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: newtype
+id: haskell-newtype
+language: Haskell
+role: item
+symbolType: struct
+rule:
+  kind: newtype
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: type
+# Grammar node is `type_synomym` (upstream spelling).
+id: haskell-type
+language: Haskell
+role: item
+symbolType: struct
+rule:
+  kind: type_synomym
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: class
+id: haskell-class
+language: Haskell
+role: item
+symbolType: interface
+rule:
+  kind: class
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: instance
+id: haskell-instance
+language: Haskell
+role: item
+symbolType: object
+rule:
+  kind: instance
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: function
+id: haskell-class-method
+language: Haskell
+role: member
+parentRuleIds: [haskell-class]
+symbolType: method
+rule:
+  any:
+    - kind: function
+      has:
+        field: name
+        pattern: $NAME
+    - kind: signature
+      has:
+        field: name
+        pattern: $NAME
+    - kind: bind
+      has:
+        field: name
+        pattern: $NAME
+name: $NAME
+isPublic: true
+---
+# mixdog-kind: function
+id: haskell-instance-method
+language: Haskell
+role: member
+parentRuleIds: [haskell-instance]
+symbolType: method
+rule:
+  any:
+    - kind: function
+      has:
+        field: name
+        pattern: $NAME
+    - kind: signature
+      has:
+        field: name
+        pattern: $NAME
+    - kind: bind
+      has:
+        field: name
+        pattern: $NAME
+name: $NAME
+isPublic: true

@@ -1,0 +1,9 @@
+id: no-debugger
+valid:
+  - foo()
+  - debug()
+  - const debuggerName = 1
+invalid:
+  - debugger;
+  - |
+    function f() { debugger }

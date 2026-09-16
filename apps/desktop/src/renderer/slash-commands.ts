@@ -68,6 +68,17 @@ export function resolveDesktopSlashCommand(rawName: string): DesktopSlashCommand
   return SLASH_COMMANDS.find((entry) => entry.name === token || entry.aliases?.includes(token));
 }
 
+// Discovery stays small; the full registry still accepts commands typed directly.
+const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
+  'new', 'model', 'compact', 'context', 'goal', 'inherit', 'fast',
+].map((name) => ({ ...resolveDesktopSlashCommand(name)!, usage: `/${name}` }));
+
+export function desktopComposerSlashCommands(draft: string): ReadonlyArray<DesktopSlashCommand> {
+  if (!/^\/[a-z]*$/i.test(draft)) return [];
+  const query = draft.toLowerCase();
+  return COMPOSER_SLASH_COMMANDS.filter((command) => command.usage.startsWith(query));
+}
+
 export function desktopSlashCommandDescription(command: DesktopSlashCommand): string {
   return t(command.desktopDescription ?? command.description);
 }

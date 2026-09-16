@@ -98,25 +98,14 @@ export function createQueryMaintenanceHandlers({ getDb }) {
       const active_roots        = (await tx.query(`SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND status = 'active'`)).rows[0].c
       const archived_roots      = (await tx.query(`SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND status = 'archived'`)).rows[0].c
       const unchunked_leaves    = (await tx.query(`SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL`)).rows[0].c
-      const cycle2_pending_roots = (await tx.query(`SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND status = 'pending'`)).rows[0].c
+      const cycle2_pending_roots = (await tx.query(`SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND cycle2_reviewed_at IS NULL AND duplicate_of IS NULL`)).rows[0].c
       const core_entries        = (await tx.query(`SELECT COUNT(*) c FROM core_entries`)).rows[0].c
       const core_embed_null     = (await tx.query(`SELECT COUNT(*) c FROM core_entries WHERE embedding IS NULL`)).rows[0].c
-      const active_core_summaries = (await tx.query(`SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND status = 'active' AND core_summary IS NOT NULL`)).rows[0].c
-      const active_core_summary_missing = (await tx.query(`
-        SELECT COUNT(*) c
-        FROM entries
-        WHERE is_root = 1
-          AND status = 'active'
-          AND (core_summary IS NULL OR btrim(core_summary) = '')
-      `)).rows[0].c
       const byStatus            = (await tx.query(`SELECT status, COUNT(*) c FROM entries WHERE is_root = 1 GROUP BY status`)).rows
-      const byCategory          = (await tx.query(`SELECT category, COUNT(*) c FROM entries WHERE is_root = 1 AND status = 'active' GROUP BY category ORDER BY c DESC`)).rows
-      const mvRows              = (await tx.query(`SELECT relispopulated FROM pg_class WHERE relname = 'mv_hot_active' LIMIT 1`)).rows
-      const mv_hot_active_populated = mvRows.length ? Boolean(mvRows[0].relispopulated) : null
+      const byCategory          = (await tx.query(`SELECT category, COUNT(*) c FROM entries WHERE is_root = 1 GROUP BY category ORDER BY c DESC`)).rows
       return {
         total, roots, active_roots, archived_roots, unchunked_leaves, cycle2_pending_roots,
-        core_entries, core_embed_null, active_core_summaries, active_core_summary_missing,
-        mv_hot_active_populated,
+        core_entries, core_embed_null,
         byStatus, byCategory,
       }
     })

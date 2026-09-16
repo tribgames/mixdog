@@ -27,13 +27,26 @@ opened windows need separate authorization.
 ## Failure bundles
 
 Bounded failure histories are stored as JSON in `computer-failures` under the
-Mixdog data directory (20 bundles, 40 recent steps per bundle, 128 KiB each);
+Mixdog data directory (20 bundles, 40 recent steps per bundle, 128 KiB each).
+Within a host lifetime, each session atomically replaces its own bundle rather
+than evicting other sessions with repeated copies of the same history;
 there is no in-app export — read the files directly when supporting a user,
 or `host.readFailureDiagnostics()` from the embedding host. They contain
 action, exact window handle, stage, duration, execution path, error category,
 numeric timing and boolean recovery results. Input text, clipboard contents,
 titles, app paths and screenshots are excluded. There is no implicit
 screenshot collection or remote upload.
+
+Desktop test processes allocate their own data directory before loading host
+modules. They never append fixture sessions to the signed-in application's
+run history. An absent observation is not recorded as success or failure;
+unknown input delivery remains explicitly unknown.
+
+Stop can recover a failed global-input cleanup only after worker termination
+and release of automation-owned input are confirmed. This global receipt does
+not prove release of target-local window messages. An interrupted background
+gesture without its release receipt remains blocked for user recovery; a host
+restart alone is not evidence that the target application's input was released.
 
 ## Isolated checks
 

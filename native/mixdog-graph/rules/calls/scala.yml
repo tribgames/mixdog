@@ -1,0 +1,54 @@
+# Call-site rules for Scala.
+#
+# `new Widget()` is an `instance_expression` (kind `new`). Infix application
+# (`a foo b`) is an operator expression, not call syntax, and is not reported.
+#
+# mixdog-call-kind: method
+id: scala-call-method
+language: Scala
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: field_expression
+    all:
+      - has:
+          field: field
+          pattern: $NAME
+      - has:
+          field: value
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: scala-call-plain
+language: Scala
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: new
+id: scala-new
+language: Scala
+role: item
+symbolType: function
+rule:
+  kind: instance_expression
+  has:
+    nthChild: 1
+    any:
+      - kind: type_identifier
+        pattern: $NAME
+      - kind: generic_type
+        has:
+          field: type
+          pattern: $NAME
+name: $NAME

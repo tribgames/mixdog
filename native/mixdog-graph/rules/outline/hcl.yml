@@ -1,0 +1,267 @@
+# Terraform / HCL outline rules.
+#
+# Import forms (the native walk descends into every block, so a `module` body
+# stays visible even though the module block is itself an item):
+# - `module "x" { source = "./modules/x" }` is an import edge when the source is
+#   a LOCAL PATH. Registry (`hashicorp/consul/aws`) and remote (`git::…`,
+#   `github.com/…`) sources name no file in this repository, so they are not
+#   edges — see `hcl-module-source`.
+# - `terraform.required_providers` `source` values ARE import items because the
+#   `terraform` block is not extracted as an item (subtree stays visible).
+# Nested `dynamic` blocks are not extracted.
+#
+# mixdog-kind: resource
+id: hcl-resource
+language: Hcl
+role: item
+symbolType: object
+rule:
+  all:
+    - kind: block
+    - has:
+        nthChild: 1
+        kind: identifier
+        regex: '^resource$'
+    - has:
+        nthChild: 2
+        kind: string_lit
+        pattern: $TYPE
+    - has:
+        nthChild: 3
+        kind: string_lit
+        pattern: $NAME
+transform:
+  TYPE_SPEC:
+    replace:
+      source: $TYPE
+      replace: '^"|"$'
+      by: ''
+  NAME_SPEC:
+    replace:
+      source: $NAME
+      replace: '^"|"$'
+      by: ''
+name: $TYPE_SPEC.$NAME_SPEC
+isExported: true
+---
+# mixdog-kind: data
+id: hcl-data
+language: Hcl
+role: item
+symbolType: object
+rule:
+  all:
+    - kind: block
+    - has:
+        nthChild: 1
+        kind: identifier
+        regex: '^data$'
+    - has:
+        nthChild: 2
+        kind: string_lit
+        pattern: $TYPE
+    - has:
+        nthChild: 3
+        kind: string_lit
+        pattern: $NAME
+transform:
+  TYPE_SPEC:
+    replace:
+      source: $TYPE
+      replace: '^"|"$'
+      by: ''
+  NAME_SPEC:
+    replace:
+      source: $NAME
+      replace: '^"|"$'
+      by: ''
+name: $TYPE_SPEC.$NAME_SPEC
+isExported: true
+---
+# mixdog-kind: module
+id: hcl-module
+language: Hcl
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: block
+    - has:
+        nthChild: 1
+        kind: identifier
+        regex: '^module$'
+    - has:
+        nthChild: 2
+        kind: string_lit
+        pattern: $NAME
+transform:
+  SPEC:
+    replace:
+      source: $NAME
+      replace: '^"|"$'
+      by: ''
+name: $SPEC
+isExported: true
+---
+# mixdog-kind: variable
+id: hcl-variable
+language: Hcl
+role: item
+symbolType: variable
+rule:
+  all:
+    - kind: block
+    - has:
+        nthChild: 1
+        kind: identifier
+        regex: '^variable$'
+    - has:
+        nthChild: 2
+        kind: string_lit
+        pattern: $NAME
+transform:
+  SPEC:
+    replace:
+      source: $NAME
+      replace: '^"|"$'
+      by: ''
+name: $SPEC
+isExported: true
+---
+# mixdog-kind: output
+id: hcl-output
+language: Hcl
+role: item
+symbolType: property
+rule:
+  all:
+    - kind: block
+    - has:
+        nthChild: 1
+        kind: identifier
+        regex: '^output$'
+    - has:
+        nthChild: 2
+        kind: string_lit
+        pattern: $NAME
+transform:
+  SPEC:
+    replace:
+      source: $NAME
+      replace: '^"|"$'
+      by: ''
+name: $SPEC
+isExported: true
+---
+# mixdog-kind: locals
+id: hcl-locals
+language: Hcl
+role: item
+symbolType: object
+rule:
+  all:
+    - kind: block
+    - has:
+        nthChild: 1
+        kind: identifier
+        regex: '^locals$'
+    - not:
+        has:
+          kind: string_lit
+name: locals
+isExported: true
+---
+# mixdog-kind: provider
+id: hcl-provider
+language: Hcl
+role: item
+symbolType: object
+rule:
+  all:
+    - kind: block
+    - has:
+        nthChild: 1
+        kind: identifier
+        regex: '^provider$'
+    - has:
+        nthChild: 2
+        kind: string_lit
+        pattern: $NAME
+transform:
+  SPEC:
+    replace:
+      source: $NAME
+      replace: '^"|"$'
+      by: ''
+name: $SPEC
+isExported: true
+---
+
+# mixdog-kind: import
+# `module "vpc" { source = "./modules/vpc" }` — only a local path (`./…`,
+# `../…`, `/…`) is a file this repository can resolve; a registry or git
+# source is a remote dependency, not an edge.
+id: hcl-module-source
+language: Hcl
+role: item
+symbolType: module
+# The `attribute` node exposes no key/val FIELDS in this grammar, so the two
+# children are addressed by position: 1 is the name, 2 is the value.
+rule:
+  all:
+    - kind: attribute
+    - has:
+        nthChild: 1
+        kind: identifier
+        regex: '^source$'
+    - has:
+        nthChild: 2
+        regex: '^"(\./|\.\./|/)'
+        pattern: $VALUE
+    - inside:
+        kind: block
+        stopBy: end
+        has:
+          nthChild: 1
+          kind: identifier
+          regex: '^module$'
+transform:
+  SPEC:
+    replace:
+      source: $VALUE
+      replace: '^["'']|["'']$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# mixdog-kind: import
+# Optional: `source = "hashicorp/aws"` inside `required_providers`.
+id: hcl-required-provider-source
+language: Hcl
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: object_elem
+    - has:
+        field: key
+        regex: '^source$'
+    - has:
+        field: val
+        pattern: $VALUE
+    - inside:
+        kind: block
+        stopBy: end
+        has:
+          kind: identifier
+          regex: '^required_providers$'
+transform:
+  SPEC:
+    replace:
+      source: $VALUE
+      replace: '^[''"]|[''"]$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false

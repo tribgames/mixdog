@@ -2,7 +2,7 @@
 import { elapsedMs } from '../shared/common';
 import { captureAfterImageIsRedundant, recommendedRecovery, transitionConfirmsSemanticAction } from '../observation/analysis';
 import type { ComputerCommand, ComputerCommandResult, PowerShellResponse } from '../shared/types';
-import type { ComputerWindowRecord, ComputerWindowTransition } from '../shared/window-transition';
+import type { ComputerWindowTransition } from '../shared/window-transition';
 import type { CommandRouterHost } from './command-router';
 import { computerCursorFeedback } from '../shared/cursor-feedback';
 import { classifyComputerSequenceObservation } from '../input/sequence';
@@ -29,13 +29,13 @@ export async function buildActionReply(
   context: {
     command: ComputerCommand; action: string; result: NonNullable<PowerShellResponse['result']>;
     isMutation: boolean; targetWindowId?: string; logicalTargetWindowId?: string;
-    targetWindowBefore?: ComputerWindowRecord; windowTransition: ComputerWindowTransition | null;
+    windowTransition: ComputerWindowTransition | null;
     inputRecoveryVerification?: Record<string, unknown>; semanticTargetIdentity?: string;
     settleDelayMs: number; commandStartedAt: number; actionTimings: Record<string, number>;
   },
 ): Promise<ComputerCommandResult> {
   const { command, action, result, isMutation, targetWindowId, logicalTargetWindowId,
-    targetWindowBefore, windowTransition, inputRecoveryVerification, semanticTargetIdentity,
+    windowTransition, inputRecoveryVerification, semanticTargetIdentity,
     settleDelayMs, commandStartedAt, actionTimings } = context;
   if (result.action) {
     const transitionVerified = transitionConfirmsSemanticAction(
@@ -46,7 +46,7 @@ export async function buildActionReply(
     const code = typeof result.code === 'string' && result.code
       ? result.code : inputRecoveryVerification?.ok === false ? 'input_recovery_unconfirmed' : undefined;
     const delivery = String(result.delivery || command.delivery || 'background');
-    const recommendation = recommendedRecovery(action, effect, code, delivery, windowTransition, targetWindowBefore);
+    const recommendation = recommendedRecovery(effect, code, delivery, windowTransition);
     const escalation = inputRecoveryVerification?.ok === false ? 'input_recovery' : recommendation;
     const verdict: Record<string, unknown> = result.goal_verified === true || verified
       ? { decision: 'done' } : effect === 'suspected_noop' || code ? { decision: 'escalate' } : { decision: 'verify_fresh_state' };
@@ -108,7 +108,7 @@ export async function buildActionReply(
     const capture = await captureAfterAction(command, captureWindowId, 0, settleDelayMs);
     actionTimings.post_capture_ms = elapsedMs(postCaptureStartedAt);
     const recommendation = recommendedRecovery(
-      action, 'unverifiable', undefined, command.delivery || 'background', windowTransition, targetWindowBefore,
+      'unverifiable', undefined, command.delivery || 'background', windowTransition,
     );
     const payload: Record<string, unknown> = {
         ok: true, action, message: text, goal_verified: false,
@@ -129,7 +129,7 @@ export async function buildActionReply(
   }
   if (isMutation) {
     const recommendation = recommendedRecovery(
-      action, 'unverifiable', undefined, command.delivery || 'background', windowTransition, targetWindowBefore,
+      'unverifiable', undefined, command.delivery || 'background', windowTransition,
     );
     return {
       text: JSON.stringify({

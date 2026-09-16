@@ -28,6 +28,7 @@ export function captureResultPayload(input: {
     ok: captureOk, action: 'capture', mode,
     coordinate_space: screenshot?.frame ? 'frame' : 'screen',
     ...(screenshot?.route ? { capture_source: screenshot.route } : {}),
+    ...(screenshot?.captureAttempts?.length ? { capture_attempts: screenshot.captureAttempts } : {}),
     ...(observationWindowId ? { window_id: observationWindowId } : {}),
     ...(requestedWindowId && requestedWindowId !== observationWindowId ? {
       requested_window_id: requestedWindowId, capture_target_reason: 'capturable_owner',

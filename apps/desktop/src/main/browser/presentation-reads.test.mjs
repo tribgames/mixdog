@@ -52,3 +52,26 @@ test('releasing or disposing a display rejects late pixels without cancelling a 
   await closed;
   await assert.rejects(display.read('owner'), /closed/);
 });
+
+test('release at the delivery boundary refuses a completed capture and leaves a reopened read independent', async () => {
+  for (const mode of ['release', 'dispose']) {
+    let display;
+    let first = true;
+    let count = 0;
+    display = createBrowserPresentationReads({
+      capture: async () => frame(`frame-${++count}`),
+      bounded: async work => {
+        const value = await work;
+        if (first) {
+          first = false;
+          if (mode === 'release') display.release('owner');
+          else display.dispose();
+        }
+        return value;
+      },
+    });
+    await assert.rejects(display.read('owner'), /page changed during capture/);
+    if (mode === 'release') assert.equal((await display.read('owner')).frameId, 'frame-2');
+    else await assert.rejects(display.read('owner'), /closed/);
+  }
+});

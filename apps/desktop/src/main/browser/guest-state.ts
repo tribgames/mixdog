@@ -167,13 +167,8 @@ export class BrowserGuestStateStore {
     if (!state.sensitiveValues.size) state.sensitiveValues = undefined;
   }
 
-  forgetSecrets(guest: WebContents): void {
-    const state = this.states.get(guest);
-    if (state) state.sensitiveValues = undefined;
-  }
-
-  /** A new document is loading: typed secrets and a picker the old document
-   *  asked for no longer apply. */
+  /** Retire the old document's interaction state and picker. Known secrets
+   *  remain redacted across redirects. */
   beginDocument(guest: WebContents): void {
     const state = this.states.get(guest);
     if (!state) return;

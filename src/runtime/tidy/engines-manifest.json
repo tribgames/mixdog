@@ -1,0 +1,449 @@
+{
+  "engines": {
+    "air": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "tar.gz",
+          "binPath": "air-aarch64-apple-darwin/air",
+          "sha256": "be888cc1c16eff3a93df78c4af12a94b8fafb9db2f42aa53b852fc6ce2fb5567",
+          "url": "https://github.com/posit-dev/air/releases/download/0.11.0/air-aarch64-apple-darwin.tar.gz"
+        },
+        "darwin-x64": {
+          "archive": "tar.gz",
+          "binPath": "air-x86_64-apple-darwin/air",
+          "sha256": "93dedcc81a1accde1748b88d0d6bc59481f0b989ff7dfc7a42abc96707c712f7",
+          "url": "https://github.com/posit-dev/air/releases/download/0.11.0/air-x86_64-apple-darwin.tar.gz"
+        },
+        "linux-arm64": {
+          "archive": "tar.gz",
+          "binPath": "air-aarch64-unknown-linux-gnu/air",
+          "sha256": "80208ebac7b3890598f4f06ffe4209b4adfb5d9de60282380690115d2da1d065",
+          "url": "https://github.com/posit-dev/air/releases/download/0.11.0/air-aarch64-unknown-linux-gnu.tar.gz"
+        },
+        "linux-x64": {
+          "archive": "tar.gz",
+          "binPath": "air-x86_64-unknown-linux-gnu/air",
+          "sha256": "b6dd1446386a7e7c6981a049a164cb4950edaf004f675b0be1454923ae846593",
+          "url": "https://github.com/posit-dev/air/releases/download/0.11.0/air-x86_64-unknown-linux-gnu.tar.gz"
+        },
+        "win32-x64": {
+          "archive": "zip",
+          "binPath": "air.exe",
+          "sha256": "8b111f2400e7b9aaabbc9448424381c3969f03370d59124c4fbcb3d766dfc104",
+          "url": "https://github.com/posit-dev/air/releases/download/0.11.0/air-x86_64-pc-windows-msvc.zip"
+        }
+      },
+      "homepage": "https://posit-dev.github.io/air",
+      "kind": [
+        "format"
+      ],
+      "languages": [
+        "r"
+      ],
+      "license": "MIT",
+      "source": "upstream",
+      "version": "0.11.0"
+    },
+    "biome": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "none",
+          "binPath": "biome-darwin-arm64",
+          "sha256": "3d0cff7e4cd35a1709c1f4f9568380e08b3551ecf6e7356b3a49a40e3611894b",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-darwin-arm64"
+        },
+        "darwin-x64": {
+          "archive": "none",
+          "binPath": "biome-darwin-x64",
+          "sha256": "16f162b37f5bfca9d203dd8a05b20a3aaa6fee806f6ae0e1f8792331a6072238",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-darwin-x64"
+        },
+        "linux-arm64": {
+          "archive": "none",
+          "binPath": "biome-linux-arm64",
+          "sha256": "c5f0cf249b1ef1d730376ef61390341e4fdcdb2f79a7fe94a2dacd6af6241958",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-linux-arm64"
+        },
+        "linux-x64": {
+          "archive": "none",
+          "binPath": "biome-linux-x64",
+          "sha256": "2037af3d666febdb6e1a2f549938d6f0fe961bad0ac1a34c5fee3dec2db0b43e",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-linux-x64"
+        },
+        "win32-x64": {
+          "archive": "none",
+          "binPath": "biome-win32-x64.exe",
+          "sha256": "3d7ce7840c4b47db771f258bd2258eecdae820a4bad376b9740af5bb9bb4d75d",
+          "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.5.13/biome-win32-x64.exe"
+        }
+      },
+      "homepage": "https://biomejs.dev",
+      "kind": [
+        "format",
+        "lint"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "license": "MIT",
+      "source": "upstream",
+      "version": "2.5.13"
+    },
+    "clang-format": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "none",
+          "binPath": "clang-format-20_macos-arm-arm64",
+          "sha256": "fe6b8450a8cf83de3f517e3b9a9b1bb925613e5fb59145d6d24ccca5fe17d442",
+          "url": "https://github.com/muttleyxd/clang-tools-static-binaries/releases/download/master-796e77c/clang-format-20_macos-arm-arm64"
+        },
+        "darwin-x64": {
+          "archive": "none",
+          "binPath": "clang-format-20_macosx-amd64",
+          "sha256": "f2ddeacd376c764fef49e7abf5621a36d632ed3e73a7d92a9e87fbb164b7b227",
+          "url": "https://github.com/muttleyxd/clang-tools-static-binaries/releases/download/master-796e77c/clang-format-20_macosx-amd64"
+        },
+        "linux-x64": {
+          "archive": "none",
+          "binPath": "clang-format-20_linux-amd64",
+          "sha256": "e900c1e520b6c9b9c99e43c0f45ccd12927838741cfc60c077a33dec69bb60cc",
+          "url": "https://github.com/muttleyxd/clang-tools-static-binaries/releases/download/master-796e77c/clang-format-20_linux-amd64"
+        },
+        "win32-x64": {
+          "archive": "none",
+          "binPath": "clang-format-20_windows-amd64.exe",
+          "sha256": "44011742f30b2ebfd9013aa2b07d802b1b474186fb7904a2f773296f27ff15f9",
+          "url": "https://github.com/muttleyxd/clang-tools-static-binaries/releases/download/master-796e77c/clang-format-20_windows-amd64.exe"
+        }
+      },
+      "homepage": "https://clang.llvm.org/docs/ClangFormat.html",
+      "kind": [
+        "format"
+      ],
+      "languages": [
+        "c",
+        "cpp",
+        "objc",
+        "java",
+        "csharp"
+      ],
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "source": "upstream",
+      "version": "20.0.0"
+    },
+    "dprint": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "zip",
+          "binPath": "dprint",
+          "sha256": "f9e752812791f258e89ff88a7affd05c793b0db3d929718651eae7df5f19eb2e",
+          "url": "https://github.com/dprint/dprint/releases/download/0.57.4/dprint-aarch64-apple-darwin.zip"
+        },
+        "darwin-x64": {
+          "archive": "zip",
+          "binPath": "dprint",
+          "sha256": "8978bd5d9a564ec19472545fb853da9ec468e024e75d39c3a9df9fd5750ecdfd",
+          "url": "https://github.com/dprint/dprint/releases/download/0.57.4/dprint-x86_64-apple-darwin.zip"
+        },
+        "linux-arm64": {
+          "archive": "zip",
+          "binPath": "dprint",
+          "sha256": "ff961314e7c1ca6a02eaada0e37920a37c668fbc09fd85838c2aced41a4bc0e4",
+          "url": "https://github.com/dprint/dprint/releases/download/0.57.4/dprint-aarch64-unknown-linux-gnu.zip"
+        },
+        "linux-x64": {
+          "archive": "zip",
+          "binPath": "dprint",
+          "sha256": "1d26357d8bc66898d4ecc7dafca3d2971cfe222ba487228bd2ce5c3b3a309c33",
+          "url": "https://github.com/dprint/dprint/releases/download/0.57.4/dprint-x86_64-unknown-linux-gnu.zip"
+        },
+        "win32-x64": {
+          "archive": "zip",
+          "binPath": "dprint.exe",
+          "sha256": "1038af32fade7a79f9c3a690d9546bb17be13dd7b4568a3684692fdcb0a52a1d",
+          "url": "https://github.com/dprint/dprint/releases/download/0.57.4/dprint-x86_64-pc-windows-msvc.zip"
+        }
+      },
+      "homepage": "https://dprint.dev",
+      "kind": [
+        "format"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "license": "MIT",
+      "source": "upstream",
+      "version": "0.57.4"
+    },
+    "gofumpt": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "none",
+          "binPath": "gofumpt_v0.12.0_darwin_arm64",
+          "sha256": "1a3e325b956ed12c21031d9e13382bd51a4fabb57de8d40428819b9583c3cfb9",
+          "url": "https://github.com/mvdan/gofumpt/releases/download/v0.12.0/gofumpt_v0.12.0_darwin_arm64"
+        },
+        "darwin-x64": {
+          "archive": "none",
+          "binPath": "gofumpt_v0.12.0_darwin_amd64",
+          "sha256": "1d3626892a321aca96a891696eaecb8f68e69e90582c2b55672d5ca210fd5fa8",
+          "url": "https://github.com/mvdan/gofumpt/releases/download/v0.12.0/gofumpt_v0.12.0_darwin_amd64"
+        },
+        "linux-arm64": {
+          "archive": "none",
+          "binPath": "gofumpt_v0.12.0_linux_arm64",
+          "sha256": "4322f081241ab0618356aa5921a8c110e4c7acfc17175cc15dc57b2f4a4b652d",
+          "url": "https://github.com/mvdan/gofumpt/releases/download/v0.12.0/gofumpt_v0.12.0_linux_arm64"
+        },
+        "linux-x64": {
+          "archive": "none",
+          "binPath": "gofumpt_v0.12.0_linux_amd64",
+          "sha256": "3bc4fcad497439918f5f56d4987de4709a99da0a355e6bec13a7278532b01d38",
+          "url": "https://github.com/mvdan/gofumpt/releases/download/v0.12.0/gofumpt_v0.12.0_linux_amd64"
+        },
+        "win32-x64": {
+          "archive": "none",
+          "binPath": "gofumpt_v0.12.0_windows_amd64.exe",
+          "sha256": "66bd679908b64864fc85417e7ea01148774b477364b9a02ab1c194333a55c997",
+          "url": "https://github.com/mvdan/gofumpt/releases/download/v0.12.0/gofumpt_v0.12.0_windows_amd64.exe"
+        }
+      },
+      "homepage": "https://github.com/mvdan/gofumpt",
+      "kind": [
+        "format"
+      ],
+      "languages": [
+        "go"
+      ],
+      "license": "BSD-3-Clause",
+      "source": "upstream",
+      "version": "0.12.0"
+    },
+    "mago": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "tar.gz",
+          "binPath": "mago-1.48.1-aarch64-apple-darwin/mago",
+          "sha256": "f3401e83f30ff8e97e01429116f44ae319539644410cdbc6d70cdb03fc73ee1a",
+          "url": "https://github.com/carthage-software/mago/releases/download/1.48.1/mago-1.48.1-aarch64-apple-darwin.tar.gz"
+        },
+        "darwin-x64": {
+          "archive": "tar.gz",
+          "binPath": "mago-1.48.1-x86_64-apple-darwin/mago",
+          "sha256": "97899ecb1ff2be25cdada4cd7207ab53197816cb8bae2209dc2550260b12f217",
+          "url": "https://github.com/carthage-software/mago/releases/download/1.48.1/mago-1.48.1-x86_64-apple-darwin.tar.gz"
+        },
+        "linux-arm64": {
+          "archive": "tar.gz",
+          "binPath": "mago-1.48.1-aarch64-unknown-linux-gnu/mago",
+          "sha256": "b91c8f15ebb18c80bf3559e112d7f0bd43e637603d5f586716ee12961fed8a8b",
+          "url": "https://github.com/carthage-software/mago/releases/download/1.48.1/mago-1.48.1-aarch64-unknown-linux-gnu.tar.gz"
+        },
+        "linux-x64": {
+          "archive": "tar.gz",
+          "binPath": "mago-1.48.1-x86_64-unknown-linux-gnu/mago",
+          "sha256": "a82d45166ce945171cad650b9908f08bec1bd28d29e520d9080b4c962a1cfd62",
+          "url": "https://github.com/carthage-software/mago/releases/download/1.48.1/mago-1.48.1-x86_64-unknown-linux-gnu.tar.gz"
+        },
+        "win32-x64": {
+          "archive": "zip",
+          "binPath": "mago-1.48.1-x86_64-pc-windows-msvc/mago.exe",
+          "sha256": "7eabd44f3701beb0239e14191f02832e5ccdc6549c41757e2b9f7636532dc8e5",
+          "url": "https://github.com/carthage-software/mago/releases/download/1.48.1/mago-1.48.1-x86_64-pc-windows-msvc.zip"
+        }
+      },
+      "homepage": "https://mago.carthage.software/",
+      "kind": [
+        "format",
+        "lint"
+      ],
+      "languages": [
+        "php"
+      ],
+      "license": "MIT",
+      "source": "upstream",
+      "version": "1.48.1"
+    },
+    "ruff": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "tar.gz",
+          "binPath": "ruff-aarch64-apple-darwin/ruff",
+          "sha256": "80221a5e0b1ae29262a74496f2ad1380c1ab52b3edd8cee13ec76d8acff406ca",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.16.7/ruff-aarch64-apple-darwin.tar.gz"
+        },
+        "darwin-x64": {
+          "archive": "tar.gz",
+          "binPath": "ruff-x86_64-apple-darwin/ruff",
+          "sha256": "6f3b98ec349f470b7efde5294d44e5171613ddaac3c251a918a7946b303d3ec2",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.16.7/ruff-x86_64-apple-darwin.tar.gz"
+        },
+        "linux-arm64": {
+          "archive": "tar.gz",
+          "binPath": "ruff-aarch64-unknown-linux-gnu/ruff",
+          "sha256": "1e06b11127c28387c8066da4ce6a617a84a359591be09dbf581fbb0c3e006239",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.16.7/ruff-aarch64-unknown-linux-gnu.tar.gz"
+        },
+        "linux-x64": {
+          "archive": "tar.gz",
+          "binPath": "ruff-x86_64-unknown-linux-gnu/ruff",
+          "sha256": "73894c7b7c9a53fd66ed715eb3a1ec65077f316328e377057a98bdb7fcba0326",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.16.7/ruff-x86_64-unknown-linux-gnu.tar.gz"
+        },
+        "win32-x64": {
+          "archive": "zip",
+          "binPath": "ruff.exe",
+          "sha256": "a099e761fb841fc33d44031aa37e16a3d154922fd3da284396e58ae687973e45",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.16.7/ruff-x86_64-pc-windows-msvc.zip"
+        }
+      },
+      "homepage": "https://docs.astral.sh/ruff",
+      "kind": [
+        "format",
+        "lint"
+      ],
+      "languages": [
+        "python"
+      ],
+      "license": "MIT",
+      "source": "upstream",
+      "version": "0.16.7"
+    },
+    "shellcheck": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "tar.gz",
+          "binPath": "shellcheck-v0.11.0/shellcheck",
+          "sha256": "339b930feb1ea764467013cc1f72d09cd6b869ebf1013296ba9055ab2ffbd26f",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.aarch64.tar.gz"
+        },
+        "darwin-x64": {
+          "archive": "tar.gz",
+          "binPath": "shellcheck-v0.11.0/shellcheck",
+          "sha256": "c2c15e08df0e8fbc374c335b230a7ee958c313fa5714817a59aa59f1aa594f51",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.x86_64.tar.gz"
+        },
+        "linux-arm64": {
+          "archive": "tar.gz",
+          "binPath": "shellcheck-v0.11.0/shellcheck",
+          "sha256": "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.aarch64.tar.gz"
+        },
+        "linux-x64": {
+          "archive": "tar.gz",
+          "binPath": "shellcheck-v0.11.0/shellcheck",
+          "sha256": "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz"
+        },
+        "win32-x64": {
+          "archive": "zip",
+          "binPath": "shellcheck.exe",
+          "sha256": "8a4e35ab0b331c85d73567b12f2a444df187f483e5079ceffa6bda1faa2e740e",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.zip"
+        }
+      },
+      "homepage": "https://www.shellcheck.net",
+      "kind": [
+        "lint"
+      ],
+      "languages": [
+        "bash"
+      ],
+      "license": "GPL-3.0",
+      "source": "upstream",
+      "version": "0.11.0"
+    },
+    "shfmt": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "none",
+          "binPath": "shfmt_v3.14.1_darwin_arm64",
+          "sha256": "b7c872db63553ccffc7253aba3ed7d4885a27d83f1ba567b1138c6315a5847e5",
+          "url": "https://github.com/mvdan/sh/releases/download/v3.14.1/shfmt_v3.14.1_darwin_arm64"
+        },
+        "darwin-x64": {
+          "archive": "none",
+          "binPath": "shfmt_v3.14.1_darwin_amd64",
+          "sha256": "d33eee0da0f92835b3562e9767a05cee7e4eaeef47daa03bfd09da17b4b590a6",
+          "url": "https://github.com/mvdan/sh/releases/download/v3.14.1/shfmt_v3.14.1_darwin_amd64"
+        },
+        "linux-arm64": {
+          "archive": "none",
+          "binPath": "shfmt_v3.14.1_linux_arm64",
+          "sha256": "5f2db09dae91fca848f7adbdd014632e921a383863a2ad7e0450ad3aba0c6489",
+          "url": "https://github.com/mvdan/sh/releases/download/v3.14.1/shfmt_v3.14.1_linux_arm64"
+        },
+        "linux-x64": {
+          "archive": "none",
+          "binPath": "shfmt_v3.14.1_linux_amd64",
+          "sha256": "76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea7bf",
+          "url": "https://github.com/mvdan/sh/releases/download/v3.14.1/shfmt_v3.14.1_linux_amd64"
+        },
+        "win32-x64": {
+          "archive": "none",
+          "binPath": "shfmt_v3.14.1_windows_amd64.exe",
+          "sha256": "13629ce28442ca80b6b5a819f7574ab39e1c28c6e26734ca816c9714e04851df",
+          "url": "https://github.com/mvdan/sh/releases/download/v3.14.1/shfmt_v3.14.1_windows_amd64.exe"
+        }
+      },
+      "homepage": "https://github.com/mvdan/sh",
+      "kind": [
+        "format"
+      ],
+      "languages": [
+        "bash"
+      ],
+      "license": "BSD-3-Clause",
+      "source": "upstream",
+      "version": "3.14.1"
+    },
+    "stylua": {
+      "assets": {
+        "darwin-arm64": {
+          "archive": "zip",
+          "binPath": "stylua",
+          "sha256": "92ff0889e16324801bc072692974bb67f8161e62010fc90f96c62a17f81f32c7",
+          "url": "https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-macos-aarch64.zip"
+        },
+        "darwin-x64": {
+          "archive": "zip",
+          "binPath": "stylua",
+          "sha256": "53c50a1605d0a6345d160a1a5a21db40bcf2bf9cd23c17f7c277a63a1bff3a7f",
+          "url": "https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-macos-x86_64.zip"
+        },
+        "linux-arm64": {
+          "archive": "zip",
+          "binPath": "stylua",
+          "sha256": "0ef2ebf0b7e5a652b65c4cb96c6d9ffb3981a98547de3c764465bbf54a8d761a",
+          "url": "https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-linux-aarch64.zip"
+        },
+        "linux-x64": {
+          "archive": "zip",
+          "binPath": "stylua",
+          "sha256": "bcb0d855e91f102f28a370e850f8566b3b44b79e6274d806ea5246837c0fd5ab",
+          "url": "https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-linux-x86_64.zip"
+        },
+        "win32-x64": {
+          "archive": "zip",
+          "binPath": "stylua.exe",
+          "sha256": "e77d0ea1226b8b389b43f702240091249a96eea25857281f90ea24d0eb9eb969",
+          "url": "https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-windows-x86_64.zip"
+        }
+      },
+      "homepage": "https://github.com/JohnnyMorganz/StyLua",
+      "kind": [
+        "format"
+      ],
+      "languages": [
+        "lua"
+      ],
+      "license": "MPL-2.0",
+      "source": "upstream",
+      "version": "2.5.2"
+    }
+  },
+  "generatedAt": "2026-09-16T02:42:15.563Z",
+  "version": 1
+}

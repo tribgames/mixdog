@@ -74,6 +74,7 @@ export function desktopAgentCancelStatus(value: unknown): string {
 export type DesktopAgentActivityState =
   | "queued"
   | "running"
+  | "waiting"
   | "cancel-unconfirmed"
   | "cancelled"
   | "done"
@@ -83,16 +84,18 @@ export type DesktopAgentActivityState =
  *  queued/running/done/idle buckets: an entry cancelled WHILE QUEUED still
  *  carries stage `queued`, and one cancelled WHILE RUNNING still carries stage
  *  `running`, so asking the queued/active predicates first would settle both of
- *  them as work in progress or as a completion. */
+ *  them as work in progress or as a completion. An inactive parent with
+ *  unsettled descendants is waiting, even if its last response is unread. */
 export function desktopAgentActivityState(
   value: unknown,
-  options: { unread?: boolean } = {},
+  options: { unread?: boolean; waitingForAgents?: boolean } = {},
 ): DesktopAgentActivityState {
   if (isCancelledDesktopAgentEntry(value)) {
     return isCancelUnconfirmedDesktopAgentEntry(value) ? "cancel-unconfirmed" : "cancelled";
   }
   if (isQueuedDesktopAgentEntry(value)) return "queued";
   if (isActiveDesktopAgentEntry(value)) return "running";
+  if (options.waitingForAgents === true) return "waiting";
   return options.unread === true ? "done" : "idle";
 }
 

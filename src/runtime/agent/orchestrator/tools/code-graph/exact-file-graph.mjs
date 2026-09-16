@@ -64,6 +64,7 @@ export async function _buildExactFileGraph(cwd, abs, signal = null) {
       topLevelTypes: info.topLevelTypes,
       tokenSymbols: info.tokenSymbols,
       symbols: Array.isArray(info.symbols) ? info.symbols : [],
+      calls: Array.isArray(info.calls) ? info.calls : null,
     };
     const graph = _attachGraphRuntimeCaches({
       cwd: root,

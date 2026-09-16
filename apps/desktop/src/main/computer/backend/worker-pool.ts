@@ -15,6 +15,7 @@ import { createSessionJobs } from './session-jobs';
 import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
 import type { PowerShellResponse } from '../shared/types';
+import { captureCleanup } from '../shared/capture-attempts';
 import { computerActionHas } from '../../../../../../src/runtime/computer-bridge/actions.mjs';
 import {
   createComputerLineDecoder,
@@ -61,6 +62,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     pointerFeedback: boolean;
     mode: 'background' | 'foreground';
     input: boolean;
+    backgroundPressRelease: boolean;
   }>();
   const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   const workerLastUsedAt = new Map<string, number>();
@@ -195,7 +197,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
       if (entry.child !== child) continue;
       if (entry.input) {
         interruptedInput = true;
-        if (entry.mode === 'background') unconfirmedBackgroundSessions.add(entry.sessionId);
+        // An uncertain mutation is not necessarily an unacknowledged key/button
+        // release. Semantic actions and WM_CHAR alone cannot leave one held.
+        if (entry.mode === 'background' && entry.backgroundPressRelease) {
+          unconfirmedBackgroundSessions.add(entry.sessionId);
+        }
       }
       clearTimeout(entry.timer);
       entry.reject(error);
@@ -234,6 +240,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
     }
     clearTimeout(entry.timer);
     pending.delete(parsed.id);
+    const cleanup = captureCleanup(parsed.result?.capture_cleanup);
+    if (!entry.input && cleanup && cleanup.status !== 'confirmed') {
+      // Unpublish before resolving: a caller may issue its next request before
+      // the worker's exit event arrives. Preserve this reply's original cause.
+      retirePowerShell(child, new Error('capture_cleanup_unconfirmed: capture worker must retire'));
+    }
     entry.resolve(parsed);
   }
 
@@ -245,6 +257,10 @@ export function createWorkerPool(host: WorkerPoolHost) {
     const id = nextId++;
     const step = request.step as Record<string, unknown> | undefined;
     const inputAction = request.action === 'sequence_step' ? step?.action : request.action;
+    const input = request.action === 'sequence_step' ? step : request;
+    const backgroundPressRelease = computerActionHas(String(inputAction), 'backgroundPressRelease')
+      || (inputAction === 'type' && ((input?.x != null && input?.y != null)
+        || String(input?.text ?? '').includes('\n')));
     const pointerFeedback = request.delivery === 'foreground'
       && ['click', 'invoke', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move', 'drag', 'scroll', 'key', 'type'].includes(String(inputAction))
       && Boolean(host.onPointerProgress);
@@ -265,7 +281,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
       }, commandTimeoutMs);
       pending.set(id, { resolve, reject, timer, child, sessionId, pointerFeedback,
         mode: request.delivery === 'foreground' ? 'foreground' : 'background',
-        input: !computerActionHas(String(inputAction), 'nativeRead') && inputAction !== 'release_session' });
+        input: !computerActionHas(String(inputAction), 'nativeRead') && inputAction !== 'release_session',
+        backgroundPressRelease });
       try {
         child.stdin.write(line);
       } catch (error) {
@@ -475,6 +492,19 @@ export function createWorkerPool(host: WorkerPoolHost) {
       .filter((pid) => Number.isInteger(pid) && pid > 0);
   }
 
+  /** Resolves true once no resident worker is alive; false at the deadline. */
+  function waitForResidentWorkersExit(timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+      const check = () => {
+        if (residentWorkerPids().length === 0) { resolve(true); return; }
+        if (Date.now() >= deadline) { resolve(false); return; }
+        setTimeout(check, 100).unref?.();
+      };
+      check();
+    });
+  }
+
   return {
     inputMarker,
     powerShellBySession,
@@ -482,12 +512,14 @@ export function createWorkerPool(host: WorkerPoolHost) {
     adoptWarmedWorker,
     releaseSpareWorker,
     residentWorkerPids,
+    waitForResidentWorkersExit,
     removeHostScript,
     ensureHostScript,
     ensureSpareHostWorker,
     ensurePowerShell,
     retirePowerShell,
-    hasUnconfirmedBackgroundInput: (sessionId: string) => unconfirmedBackgroundSessions.has(sessionId),
+    hasUnconfirmedBackgroundInput: (sessionId?: string) => sessionId === undefined
+      ? unconfirmedBackgroundSessions.size > 0 : unconfirmedBackgroundSessions.has(sessionId),
     callPowerShell,
     callPowerShellElevated,
     cancelElevatedSession: elevatedJobs.cancel,

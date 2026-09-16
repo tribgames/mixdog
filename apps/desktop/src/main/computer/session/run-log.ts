@@ -11,6 +11,7 @@ import { elapsedMs, mixdogDataDirectory } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { computerLogTarget } from './log-privacy';
 import { diagnosticRecord } from './failure-diagnostics';
+import { captureAttempts } from '../shared/capture-attempts';
 
 const RUN_LOG_DIRECTORY = 'computer-runs';
 const RUN_LOG_MAX_BYTES = 256 * 1_024;
@@ -74,6 +75,8 @@ export function computerRunRecord(
     ms: Math.round(elapsedMs(startedAt)),
   };
   if (!result) return record;
+  const attempts = captureAttempts(result.captureAttempts);
+  if (attempts.length) record.capture_attempts = attempts;
   record.ok = true;
   record.bytes = result.text.length;
   try {
@@ -82,7 +85,13 @@ export function computerRunRecord(
     const diagnostic = diagnosticRecord(payload);
     record.input_recovery = diagnostic.recovery;
     record.timings_ms = diagnostic.timings_ms;
+    record.native_result = diagnostic.native_result;
+    record.observation = diagnostic.observation;
+    for (const key of ['delivery_accepted', 'input_may_have_executed', 'completed']) {
+      if (typeof payload[key] === 'boolean' || payload[key] === null) record[key] = payload[key];
+    }
     if (diagnostic.capture_timings_ms) record.capture_timings_ms = diagnostic.capture_timings_ms;
+    if (diagnostic.capture_attempts) record.capture_attempts = diagnostic.capture_attempts;
     if (diagnostic.step_timings) record.step_timings = diagnostic.step_timings;
     for (const key of [
       'effect', 'verified', 'goal_verified', 'code', 'path', 'escalation',

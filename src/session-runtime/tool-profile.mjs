@@ -19,6 +19,7 @@ export const HEADLESS_MODEL_TOOL_NAMES = Object.freeze([
   'web_search',
   'web_fetch',
   'office',
+  'tidy',
 ]);
 
 const HEADLESS_MODEL_TOOL_SET = new Set(

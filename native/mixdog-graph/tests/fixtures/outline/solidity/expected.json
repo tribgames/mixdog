@@ -1,0 +1,114 @@
+[
+  {
+    "name": "./LibMath.sol",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "forge-std/Test.sol",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Point",
+    "symbolType": "struct",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "struct"
+  },
+  {
+    "name": "Kind",
+    "symbolType": "enum",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "enum"
+  },
+  {
+    "name": "freeAdd",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "IVault",
+    "symbolType": "interface",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "interface"
+  },
+  {
+    "name": "Deposited",
+    "symbolType": "event",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "event"
+  },
+  {
+    "name": "deposit",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "LibMath",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "library"
+  },
+  {
+    "name": "add",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "Vault",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "contract"
+  },
+  {
+    "name": "Status",
+    "symbolType": "enum",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "enum"
+  },
+  {
+    "name": "Position",
+    "symbolType": "struct",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "struct"
+  },
+  {
+    "name": "Deposited",
+    "symbolType": "event",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "event"
+  },
+  {
+    "name": "deposit",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "_hidden",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "function"
+  }
+]

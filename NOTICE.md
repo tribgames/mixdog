@@ -20,6 +20,7 @@ Full license texts live in `LICENSES/`:
   notice referenced by the generated files.
 - `LICENSES/browser-import-NOTICE.txt` — source and license boundary for the
   optional GPL Chrome password import sidecar.
+- Tidy engine license texts listed in the Tidy engines section below.
 
 ## MIT
 
@@ -120,3 +121,84 @@ The Windows password importer is a separate process built from the
 pinned source and Mixdog wrapper recorded in
 `LICENSES/browser-import-NOTICE.txt`. It is not linked into the Apache-2.0 desktop
 application. Its complete GPL text ships beside the two native executables.
+
+## Tidy engines
+
+Optional managed downloads for the tidy tool (`src/runtime/tidy/`). They are
+not compiled into Mixdog. Redistributable engines may be mirrored to this
+repository's GitHub releases; GPL binaries are never attached to that mirror.
+
+### biome 2.5.13 — MIT
+
+<https://github.com/biomejs/biome>
+
+Full license text: `LICENSES/biome-MIT.txt`
+
+### ruff 0.16.7 — MIT
+
+<https://github.com/astral-sh/ruff>
+
+Full license text: `LICENSES/ruff-MIT.txt`
+
+### clang-format 20.0.0 — Apache-2.0 WITH LLVM-exception
+
+<https://clang.llvm.org/docs/ClangFormat.html>
+
+Binaries come from `muttleyxd/clang-tools-static-binaries` (`clang-format-20`).
+The npm `clang-format` 1.8.0 tarball only ships win32, linux_x64, and
+darwin_x64, so it is not used. linux-arm64 is omitted because neither npm nor
+muttleyxd publishes that asset. Full license text:
+`LICENSES/clang-format-Apache-2.0-WITH-LLVM-exception.txt`
+
+### shfmt 3.14.1 — BSD-3-Clause
+
+<https://github.com/mvdan/sh>
+
+Full license text: `LICENSES/shfmt-BSD-3-Clause.txt`
+
+### shellcheck 0.11.0 — GPL-3.0
+
+<https://github.com/koalaman/shellcheck>
+
+Downloaded from upstream, not redistributed.
+
+### stylua 2.5.2 — MPL-2.0
+
+<https://github.com/JohnnyMorganz/StyLua>
+
+Full license text: `LICENSES/stylua-MPL-2.0.txt`
+
+### gofumpt 0.12.0 — BSD-3-Clause
+
+<https://github.com/mvdan/gofumpt>
+
+Full license text: `LICENSES/gofumpt-BSD-3-Clause.txt`
+
+### dprint 0.57.4 — MIT
+
+<https://github.com/dprint/dprint>
+
+Full license text: `LICENSES/dprint-MIT.txt`
+
+### ast-grep 0.45.3 — MIT
+
+<https://github.com/ast-grep/ast-grep>
+
+Embedded in the `mixdog-graph` native binary as the Rust crates
+`ast-grep-core`, `ast-grep-config`, `ast-grep-language` and
+`ast-grep-outline` 0.45.3; the `ast-grep` CLI is never downloaded or
+redistributed.
+
+Full license text: `LICENSES/ast-grep-MIT.txt`
+
+### mago 1.48.1 — MIT
+
+<https://github.com/carthage-software/mago>
+
+Full license text: `LICENSES/mago-MIT.txt`
+
+### air 0.11.0 — MIT
+
+<https://github.com/posit-dev/air>
+
+Full license text: `LICENSES/air-MIT.txt`

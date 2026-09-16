@@ -1,0 +1,114 @@
+# mixdog-kind: import
+# Ports scala_import: dotted prefix; selector braces and `._` wildcards stripped.
+id: scala-import
+language: Scala
+role: item
+symbolType: module
+rule:
+  kind: import_declaration
+  pattern: $DECL
+transform:
+  AFTER:
+    replace:
+      source: $DECL
+      replace: '^import\s+'
+      by: ''
+  NOSEL:
+    replace:
+      source: $AFTER
+      replace: '\s*[\{\n].*$|\._\s*$'
+      by: ''
+  SPEC:
+    replace:
+      source: $NOSEL
+      replace: '\.+$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# mixdog-kind: function
+id: scala-function
+language: Scala
+role: item
+symbolType: function
+rule:
+  kind: function_definition
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: class
+id: scala-class
+language: Scala
+role: item
+symbolType: class
+rule:
+  kind: class_definition
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: object
+id: scala-object
+language: Scala
+role: item
+symbolType: object
+rule:
+  kind: object_definition
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: trait
+id: scala-trait
+language: Scala
+role: item
+symbolType: interface
+rule:
+  kind: trait_definition
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: function
+# A bodyless `def start(): Unit` in a trait (or an abstract class) is a
+# `function_declaration`, not a `function_definition` — the same declaration
+# with the `= body` cut off, so it reports the same `function` kind. An ITEM
+# rule, because it can stand in a trait, a class or an object alike and the
+# parent sweep names the enclosing declaration either way.
+id: scala-declaration
+language: Scala
+role: item
+symbolType: function
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: function
+# Nested `def` inside class/object/trait. The current query tags these as
+# function (not method); outline can only keep them as members of the parent item.
+id: scala-member-function
+language: Scala
+role: member
+parentRuleIds: [scala-class, scala-object, scala-trait]
+symbolType: function
+rule:
+  kind: function_definition
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isPublic: true

@@ -142,6 +142,36 @@ $rows | ConvertTo-Json -Compress -Depth 5
   }
 });
 
+test('MSAA menu paths never initialize an unavailable UIA provider', windows, async () => {
+  const result = await nativeFixture(String.raw`
+Add-Type @'
+using System.Collections.Generic;
+public sealed class MsaaMenuFixture {
+  public static List<string> Invoked = new List<string>();
+  readonly string name;
+  public MsaaMenuFixture(string value) { name = value; }
+  public void DoDefaultAction() { Invoked.Add(name); }
+}
+'@
+foreach ($name in @('Do-InvokeMenu','New-ActionResult')) { . (Import-InputFunction $name) }
+function Resolve-WindowInfo($window,$id) { return @{Handle=[IntPtr]1;Id='hwnd:0x1'} }
+function Invoke-BackgroundWindow($target,$operation) { & $operation }
+function Assert-ExecutionAuthorization($request,$handle) {}
+$script:uiaCalls = 0
+function Find-Window($window,$id) {
+  $script:uiaCalls++
+  throw 'fixture UIA provider unavailable'
+}
+function Get-MsaaMenuCandidates($info,$name) { return @([MsaaMenuFixture]::new($name)) }
+$reply = Do-InvokeMenu @{action='invoke_menu';window_id='hwnd:0x1';path=@('Window','General','Test Runner')}
+@{uiaCalls=$script:uiaCalls;invoked=@([MsaaMenuFixture]::Invoked.ToArray());path=$reply.path} |
+  ConvertTo-Json -Compress -Depth 5
+`);
+  assert.equal(result.uiaCalls, 0);
+  assert.deepEqual(result.invoked, ['Window', 'General', 'Test Runner']);
+  assert.equal(result.path, 'msaa_menu');
+});
+
 test('foreground drift during preparation prevents the input body from running', windows, async () => {
   const result = await nativeFixture(String.raw`
 Add-Type @'

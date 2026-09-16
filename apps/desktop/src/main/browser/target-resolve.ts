@@ -55,15 +55,16 @@ export function normalizeBrowserTarget(raw: unknown): BrowserTargetSpec {
     if (typeof value !== 'string' || value.length > limit) {
       throw new Error(`target.${key} must be a string of at most ${limit} characters`);
     }
-    return compact(value);
+    return value;
   };
   const spec: BrowserTargetSpec = {};
-  const role = text('role', 60).toLowerCase();
+  const role = compact(text('role', 60)).toLowerCase();
   if (role) spec.role = role;
-  const name = text('name', 500);
+  const name = compact(text('name', 500));
   if (name) spec.name = name;
   const selector = text('selector', 4096);
-  if (selector) spec.selector = selector;
+  // Whitespace inside a CSS string or escaped identifier is significant.
+  if (selector.trim()) spec.selector = selector;
   if (input.exact !== undefined) {
     if (typeof input.exact !== 'boolean') throw new Error('target.exact must be a boolean');
     spec.exact = input.exact;
@@ -122,8 +123,8 @@ export function selectBrowserTarget(
     : elements;
   const matches = byRole.filter((element) => {
     if (!wantedName) return true;
-    const name = compact(element.name).toLowerCase();
-    return target.exact ? name === wantedName : name.includes(wantedName);
+    const name = compact(element.name);
+    return target.exact ? name === target.name : name.toLowerCase().includes(wantedName);
   });
   const described = describeBrowserTarget(target);
   if (!matches.length) {
@@ -170,6 +171,15 @@ export interface BrowserTargetResolverHost {
 }
 
 export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
+  function checkSelectorMatchCount(count: number): void {
+    if (count > MAX_SELECTOR_MATCHES) {
+      throw new Error(
+        `target.selector matched ${count} elements, exceeding the limit of ${MAX_SELECTOR_MATCHES}; `
+        + 'narrow target.selector before acting',
+      );
+    }
+  }
+
   /** Elements a CSS selector names, addressed through the same ref table as
    *  the snapshot. A match the accessibility tree does not consider
    *  interactive gets a ref minted for it. */
@@ -188,9 +198,11 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
       role: string,
       name: string,
       register: (ref: string) => void,
-      index: number,
+      backendNodeId: number,
     ): BrowserSnapshotElement => {
-      const ref = `${payload.snapshotId}-t${index}`;
+      // Top-document backend ids stay unique across every target in this
+      // observation; a selector-local counter can alias two batch fields.
+      const ref = `${payload.snapshotId}-t${backendNodeId}`;
       register(ref);
       record.refSet?.refs.set(ref, {
         ref, snapshotId: payload.snapshotId, url: payload.url, role, name, href: '',
@@ -211,13 +223,13 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
         if (signal?.aborted) throw signal.reason || error;
         throw invalid((error as Error).message || String(error));
       }
+      checkSelectorMatchCount(nodeIds.length);
       const byBackend = new Map<number, string>();
       for (const [ref, target] of accessibility.refs) {
         if (!target.sessionId) byBackend.set(target.backendNodeId, ref);
       }
       const out: BrowserSnapshotElement[] = [];
-      let minted = 0;
-      for (const nodeId of (nodeIds || []).slice(0, MAX_SELECTOR_MATCHES)) {
+      for (const nodeId of nodeIds) {
         const described = await host.cdp.call<{
           node: { backendNodeId: number; nodeName?: string; attributes?: string[] };
         }>(guest, 'DOM.describeNode', { nodeId }, signal);
@@ -237,44 +249,44 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
           attribute('role') || String(described.node.nodeName || 'element').toLowerCase(),
           attribute('aria-label') || attribute('title') || attribute('id'),
           (ref) => accessibility.refs.set(ref, { backendNodeId }),
-          ++minted,
+          backendNodeId,
         ));
       }
       return out;
     }
     const found = await host.evaluate<{
       error?: string;
-      matches?: Array<{ ref: string; role: string; name: string; minted: boolean }>;
+      count: number;
+      matches?: Array<{ ref: string; role: string; name: string }>;
     }>(guest, `(() => {
       const snapshot = window.__mixdogAgentSnapshot;
       if (!snapshot || snapshot.id !== ${JSON.stringify(payload.snapshotId)}) return { error: 'stale' };
       let nodes;
       try { nodes = document.querySelectorAll(${JSON.stringify(selector)}); } catch (error) { return { error: 'invalid:' + String(error && error.message || error) }; }
+      if (nodes.length > ${MAX_SELECTOR_MATCHES}) return { count: nodes.length };
       const compact = (value) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, 120);
       const matches = [];
-      for (const element of Array.from(nodes).slice(0, ${MAX_SELECTOR_MATCHES})) {
+      for (const element of nodes) {
         let ref = null;
         for (const [key, record] of snapshot.refs) {
           if ((record && record.element) === element || record === element) { ref = key; break; }
         }
-        let minted = false;
         if (!ref) {
           snapshot.minted = (snapshot.minted || 0) + 1;
           ref = snapshot.id + '-t' + snapshot.minted;
           snapshot.refs.set(ref, { element, frames: [] });
-          minted = true;
         }
         matches.push({
           ref,
-          minted,
           role: compact(element.getAttribute('role') || element.tagName).toLowerCase(),
           name: compact(element.getAttribute('aria-label') || element.getAttribute('title') || element.innerText || element.id),
         });
       }
-      return { matches };
+      return { count: nodes.length, matches };
     })()`, signal);
     if (found?.error === 'stale') throw new Error('the page changed while resolving the target; try again');
     if (found?.error) throw invalid(found.error.replace(/^invalid:/, ''));
+    checkSelectorMatchCount(found.count);
     return (found?.matches || []).map((match) => {
       const element = byRef.get(match.ref);
       if (element) return element;

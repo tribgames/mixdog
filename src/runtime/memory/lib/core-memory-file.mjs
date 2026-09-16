@@ -46,24 +46,10 @@ function normalizeCuratedEntry(row) {
   }
 }
 
-function normalizeGeneratedEntry(row) {
-  const summary = String(row?.summary ?? row?.core_summary ?? '').replace(/\s+/g, ' ').trim()
-  if (!summary) return null
-  return {
-    summary,
-    projectId: normalizeProjectId(row?.projectId ?? row?.project_id),
-    score: finiteNumber(row?.score),
-    lastSeenAt: finiteNumber(row?.lastSeenAt ?? row?.last_seen_at),
-  }
-}
-
 function normalizeSnapshot(snapshot = {}) {
   return {
     curated: (Array.isArray(snapshot.curated) ? snapshot.curated : [])
       .map(normalizeCuratedEntry)
-      .filter(Boolean),
-    generated: (Array.isArray(snapshot.generated) ? snapshot.generated : [])
-      .map(normalizeGeneratedEntry)
       .filter(Boolean),
   }
 }
@@ -120,37 +106,14 @@ export async function refreshCoreMemoryFile(db, dataDir) {
   // the atomic revision guard rejects the stale result.
   const revision = reserveRevision(dataDir)
   const directory = await syncCoreMemoryIndexes(db)
-  const [curatedResult, generatedResult] = await Promise.all([
-    db.query(`
+  const curatedResult = await db.query(`
       SELECT id, summary, project_id, updated_at
       FROM core_entries
       WHERE status IS NULL OR status = 'active'
       ORDER BY project_id NULLS FIRST, id ASC
-    `),
-    db.query(`
-      SELECT core_summary, project_id, score, last_seen_at
-      FROM (
-        SELECT core_summary, project_id, score, last_seen_at,
-               ROW_NUMBER() OVER (
-                 PARTITION BY project_id
-                 ORDER BY score DESC, last_seen_at DESC
-               ) AS scope_rank
-        FROM entries
-        WHERE is_root = 1
-          AND status = 'active'
-          AND core_summary IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM meta p WHERE p.key = 'memory.generated.policy.' || entries.id::text
-              AND COALESCE((p.value->>'excluded')::boolean, false)
-          )
-      ) ranked
-      WHERE scope_rank <= 40
-      ORDER BY project_id NULLS FIRST, scope_rank ASC
-    `),
-  ])
+    `)
   return await writeCoreMemoryFileSnapshot(dataDir, {
     curated: (curatedResult?.rows || []).map(row => indexedCoreRecord(row, directory)),
-    generated: generatedResult?.rows || [],
   }, { revision })
 }
 

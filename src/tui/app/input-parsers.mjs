@@ -54,9 +54,9 @@ export function parseMemoryCoreRows(text) {
         // meta column instead (blank for common).
         return null;
       }
-      const metadata = raw.match(/^id=\d+\s+source=curated project=(\S+) status=\S+ injection=\S+ excluded=\S+(?: index_revision=(\S+))?\s+/);
+      const metadata = raw.match(/^id=\d+\s+source=curated project=(\S+) status=\S+ injection=\S+(?: index_revision=(\S+))?\s+/);
       if (metadata) currentProjectId = metadata[1] === 'COMMON' ? null : metadata[1];
-      const normalized = metadata ? raw.replace(/\s+source=curated project=\S+ status=\S+ injection=\S+ excluded=\S+(?: index_revision=\S+)?/, '') : raw;
+      const normalized = metadata ? raw.replace(/\s+source=curated project=\S+ status=\S+ injection=\S+(?: index_revision=\S+)?/, '') : raw;
       const match = normalized.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
       if (match) {
         const [, id, element, summary = ''] = match;
@@ -94,47 +94,10 @@ export function parseMemoryCoreRows(text) {
     .filter(Boolean);
 }
 
-export function parseMemoryCandidateRows(text) {
-  const trimmed = String(text || '').trim();
-  // op:'candidates' returns this exact sentinel (index.mjs ~3158) when the
-  // resolved scope has none — treat as an empty list, not an inert text row.
-  if (!trimmed || /^core candidates:\s*none$/i.test(trimmed)) return [];
-  // Service row shape (index.mjs ~3164), one candidate per line, no group
-  // headers:
-  //   id=<n> project=<COMMON|slug> score=<x.xx|-> <element> — <summary> (<reason>)
-  const rowPattern = /^id=(\d+)\s+project=(\S+)\s+score=(\S+)\s+(.+?)\s+—\s+(.+?)\s+\(([^)]*)\)$/;
-  return trimmed
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line, index) => {
-      const raw = line.trim();
-      const match = raw.match(rowPattern);
-      if (match) {
-        const [, id, project, score, element, summary, reason] = match;
-        return {
-          value: `candidate-${id}`,
-          label: `#${id} ${element}`,
-          meta: project === 'COMMON' ? 'common' : project,
-          description: `${summary}${score !== '-' ? ` (score ${score})` : ''} — ${reason}`,
-          _line: raw,
-          _action: 'candidate-entry',
-          _id: Number(id),
-          _projectId: project === 'COMMON' ? null : project,
-        };
-      }
-      return {
-        value: `candidate-${index}`,
-        label: raw,
-        description: '',
-        _line: raw,
-      };
-    });
-}
-
 // Service "core" operation errors are flattened to plain text by store.memoryControl
 // (isError is dropped -- see engine.mjs memoryControl / toolResponseText in
 // mixdog-session-runtime.mjs). Success text always uses a past-tense verb
-// ("core added/edited/deleted/promoted...", "core candidate dismissed...");
+// ("core added/edited/deleted...");
 // every declared failure in index.mjs's core-op handling uses the op word
 // followed by either ":" (validation message) or " failed" (caught
 // exception) -- e.g. "core add: project_id required...", "core edit failed:
@@ -142,7 +105,7 @@ export function parseMemoryCandidateRows(text) {
 // since store.memoryControl resolves instead of rejecting on isError.
 export function memoryCoreResultErrorText(text) {
   const value = String(text || '').trim();
-  if (/^core (add|edit|delete|promote|dismiss)(:| failed)/i.test(value)) return value;
+  if (/^core (add|edit|delete)(:| failed)/i.test(value)) return value;
   // Broader catch-all for other flattened "core" failures that don't name an
   // op word right after "core" (e.g. "core: memory data dir is not
   // initialized", "core requires op: ..."), plus any bare error/failed lead-in.

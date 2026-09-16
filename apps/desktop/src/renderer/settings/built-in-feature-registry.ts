@@ -4,6 +4,7 @@ export type BuiltInFeatureId =
   | 'browser'
   | 'computer'
   | 'office'
+  | 'tidy'
   | 'localProvider'
   | 'voice';
 
@@ -47,6 +48,12 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     id: 'office',
     title: 'Office',
     description: 'Create, review, and edit documents, spreadsheets, and presentations.',
+    group: 'agent',
+  },
+  {
+    id: 'tidy',
+    title: 'Code Tidy',
+    description: 'Format, lint, and clean up code across languages with auto-detected engines.',
     group: 'agent',
   },
   {

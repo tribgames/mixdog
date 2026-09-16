@@ -4,6 +4,8 @@ import { t } from './i18n';
 
 const STORAGE_KEY = 'mixdog.agent-hidden-groups';
 const stores = new WeakMap<Window, ReturnType<typeof createStore>>();
+/** The dock header and the title-less pane toolbar control the same tree. */
+export const AGENT_GROUP_EXPANSION_EVENT = 'mixdog:agent-group-expansion';
 
 function parseIds(value: string | null): ReadonlySet<string> {
   try {
@@ -60,9 +62,21 @@ export function useHiddenAgentGroups() {
 
 export function AgentGroupsMenu() {
   const { hiddenOwnerIds, restoreGroups } = useHiddenAgentGroups();
+  const setAllExpanded = (expanded: boolean) => window.dispatchEvent(
+    new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: expanded }),
+  );
   return <RowOverflowMenu label={t('Agent group actions')} items={[{
+    id: 'collapse-agent-groups',
+    label: t('Collapse all'),
+    onSelect: () => setAllExpanded(false),
+  }, {
+    id: 'expand-agent-groups',
+    label: t('Expand all'),
+    onSelect: () => setAllExpanded(true),
+  }, {
     id: 'restore-agent-groups',
     label: t('Show hidden groups'),
+    separatorBefore: true,
     disabled: hiddenOwnerIds.size === 0,
     onSelect: restoreGroups,
   }]} />;

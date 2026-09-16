@@ -6,6 +6,7 @@ import { createBrowserSettle } from './settle.ts';
 import { flowActions } from './actions/flow.ts';
 import { timeBrowserCommand } from './timing.ts';
 import { createBrowserChangeLatch } from './document-changes.ts';
+import { browserRenderCheckpoint } from './render-checkpoint.ts';
 
 function fixture() {
   const dom = new JSDOM('<input><output></output>', { runScripts: 'outside-only', pretendToBeVisual: true });
@@ -16,7 +17,7 @@ function fixture() {
   const diagnostics = state.for(guest);
   const settle = createBrowserSettle({
     diagnostics: () => diagnostics,
-    evaluate: async (_guest, expression) => dom.window.eval(expression),
+    renderCheckpoint: async (_guest, background) => dom.window.eval(browserRenderCheckpoint(background)),
     quietMs: 350, domTimeoutMs: 1500, loadTimeoutMs: 8000,
   });
   const calls = [];
@@ -117,7 +118,7 @@ test('a dialog or a failed checkpoint stops a batch without replaying input', as
       }
       const broken = createBrowserSettle({
         diagnostics: () => f.diagnostics,
-        evaluate: async () => { throw new Error('renderer disappeared'); },
+        renderCheckpoint: async () => { throw new Error('renderer disappeared'); },
       });
       return broken.stepSettleResult(f.guest);
     };

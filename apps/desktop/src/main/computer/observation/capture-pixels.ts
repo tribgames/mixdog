@@ -9,6 +9,8 @@ import { electronWindowForNativeId } from './window-handles';
 import { pixelUnavailable, screenshotInteger } from './analysis';
 import type { CaptureFrame, ComputerCommand, PixelUnavailable, ScreenshotCapture } from '../shared/types';
 import type { CaptureEngineHost } from './capture';
+import { createCaptureSources, fitCaptureImage as fitImage } from './capture-sources';
+import { attachCaptureAttempts, type CaptureAttempt } from '../shared/capture-attempts';
 
 export type PixelCaptureHost = Pick<CaptureEngineHost,
   'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted' | 'rememberFrame'
@@ -18,11 +20,14 @@ export function createPixelCapture(host: PixelCaptureHost) {
   const { callPowerShell, sessionIdFor, assertExecutionNotAborted, rememberFrame,
     requireValidFrame, framesBySession, allocateFrameId } = host;
 
+  const sources = createCaptureSources(host);
+
   async function captureScreenshot(
     command: ComputerCommand,
     allowOwnerFallback = true,
   ): Promise<ScreenshotCapture> {
     const observationGuard = host.beginObservation(command.window_id || '');
+    const captureAttempts: CaptureAttempt[] = [];
     try {
     const quality = screenshotInteger(command.quality, DEFAULT_SCREENSHOT_QUALITY, 0, 100, 'quality');
     const maxWidth = screenshotInteger(
@@ -106,104 +111,44 @@ export function createPixelCapture(host: PixelCaptureHost) {
     }
     await host.authorizeCapture?.(command, targetWindowId);
     assertExecutionNotAborted();
-    const scale = Math.min(1, maxWidth / Math.max(1, sourceWidth));
-    let capturedImage: NativeImage | undefined;
-    let capturedSourceId = '';
-    let capturedSourceName = sourceTitle;
-    const ownedWindow = targetWindowId ? electronWindowForNativeId(targetWindowId) : null;
-    if (ownedWindow && !ownedWindow.isDestroyed() && !ownedWindow.webContents.isDestroyed()) {
-      let timeout: NodeJS.Timeout | undefined;
-      try {
-        const ownedImage = await Promise.race([
-          ownedWindow.capturePage(),
-          new Promise<never>((_resolve, reject) => {
-            timeout = setTimeout(
-              () => reject(new Error('app-owned capture timed out')),
-              OWNED_CAPTURE_TIMEOUT_MS,
-            );
-          }),
-        ]);
-        const ownedSize = ownedImage.getSize();
-        const candidateImage = ownedSize.width > maxWidth
-          ? ownedImage.resize({ width: maxWidth, quality: 'best' })
-          : ownedImage;
-        const candidateSize = candidateImage.getSize();
-        const candidateRatio = candidateSize.width / Math.max(1, candidateSize.height);
-        const expectedGeometry = [
-          { width: physicalWidth, height: physicalHeight },
-          { width: clientWidth, height: clientHeight },
-        ].filter((candidate) => candidate.width > 0 && candidate.height > 0)
-          .reduce((best, candidate) => {
-            const error = Math.abs(candidate.width / candidate.height - candidateRatio);
-            const bestError = Math.abs(best.width / best.height - candidateRatio);
-            return error < bestError ? candidate : best;
-          });
-        if (!frameQualityIssue(candidateImage, expectedGeometry.width, expectedGeometry.height)) {
-          capturedImage = candidateImage;
-          capturedSourceId = `browser-window:${targetWindowId}`;
-        }
-      } catch {
-        capturedImage = undefined;
-      } finally {
-        if (timeout) clearTimeout(timeout);
-      }
-    }
-    // Window captures use only a window-owned surface. Screen-region sampling
-    // cannot prove that another window's private pixels are absent.
-    if (!capturedImage) {
-      const sources = await withTimeout(
-        desktopCapturer.getSources({
-          types: [sourceType],
-          thumbnailSize: {
-            width: Math.max(1, Math.round(sourceWidth * scale)),
-            height: Math.max(1, Math.round(sourceHeight * scale)),
-          },
-        }),
-        DESKTOP_CAPTURE_TIMEOUT_MS,
-        'desktop capture',
-      ).catch(() => null);
-      const windowHandleDecimal = targetWindowId
-        ? Number.parseInt(targetWindowId.replace(/^hwnd:/i, '').replace(/^0x/i, ''), 16)
-        : Number.NaN;
-      const source = sources
-        ? (sourceType === 'screen'
-            ? sources.find((candidate) => candidate.display_id === targetDisplayId)
-            : sources.find((candidate) => Number.isFinite(windowHandleDecimal)
-                && candidate.id.startsWith('window:')
-                && Number(candidate.id.split(':')[1]) === windowHandleDecimal))
-        : undefined;
-      if (source) {
-        capturedImage = source.thumbnail;
-        capturedSourceId = source.id;
-        capturedSourceName = source.name;
-      }
-      if (!capturedImage) {
-        if (allowOwnerFallback && targetWindowId && captureOwnerWindowId && captureOwnerWindowId !== targetWindowId) {
+    const selected = await sources.select({
+      command, sourceType, sourceTitle, windowId: targetWindowId, displayId: targetDisplayId,
+      width: physicalWidth, height: physicalHeight, clientWidth, clientHeight, maxWidth, attempts: captureAttempts,
+    });
+    if (!selected.surface) {
+        if (!selected.terminal && allowOwnerFallback && targetWindowId
+          && captureOwnerWindowId && captureOwnerWindowId !== targetWindowId) {
           const ownerCapture = await captureScreenshot({
             ...command, window: undefined, window_id: captureOwnerWindowId,
           }, false);
+          captureAttempts.push(...(ownerCapture.captureAttempts || []).map(attempt => ({ ...attempt, scope: 'owner' as const })));
           if (ownerCapture.image && ownerCapture.frame && ownerCapture.frameId) {
             return {
               ...ownerCapture,
+              captureAttempts,
               description: `${ownerCapture.description}; requested child window ${targetWindowId}`
                 + ` was captured through owner ${captureOwnerWindowId}`,
             };
           }
         }
-        const unavailable = pixelUnavailable(
-          'capture_source_unavailable',
-          sources ? `exact ${sourceType} capture source is unavailable`
-            : `exact ${sourceType} capture did not settle before the safety deadline`,
-        );
+        const unavailable = selected.unavailable!;
         return {
+          captureAttempts,
           description: unavailable.message,
           ...(targetWindowId ? { windowId: targetWindowId } : {}),
           pixelUnavailable: unavailable,
         };
-      }
     }
+    const { surface } = selected;
+    const capturedSourceId = surface.sourceId;
+    const capturedSourceName = surface.sourceName || sourceTitle;
+    if (surface.bounds) {
+      originX = surface.bounds.x; originY = surface.bounds.y;
+      physicalWidth = surface.bounds.width; physicalHeight = surface.bounds.height;
+    }
+    const capturedImage = fitImage(surface.image, maxWidth);
     const thumbnailSize = capturedImage.getSize();
-    if (targetWindowId && clientWidth > 0 && clientHeight > 0) {
+    if (targetWindowId && !surface.nativeBackend && clientWidth > 0 && clientHeight > 0) {
       const actualAspectRatio = thumbnailSize.width / Math.max(1, thumbnailSize.height);
       const candidates = [
         { x: originX, y: originY, width: physicalWidth, height: physicalHeight },
@@ -224,6 +169,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
     const qualityIssue = frameQualityIssue(capturedImage, physicalWidth || sourceWidth, physicalHeight || sourceHeight);
     if (qualityIssue) {
       return {
+        captureAttempts,
         description: qualityIssue.message,
         ...(targetWindowId ? { windowId: targetWindowId } : {}),
         pixelUnavailable: qualityIssue,
@@ -233,6 +179,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
     if (!jpeg || jpeg.length === 0) {
       const unavailable = pixelUnavailable('empty_frame', 'capture could not encode a pixel frame');
       return {
+        captureAttempts,
         description: unavailable.message,
         ...(targetWindowId ? { windowId: targetWindowId } : {}),
         pixelUnavailable: unavailable,
@@ -243,6 +190,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
     const frame: CaptureFrame = {
       id: frameId, sessionId: sessionIdFor(command), capturedAt: performance.now(),
       kind: sourceType, sourceId: capturedSourceId,
+      ...(surface.nativeBackend ? { nativeBackend: surface.nativeBackend } : {}),
       ...(targetWindowId ? { windowId: targetWindowId } : {}),
       ...(targetDisplayId ? { displayId: targetDisplayId } : {}),
       originX, originY, physicalWidth, physicalHeight,
@@ -256,11 +204,8 @@ export function createPixelCapture(host: PixelCaptureHost) {
       }),
     };
     rememberFrame(frame);
-    const route = capturedSourceId.startsWith('browser-window:')
-      ? 'app_owned' as const : capturedSourceId.startsWith('native-window:')
-        ? 'window_region' as const : 'composited' as const;
     return {
-      route,
+      route: surface.route, captureAttempts,
       image: { mimeType: 'image/jpeg', data: jpeg.toString('base64') },
       description: `Screenshot of ${sourceType === 'window' ? `window "${capturedSourceName}"` : sourceTitle}`
         + ` (${thumbnailSize.width}x${thumbnailSize.height}, ${jpeg.length} bytes, JPEG quality ${quality});`
@@ -270,7 +215,8 @@ export function createPixelCapture(host: PixelCaptureHost) {
       ...(targetWindowId ? { windowId: targetWindowId } : {}),
       frame,
     };
-    } finally { observationGuard.close(); }
+    } catch (error) { throw attachCaptureAttempts(error, captureAttempts); }
+    finally { observationGuard.close(); }
   }
 
   async function captureZoom(command: ComputerCommand): Promise<{
@@ -278,6 +224,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
     description: string;
     frameId?: string;
     pixelUnavailable?: PixelUnavailable;
+    captureAttempts?: CaptureAttempt[];
   } | null> {
     const quality = screenshotInteger(command.quality, DEFAULT_SCREENSHOT_QUALITY, 0, 100, 'quality');
     const maxWidth = screenshotInteger(command.maxWidth, DEFAULT_SCREENSHOT_MAX_WIDTH,
@@ -288,6 +235,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
     }
     const frame = await requireValidFrame(command);
     const observationGuard = host.beginObservation(frame.windowId || '');
+    const captureAttempts: CaptureAttempt[] = [];
     try {
     await host.authorizeCapture?.(command, frame.windowId || '');
     assertExecutionNotAborted();
@@ -315,6 +263,13 @@ export function createPixelCapture(host: PixelCaptureHost) {
         throw new Error(`stale_frame: exact app-owned capture source is unavailable (${frame.id})`);
       }
       shot = await withTimeout(ownedWindow.capturePage(), OWNED_CAPTURE_TIMEOUT_MS, 'app-owned zoom capture');
+    } else if (frame.nativeBackend && frame.windowId) {
+      const surface = await sources.nativeWindowSurface(command, frame.windowId, frame.nativeBackend, captureAttempts);
+      if (surface.bounds.x !== baseOriginX || surface.bounds.y !== baseOriginY
+        || surface.bounds.width !== baseWidth || surface.bounds.height !== baseHeight) {
+        throw new Error('stale_frame: native capture geometry changed; capture fresh state');
+      }
+      shot = surface.image;
     } else {
       const sources = await withTimeout(
         desktopCapturer.getSources({
@@ -336,10 +291,10 @@ export function createPixelCapture(host: PixelCaptureHost) {
     const cropW = Math.min(shotSize.width - cropX, Math.max(1, Math.round((x1 - x0) * kx)));
     const cropH = Math.min(shotSize.height - cropY, Math.max(1, Math.round((y1 - y0) * ky)));
     let image = shot.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
-    if (image.getSize().width > maxWidth) image = image.resize({ width: maxWidth });
+    image = fitImage(image, maxWidth);
     const finalSize = image.getSize();
     const qualityIssue = frameQualityIssue(image, x1 - x0, y1 - y0);
-    if (qualityIssue) return { description: qualityIssue.message, pixelUnavailable: qualityIssue };
+    if (qualityIssue) return { description: qualityIssue.message, pixelUnavailable: qualityIssue, captureAttempts };
     const jpeg = image.toJPEG(quality);
     if (!jpeg || jpeg.length === 0) return null;
     assertExecutionNotAborted();
@@ -348,6 +303,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
     rememberFrame({
       id: zoomFrameId, sessionId: sessionIdFor(command), capturedAt: performance.now(),
       kind: frame.kind, sourceId,
+      ...(frame.nativeBackend ? { nativeBackend: frame.nativeBackend } : {}),
       ...(frame.windowId ? { windowId: frame.windowId } : {}),
       ...(frame.relatedWindowIds ? { relatedWindowIds: frame.relatedWindowIds } : {}),
       ...(frame.displayId ? { displayId: frame.displayId } : {}),
@@ -364,13 +320,15 @@ export function createPixelCapture(host: PixelCaptureHost) {
       }),
     });
     return {
+      captureAttempts,
       image: { mimeType: 'image/jpeg', data: jpeg.toString('base64') },
       frameId: zoomFrameId,
       description: `Zoom of ${frame.id} region (${fx0},${fy0})-(${fx1},${fy1})`
         + ` (${finalSize.width}x${finalSize.height}, ${jpeg.length} bytes, JPEG quality ${quality});`
         + ` frame_id=${zoomFrameId}; coordinates are pixels in this frame`,
     };
-    } finally { observationGuard.close(); }
+    } catch (error) { throw attachCaptureAttempts(error, captureAttempts); }
+    finally { observationGuard.close(); }
   }
   return { captureScreenshot, captureZoom };
 }

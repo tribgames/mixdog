@@ -3,11 +3,12 @@
  *
  * Cloud Code Assist publishes the account's models through
  * `fetchAvailableModels`: one wire id per thinking tier ("gemini-3.8-flash-high",
- * "-medium", "-low") labelled "Gemini 3.8 Flash (High)", plus per-model quota.
- * Mixdog's picker shows one model with an effort control, so the tiers of a
- * family collapse into one record whose `wire` map turns the chosen effort
- * back into the wire id. The list is cached on disk like the other OAuth
- * catalogs; the curated list in the tokens module is the offline fallback.
+ * "-medium", "-low") labelled "Gemini 3.8 Flash (High)". Mixdog's picker shows
+ * one model with an effort control, so the tiers of a family collapse into one
+ * record whose `wire` map turns the chosen effort back into the wire id. The
+ * list is cached on disk like the other OAuth catalogs; the curated list in the
+ * tokens module is the offline fallback. Shared Gemini 5-hour/weekly usage
+ * comes from `retrieveUserQuotaSummary`, not the per-model catalog counters.
  */
 import { makeModelCache } from './model-cache.mjs';
 import {
@@ -36,9 +37,9 @@ export const antigravityModelCache = makeModelCache({
     onSave: (models) => { _mirror = models; },
 });
 
-export async function fetchAvailableModels({ accessToken, projectId, fetchFn = fetch, signal = null }) {
+async function postInternalJson(methodName, { accessToken, projectId, fetchFn = fetch, signal = null }) {
     const timeout = AbortSignal.timeout(FETCH_MODELS_TIMEOUT_MS);
-    const res = await fetchFn(`${PROJECT_ENDPOINT}/v1internal:fetchAvailableModels`, {
+    const res = await fetchFn(`${PROJECT_ENDPOINT}/v1internal:${methodName}`, {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -51,14 +52,23 @@ export async function fetchAvailableModels({ accessToken, projectId, fetchFn = f
     });
     if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new Error(`[antigravity-oauth] fetchAvailableModels failed: ${res.status} ${_scrubTokens(text).slice(0, 300)}`);
+        throw new Error(`[antigravity-oauth] ${methodName} failed: ${res.status} ${_scrubTokens(text).slice(0, 300)}`);
     }
-    const json = await res.json();
+    return res.json();
+}
+
+export async function fetchAvailableModels(opts) {
+    const json = await postInternalJson('fetchAvailableModels', opts);
     const models = json?.models;
     if (!models || typeof models !== 'object' || Array.isArray(models)) {
         throw new Error('[antigravity-oauth] fetchAvailableModels returned no models');
     }
     return models;
+}
+
+/** Grouped 5-hour/weekly counters from the same daily host as the catalog. */
+export async function fetchUserQuotaSummary(opts) {
+    return postInternalJson('retrieveUserQuotaSummary', opts);
 }
 
 function splitDisplay(displayName) {
@@ -173,42 +183,30 @@ export function resolveAntigravityWireModel(model, effort, models = antigravityC
     return { model: wire, effort: record.reasoningLevels?.length ? effort : null };
 }
 
-// Sidebar meter labels fit about four characters (5H, 7D, API ...).
-function quotaGroupLabel(wireId, displayName) {
-    const text = `${wireId} ${displayName}`.toLowerCase();
-    return /flash/.test(text) ? 'FLASH' : 'PRO';
+function quotaRow(label, bucket) {
+    if (!bucket || typeof bucket !== 'object') return null;
+    if (typeof bucket.remainingFraction !== 'number' || !Number.isFinite(bucket.remainingFraction)) return null;
+    const usedPct = Math.round(Math.max(0, Math.min(100, (1 - bucket.remainingFraction) * 100)) * 100) / 100;
+    const resetAt = Date.parse(String(bucket.resetTime || ''));
+    return {
+        label,
+        usedPct,
+        ...(Number.isFinite(resetAt) && resetAt > 0 ? { resetAt } : {}),
+        source: 'antigravity-quota-summary',
+    };
 }
 
-/** Per-family quota windows from the same response, in the OAuth usage shape. */
-export function antigravityQuotaWindows(rawModels) {
-    const groups = new Map();
-    for (const { wireId, entry, displayName } of chatEntries(rawModels)) {
-        const text = `${wireId} ${displayName}`.toLowerCase();
-        // Antigravity is the Gemini provider: omit non-Gemini (Claude, GPT) endpoints.
-        if (/claude|gpt/.test(text)) continue;
-        const info = entry.quotaInfo;
-        if (!info || typeof info !== 'object') continue;
-        const remaining = Number(info.remainingFraction);
-        const resetAt = Date.parse(String(info.resetTime || '')) || 0;
-        if (!Number.isFinite(remaining) && !resetAt) continue;
-        // A counter that reports only a reset time is exhausted, not unknown.
-        const usedPct = Number.isFinite(remaining) ? Math.max(0, Math.min(100, (1 - remaining) * 100)) : 100;
-        const label = quotaGroupLabel(wireId, displayName);
-        const group = groups.get(label) || { label, usedPct: 0, resetAt: 0 };
-        group.usedPct = Math.max(group.usedPct, usedPct);
-        group.resetAt = Math.max(group.resetAt, resetAt);
-        groups.set(label, group);
+/** Shared Gemini 5H/7D rows from retrieveUserQuotaSummary. Missing fields stay omitted. */
+export function antigravityQuotaWindows(summary) {
+    const groups = Array.isArray(summary?.groups) ? summary.groups : [];
+    const group = groups.find((entry) => entry && typeof entry === 'object' && entry.displayName === 'Gemini Models');
+    const buckets = Array.isArray(group?.buckets) ? group.buckets : [];
+    let fiveHour = null;
+    let weekly = null;
+    for (const bucket of buckets) {
+        if (!bucket || typeof bucket !== 'object') continue;
+        if (!fiveHour && bucket.window === '5h') fiveHour = bucket;
+        if (!weekly && bucket.window === 'weekly') weekly = bucket;
     }
-    const order = ['FLASH', 'PRO'];
-    return order
-        .filter((label) => groups.has(label))
-        .map((label) => {
-            const group = groups.get(label);
-            return {
-                label: group.label,
-                usedPct: Math.round(group.usedPct * 100) / 100,
-                ...(group.resetAt ? { resetAt: group.resetAt } : {}),
-                source: 'antigravity-models',
-            };
-        });
+    return [quotaRow('5H', fiveHour), quotaRow('7D', weekly)].filter(Boolean);
 }

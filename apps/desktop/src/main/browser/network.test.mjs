@@ -12,6 +12,7 @@ import {
 } from './downloads.ts';
 import { createBrowserIntercept } from './intercept.ts';
 import { createBrowserInitScripts } from './init-scripts.ts';
+import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
 import {
   browserStorageKeyIsSensitive,
   createBrowserPageState,
@@ -264,6 +265,22 @@ test('browser intercept mutations roll back when Chromium rejects the new patter
     (await intercept.interceptResult(guest, { operation: 'list' }, async () => {})).text,
     new RegExp(`\\[${id}\\]`),
   );
+});
+
+test('blank intercept patterns fail before normalization or rule application; explicit wildcards remain allowed', async () => {
+  const guest = {};
+  const intercept = createBrowserIntercept();
+  let applications = 0;
+  const apply = async () => { applications++; };
+  for (const url of ['', ' \t\n']) {
+    assert.equal(validateBrowserToolArgs({ action: 'intercept', input: { operation: 'add', url, abort: true } }).ok, false);
+    await assert.rejects(intercept.interceptResult(guest, { operation: 'add', url, abort: true }, apply), /requires url/);
+  }
+  assert.equal(applications, 0);
+  assert.equal(intercept.hasInterceptRules(guest), false);
+  await intercept.interceptResult(guest, { operation: 'add', url: '*', abort: true }, apply);
+  assert.equal(applications, 1);
+  assert.ok(intercept.matchInterceptRule(guest, 'https://example.test/', 'document'));
 });
 
 test('browser downloads stay inside the download directory with stable collision handling', () => {

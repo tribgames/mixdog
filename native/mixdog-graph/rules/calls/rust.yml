@@ -1,0 +1,214 @@
+# Call-site rules for Rust.
+#
+# `Foo::new()` is a qualified call: name `new`, receiver `Foo`, kind `method`
+# (Rust has no constructor syntax, so nothing here declares `new`).
+# `println!(...)` is a macro invocation: the name node is the `macro` field,
+# which does not include the `!`, so the emitted name is `println`.
+#
+# MACRO ARGUMENTS
+# ---------------
+# tree-sitter-rust does not parse macro arguments: `assert_eq!(foo(), 1)` is a
+# flat `token_tree` of tokens, so `foo()` has no `call_expression` node and the
+# structural rules above cannot see it. `rust-macro-arg-call` recovers those
+# call sites relationally — an identifier inside a token tree whose immediate
+# next sibling is a `(`-delimited token tree — which is exactly the shape of a
+# call written inside a macro. Consequences of the missing parse, by design:
+#   * the receiver is invisible (`assert_eq!(a.b(), 1)` reports `b` as a plain
+#     `call`, since `a`, `.` and `b` are three unrelated tokens);
+#   * a tuple-struct pattern or a tuple-variant construction inside a macro
+#     (`matches!(x, Some(_))`) looks exactly like a call and is reported as one;
+#   * a nested macro call inside a macro (`vec![foo!(x)]`) is NOT reported,
+#     because the identifier is followed by `!`, not by the token tree.
+#
+# mixdog-call-kind: method
+id: rust-call-method
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: field_expression
+    all:
+      - has:
+          field: field
+          pattern: $NAME
+      - has:
+          field: value
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: method
+id: rust-call-scoped
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: scoped_identifier
+    all:
+      - has:
+          field: name
+          pattern: $NAME
+      - has:
+          field: path
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: rust-call-plain
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+---
+# `foo::<T>()` — the turbofish wraps the callee in `generic_function`.
+# mixdog-call-kind: call
+id: rust-call-generic
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: generic_function
+    has:
+      field: function
+      kind: identifier
+      pattern: $NAME
+name: $NAME
+---
+# `expr.method::<T>()` — the turbofish wraps the WHOLE callee, so the receiver
+# sits one level deeper than in `rust-call-method`. Without this rule every
+# `.collect::<Vec<_>>()` / `.parse::<u32>()` in a Rust file is invisible.
+# mixdog-call-kind: method
+id: rust-call-generic-method
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: generic_function
+    has:
+      field: function
+      kind: field_expression
+      all:
+        - has:
+            field: field
+            pattern: $NAME
+        - has:
+            field: value
+            pattern: $RECV
+name: $NAME
+---
+# `path::fn::<T>()` — same turbofish wrapper around a qualified callee
+# (`serde_json::from_str::<T>(..)`).
+# mixdog-call-kind: method
+id: rust-call-generic-scoped
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: generic_function
+    has:
+      field: function
+      kind: scoped_identifier
+      all:
+        - has:
+            field: name
+            pattern: $NAME
+        - has:
+            field: path
+            pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: method
+id: rust-macro-scoped
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: macro_invocation
+  has:
+    field: macro
+    kind: scoped_identifier
+    all:
+      - has:
+          field: name
+          pattern: $NAME
+      - has:
+          field: path
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: rust-macro
+language: Rust
+role: item
+symbolType: function
+rule:
+  kind: macro_invocation
+  has:
+    field: macro
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+---
+# Calls written inside a macro's argument list. tree-sitter-rust leaves those
+# arguments as an unparsed `token_tree`, so they are only reachable through
+# token adjacency: an identifier immediately followed by a `(…)` group.
+#
+# That adjacency cannot tell an expression from a PATTERN, so a tuple-struct
+# pattern inside a macro (`matches!(x, Some(_))`, `LiveState::Done(f)`) is
+# still reported. Measured on this repo (1216 macro-arg hits): 5 such pattern
+# hits and 5 `fn name(` definitions inside `macro_rules!` bodies — 0.8% — and
+# name-excluding the `matches!` token tree would cost more than it buys (of
+# the 11 hits inside `matches!`, 8 are real calls in the scrutinee and only 3
+# are patterns), so the macro name is NOT special-cased.
+#
+# A method call loses its receiver here (`assert!(x.foo())` reports `foo` as
+# `call`, not `method`): the token tree has no structure to read a receiver
+# from, and inventing one would be worse than omitting it.
+# mixdog-call-kind: call
+id: rust-macro-arg-call
+language: Rust
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: identifier
+    - pattern: $NAME
+    # Only inside a macro's unparsed token tree; the macro's own name is the
+    # `macro` field of `macro_invocation` and never a child of one.
+    - inside:
+        kind: token_tree
+    # Immediately followed by a `(...)` group — a `{...}` or `[...]` group is
+    # a struct literal or an index, not a call.
+    - precedes:
+        kind: token_tree
+        regex: '^\('
+    # An attribute's argument list is a token tree too, but `cfg(not(windows))`
+    # / `cfg(all(test, windows))` are configuration predicates, not functions:
+    # every hit under an `attribute` (outer `#[..]` and inner `#![..]` alike)
+    # is a false call. Measured on this repo: 17 of 1216 macro-arg hits, and
+    # not one of them a call.
+    - not:
+        inside:
+          stopBy: end
+          kind: attribute
+name: $NAME

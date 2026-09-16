@@ -1,0 +1,114 @@
+[
+  {
+    "name": "Demo.Accounts",
+    "symbolType": "module",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "module"
+  },
+  {
+    "name": "Ecto.Query",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Demo.Repo",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Demo.Accounts.{User, Profile}",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Logger",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "GenServer",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "start_link",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "get",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "dump",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "debug",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "macro"
+  },
+  {
+    "name": "hush",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "macro"
+  },
+  {
+    "name": "ping",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "Demo.Renderable",
+    "symbolType": "module",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "module"
+  },
+  {
+    "name": "render",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "Demo.Renderable",
+    "symbolType": "module",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "module"
+  },
+  {
+    "name": "render",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  }
+]

@@ -40,6 +40,7 @@ export function isReplaySafeComputerCommand(command) {
 }
 const activeComputerSessions = new Set();
 const deferredComputerSessionReleases = new Map();
+const pendingComputerSessionReleases = new Map();
 // Every session that reached the host owns a worker there, including read-only
 // ones that never enter activeComputerSessions. The host reaps those only on an
 // explicit release, so shutdown needs the full set.
@@ -185,6 +186,18 @@ export async function executeComputerTool(rawArgs, context = {}) {
     return { content: [{ type: 'text', text: 'Error: computer request exceeds byte limit; no input was dispatched' }], isError: true };
   }
   cancelDeferredComputerSessionRelease(sessionId);
+  try {
+    const released = await waitForComputerRelease(pendingComputerSessionReleases.get(sessionId), context.signal);
+    if (!released) {
+      return { content: [{ type: 'text', text: formatComputerToolError(
+        'computer_cleanup_pending: previous session release was not confirmed; no new input was dispatched', args,
+      ) }], isError: true };
+    }
+    context.signal?.throwIfAborted();
+  } catch (error) {
+    if (context.signal?.aborted) return cancelledComputerResult(sessionId, false);
+    throw error;
+  }
   const action = String(command?.action || '');
   if (sessionId) hostBoundComputerSessions.add(sessionId);
   if (sessionId) activeComputerExecutions.add(sessionId);
@@ -352,12 +365,28 @@ function cancelDeferredComputerSessionRelease(sessionId) {
   return true;
 }
 
+/** A caller can stop waiting without cancelling or duplicating the old cleanup. */
+function waitForComputerRelease(pending, signal) {
+  if (!pending) return Promise.resolve(true);
+  return new Promise((resolve, reject) => {
+    const finish = (settle, value) => {
+      signal?.removeEventListener('abort', onAbort);
+      settle(value);
+    };
+    const onAbort = () => finish(reject, signal.reason);
+    pending.then(value => finish(resolve, value), error => finish(reject, error));
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /** Keep observation-bound refs/frames alive across the next model turn while
  * guaranteeing idle workflows eventually release session workers and target claims. */
 export function deferComputerSessionRelease(sessionId, delayMs = DEFERRED_SESSION_RELEASE_MS) {
   const id = String(sessionId || '').trim();
   if (!id) return false;
   cancelDeferredComputerSessionRelease(id);
+  if (pendingComputerSessionReleases.has(id)) return false;
   // A session that never reached the host owns nothing there. Releasing it
   // anyway would only raise a no-op cleanup on the desktop every turn.
   if (!hostBoundComputerSessions.has(id) && !activeComputerSessions.has(id)) return false;
@@ -373,16 +402,20 @@ export function deferComputerSessionRelease(sessionId, delayMs = DEFERRED_SESSIO
 
 /** Explicit session cleanup invalidates refs/frames and releases the
  * agent worker and target claims immediately. */
-export async function releaseComputerSession(sessionId) {
+export async function releaseComputerSession(sessionId, timeoutMs = SESSION_RELEASE_TIMEOUT_MS) {
   const id = String(sessionId || '').trim();
   if (!id) return false;
   cancelDeferredComputerSessionRelease(id);
+  if (pendingComputerSessionReleases.has(id)) return pendingComputerSessionReleases.get(id);
   activeComputerExecutions.delete(id);
   activeComputerSessions.delete(id);
-  const released = await sendComputerSessionControl(id, 'session_release', SESSION_RELEASE_TIMEOUT_MS);
-  if (released) hostBoundComputerSessions.delete(id);
-  else activeComputerSessions.add(id);
-  return released;
+  const pending = sendComputerSessionControl(id, 'session_release', timeoutMs).then(released => {
+    if (released) hostBoundComputerSessions.delete(id);
+    else if (hostBoundComputerSessions.has(id)) activeComputerSessions.add(id);
+    return released;
+  }).finally(() => pendingComputerSessionReleases.delete(id));
+  pendingComputerSessionReleases.set(id, pending);
+  return pending;
 }
 
 /** Process-shutdown backstop. The deferred release timer is unref'd, so a
@@ -397,13 +430,9 @@ export async function releaseAllComputerSessions(timeoutMs = SHUTDOWN_SESSION_RE
   if (ids.length === 0) return 0;
   const timeout = Math.max(1, Number(timeoutMs) || SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS);
   const outcomes = await Promise.all(ids.map(async (id) => {
-    const released = await sendComputerSessionControl(id, 'session_release', timeout);
-    if (released) {
-      activeComputerExecutions.delete(id);
-      hostBoundComputerSessions.delete(id);
-      activeComputerSessions.delete(id);
-    }
-    return released;
+    try {
+      return await waitForComputerRelease(releaseComputerSession(id, timeout), AbortSignal.timeout(timeout));
+    } catch { return false; }
   }));
   return outcomes.filter(Boolean).length;
 }

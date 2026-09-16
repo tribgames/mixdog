@@ -1,0 +1,34 @@
+# Call-site rules for Ruby.
+#
+# `Widget.new` is a plain method call on the class object, so it reports
+# name `new`, receiver `Widget`, kind `method` — Ruby has no constructor
+# syntax and no rule here declares `new`. Paren-less calls (`puts x`) are the
+# same `call` node and are reported too.
+#
+# mixdog-call-kind: method
+id: ruby-call-method
+language: Ruby
+role: item
+symbolType: function
+rule:
+  kind: call
+  all:
+    - has:
+        field: method
+        pattern: $NAME
+    - has:
+        field: receiver
+        pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: ruby-call-plain
+language: Ruby
+role: item
+symbolType: function
+rule:
+  kind: call
+  has:
+    field: method
+    pattern: $NAME
+name: $NAME

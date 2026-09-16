@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { SETUP_ACTIONS, SETUP_OPEN_TARGETS, SETUP_STATUS_DOMAINS, SETUP_TOOL_DEFS } from './tool-defs.mjs';
+import { SETUP_ACTIONS, SETUP_BUILTIN_TOGGLE_FEATURES, SETUP_OPEN_TARGETS, SETUP_STATUS_DOMAINS, SETUP_TOOL_DEFS } from './tool-defs.mjs';
 import { createSetupToolExecutor } from './executor.mjs';
 import { createNotificationBus } from '../notification-bus.mjs';
 import { resolveTuiRuntimeNotificationDelivery } from '../../tui/session/notification-plan.mjs';
@@ -130,6 +130,7 @@ test('mutations go through the runtime facade with validated input', async () =>
     async setRoute(route) { calls.push(['setRoute', route]); return { provider: 'openai', model: 'gpt', ...route }; },
     async setAgentRoute(agent, route) { calls.push(['setAgentRoute', agent, route]); return route; },
     async setBuiltinToolEnabled(name, enabled) { calls.push(['setBuiltinToolEnabled', name, enabled]); return { name, enabled }; },
+    async installBuiltinFeature(name) { calls.push(['installBuiltinFeature', name]); return { [name]: { enabled: true, installed: true } }; },
     async setBridgeFirstUseApproval(name, enabled) { calls.push(['setBridgeFirstUseApproval', name, enabled]); return { name, firstUseApproval: enabled }; },
     setCompactionSettings(next) { calls.push(['setCompactionSettings', next]); return next; },
     async setDisabledSkills(list) { calls.push(['setDisabledSkills', list]); return { disabled: list }; },
@@ -147,7 +148,7 @@ test('mutations go through the runtime facade with validated input', async () =>
   assert.deepEqual(calls[2], ['setBuiltinToolEnabled', 'office', false]);
   await run(executor, { action: 'set_builtin_enabled', name: 'localProvider', enabled: true });
   assert.deepEqual(calls[3], ['setBuiltinToolEnabled', 'localProvider', true]);
-  await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'memory', enabled: true }), /name must be one of git, office, localProvider/);
+  await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'memory', enabled: true }), /name must be one of git, office, tidy, localProvider/);
   await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'git', enabled: 'yes' }), /enabled must be a boolean/);
 
   await run(executor, { action: 'set_compaction', enabled: true });
@@ -165,6 +166,19 @@ test('mutations go through the runtime facade with validated input', async () =>
 
   await assert.rejects(run(executor, { action: 'set_route', route: {} }), /at least one of/);
   await assert.rejects(run(executor, { action: 'set_agent_route', route: { model: 'x' } }), /agent is required/);
+
+  // Code tidy installs and toggles through the same two settings-api methods
+  // office uses, so the setup tool can activate it without the desktop UI.
+  const installed = await run(executor, { action: 'install_builtin', name: 'tidy' });
+  assert.deepEqual(calls.at(-1), ['installBuiltinFeature', 'tidy']);
+  assert.deepEqual(installed.tidy, { enabled: true, installed: true });
+  await run(executor, { action: 'set_builtin_enabled', name: 'tidy', enabled: false });
+  assert.deepEqual(calls.at(-1), ['setBuiltinToolEnabled', 'tidy', false]);
+  await assert.rejects(
+    run(executor, { action: 'install_builtin', name: 'shell' }),
+    /name must be one of git, memory, office, tidy, localProvider/,
+  );
+  assert.ok(SETUP_BUILTIN_TOGGLE_FEATURES.includes('tidy'));
 });
 
 test('mutations fail clearly before the runtime facade is assembled', async () => {

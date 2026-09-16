@@ -1,0 +1,149 @@
+# mixdog-kind: import
+# Ports objc_import `#import <Foo/Bar.h>` / `#import "Bar.h"` (brackets/quotes stripped).
+id: objc-import
+language: objc
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: preproc_include
+    - has:
+        field: directive
+        regex: '^#import$'
+    - has:
+        field: path
+        pattern: $PATH
+transform:
+  SPEC:
+    replace:
+      source: $PATH
+      replace: '^[<"]|[>"]$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# mixdog-kind: import
+# Ports `@import UIKit;` (dotted module path).
+id: objc-module-import
+language: objc
+role: item
+symbolType: module
+rule:
+  kind: module_import
+  pattern: $DECL
+transform:
+  SPEC:
+    replace:
+      source: $DECL
+      replace: '^@import\s+|\s*;?\s*$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# mixdog-kind: class
+# Ports (class_interface . (identifier) @name) — first identifier, not the superclass.
+id: objc-class-interface
+language: objc
+role: item
+symbolType: class
+rule:
+  kind: class_interface
+  has:
+    kind: identifier
+    pattern: $NAME
+    nthChild:
+      position: 1
+      ofRule:
+        kind: identifier
+name: $NAME
+isExported: true
+---
+# mixdog-kind: class
+id: objc-class-implementation
+language: objc
+role: item
+symbolType: class
+rule:
+  kind: class_implementation
+  has:
+    kind: identifier
+    pattern: $NAME
+    nthChild:
+      position: 1
+      ofRule:
+        kind: identifier
+name: $NAME
+isExported: true
+---
+# mixdog-kind: protocol
+id: objc-protocol
+language: objc
+role: item
+symbolType: interface
+rule:
+  kind: protocol_declaration
+  has:
+    kind: identifier
+    pattern: $NAME
+    nthChild:
+      position: 1
+      ofRule:
+        kind: identifier
+name: $NAME
+isExported: true
+---
+# mixdog-kind: method
+# Ports (method_declaration (identifier) @name) — selector head.
+id: objc-method-declaration
+language: objc
+role: member
+parentRuleIds: [objc-class-interface, objc-protocol]
+symbolType: method
+rule:
+  kind: method_declaration
+  has:
+    kind: identifier
+    pattern: $NAME
+    nthChild:
+      position: 1
+      ofRule:
+        kind: identifier
+name: $NAME
+isPublic: true
+---
+# mixdog-kind: method
+id: objc-method-definition
+language: objc
+role: member
+parentRuleIds: [objc-class-implementation]
+symbolType: method
+rule:
+  kind: method_definition
+  has:
+    kind: identifier
+    pattern: $NAME
+    nthChild:
+      position: 1
+      ofRule:
+        kind: identifier
+name: $NAME
+isPublic: true
+---
+# mixdog-kind: function
+# Ports C-style function_definition inside an ObjC translation unit.
+id: objc-function
+language: objc
+role: item
+symbolType: function
+rule:
+  kind: function_definition
+  has:
+    field: declarator
+    kind: function_declarator
+    has:
+      field: declarator
+      pattern: $NAME
+name: $NAME
+isExported: true

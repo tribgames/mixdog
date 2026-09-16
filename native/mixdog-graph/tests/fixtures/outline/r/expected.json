@@ -1,0 +1,79 @@
+[
+  {
+    "name": "ggplot2",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "dplyr",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "stats",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "helpers.R",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "util/extra.R",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "greet",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "add",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "plot_counts",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "helper",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "main",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "inner_add",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  }
+]

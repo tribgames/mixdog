@@ -1,0 +1,57 @@
+# Call-site rules for Objective-C.
+#
+# Two invocation forms: C function calls, and message sends `[recv selector]`
+# (kind `method`, receiver = the receiver expression). `[Widget new]` is a
+# message send to a class object, not constructor syntax, so its kind is
+# `method` with name `new` — Objective-C has no `new` operator and no rule
+# here declares that kind. A keyword message (`[a setX:1 y:2]`) has a
+# multi-part selector rather than one name node and is not reported.
+#
+# mixdog-call-kind: method
+id: objc-message
+language: objc
+role: item
+symbolType: function
+rule:
+  kind: message_expression
+  all:
+    - has:
+        field: method
+        kind: identifier
+        pattern: $NAME
+    - has:
+        field: receiver
+        pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: objc-call-plain
+language: objc
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: method
+id: objc-call-member
+language: objc
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: field_expression
+    all:
+      - has:
+          field: field
+          pattern: $NAME
+      - has:
+          field: argument
+          pattern: $RECV
+name: $NAME

@@ -1,0 +1,279 @@
+# mixdog-kind: import
+# Ports dart_import `import 'uri'` (quotes stripped). `part of` is intentionally omitted.
+id: dart-import
+language: Dart
+role: item
+symbolType: module
+rule:
+  kind: library_import
+  has:
+    kind: import_specification
+    has:
+      field: uri
+      pattern: $URI
+transform:
+  SPEC:
+    replace:
+      source: $URI
+      replace: '^[''"]|[''"]$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# mixdog-kind: import
+# Ports dart_import `export 'uri'`.
+id: dart-export
+language: Dart
+role: item
+symbolType: module
+rule:
+  kind: library_export
+  has:
+    field: uri
+    pattern: $URI
+transform:
+  SPEC:
+    replace:
+      source: $URI
+      replace: '^[''"]|[''"]$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: true
+---
+# mixdog-kind: import
+# Ports dart_import `part 'uri'` (not `part of`).
+id: dart-part
+language: Dart
+role: item
+symbolType: module
+rule:
+  kind: part_directive
+  has:
+    field: uri
+    pattern: $URI
+transform:
+  SPEC:
+    replace:
+      source: $URI
+      replace: '^[''"]|[''"]$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# mixdog-kind: class
+id: dart-class
+language: Dart
+role: item
+symbolType: class
+rule:
+  kind: class_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  not:
+    has:
+      field: name
+      regex: '^_'
+---
+# mixdog-kind: mixin
+id: dart-mixin
+language: Dart
+role: item
+symbolType: class
+rule:
+  kind: mixin_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  not:
+    has:
+      field: name
+      regex: '^_'
+---
+# mixdog-kind: enum
+id: dart-enum
+language: Dart
+role: item
+symbolType: enum
+rule:
+  kind: enum_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  not:
+    has:
+      field: name
+      regex: '^_'
+---
+# mixdog-kind: extension
+id: dart-extension
+language: Dart
+role: item
+symbolType: class
+rule:
+  kind: extension_declaration
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported:
+  not:
+    has:
+      field: name
+      regex: '^_'
+---
+# mixdog-kind: function
+id: dart-function
+language: Dart
+role: item
+symbolType: function
+rule:
+  kind: function_declaration
+  has:
+    field: signature
+    kind: function_signature
+    has:
+      field: name
+      pattern: $NAME
+name: $NAME
+isExported:
+  not:
+    has:
+      field: signature
+      has:
+        field: name
+        regex: '^_'
+---
+# mixdog-kind: method
+id: dart-method
+language: Dart
+role: member
+parentRuleIds: [dart-class, dart-mixin, dart-enum, dart-extension]
+symbolType: method
+rule:
+  kind: method_declaration
+  has:
+    field: signature
+    has:
+      kind: function_signature
+      has:
+        field: name
+        pattern: $NAME
+name: $NAME
+isPublic:
+  not:
+    has:
+      field: signature
+      has:
+        kind: function_signature
+        has:
+          field: name
+          regex: '^_'
+---
+# mixdog-kind: method
+id: dart-getter
+language: Dart
+role: member
+parentRuleIds: [dart-class, dart-mixin, dart-enum, dart-extension]
+symbolType: method
+rule:
+  kind: method_declaration
+  has:
+    field: signature
+    has:
+      kind: getter_signature
+      has:
+        field: name
+        pattern: $NAME
+name: $NAME
+isPublic:
+  not:
+    has:
+      field: signature
+      has:
+        kind: getter_signature
+        has:
+          field: name
+          regex: '^_'
+---
+# mixdog-kind: method
+id: dart-setter
+language: Dart
+role: member
+parentRuleIds: [dart-class, dart-mixin, dart-enum, dart-extension]
+symbolType: method
+rule:
+  kind: method_declaration
+  has:
+    field: signature
+    has:
+      kind: setter_signature
+      has:
+        field: name
+        pattern: $NAME
+name: $NAME
+isPublic:
+  not:
+    has:
+      field: signature
+      has:
+        kind: setter_signature
+        has:
+          field: name
+          regex: '^_'
+---
+# mixdog-kind: method
+# An ABSTRACT method (`void start();` in an abstract class or an implicit
+# interface) has no `method_declaration` node at all: the grammar files it as
+# `class_member > declaration > function_signature`. `inside: declaration` is
+# what separates it from the `function_signature` a bodied `method_declaration`
+# and a top-level `function_declaration` also carry.
+id: dart-abstract-method
+language: Dart
+role: member
+parentRuleIds: [dart-class, dart-mixin, dart-enum, dart-extension]
+symbolType: method
+rule:
+  kind: function_signature
+  all:
+    - inside:
+        kind: declaration
+    - has:
+        field: name
+        pattern: $NAME
+name: $NAME
+isPublic:
+  not:
+    has:
+      field: name
+      regex: '^_'
+---
+# mixdog-kind: method
+# Operator name is the bindable `binary_operator` token (`+`, `==`, …).
+# Unnamed `[]` / `[]=` / `~` tokens are omitted (same as the tree-sitter query).
+id: dart-operator
+language: Dart
+role: member
+parentRuleIds: [dart-class, dart-mixin, dart-enum, dart-extension]
+symbolType: method
+rule:
+  kind: method_declaration
+  has:
+    field: signature
+    has:
+      kind: operator_signature
+      has:
+        field: operator
+        kind: binary_operator
+        pattern: $NAME
+name: $NAME
+isPublic: true

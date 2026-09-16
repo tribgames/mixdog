@@ -14,15 +14,20 @@ export function computerTimings(value: unknown): Record<string, number> {
   }));
 }
 
-/** At most six executed steps; never copy input, errors, or skipped timings. */
+/** At most six executed steps; retain uncertain delivery, never private details. */
 export function computerStepTimings(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 6).flatMap((row, index) => {
     if (!row || typeof row !== 'object'
-      || !['succeeded', 'failed'].includes(row.status)) return [];
+      || !['succeeded', 'failed', 'uncertain'].includes(row.status)) return [];
     return [{
       index: index + 1,
       status: row.status,
+      ...(typeof row.code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(row.code) ? { code: row.code } : {}),
+      ...(typeof row.delivery_accepted === 'boolean' || row.delivery_accepted === null
+        ? { delivery_accepted: row.delivery_accepted } : {}),
+      ...(typeof row.input_may_have_executed === 'boolean'
+        ? { input_may_have_executed: row.input_may_have_executed } : {}),
       timings_ms: computerTimings(row.timings_ms),
     }];
   });

@@ -7,15 +7,8 @@ import {
   selectDeferredTools,
   reconcileDeferredMcpToolCatalog,
   refreshInitialDeferredMcpSurface,
+  scopedMcpToolsFor,
 } from './tool-catalog.mjs';
-import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
-import { filterMcpToolsForSession } from './extension-scopes.mjs';
-
-// Live MCP catalog as THIS session may see it: servers scoped to other
-// project roots stay connected but never enter its deferred surface.
-function scopedMcpToolsFor(session, config = null) {
-  return filterMcpToolsForSession(getMcpTools(session?.mcpScopeId), session?.cwd || null, config);
-}
 import { traceTurnTiming } from '../runtime/agent/orchestrator/agent-trace.mjs';
 import { beginTurnSnapshot, cancelTurnSnapshot, completeTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
 import { isVisibleStreamProgress } from '../runtime/shared/stream-progress.mjs';
@@ -254,11 +247,9 @@ export function createSessionTurnApi(deps) {
           try { refreshInitialDeferredMcpSurface(session0, scopedMcpTools(session0)); }
           catch { /* first-turn MCP fold must never break the turn */ }
         } else {
-          // AFTER FIRST TURN: fold in MCP tools whose servers finished their
-          // handshake after this session was created, and announce the newly
-          // available deferred tool names via ONE appended, persistent
-          // system-reminder (append-only — never rewrites BP2 or touches the
-          // active tool surface, so the prompt-cache prefix stays intact).
+          // Fold the latest MCP availability before attaching its pending delta
+          // to this user turn. Model-request and loader boundaries also refresh
+          // the catalog, without rewriting the native eager prefix or BP2.
           // Context-switch gate: a desktop project switch (and any cwd change)
           // now starts its MCP reset in the background instead of blocking the
           // switch. When such a reconnect is still in flight, give it the same

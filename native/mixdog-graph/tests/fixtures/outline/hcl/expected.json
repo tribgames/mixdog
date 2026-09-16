@@ -1,0 +1,58 @@
+[
+  {
+    "name": "hashicorp/aws",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "aws",
+    "symbolType": "object",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "provider"
+  },
+  {
+    "name": "region",
+    "symbolType": "variable",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "variable"
+  },
+  {
+    "name": "locals",
+    "symbolType": "object",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "locals"
+  },
+  {
+    "name": "vpc",
+    "symbolType": "module",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "module"
+  },
+  {
+    "name": "aws_ami.ubuntu",
+    "symbolType": "object",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "data"
+  },
+  {
+    "name": "aws_instance.web",
+    "symbolType": "object",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "resource"
+  },
+  {
+    "name": "public_ip",
+    "symbolType": "property",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "output"
+  }
+]

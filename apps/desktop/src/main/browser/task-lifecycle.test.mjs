@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBrowserTaskLifecycle } from './task-lifecycle.ts';
 
-function fixture() {
+function fixture({ close } = {}) {
   const selected = new Map();
   const surfaces = [];
   const page = (name, blocked = false) => ({ name, blocked, dead: false, isDestroyed() { return this.dead; } });
   const owner = createBrowserTaskLifecycle({
     current: session => selected.get(session) ?? null,
     select: (session, value) => selected.set(session, value),
-    close: value => { value.dead = true; },
+    close: close ?? (value => { value.dead = true; }),
     canClose: value => !value.blocked,
     preserve: value => { value.preserved = true; },
     surface: (session, request) => surfaces.push({ session, ...request }),
@@ -94,4 +94,46 @@ test('popups inherit task ownership; blocked dialogs survive cleanup without aff
   assert.equal(prompt.dead, false);
   assert.equal(prompt.preserved, true);
   assert.equal(userPopup.dead, false);
+});
+
+test('a failed page close remains owned and retry never closes an already released page twice', () => {
+  const attempts = [];
+  let fail = true;
+  const { owner, page } = fixture({ close: value => {
+    attempts.push(value.name);
+    if (value.name === 'second' && fail) throw new Error('window close failed');
+    value.dead = true;
+  } });
+  const first = page('first');
+  const second = page('second');
+  const third = page('third');
+  for (const value of [first, second, third]) owner.use('s', 1, value, true);
+  assert.throws(() => owner.finish('s', 1), /window close failed/);
+  assert.equal(first.dead, true);
+  assert.equal(second.dead, false);
+  assert.equal(third.dead, false);
+  fail = false;
+  assert.equal(owner.finish('s', 1), 2);
+  assert.deepEqual(attempts, ['first', 'second', 'second', 'third']);
+  assert.equal(owner.finish('s', 1), 0);
+});
+
+test('failed-close recovery preserves newer ownership and handles a page destroyed while close threw', () => {
+  for (const outcome of ['reused', 'destroyed']) {
+    let fail = true;
+    const { owner, page } = fixture({ close: value => {
+      if (outcome === 'destroyed' || !fail) value.dead = true;
+      if (fail) throw new Error('close interrupted');
+    } });
+    const scratch = page('scratch');
+    owner.use('s', 1, scratch, true);
+    assert.throws(() => owner.finish('s', 1), /close interrupted/);
+    fail = false;
+    if (outcome === 'reused') owner.use('s', 2, scratch, false);
+    assert.equal(owner.finish('s', 1), 0);
+    if (outcome === 'reused') {
+      assert.equal(scratch.dead, false);
+      assert.equal(owner.finish('s', 2), 1);
+    }
+  }
 });

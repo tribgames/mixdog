@@ -5,23 +5,38 @@
 import {
   _graphRel,
   _getSourceTextForNode,
+  _getSourceLinesForNode,
 } from './source-access.mjs';
+import {
+  _astCallerCallSites,
+  _astFileCallSites,
+  _astCallDisplayCol,
+  _astRelInScope,
+} from './ast-calls.mjs';
 import {
   _unicodeBoundaryPattern,
   _lookupCandidateNodes,
   _getTokenSymbolsForNode,
-  _collectCheapSymbols,
   _capGraphList,
 } from './symbol-index.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _inferSpanEndByIndent } from './span.mjs';
 import {
   _toByteColumn,
-  _nearestEnclosingSymbol,
   _symbolPathForPosition,
+  _symbolPathForSymbol,
 } from './text-columns.mjs';
 
-import { _cheapReferenceSearch, _formatSymbolHitLocation, _findSymbolHits, _augmentNoHitDiagnostic } from './search.mjs';
+import {
+  _cheapReferenceSearch,
+  _formatSymbolHitLocation,
+  _formatSymbolFacts,
+  _formatOutsideDeclaration,
+  _isTypeDeclarationRel,
+  _isTypeFaceOf,
+  _findSymbolHits,
+  _augmentNoHitDiagnostic,
+} from './search.mjs';
 
 export function _formatFullSymbolBody(srcText, startLine, endLine) {
   const all = String(srcText || '').split('\n');
@@ -50,16 +65,20 @@ function _formatSymbolImpactLine(item) {
   return `${item.symbol}\trefs=${item.references}\tcallers=${item.callers.length}${callerSuffix}`;
 }
 
-function _collectImpactSymbols(node, graph) {
+// The symbols `impact` measures: the file's declared names, from the native
+// record (plus the adapter's topLevelTypes). No text pass — a file the
+// extractor produced nothing for declares nothing to measure.
+function _collectImpactSymbols(node) {
   const names = new Set();
   for (const typeName of Array.isArray(node?.topLevelTypes) ? node.topLevelTypes : []) names.add(typeName);
-  const text = _getSourceTextForNode(graph, node);
-  for (const item of _collectCheapSymbols(text, node.lang)) names.add(item.name);
+  for (const item of Array.isArray(node?.symbols) ? node.symbols : []) {
+    if (item?.name) names.add(item.name);
+  }
   return [...names];
 }
 
 export function _impactSourceNodes(node, graph, targetSymbol = '') {
-  const symbols = targetSymbol ? [targetSymbol] : _collectImpactSymbols(node, graph).slice(0, 8);
+  const symbols = targetSymbol ? [targetSymbol] : _collectImpactSymbols(node).slice(0, 8);
   const out = [];
   const seen = new Set();
   for (const candidate of [node, ...symbols.flatMap((symbol) => _lookupCandidateNodes(graph, symbol, node?.lang || null))]) {
@@ -74,7 +93,7 @@ function _buildImpactSummary(node, graph, cwd, targetSymbol = '') {
   const imports = node.resolvedImports.map((p) => _graphRel(p, cwd));
   const dependents = [...(graph.reverse.get(node.rel) || [])].sort();
   const related = [...new Set([...imports, ...dependents])].sort();
-  const symbols = targetSymbol ? [targetSymbol] : _collectImpactSymbols(node, graph).slice(0, 8);
+  const symbols = targetSymbol ? [targetSymbol] : _collectImpactSymbols(node).slice(0, 8);
   const symbolImpact = [];
   const externalCallers = new Set();
   let externalReferences = 0;
@@ -155,9 +174,18 @@ export function _formatImpact(node, graph, cwd, targetSymbol = '') {
   return lines.join('\n');
 }
 
-export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, limit = 5, fileRel = null, body = true } = {}) {
+export function _findSymbolAcrossGraph(graph, symbol, cwd, {
+  language = null,
+  limit = 5,
+  fileRel = null,
+  body = true,
+  outsideDeclaration = null,
+} = {}) {
   const allHits = _findSymbolHits(graph, symbol, { language });
   const hits = fileRel ? allHits.filter((h) => h.rel === fileRel) : allHits;
+  const outsideLine = outsideDeclaration
+    ? `declared outside the requested files: ${_formatOutsideDeclaration(outsideDeclaration)}`
+    : '';
 
   if (!hits.length) {
     const nodeCount = graph?.nodes?.size ?? 0;
@@ -180,17 +208,34 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, li
         }
       }
     }
+    if (outsideLine) lines.push(outsideLine);
     return lines.join('\n');
   }
 
   const topHits = hits.slice(0, Math.max(1, limit));
   const primary = topHits[0];
   const declHits = hits.filter((h) => h.declarationLike);
-  const declCount = declHits.length;
+  // A `.d.ts`/`.d.mts`/`.d.cts` companion of an implementation is not a second
+  // candidate to choose between — it is the type face of the same symbol. It
+  // never wins the "best declaration" slot (see _sortSymbolHits), it is
+  // reported separately below, and it does not raise the ambiguity warning: a
+  // model told "2 declarations — verify which one you intend" goes and reads
+  // both, for a symbol that has exactly one implementation.
+  //
+  // "Type face" is a relationship between two files of ONE module, not a file
+  // extension: a same-named `.d.ts` in another package is a rival declaration,
+  // and filing it under the primary would hide a genuine second declaration
+  // behind an association that does not exist.
+  const implDeclHits = declHits.filter((h) => !_isTypeDeclarationRel(h.rel));
+  const typeDeclHits = declHits.filter((h) => _isTypeDeclarationRel(h.rel)
+    && implDeclHits.some((impl) => _isTypeFaceOf(impl.rel, h.rel)));
+  const rivalDecls = declHits.filter((h) => !typeDeclHits.includes(h));
+  const declCount = rivalDecls.length;
+  const typeFaces = typeDeclHits;
   const lines = [];
   if (declCount > 1) {
     lines.push(`⚠ ${declCount} declarations found — verify which one you intend`);
-    for (const h of declHits.slice(0, Math.max(1, limit))) {
+    for (const h of rivalDecls.slice(0, Math.max(1, limit))) {
       lines.push(`  ${_formatSymbolHitLocation(h)} [${h.lang}]`);
     }
     if (declCount > limit) {
@@ -204,7 +249,11 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, li
       : '# best declaration candidate');
     const multi = declCount > 1 ? `, declarations=${declCount}` : '';
     const namePath = primary.namePath ? `, path=${primary.namePath}` : '';
-    lines.push(`${_formatSymbolHitLocation(primary)} (${primary.lang}, matches=${primary.matchCount}${multi}${namePath})`);
+    // Record facts first: the unified kind and the export marker describe WHAT
+    // was found before the position describes where.
+    const facts = _formatSymbolFacts(primary);
+    lines.push(`${_formatSymbolHitLocation(primary)} (${primary.lang}${facts ? `, ${facts}` : ''}, matches=${primary.matchCount}${multi}${namePath})`);
+    if (primary.symbolSig) lines.push(`signature: ${primary.symbolSig}`);
     let bodyEmitted = false;
     if (body === true && Number.isFinite(Number(primary.line))) {
       const node = graph.nodes.get(primary.rel);
@@ -227,21 +276,32 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, li
       }
     }
     if (declCount > 1) {
-      const others = declHits.slice(1, 3).map((h) => `${_formatSymbolHitLocation(h)} [${h.lang}]`);
+      const others = rivalDecls.slice(1, 3).map((h) => `${_formatSymbolHitLocation(h)} [${h.lang}]`);
       if (others.length) lines.push(`other declarations: ${others.join(', ')}`);
+    }
+    if (typeFaces.length) {
+      const faces = typeFaces.slice(0, 3).map((h) => `${_formatSymbolHitLocation(h)} [${h.lang}]`);
+      lines.push(`type declaration: ${faces.join(', ')}`);
     }
     lines.push('');
   }
   lines.push('# candidates');
   lines.push(...topHits.map((hit, idx) => {
     const kind = hit.declarationLike ? 'decl' : 'ref';
+    const facts = _formatSymbolFacts(hit);
     const suffix = hit.content ? ` — ${hit.content.slice(0, 100)}` : '';
     const namePath = hit.namePath ? ` path=${hit.namePath}` : '';
-    return `${idx + 1}. ${_formatSymbolHitLocation(hit)} [${kind}, ${hit.lang}, matches=${hit.matchCount}]${namePath}${suffix}`;
+    return `${idx + 1}. ${_formatSymbolHitLocation(hit)} [${kind}${facts ? `, ${facts}` : ''}, ${hit.lang}, matches=${hit.matchCount}]${namePath}${suffix}`;
   }));
   if (declCount === 0 && hits.length > 0) {
     lines.push('');
-    lines.push(`(no user declaration found; likely a global/builtin identifier — all ${hits.length} hits are references)`);
+    // "global/builtin" is a verdict about the whole graph, so it may only be
+    // said when the graph really knows no declaration and nothing in the scope
+    // imports one. Inside a file/files scope the usual truth is the opposite:
+    // the hits are the import, and the declaration is one hop away.
+    lines.push(outsideLine
+      ? `${outsideLine}\n(the ${hits.length} hit(s) in the requested scope are imports/references)`
+      : `(no user declaration found; likely a global/builtin identifier — all ${hits.length} hits are references)`);
   }
   const _nodeCount = graph?.nodes?.size ?? 0;
   const truncatedSuffix = graph?.truncated
@@ -256,8 +316,8 @@ export function _resolveReferenceLanguageNode(graph, symbol, rel, cwd, language 
   if (rel) {
     const node = graph.nodes.get(rel);
     if (!node) return { kind: 'file-not-found', node: null, file: rel };
-    const tokens = _getTokenSymbolsForNode(graph, node);
-    if (Array.isArray(tokens) && tokens.includes(String(symbol || ''))) return { kind: 'ok', node, file: rel };
+    const tokens = _getTokenSymbolsForNode(node);
+    if (tokens?.includes(String(symbol || ''))) return { kind: 'ok', node, file: rel };
     const text = _getSourceTextForNode(graph, node);
     if (typeof text === 'string' && text.includes(String(symbol || ''))) return { kind: 'ok', node, file: rel };
     return { kind: 'symbol-not-present', node: null, file: rel };
@@ -287,36 +347,96 @@ function _referenceKind(line, symbol, lang = null) {
   return 'reference';
 }
 
-function _collectCallerEntries(graph, symbol, referenceText) {
-  const entries = _parseReferenceEntries(referenceText);
+// ── AST call sites ──────────────────────────────────────────────────────────
+// Call sites come from the native `calls` wire and from nowhere else: there is
+// no text fallback. A file without usable call data contributes no call rows.
+//
+// The wire carries only the INNERMOST enclosing symbol name. When the file's
+// outline has spans, the containment chain (`Outer/inner`) the non-call
+// reference rows also use is recovered by locating that symbol at the line;
+// without spans — or when no symbol of that name covers the line — the
+// innermost name is the whole answer.
+function _astCallerPath(node, call) {
+  const name = call.inSymbol || '';
+  if (!name) return '';
+  const covering = (Array.isArray(node?.symbols) ? node.symbols : []).filter((item) => {
+    if (item?.name !== name) return false;
+    const start = Number(item.startLine ?? item.line);
+    const end = Number(item.endLine);
+    return Number.isFinite(start) && Number.isFinite(end)
+      && start <= call.line && end >= call.line;
+  });
+  if (!covering.length) return name;
+  // Innermost of several same-name spans: the one that starts last.
+  const innermost = covering.reduce((best, item) =>
+    (Number(item.startLine ?? item.line) > Number(best.startLine ?? best.line) ? item : best));
+  return _symbolPathForSymbol(node, innermost) || name;
+}
+
+function _astEntryFromCall(graph, node, call) {
+  const sourceLines = _getSourceLinesForNode(graph, node);
+  const lineText = String(sourceLines[call.line - 1] || '').trim();
+  const callerPath = _astCallerPath(node, call);
+  return {
+    file: node.rel,
+    line: call.line,
+    // 0-based AST column → the 1-based column every location line uses.
+    col: _astCallDisplayCol(call),
+    text: lineText,
+    kind: 'call',
+    caller: callerPath,
+    owner: callerPath,
+    lineText,
+    callKind: call.kind,
+    recv: call.recv || '',
+  };
+}
+
+// references: AST call sites of `symbol` inside the files the reference scan
+// already visited — the scan's scope, language and candidate filters are
+// therefore preserved exactly.
+function _astReferenceCallEntries(graph, symbol, referenceText) {
+  const rels = [...new Set(_parseReferenceEntries(referenceText).map((entry) => entry.file))];
+  const out = [];
+  for (const rel of rels) {
+    const node = graph?.nodes?.get(rel);
+    if (!node) continue;
+    const calls = _astFileCallSites(node, symbol);
+    if (!calls) continue; // calls === null → no call rows for this file
+    for (const call of calls) out.push(_astEntryFromCall(graph, node, call));
+  }
+  return out;
+}
+
+// callers: AST call sites reaching a declaring file, already grouped by
+// (file, inSymbol) by _astCallerCallSites.
+function _astCallerEntries(graph, symbol, targetRels, scope) {
+  if (!targetRels?.length) return [];
+  return _astCallerCallSites(graph, symbol, targetRels, scope)
+    .map(({ node, call }) => _astEntryFromCall(graph, node, call));
+}
+
+// references only: the identifier USAGES that are not call sites — a type
+// position, an assignment, a bare mention. Declarations, imports and anything
+// call-shaped are dropped here; call rows come exclusively from `calls`, so a
+// regex "call" hit is never turned into a row (its file either reports the
+// call from the AST or does not report it at all).
+function _textReferenceEntries(graph, symbol, referenceText) {
   const detailed = [];
-  const declLinesCache = new Map();
-  for (const entry of entries) {
+  for (const entry of _parseReferenceEntries(referenceText)) {
     const node = graph.nodes.get(entry.file);
     if (!node) continue;
     const sourceText = _getSourceTextForNode(graph, node);
     const sourceLines = sourceText.split(/\r?\n/);
     const line = String(sourceLines[entry.line - 1] || '').trim();
     if (!line) continue;
-    let kind = _referenceKind(line, symbol, node.lang);
-    if (kind === 'call') {
-      let declLines = declLinesCache.get(node.rel);
-      if (!declLines) {
-        declLines = new Set();
-        for (const sym of (Array.isArray(node.symbols) && node.symbols.length ? node.symbols : _collectCheapSymbols(sourceText, node.lang))) {
-          if (sym && sym.name === symbol) declLines.add(sym.line);
-        }
-        declLinesCache.set(node.rel, declLines);
-      }
-      if (declLines.has(entry.line)) kind = 'declaration';
-    }
+    if (_referenceKind(line, symbol, node.lang) !== 'reference') continue;
     const _encByteCol = _toByteColumn(sourceLines[entry.line - 1] || '', entry.col);
-    const enclosing = _nearestEnclosingSymbol(node, sourceText, entry.line, _encByteCol);
     const owner = _symbolPathForPosition(node, sourceText, entry.line, _encByteCol);
     detailed.push({
       ...entry,
-      kind,
-      caller: kind === 'call' ? (owner || enclosing?.name || '') : '',
+      kind: 'reference',
+      caller: '',
       owner,
       lineText: line,
     });
@@ -324,9 +444,23 @@ function _collectCallerEntries(graph, symbol, referenceText) {
   return detailed;
 }
 
+function _sortEntries(entries, { groupByCaller = false } = {}) {
+  return entries.sort((a, b) =>
+    String(a.file).localeCompare(String(b.file))
+    || (groupByCaller ? String(a.caller || '').localeCompare(String(b.caller || '')) : 0)
+    || (a.line - b.line)
+    || (a.col - b.col));
+}
+
 export function _formatReferenceDetails(graph, symbol, referenceText, { limit = 200 } = {}) {
-  const detailed = _collectCallerEntries(graph, symbol, referenceText)
-    .filter((entry) => entry.kind !== 'declaration' && entry.kind !== 'import');
+  // Two disjoint sources: call sites from the AST, non-call identifier usages
+  // from the text scan. A file the binary did not extract contributes only the
+  // latter.
+  const astEntries = _astReferenceCallEntries(graph, symbol, referenceText);
+  const astPositions = new Set(astEntries.map((entry) => `${entry.file}\u0000${entry.line}\u0000${entry.col}`));
+  const textEntries = _textReferenceEntries(graph, symbol, referenceText)
+    .filter((entry) => !astPositions.has(`${entry.file}\u0000${entry.line}\u0000${entry.col}`));
+  const detailed = _sortEntries([...textEntries, ...astEntries]);
   if (!detailed.length) return '(no references)';
   const shown = detailed.slice(0, limit);
   const rows = shown.map((entry) => {
@@ -337,37 +471,72 @@ export function _formatReferenceDetails(graph, symbol, referenceText, { limit = 
   return rows.join('\n');
 }
 
-export function _formatCallerReferences(graph, symbol, referenceText, { limit = 200 } = {}) {
-  const detailed = _collectCallerEntries(graph, symbol, referenceText);
-  if (!detailed.length) return '(no callers)';
-  const callSites = detailed.filter((entry) => entry.kind === 'call');
+// `targetRels` are the files the symbol is DECLARED in — the anchors of the
+// caller rule. Every row is an AST call site; no declaration anchor means no
+// call sites, never a text guess.
+export function _formatCallerReferences(graph, symbol, {
+  limit = 200,
+  targetRels = null,
+  language = null,
+  fileRel = null,
+  scopeRelPrefix = null,
+} = {}) {
+  const callSites = _sortEntries(
+    _astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }),
+    { groupByCaller: true },
+  );
+  if (!callSites.length) return '(no callers)';
   const format = (entry) => {
     const caller = entry.caller ? `\tcaller=${entry.caller}` : '';
     return `${entry.file}:${entry.line}:${entry.col}\t${entry.kind}${caller}\t${entry.lineText.slice(0, 80)}`;
   };
-  if (callSites.length) {
-    const total = callSites.length;
-    const head = callSites.slice(0, limit).map(format);
-    const overflow = total > limit ? [`... +${total - limit} more call sites`] : [];
-    return ['# call sites', ...head, ...overflow].join('\n');
-  }
-  const NON_CALL_CAP = 40;
-  const nonCallEntries = detailed.slice(0, NON_CALL_CAP);
-  const overflow = detailed.length > NON_CALL_CAP
-    ? `\n... +${detailed.length - NON_CALL_CAP} more non-call references`
-    : '';
-  return [
-    '(no call sites)',
-    nonCallEntries.length ? `# non-call references\n${nonCallEntries.map(format).join('\n')}${overflow}` : '',
-  ].filter(Boolean).join('\n');
+  const total = callSites.length;
+  const head = callSites.slice(0, limit).map(format);
+  const overflow = total > limit ? [`... +${total - limit} more call sites`] : [];
+  return ['# call sites', ...head, ...overflow].join('\n');
 }
 
-function _callerNamesOf(graph, symbol, cwd, language, { fileRel = null, scopeRelPrefix = null } = {}) {
-  const refs = _cheapReferenceSearch(graph, symbol, cwd, { language, fileRel, scopeRelPrefix });
+// Every file a symbol is DECLARED in — the anchors of the caller rule.
+// Empty when no declaration is indexed for the symbol, which then has no
+// call sites to report.
+//
+// ALL declaring files are returned, not just the best one: `executeCodeGraphTool`
+// in this repo has four declaration-like hits (the tool module, the daemon, two
+// test doubles) and anchoring on the top-ranked one reported none of its 31 real
+// call sites. A call site counts when it reaches ANY declaration of that name.
+//
+// A `file`/directory anchor scopes the SCAN, and it also narrows the anchors:
+// with several same-name declarations the scoped one wins, so a file-scoped
+// query answers about the declaration the caller pointed at.
+const _AST_TARGET_RELS_MAX = 16;
+
+export function _astCallerTargetRels(graph, symbol, language = null, {
+  fileRel = null,
+  scopeRelPrefix = null,
+} = {}) {
+  const hits = _findSymbolHits(graph, symbol, { language });
+  if (!hits.length) return [];
+  const scoped = (fileRel || scopeRelPrefix)
+    ? hits.filter((hit) => _astRelInScope(hit.rel, fileRel, scopeRelPrefix))
+    : [];
+  const pool = scoped.length ? scoped : hits;
+  const declaring = pool.filter((hit) => hit.declarationLike);
+  // No declaration-like hit at all → the top-ranked hit is the best anchor
+  // available (hits are already relevance-sorted).
+  const chosen = declaring.length ? declaring : pool.slice(0, 1);
+  return [...new Set(chosen.map((hit) => hit.rel).filter(Boolean))].slice(0, _AST_TARGET_RELS_MAX);
+}
+
+function _callerNamesOf(graph, symbol, language, { fileRel = null, scopeRelPrefix = null } = {}) {
   const byName = new Map();
   const leaves = new Map();
-  for (const e of _collectCallerEntries(graph, symbol, refs)) {
-    if (e.kind !== 'call') continue;
+  // Every level of the transitive walk uses the same rule as depth=1.
+  const targetRels = _astCallerTargetRels(graph, symbol, language, { fileRel, scopeRelPrefix });
+  const entries = _sortEntries(
+    _astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }),
+    { groupByCaller: true },
+  );
+  for (const e of entries) {
     if (e.caller && e.caller !== symbol) {
       if (!byName.has(e.caller)) byName.set(e.caller, { name: e.caller, loc: `${e.file}:${e.line}`, leaf: false });
     } else if (!e.caller) {
@@ -394,7 +563,7 @@ export function _formatTransitiveCallers(graph, rootSymbol, cwd, { language = nu
       return;
     }
     expanded.add(symbol);
-    for (const entry of _callerNamesOf(graph, symbol, cwd, language, { fileRel, scopeRelPrefix })) {
+    for (const entry of _callerNamesOf(graph, symbol, language, { fileRel, scopeRelPrefix })) {
       if (collected.length >= hardMax) { overflow = true; return; }
       collected.push({ indent: level + 1, label: `${entry.name}\t${entry.loc}` });
       if (!entry.leaf) walk(entry.name, level + 1);

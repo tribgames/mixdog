@@ -1,6 +1,6 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
-const VALID_CYCLES = new Set(['cycle1', 'cycle2', 'cycle3'])
+const VALID_CYCLES = new Set(['cycle1', 'cycle2'])
 const KEY_PREFIX = 'cycle_request.'
 const _retryTimersByDb = new WeakMap()
 

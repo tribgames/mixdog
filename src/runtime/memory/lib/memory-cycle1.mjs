@@ -540,7 +540,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
             `UPDATE entries
              SET chunk_root = $1, is_root = 1, element = $2, category = $3, summary = $4,
                  status = 'pending', project_id = $5,
-                 last_seen_at = $7, chunk_quality = $8::jsonb
+                 last_seen_at = $7, chunk_quality = $8::jsonb, cycle2_reviewed_at = NULL, duplicate_of = NULL
              WHERE id = $6`,
             [rootId, element, category, summary, projectId, rootId, Date.now(), JSON.stringify(quality)],
           )

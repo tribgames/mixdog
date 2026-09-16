@@ -617,6 +617,13 @@ export class ComputerUseCoordinator {
 
   hasPendingCleanup(sessionId: string): boolean { return this.cleanup.has(sessionId); }
 
+  /** Stop's recovery: only evidence that no worker or held input remains may call this. */
+  clearFailedCleanup(): boolean {
+    if (!this.cleanup.clear()) return false;
+    this.changed();
+    return true;
+  }
+
   beginCleanup(sessionId: string): (confirmed: boolean) => void {
     const finish = this.cleanup.begin(sessionId);
     this.changed();

@@ -35,8 +35,11 @@ export function createBrowserPresentationReads(host: {
           if (reads.get(key) === entry) reads.delete(key);
         }).catch(() => {});
       }
-      return read.work.then(frame =>
-        previousId === frame.frameId ? { ...frame, image: undefined } : frame);
+      const { work, controller } = read;
+      return work.then(frame => {
+        controller.signal.throwIfAborted();
+        return previousId === frame.frameId ? { ...frame, image: undefined } : frame;
+      });
     },
     release,
     dispose(): void {

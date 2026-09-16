@@ -1,0 +1,79 @@
+[
+  {
+    "name": "./lib/common.sh",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "lib/quoted.sh",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "./lib/posix.sh",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "lib/single.sh",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "usage",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "greet",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "log_info",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "run_pipeline",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "main",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "nested_wrapper",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "inner",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  }
+]

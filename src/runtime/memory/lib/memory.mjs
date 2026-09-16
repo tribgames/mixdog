@@ -8,6 +8,7 @@ import { resolve } from 'path'
 import { cleanMemoryText } from './memory-extraction.mjs'
 import { isInternalRuntimeNotificationText, isModelVisibleToolCompletionWrapper } from '../../shared/tool-execution-contract.mjs'
 import { isUnquotedToolCompletionHead } from './session-ingest.mjs'
+import { ensureCoreKeyIndex } from './core-memory-uniqueness.mjs'
 
 const dbs = new Map()
 const opening = new Map()
@@ -99,6 +100,7 @@ export async function init(db, dims, embeddingIdentity = null) {
       source_turn   INTEGER,
       time_source   TEXT,
       chunk_root    BIGINT REFERENCES entries(id) ON DELETE SET NULL,
+      duplicate_of  BIGINT REFERENCES entries(id) ON DELETE SET NULL,
       concept_id    BIGINT,
       supersedes_id BIGINT REFERENCES entries(id) ON DELETE SET NULL,
       is_root       SMALLINT NOT NULL DEFAULT 0,
@@ -106,12 +108,11 @@ export async function init(db, dims, embeddingIdentity = null) {
       category      TEXT,
       summary       TEXT,
       chunk_quality JSONB,
-      core_summary  TEXT,
       status        entry_status,
       score         REAL,
       last_seen_at  BIGINT,
       reviewed_at   BIGINT,
-      promoted_at   BIGINT,
+      cycle2_reviewed_at BIGINT,
       error_count   INTEGER NOT NULL DEFAULT 0,
       embedding     halfvec(${dimCount}),
       summary_hash  TEXT,
@@ -144,11 +145,7 @@ export async function init(db, dims, embeddingIdentity = null) {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_root_status_score ON entries(status, score DESC) WHERE is_root = 1`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_root_category     ON entries(category, status)   WHERE is_root = 1`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_pending     ON entries(ts DESC, id DESC) WHERE chunk_root IS NULL AND session_id IS NOT NULL`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_roots_active        ON entries(status, last_seen_at ASC, score DESC) WHERE is_root = 1 AND status = 'active'`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_project     ON entries(project_id) WHERE project_id IS NOT NULL`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_reviewed_at ON entries(reviewed_at ASC) WHERE is_root = 1`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_phase_sweep ON entries(status, is_root, error_count, reviewed_at, id)`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_promoted_at ON entries(promoted_at) WHERE promoted_at IS NOT NULL`)
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_tsv         ON entries USING GIN (search_tsv)`)
   // Recall CTEs (memory-recall-store.mjs dense/text legs) intentionally match
   // BOTH root and leaf/chunk rows, so their SQL has NO `is_root = 1` predicate
@@ -182,7 +179,7 @@ export async function init(db, dims, embeddingIdentity = null) {
   await db.exec(`DROP TRIGGER IF EXISTS trg_entries_score ON entries`)
   await db.exec(`
     CREATE TRIGGER trg_entries_score
-    BEFORE INSERT OR UPDATE OF category, last_seen_at, promoted_at, is_root ON entries
+    BEFORE INSERT OR UPDATE OF category, last_seen_at, is_root ON entries
     FOR EACH ROW
     EXECUTE FUNCTION trg_entry_score_recalc()
   `)
@@ -222,7 +219,7 @@ export async function init(db, dims, embeddingIdentity = null) {
     )
   `)
   await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_project_idx ON core_entries(project_id)`)
-  await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS core_entries_unique_proj_elem ON core_entries (project_id, element) NULLS NOT DISTINCT`)
+  await ensureCoreKeyIndex(db)
   await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
 
   await db.exec(`
@@ -245,22 +242,6 @@ export async function init(db, dims, embeddingIdentity = null) {
       COUNT(*) AS total
     FROM entries
   `)
-
-  // Hot active set — recall hot path uses the materialized copy. Refresh hook
-  // is owned by cycle2 (after promotion/archival). Created WITH NO DATA so
-  // bootstrap is fast; first refresh happens on the first cycle2 run.
-  await db.exec(`
-    CREATE MATERIALIZED VIEW IF NOT EXISTS mv_hot_active AS
-    SELECT id, element, summary, category, status, score, last_seen_at, promoted_at,
-           project_id, embedding, search_tsv
-    FROM entries
-    WHERE is_root = 1 AND status = 'active' AND embedding IS NOT NULL
-    WITH NO DATA
-  `)
-  await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS mv_hot_active_id ON mv_hot_active(id)`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_hnsw ON mv_hot_active USING hnsw (embedding halfvec_cosine_ops)`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_tsv  ON mv_hot_active USING GIN (search_tsv)`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_score ON mv_hot_active(score DESC)`)
 
   await db.query(
     `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
@@ -297,60 +278,6 @@ async function getEmbeddingColumnDims(db, tableName) {
   return row ? Number(row.atttypmod) : null
 }
 
-async function ensureHotActiveSearchObjects(db) {
-  await db.exec(`
-    CREATE MATERIALIZED VIEW IF NOT EXISTS mv_hot_active AS
-    SELECT id, element, summary, category, status, score, last_seen_at, promoted_at,
-           project_id, embedding, search_tsv
-    FROM entries
-    WHERE is_root = 1 AND status = 'active' AND embedding IS NOT NULL
-    WITH NO DATA
-  `)
-  await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS mv_hot_active_id ON mv_hot_active(id)`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_hnsw ON mv_hot_active USING hnsw (embedding halfvec_cosine_ops)`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_tsv  ON mv_hot_active USING GIN (search_tsv)`)
-  await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_score ON mv_hot_active(score DESC)`)
-}
-
-// Refresh mv_hot_active. Owned by cycle2 — call after promotion/archival/dedup
-// mutations land so the recall hot path reads the current active set. The MV is
-// created WITH NO DATA (memory.mjs:243), and an unpopulated MV CANNOT be
-// refreshed CONCURRENTLY, so the first refresh is non-concurrent; once populated
-// we refresh CONCURRENTLY (the mv_hot_active_id UNIQUE index — created at
-// :251/:293 — makes this legal) to avoid an AccessExclusive lock on the recall
-// read path. Best-effort: every failure is logged and swallowed so a refresh
-// error never crashes the cycle. Returns true when the view was refreshed.
-export async function refreshHotActive(db) {
-  try {
-    const r = await db.query(
-      `SELECT relispopulated FROM pg_class WHERE relname = 'mv_hot_active' LIMIT 1`,
-    )
-    if (!r.rows.length) {
-      __mixdogMemoryLog('[memory] refreshHotActive: mv_hot_active not found; skipping\n')
-      return false
-    }
-    if (Boolean(r.rows[0].relispopulated)) {
-      try {
-        await db.exec(`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_hot_active`)
-        return true
-      } catch (err) {
-        // CONCURRENTLY needs a populated MV + unique index; if either is not
-        // true (e.g. MV was reset since the catalog read), fall back to a plain
-        // refresh so the view still ends up fresh (brief AccessExclusive lock).
-        __mixdogMemoryLog(`[memory] refreshHotActive CONCURRENTLY failed, retrying non-concurrent: ${err?.message || err}\n`)
-        await db.exec(`REFRESH MATERIALIZED VIEW mv_hot_active`)
-        return true
-      }
-    }
-    // First refresh of a WITH-NO-DATA view — must be non-concurrent.
-    await db.exec(`REFRESH MATERIALIZED VIEW mv_hot_active`)
-    return true
-  } catch (err) {
-    __mixdogMemoryLog(`[memory] refreshHotActive failed: ${err?.message || err}\n`)
-    return false
-  }
-}
-
 export async function resetEmbeddingColumnsForModel(db, dimCount, embeddingIdentity = null) {
   const entriesDims = await getEmbeddingColumnDims(db, 'entries')
   const coreDims = await getEmbeddingColumnDims(db, 'core_entries')
@@ -372,6 +299,8 @@ export async function resetEmbeddingColumnsForModel(db, dimCount, embeddingIdent
     `(entries=${entriesDims ?? 'missing'}, core_entries=${coreDims ?? 'missing'})\n`,
   )
 
+  // Old installations may still have a derived view depending on embedding.
+  // Release that dependency only during a model migration; never recreate it.
   await db.exec(`DROP MATERIALIZED VIEW IF EXISTS mv_hot_active CASCADE`)
   await db.exec(`DROP INDEX IF EXISTS idx_entries_embedding_hnsw`)
   await db.exec(`DROP INDEX IF EXISTS core_entries_embedding_hnsw`)
@@ -533,9 +462,7 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
   } catch (err) {
     __mixdogMemoryLog(`[memory] notification-row cleanup failed: ${err?.message || err}\n`)
   }
-  // core_entries gained an embedding column for cross-table semantic dedup
-  // between user-curated rows and cycle2-promoted entries. ALTER + index are
-  // idempotent and define the current runtime schema.
+  // User-curated entries retain their own embeddings for explicit retrieval.
   if (Number.isInteger(dims) && dims > 0) {
     await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS embedding halfvec(${dims})`)
     // One-time migration for EXISTING deployments (bootstrap-complete DBs never
@@ -545,14 +472,16 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
     // startup). Only rebuild when the current index still carries the stale
     // root-only `is_root = 1` predicate; once broadened, the check is a no-op.
     await _migrateRecallIndexesIfStale(db)
-    // Residual (low risk, no action needed): cycle2's root-active embedding
-    // scans (memory-cycle2.mjs) now share this broader all-embedding HNSW
-    // instead of a root-only partial index; acceptable at current scale.
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
     await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`)
   }
-  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_summary text`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS chunk_quality jsonb`)
+  // Separate maintenance progress from legacy importance/status verdicts.
+  // Existing content and classification values remain untouched.
+  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS cycle2_reviewed_at bigint`)
+  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS duplicate_of bigint REFERENCES entries(id) ON DELETE SET NULL`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_duplicate_of ON entries(duplicate_of) WHERE duplicate_of IS NOT NULL`)
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_cycle2_unreviewed ON entries(ts DESC, id DESC) WHERE is_root = 1 AND cycle2_reviewed_at IS NULL`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS time_source text`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS concept_id bigint`)
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS supersedes_id bigint`)
@@ -578,60 +507,12 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
       SET supersedes_id = COALESCE(EXCLUDED.supersedes_id, entry_concepts.supersedes_id)
   `)
 
-  // Core-candidate promotion pipeline (proposal mode): active entries the
-  // cycle2 nomination pass flags as strong core-memory candidates. Never
-  // auto-inserted into core_entries — a user approves each via the
-  // action:'core' op:'promote' handler. Columns are nullable and the ALTERs
-  // are idempotent (ADD COLUMN IF NOT EXISTS), safe to re-run every boot.
-  //   core_candidate_status: NULL (not a candidate) | 'candidate' | 'promoting'
-  //     (mid-flight promote, recoverable) | 'promoted' | 'dismissed'
-  //   core_candidate_at:     ms timestamp of last nomination/state change
-  // 'dismissed'/'promoted' are terminal for a given root so the pass never
-  // re-nominates the same entry.
-  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_candidate_status text`)
-  await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS core_candidate_at bigint`)
-  // cycle3 supersession retirement: archive (status flip) instead of physical
-  // DELETE for facts a newer active fact replaced. Additive nullable columns —
-  // legacy rows read as NULL status = active. No data migration required.
+  // Preserve archived user-curated records from older versions.
+  // Legacy NULL status remains active; obsolete generated metadata is untouched.
   await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS status text`)
   await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS archived_at bigint`)
-  // No index on core_candidate_status by design (round-2 finding #4): the only
-  // readers are listCoreCandidates (user picker, on-demand) and
-  // nominateCoreCandidates (once per cycle2, hourly). Both are rare and the
-  // entries table is small enough that a seq scan is fine — an index isn't
-  // worth the boot-time AccessExclusive build lock on the hot entries table.
-  // Drop it if a previous deploy created it (idempotent no-op otherwise).
-  await db.exec(`DROP INDEX IF EXISTS idx_entries_core_candidate`)
 
-  // Dedupe core_entries before creating the unique index — keeps the row with
-  // the most recent updated_at (id breaks ties), drops the rest.
-  const dedupe = await db.query(`
-    WITH ranked AS (
-      SELECT id,
-             row_number() OVER (
-               PARTITION BY project_id, element
-               ORDER BY (CASE WHEN status IS NULL OR status = 'active' THEN 0 ELSE 1 END),
-                        updated_at DESC NULLS LAST, id DESC
-             ) AS rn
-      FROM core_entries
-    ), deleted AS (
-      DELETE FROM core_entries c
-      USING ranked r
-      WHERE c.id = r.id AND r.rn > 1
-      RETURNING c.id
-    )
-    SELECT count(*)::int AS n FROM deleted
-  `)
-  const deduped = Number(dedupe.rows?.[0]?.n ?? 0)
-  if (deduped > 0) {
-    __mixdogMemoryLog(`[memory] ensureCurrentSchemaExtensions: removed ${deduped} duplicate core_entries before unique index creation\n`)
-  }
-  try {
-    await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS core_entries_unique_proj_elem ON core_entries (project_id, element) NULLS NOT DISTINCT`)
-  } catch (err) {
-    __mixdogMemoryLog(`[memory] ensureCurrentSchemaExtensions: core_entries_unique_proj_elem creation failed — duplicate rows must be deduplicated before this index can be created: ${err?.message || err}\n`)
-    throw err
-  }
+  await ensureCoreKeyIndex(db)
 
   if (Number.isInteger(dims) && dims > 0) {
     await db.query(
@@ -648,7 +529,6 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
     )
   }
 
-  await ensureHotActiveSearchObjects(db)
 }
 
 export async function openDatabase(dataDir, dims, embeddingIdentity = null) {

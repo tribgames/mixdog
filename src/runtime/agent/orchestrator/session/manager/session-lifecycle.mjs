@@ -42,7 +42,6 @@ import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mj
 import { IMPLICIT_APPROVAL_MODE } from '../approval-mode.mjs';
 import { describeCwdStartupEntries, describeGitStartupState, describeShellToolsStartupState } from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
-import { publishPromptSurface } from './prompt-surface-publish.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
 
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
@@ -365,22 +364,6 @@ export function createSession(opts) {
         // the volatile environment rides the messages-tail breakpoint instead
         // of invalidating the stable BP3 core prefix.
         messages.push({ role: 'system', content: sessionEnvironment, cacheTier: 'env' });
-    }
-    // Lead sessions define the surface the user actually sees every turn;
-    // publish it for the memory cycles' restatement check. Core memory itself
-    // is deliberately excluded (it would match against itself), as is the
-    // volatile environment block.
-    if (!ownerIsAgent) {
-        publishPromptSurface({
-            rules: [
-                baseRules,
-                stableSystemContext,
-                opts.workflowContext || '',
-                roleRules || '',
-                languageContext || '',
-            ],
-            tools,
-        });
     }
     if (opts.files?.length) {
         const fileContext = opts.files

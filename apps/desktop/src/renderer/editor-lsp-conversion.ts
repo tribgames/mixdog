@@ -1,5 +1,5 @@
 import { monaco } from "./monaco-setup";
-import type { EditorGraphLocation } from "./editor-code-graph";
+import { codeGraphSymbolKindValue, type EditorGraphLocation } from "./editor-code-graph";
 
 interface EditorPathContext {
   projectPath: string;
@@ -33,19 +33,7 @@ export function graphLocationRange(
 }
 
 export function symbolKind(kind: string): import("monaco-editor").languages.SymbolKind {
-  switch (kind.toLowerCase()) {
-    case "class": return monaco.languages.SymbolKind.Class;
-    case "interface": return monaco.languages.SymbolKind.Interface;
-    case "function": return monaco.languages.SymbolKind.Function;
-    case "method": return monaco.languages.SymbolKind.Method;
-    case "constructor": return monaco.languages.SymbolKind.Constructor;
-    case "enum": return monaco.languages.SymbolKind.Enum;
-    case "property": return monaco.languages.SymbolKind.Property;
-    case "module":
-    case "namespace": return monaco.languages.SymbolKind.Module;
-    case "type": return monaco.languages.SymbolKind.Struct;
-    default: return monaco.languages.SymbolKind.Variable;
-  }
+  return codeGraphSymbolKindValue(kind) as import("monaco-editor").languages.SymbolKind;
 }
 
 export function lspSymbolKind(value: unknown): import("monaco-editor").languages.SymbolKind {

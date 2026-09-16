@@ -1,0 +1,77 @@
+# Call-site rules for TypeScript (loaded a second time as Tsx by
+# `calls::load_rules`, because `.ts` and `.tsx` are separate grammars).
+#
+# `a.b().c()` reports TWO calls (`b` on `a`, `c` on `a.b()`), because each
+# `call_expression` node carries its own callee name node. A tagged template
+# (``tag`x` ``) IS a `call_expression` in this grammar — the template is its
+# argument — so `tag` is reported like any other callee.
+#
+# `await x.m<T>(a)` as a bare statement is NOT reported: the grammar resolves
+# that shape to `<`/`>` comparisons, so no call node exists to match. Every
+# other position (`const r = x.m<T>(a)`, `x.m<T>(a);`) parses as a call.
+#
+# mixdog-call-kind: method
+id: ts-call-method
+language: TypeScript
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: member_expression
+    all:
+      - has:
+          field: property
+          pattern: $NAME
+      - has:
+          field: object
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: ts-call-plain
+language: TypeScript
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+---
+# `new a.B()` keeps the qualifier as the receiver; the kind stays `new`
+# because the constructor syntax is what decides it.
+# mixdog-call-kind: new
+id: ts-new-qualified
+language: TypeScript
+role: item
+symbolType: function
+rule:
+  kind: new_expression
+  has:
+    field: constructor
+    kind: member_expression
+    all:
+      - has:
+          field: property
+          pattern: $NAME
+      - has:
+          field: object
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: new
+id: ts-new
+language: TypeScript
+role: item
+symbolType: function
+rule:
+  kind: new_expression
+  has:
+    field: constructor
+    kind: identifier
+    pattern: $NAME
+name: $NAME

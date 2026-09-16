@@ -39,7 +39,7 @@ function bridgePresent(file) {
   }
 }
 
-export const INSTALLABLE_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office', 'localProvider']);
+export const INSTALLABLE_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office', 'tidy', 'localProvider']);
 const GRANDFATHERED_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office']);
 
 /** Model-facing activation for one gated feature: an explicit MIXDOG_FEATURE_*
@@ -60,6 +60,13 @@ export function builtinFeatureActive(configLike, id) {
   if (id === 'office') {
     return featureEnvOverride('MIXDOG_FEATURE_OFFICE')
       ?? (builtinInstalled(configLike, 'office') && moduleEnabled(configLike, 'office', true));
+  }
+  // Code tidy installs like office: the tool ships with the runtime, but the
+  // engines it drives are downloaded per project, so the user opts in once.
+  // The `code-tidy` skill follows through `requires: tidy`.
+  if (id === 'tidy') {
+    return featureEnvOverride('MIXDOG_FEATURE_TIDY')
+      ?? (builtinInstalled(configLike, 'tidy') && moduleEnabled(configLike, 'tidy', true));
   }
   if (id === 'localProvider') {
     return builtinInstalled(configLike, 'localProvider')
@@ -106,6 +113,7 @@ export function featureDisallowedToolsFor(configLike, {
     ...(computer ? [] : ['computer']),
     ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),
     ...(builtinFeatureActive(configLike, 'media') ? [] : ['media']),
+    ...(builtinFeatureActive(configLike, 'tidy') ? [] : ['tidy']),
   ];
   // Headless exec uses the Lead surface and excludes Skill/MCP tools. When
   // only its eager defaults remain, neither schemas nor loader guidance help.

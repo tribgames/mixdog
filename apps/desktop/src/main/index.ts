@@ -30,6 +30,7 @@ import {
   createComputerUseOverlay,
   type ComputerUseOverlay,
 } from './computer/overlay';
+import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -877,18 +878,17 @@ async function createWindow(): Promise<void> {
     const overlayComputerHost = computerHost;
     computerUseOverlay = createComputerUseOverlay({
       resume: (generation, signal) => overlayComputerHost.resumeAfterTakeover(generation, signal),
+      // Not a button: the overlay pauses input itself when its control
+      // renderer is lost, so the desktop never runs without a Stop control.
       pause: async () => overlayComputerHost.takeOver('user_pause'),
       configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
-      // Stop = end the owning agent turns. The runtime's abort path releases
-      // the computer session itself; the host-side stop is the fallback for
-      // sessions the desktop cannot address (e.g. subagents) and clears any
-      // takeover pause so the next turn starts clean.
+      // Stop native input immediately, independently of the daemon's turn
+      // cancellation reply. Only both confirmations may clear the pause.
       async stop(sessionIds) {
         overlayComputerHost.takeOver('user_stop');
-        await Promise.allSettled(
-          sessionIds.map((sessionId) => host.abortSession(sessionId)),
+        await overlayComputerHost.stopAllSessions(
+          confirmComputerTurnsStopped(sessionIds, async (sessionId) => host.abortSession(sessionId)),
         );
-        await overlayComputerHost.stopAllSessions();
       },
     }, app.getLocale());
   }

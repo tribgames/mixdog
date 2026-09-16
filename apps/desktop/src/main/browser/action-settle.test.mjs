@@ -4,6 +4,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { createBrowserSettle } from './settle.ts';
 import { BrowserNetworkLedger } from './network.ts';
+import { browserRenderCheckpoint } from './render-checkpoint.ts';
 
 function fixture(t) {
   const dom = new JSDOM('<main>Initial</main>', { runScripts: 'outside-only' });
@@ -19,6 +20,10 @@ function fixture(t) {
     evaluate: async (_guest, expression, signal) => {
       signal?.throwIfAborted();
       return dom.window.eval(expression);
+    },
+    renderCheckpoint: async (_guest, background, signal) => {
+      signal?.throwIfAborted();
+      await dom.window.eval(browserRenderCheckpoint(background));
     },
     pageText: async () => dom.window.document.body.textContent,
     quietMs: 20, domTimeoutMs: 200, loadTimeoutMs: 200,
@@ -63,7 +68,7 @@ test('action settlement fails closed on cancellation and failed rendering', asyn
     { background: true }), /cancelled/);
   const broken = createBrowserSettle({
     diagnostics: () => f.diagnostics,
-    evaluate: async () => { throw new Error('renderer unavailable'); },
+    renderCheckpoint: async () => { throw new Error('renderer unavailable'); },
     pageText: async () => '', quietMs: 20, domTimeoutMs: 200, loadTimeoutMs: 200,
   });
   await assert.rejects(broken.settleAfterAction(f.guest, undefined, undefined,

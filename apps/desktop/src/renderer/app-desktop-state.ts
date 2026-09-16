@@ -6,6 +6,7 @@ import type { SessionSnapshot } from "../shared/contract";
 import { type Snapshot, EMPTY_SNAPSHOT } from "./desktop-types";
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from "./remote-connection-state";
 import { remoteSurface } from "./shell-viewport";
+import { holdStatsDataCache } from "./command-surface-cache";
 import {
   createDesktopSnapshotStore,
   desktopSnapshotUpdateIsUrgent,
@@ -47,6 +48,7 @@ export function useDesktopState() {
       return;
     }
     let live = true;
+    const releaseStats = holdStatsDataCache(host);
     const update = (next: SessionSnapshot | null) => {
       if (live) {
         applyReceivedSnapshot(next);
@@ -80,6 +82,7 @@ export function useDesktopState() {
     const unsubscribe = host.subscribeState(update);
     return () => {
       live = false;
+      releaseStats();
       cancelLayoutFrame(snapshotStore);
       unsubscribeConnection();
       unsubscribe?.();

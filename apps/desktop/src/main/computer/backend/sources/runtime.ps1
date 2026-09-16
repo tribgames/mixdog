@@ -1,11 +1,11 @@
 
 function Get-WindowCapture($req) {
   $info = Resolve-WindowInfo $req.window $req.window_id
-  try {
-    $capture = [MixWin32]::CaptureVisibleWindow($info.Handle)
-  } catch {
-    throw "native window capture failed for $($info.Id): $($_.Exception.Message)"
-  }
+  $capture = if ($req.capture_backend -eq 'wgc') {
+    Get-WindowGraphicsCapture $info.Handle
+  } elseif (-not $req.capture_backend -or $req.capture_backend -eq 'print_window') {
+    [MixWin32]::CaptureWindowSurface($info.Handle)
+  } else { throw 'capture_source_unavailable|unknown window capture backend' }
   return @{
     text = ('native window capture: ' + $info.Title)
     title = $info.Title
@@ -14,8 +14,8 @@ function Get-WindowCapture($req) {
     y = $capture.Y
     width = $capture.Width
     height = $capture.Height
-    visible_samples = $capture.VisibleSamples
-    capture_source = 'screen_region'
+    capture_source = 'window_surface'
+    capture_cleanup = @{ status = 'confirmed' }
     image_base64 = $capture.PngBase64
   }
 }
@@ -255,17 +255,19 @@ function Do-Type($req) {
       return Background-Unavailable 'type' 'background type requires an exact ref or window_id' $null 'target_required'
     }
     $before = Get-ObservableTargetState $refRecord 'type'
+    $pointerCompleted = $false
     try {
       if ($null -ne $req.x -and $null -ne $req.y) {
         [void][MixWin32]::BackgroundPointer(
           $target, [int]$req.x, [int]$req.y, 'click', $null)
+        $pointerCompleted = $true
         Start-Sleep -Milliseconds 80
       }
       Assert-ExecutionAuthorization $req $target
       $messageTarget = [MixWin32]::BackgroundText($target, $preferred, $text)
       return Complete-NativeAction 'type' $messageTarget ([MixWin32]::WindowId($target)) $before $refRecord "typed $($text.Length) literal characters into $messageTarget as native window messages"
     } catch {
-      return Native-BackgroundFailure 'type' $_.Exception ([MixWin32]::WindowId($target))
+      return Native-BackgroundFailure 'type' $_.Exception ([MixWin32]::WindowId($target)) $pointerCompleted
     }
   }
   $target = [IntPtr]::Zero
@@ -606,6 +608,28 @@ function Handle($req) {
     'focus_window' { return Do-Focus $req }
     'window_bounds'{ return Get-WindowBounds $req }
     'window_capture'{ return Get-WindowCapture $req }
+    'validate_background_input' {
+      $info = Resolve-WindowInfo $req.window $req.window_id
+      try {
+        foreach ($step in @($req.steps)) {
+          $target = $info.Handle
+          $preferred = [IntPtr]::Zero
+          if ($step.ref) {
+            $record = Get-RefRecord $step.ref
+            if ($record.Kind -ne 'uia') {
+              throw 'background_unsupported|semantic ref exposes no exact native keyboard target; no input sent'
+            }
+            $target = Get-RefTopHandle $record
+            $preferred = Get-ExactNativeElementHandle $record.Element
+            if ($preferred -eq [IntPtr]::Zero) {
+              throw 'background_unsupported|element exposes no exact native keyboard target; no input sent'
+            }
+          }
+          [MixWin32]::ValidateBackgroundInput($target, $preferred, [string]$step.action, [string]$step.keys)
+        }
+      } catch { throw $_.Exception.GetBaseException().Message }
+      return @{ text = 'background input preflight passed'; input_not_dispatched = $true }
+    }
     'window_predicates'{ return Get-WindowPredicates $req }
     'invoke_menu'  { return Do-InvokeMenu $req }
     'window_integrity'{ return Get-WindowIntegrity $req }
@@ -652,6 +676,7 @@ while ($true) {
   if ($null -eq $line) { break }
   if ($line.Trim().Length -eq 0) { continue }
   $id = 0
+  $retireAfterReply = $false
   try {
     $req = $line | ConvertFrom-Json
     $id = [int]$req.id
@@ -681,7 +706,15 @@ while ($true) {
     while ($null -ne $failure.InnerException -and $failure.Message -notmatch '^[a-z][a-z0-9_]+:') {
       $failure = $failure.InnerException
     }
-    $out = @{ id = $id; ok = $false; error = "$($failure.Message)" } | ConvertTo-Json -Compress
+    $envelope = @{ id = $id; ok = $false; error = "$($failure.Message)" }
+    if ($req.action -eq 'window_capture' -and $failure.Data.Contains('CaptureCleanup')) {
+      $cleanup = $failure.Data['CaptureCleanup']
+      $envelope.result = @{ capture_cleanup = $cleanup }
+      # Never reuse a worker whose asynchronous work or resource release is unconfirmed.
+      $retireAfterReply = $cleanup.status -ne 'confirmed'
+    }
+    $out = $envelope | ConvertTo-Json -Compress -Depth 6
   }
   [Console]::Out.WriteLine('@@MIXDOG_RESPONSE_MARKER@@' + $out)
+  if ($retireAfterReply) { break }
 }

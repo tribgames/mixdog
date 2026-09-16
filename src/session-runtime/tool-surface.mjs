@@ -100,7 +100,11 @@ export function createToolSurface({
       filterModelToolsForProfile(previewTools, getToolProfile()),
       denied,
     );
-    const surface = { tools: Array.isArray(tools) ? tools.slice() : [], mcpScopeId: getMcpScopeId() };
+    const surface = {
+      tools: Array.isArray(tools) ? tools.slice() : [],
+      mcpScopeId: getMcpScopeId(),
+      cwd: getCurrentCwd?.() || null,
+    };
     applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), {
       provider: getRoute().provider,
       model: getRoute().model,

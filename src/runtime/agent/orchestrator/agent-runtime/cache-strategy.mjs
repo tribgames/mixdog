@@ -45,7 +45,7 @@ import { getHiddenAgent } from '../internal-agents.mjs';
 import { nonNegativeInt, positiveInt } from '../../../shared/numbers.mjs';
 
 /**
- * One-shot, tool-free maintenance hidden roles (cycle1/cycle2/cycle3-agent):
+ * One-shot, tool-free maintenance hidden roles (cycle1/cycle2-agent):
  * a fresh stateless session is created per call, asked exactly once, and
  * closed (agent-dispatch.mjs) — the per-batch user prompt can NEVER be reused.
  * Writing a message-tail cache breakpoint on it just pays the 1.25x write

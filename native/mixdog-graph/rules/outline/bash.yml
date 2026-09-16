@@ -1,0 +1,53 @@
+# mixdog-kind: import
+# Ports extract_raw_imports bash_source: `source path` / `. path` (optional quotes stripped).
+id: bash-source
+language: Bash
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: command
+    - has:
+        field: name
+        regex: '^(source|\.)$'
+    - has:
+        field: argument
+        pattern: $PATH
+transform:
+  SPEC:
+    replace:
+      source: $PATH
+      replace: '^[''"]|[''"]$'
+      by: ''
+name: $SPEC
+isImport: true
+isExported: false
+---
+# mixdog-kind: function
+# Ports (function_definition name: (word) @name).
+id: bash-function
+language: Bash
+role: item
+symbolType: function
+rule:
+  kind: function_definition
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: function
+# Nested `f() { g() { ... } }` is a member because outline items prune their subtree.
+id: bash-nested-function
+language: Bash
+role: member
+parentRuleIds: [bash-function]
+symbolType: function
+rule:
+  kind: function_definition
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+isPublic: true

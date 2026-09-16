@@ -81,19 +81,35 @@ function Remember-FocusOrigin($state, $previous, $target) {
   }
 }
 
-function Await-WinRt($operation, [Type]$resultType) {
+function Await-WinRt($operation, [Type]$resultType, [int]$timeoutMilliseconds = -1) {
   if ($null -eq $script:WinRtAsTaskGeneric) {
     $script:WinRtAsTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
       Where-Object {
         $_.Name -eq 'AsTask' -and
-        $_.GetParameters().Count -eq 1 -and
-        $_.GetParameters()[0].ParameterType.Name.StartsWith('IAsyncOperation')
+        $_.IsGenericMethodDefinition -and $_.GetGenericArguments().Count -eq 1 -and
+        $_.GetParameters().Count -eq 2 -and
+        $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' -and
+        $_.GetParameters()[1].ParameterType -eq [Threading.CancellationToken]
       })[0]
   }
   $asTask = $script:WinRtAsTaskGeneric.MakeGenericMethod($resultType)
-  $task = $asTask.Invoke($null, @($operation))
-  $task.Wait(-1) | Out-Null
-  return $task.Result
+  $cancellation = [Threading.CancellationTokenSource]::new()
+  try {
+    $task = $asTask.Invoke($null, @($operation, $cancellation.Token))
+    $grace = if ($timeoutMilliseconds -lt 0) { 0 } else { [Math]::Min(100, $timeoutMilliseconds) }
+    $wait = if ($timeoutMilliseconds -lt 0) { -1 } else { $timeoutMilliseconds - $grace }
+    if (-not $task.Wait($wait)) {
+      $timeout = [TimeoutException]::new('winrt_timeout|WinRT operation exceeded its remaining capture budget')
+      try {
+        $cancellation.Cancel()
+        # Completion can be cancelled or faulted; neither turns timeout into success.
+        try { [void]$task.Wait($grace) } catch {}
+        $timeout.Data['WinRtCancellation'] = if ($task.IsCompleted) { 'settled' } else { 'unconfirmed' }
+      } catch { $timeout.Data['WinRtCancellation'] = 'failed' }
+      throw $timeout
+    }
+    return $task.Result
+  } finally { $cancellation.Dispose() }
 }
 
 function Resolve-WindowInfo($title, $windowId) {

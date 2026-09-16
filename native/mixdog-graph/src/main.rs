@@ -1,11 +1,13 @@
 // mixdog-graph — native fast-path for code-graph build.
 //
-// Stage-2: walk a project root, identify source files by extension,
-// read each file, and extract per-language metadata:
-//   - identifier tokens (Unicode-aware, language-agnostic)
-//   - raw imports (per-language regex)
-//   - package / namespace names (Java/Kotlin/C#)
-//   - go package + top-level type names (Java/Kotlin/C#/Go)
+// Walk a project root, identify source files by extension, read each file,
+// and extract per-language metadata from ONE ast-grep parse per file:
+//   - identifier tokens (grammar identifier nodes; see `tokens.rs`)
+//   - raw imports + symbols + call sites (outline/call rules)
+//   - package / namespace names (Java/Kotlin/C#) and the Go package, from
+//     their declaration nodes
+//   - top-level type names (Java/Kotlin/C#/Go) — the one regex survivor,
+//     see `TypePatterns`
 //
 // Output (JSONL on stdout, one object per file):
 //   {"rel": "...", "lang": "...", "fp": "...", "size": N,
@@ -28,11 +30,14 @@ use rayon::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use streaming_iterator::StreamingIterator;
-use tree_sitter::{Parser, Query, QueryCursor};
 
-use mixdog_graph::lang::{comment_family, lang_for, lang_static, CommentFamily};
+use mixdog_graph::lang::{lang_for, lang_static};
+use mixdog_graph::calls::CallInfo;
+use mixdog_graph::outline::{self, SymbolInfo};
+use mixdog_graph::scan;
+use mixdog_graph::scan_lang::scan_lang_for_path;
 use mixdog_graph::serve_search;
+use mixdog_graph::tokens;
 
 // Mirrors CODE_GRAPH_MAX_FILES on the Node side. --walk caps parse work
 // here so large repos don't pay full parse cost before truncation.
@@ -87,6 +92,15 @@ struct FileRecord {
     imported_by: Vec<String>,
     #[serde(rename = "symbols", skip_serializing_if = "Vec::is_empty")]
     symbols: Vec<SymbolInfo>,
+    // Call sites from the same outline walk (Stage 3-A). Additive, and
+    // TRI-STATE: `[]` is a KNOWN-EMPTY answer (an extraction language parsed
+    // this file and it has no call sites), while an omitted key means no call
+    // extraction ran for this record at all — a manifest/reused record, a
+    // file that failed to decode, or a language with no rules. The consumer
+    // falls back to its text heuristic only on the omitted case, so an empty
+    // parse result must NOT be omitted.
+    #[serde(rename = "calls", skip_serializing_if = "Option::is_none")]
+    calls: Option<Vec<CallInfo>>,
 }
 
 // Reused-node meta arriving on stdin for --files full-graph resolution.
@@ -133,166 +147,53 @@ fn record_from_reused(meta: ReusedMeta) -> FileRecord {
         resolved_imports: Vec::new(),
         imported_by: Vec::new(),
         symbols: Vec::new(),
+        // Reused nodes are not parsed here; JS already holds their calls.
+        calls: None,
     }
 }
 
-struct Patterns {
-    token: Regex,
-    js_import: Regex,
-    py_from_import: Regex,
-    py_import: Regex,
-    go_import_block: Regex,
-    go_import_quoted: Regex,
-    rust_use: Regex,
-    rust_mod: Regex,
-    java_kotlin_import: Regex,
-    csharp_using: Regex,
-    c_cpp_include: Regex,
-    ruby_require: Regex,
-    php_use: Regex,
-    php_require: Regex,
-    swift_import: Regex,
-    scala_import: Regex,
-    bash_source: Regex,
-    lua_require: Regex,
-    dart_import: Regex,
-    objc_import: Regex,
-    elixir_import: Regex,
-    zig_import: Regex,
-    r_require: Regex,
-    java_kotlin_package: Regex,
-    csharp_namespace: Regex,
-    go_package: Regex,
+// THE ONE REGEX SURVIVOR: `topLevelTypes`.
+//
+// Every other file-level field now comes from the parse tree — tokens and
+// package/namespace/goPackage from the outline walk, imports and symbols from
+// the rules. `topLevelTypes` cannot follow, because its VALUE SET is not the
+// set of declared types: the pattern is a plain word scan, so it also reports
+// * the word after a keyword pair — `enum class Mode` yields `class`;
+// * matches in prose — a doc comment saying "the struct value is …" yields
+//   `value`, and this repo's own C# sources carry `value`, `child`, `raw`,
+//   `is`, `accessible`, … in `topLevelTypes` today.
+// Those strings are not noise the graph can drop: `java`/`kotlin` import
+// resolution indexes `<packageName>.<type>` by exactly these strings
+// (`type_by_fqcn`), and the field is part of the reused-node protocol the JS
+// side sends back on `--files`. An AST rule can only ever report real type
+// declarations, which is a DIFFERENT set, so the scan stays a regex and the
+// `regex` crate stays a dependency.
+struct TypePatterns {
     type_decl_jks: Regex,
     go_type: Regex,
 }
 
-impl Patterns {
+impl TypePatterns {
     fn new() -> Self {
-        let token = Regex::new(r"[$@]?[\p{XID_Start}_][\p{XID_Continue}]*[!?]?").unwrap();
-        let js_import = Regex::new(
-            r#"(?m)(?:import|export)\s+(?:[^'"]*?\s+from\s+)?["']([^"']+)["']|require\(\s*["']([^"']+)["']\s*\)|import\(\s*["']([^"']+)["']\s*\)"#,
-        )
-        .unwrap();
-        let py_from_import = Regex::new(r"(?m)^\s*from\s+([.\w]+)\s+import\s+").unwrap();
-        let py_import = Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_., ]+)").unwrap();
-        let go_import_block = Regex::new(r#"(?ms)import\s*(?:\(([\s\S]*?)\)|"([^"]+)")"#).unwrap();
-        let go_import_quoted = Regex::new(r#""([^"]+)""#).unwrap();
-        let rust_use = Regex::new(r"(?m)^\s*use\s+([^;]+);").unwrap();
-        let rust_mod =
-            Regex::new(r"(?m)^\s*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
-                .unwrap();
-        let java_kotlin_import = Regex::new(r"(?m)^\s*import\s+([^\n;]+);?$").unwrap();
-        let csharp_using = Regex::new(r"(?m)^\s*using\s+([^;]+);$").unwrap();
-        let c_cpp_include = Regex::new(r#"(?m)^\s*#include\s+(?:"([^"]+)"|<([^>]+)>)"#).unwrap();
-        let ruby_require =
-            Regex::new(r#"(?m)^\s*require(?:_relative)?\s+["']([^"']+)["']"#).unwrap();
-        let php_use = Regex::new(r"(?m)^\s*use\s+([^;]+);$").unwrap();
-        let php_require =
-            Regex::new(r#"(?m)^\s*(?:require|include)(?:_once)?\s*(?:\(?\s*)["']([^"']+)["']"#)
-                .unwrap();
-        // Swift: `import Foo` / `import Foo.Bar` / `import class Foo.Bar`.
-        let swift_import = Regex::new(
-            r"(?m)^\s*import\s+(?:typealias\s+|struct\s+|class\s+|enum\s+|protocol\s+|let\s+|var\s+|func\s+)?([A-Za-z_][A-Za-z0-9_.]*)",
-        )
-        .unwrap();
-        // Scala: `import x.y.z`, `import x.y.{a, b}`, `import x.y._`. Capture
-        // the dotted prefix; selector braces/wildcard are dropped downstream.
-        let scala_import = Regex::new(r"(?m)^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)").unwrap();
-        // Bash: `source path` or `. path` (POSIX dot-include).
-        let bash_source = Regex::new(r#"(?m)^\s*(?:source|\.)\s+["']?([^\s"';]+)["']?"#).unwrap();
-        // Lua: `require("x")`, `require 'x'`, `require[[x]]`.
-        let lua_require = Regex::new(r#"require\s*(?:\(\s*)?["']([^"']+)["']"#).unwrap();
-        // Dart: `import 'package:x/y.dart';` / `import './local.dart';`
-        // (also export/part). Capture the quoted uri. `part of 'lib.dart'` is
-        // deliberately NOT captured: it points BACK to the owning library, and
-        // the forward `part 'x.dart'` edge already records the library→part
-        // pair, so the reverse edge would be redundant.
-        let dart_import =
-            Regex::new(r#"(?m)^\s*(?:import|export|part)\s+["']([^"']+)["']"#).unwrap();
-        // Objective-C: `#import <Foo/Bar.h>` / `#import "Bar.h"` and the
-        // module form `@import UIKit;`. Capture whichever spec form matched.
-        let objc_import = Regex::new(
-            r#"(?m)^\s*(?:#import\s+(?:<([^>]+)>|"([^"]+)")|@import\s+([A-Za-z_][A-Za-z0-9_.]*))"#,
-        )
-        .unwrap();
-        // Elixir: `import`/`alias`/`require`/`use Foo.Bar`. Capture the dotted
-        // module alias (begins with an uppercase letter).
-        let elixir_import = Regex::new(
-            r"(?m)^\s*(?:import|alias|require|use)\s+([A-Z][A-Za-z0-9_.]*(?:\{[^}]+\})?)",
-        )
-        .unwrap();
-        // Zig: `@import("std")` / `@import("./x.zig")`. Capture the quoted spec.
-        let zig_import = Regex::new(r#"@import\s*\(\s*"([^"]+)"\s*\)"#).unwrap();
-        // R: `library(x)` / `require(x)` (bare or quoted name) and
-        // `source("path.R")` (quoted path). Capture whichever form matched.
-        let r_require = Regex::new(
-            r#"(?m)(?:library|require)\s*\(\s*["']?([A-Za-z_][A-Za-z0-9_.]*)["']?\s*\)|source\s*\(\s*["']([^"']+)["']\s*\)"#,
-        )
-        .unwrap();
-        let java_kotlin_package =
-            Regex::new(r"(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;?\s*$").unwrap();
-        let csharp_namespace =
-            Regex::new(r"(?m)^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*[;{]").unwrap();
-        let go_package = Regex::new(r"(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)\s*$").unwrap();
         let type_decl_jks = Regex::new(
             r"\b(?:class|interface|enum|record|object|struct)\s+([A-Za-z_][A-Za-z0-9_]*)",
         )
         .unwrap();
         let go_type = Regex::new(r"(?m)^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
-        Patterns {
-            token,
-            js_import,
-            py_from_import,
-            py_import,
-            go_import_block,
-            go_import_quoted,
-            rust_use,
-            rust_mod,
-            java_kotlin_import,
-            csharp_using,
-            c_cpp_include,
-            ruby_require,
-            php_use,
-            php_require,
-            swift_import,
-            scala_import,
-            bash_source,
-            lua_require,
-            dart_import,
-            objc_import,
-            elixir_import,
-            zig_import,
-            r_require,
-            java_kotlin_package,
-            csharp_namespace,
-            go_package,
+        TypePatterns {
             type_decl_jks,
             go_type,
         }
     }
 }
 
-fn extract_tokens(text: &str, p: &Patterns) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for m in p.token.find_iter(text) {
-        let s = m.as_str();
-        if seen.insert(s.to_string()) {
-            out.push(s.to_string());
-        }
-    }
-    out
-}
-
-// String-aware comment stripper for JS-like languages. Replaces `//`
-// line comments and `/* */` block comments with whitespace (preserving
-// line breaks so regex anchors `^\s*` still work). String literals
-// (single/double/backtick) are passed through verbatim so `//` inside
-// a quoted spec doesn't get stripped. Mirrors JS's
-// `_stripCommentsForImports` closely enough for import detection on
-// js/ts/jsx/tsx/java/kotlin/csharp/c/cpp/rust files.
-fn strip_comments_curly(text: &str, mask_strings: bool) -> String {
+// JSON-with-comments stripper for `tsconfig.json` / `jsconfig.json` /
+// `package.json`: replaces `//` line comments and `/* */` block comments with
+// whitespace (newlines preserved) while passing string literals through
+// verbatim, so a `//` inside a quoted path survives. Source files are never
+// stripped any more — comments and string bodies are excluded from tokens,
+// symbols and search by the parse tree itself.
+fn strip_jsonc_comments(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(text.len());
     let mut i = 0usize;
@@ -302,38 +203,16 @@ fn strip_comments_curly(text: &str, mask_strings: bool) -> String {
         let c = bytes[i];
         if let Some(delim) = in_string {
             if c == b'\\' && i + 1 < n {
-                if mask_strings {
-                    // Mask both bytes; ASCII-space substitution preserves
-                    // byte length and UTF-8 validity.
-                    out.push(b' ');
-                    let nxt = bytes[i + 1];
-                    out.push(if nxt == b'\n' { b'\n' } else { b' ' });
-                } else {
-                    // Import-spec extraction keeps string contents verbatim,
-                    // so copy the escape pair as-is.
-                    out.push(c);
-                    out.push(bytes[i + 1]);
-                }
+                // Keep the escape pair as-is: the quoted value is the payload.
+                out.push(c);
+                out.push(bytes[i + 1]);
                 i += 2;
                 continue;
             }
             if c == delim {
                 in_string = None;
-                out.push(c);
-            } else if c == b'\n' {
-                // Preserve newlines (template literals can span lines) so
-                // downstream `^\s*` anchors keep their line geometry.
-                out.push(b'\n');
-            } else if mask_strings {
-                // Mask every other byte so symbol search does not fire on
-                // identifiers embedded in string literals. Per-byte ASCII-
-                // space substitution preserves byte length and UTF-8 validity.
-                out.push(b' ');
-            } else {
-                // Import-spec extraction needs the quoted module path inside
-                // the literal, so keep the byte verbatim.
-                out.push(c);
             }
+            out.push(c);
             i += 1;
             continue;
         }
@@ -353,8 +232,7 @@ fn strip_comments_curly(text: &str, mask_strings: bool) -> String {
             continue;
         }
         if c == b'/' && i + 1 < n && bytes[i + 1] == b'*' {
-            // block comment: skip until */; preserve newlines so line
-            // anchors downstream still work
+            // block comment: skip until */, keeping newlines
             i += 2;
             while i + 1 < n && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
                 if bytes[i] == b'\n' {
@@ -372,343 +250,10 @@ fn strip_comments_curly(text: &str, mask_strings: bool) -> String {
     }
     // Input was &str (valid UTF-8) and we only ever emit verbatim bytes from
     // it or ASCII spaces; the result is always valid UTF-8.
-    String::from_utf8(out).expect("strip_comments_curly preserves UTF-8 invariant")
+    String::from_utf8(out).expect("strip_jsonc_comments preserves UTF-8 invariant")
 }
 
-// Python/Ruby/shell-style # line-comment stripper. Simpler than the
-// curly-brace variant because there's no block-comment form to track.
-fn strip_comments_hash(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for line in text.split_inclusive('\n') {
-        if let Some(idx) = line.find('#') {
-            out.push_str(&line[..idx]);
-            if line.ends_with('\n') {
-                out.push('\n');
-            }
-        } else {
-            out.push_str(line);
-        }
-    }
-    out
-}
-
-// Lua line/block-comment stripper. Lua comments are `--` to end of line, and
-// `--[[ ... ]]` (with optional `=` level markers, e.g. `--[==[ ... ]==]`) for
-// block comments. Replaces comment bytes with spaces (newlines preserved) so
-// downstream line anchors keep their geometry. String literals are not tracked
-// (import detection only needs `require("x")` outside comments, and a `--`
-// inside a string is rare enough to tolerate).
-fn strip_comments_lua(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(text.len());
-    let mut i = 0usize;
-    let n = bytes.len();
-    while i < n {
-        // A comment starts only at `--`.
-        if bytes[i] == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
-            // Space-replace the `--` so tokens on either side stay separated
-            // (e.g. `requ--[[x]]ire` must not join into `require`).
-            out.push(b' ');
-            out.push(b' ');
-            i += 2;
-            // Possible long-bracket block comment: `[`, optional `=`*, `[`.
-            let j = i;
-            if j < n && bytes[j] == b'[' {
-                let mut level = 0usize;
-                let mut k = j + 1;
-                while k < n && bytes[k] == b'=' {
-                    level += 1;
-                    k += 1;
-                }
-                if k < n && bytes[k] == b'[' {
-                    // Long block comment: skip until matching `]` `=`*level `]`.
-                    // Space-replace the opener bytes (`[` `=`*level `[`).
-                    out.extend(std::iter::repeat_n(b' ', k - j + 1));
-                    i = k + 1;
-                    loop {
-                        if i >= n {
-                            break;
-                        }
-                        if bytes[i] == b']' {
-                            let mut m = i + 1;
-                            let mut eq = 0usize;
-                            while m < n && bytes[m] == b'=' {
-                                eq += 1;
-                                m += 1;
-                            }
-                            if eq == level && m < n && bytes[m] == b']' {
-                                // Space-replace the closer (`]` `=`*level `]`).
-                                out.extend(std::iter::repeat_n(b' ', m - i + 1));
-                                i = m + 1;
-                                break;
-                            }
-                        }
-                        if bytes[i] == b'\n' {
-                            out.push(b'\n');
-                        } else {
-                            out.push(b' ');
-                        }
-                        i += 1;
-                    }
-                    continue;
-                }
-            }
-            // Line comment: skip to end of line, keep the newline.
-            while i < n && bytes[i] != b'\n' {
-                out.push(b' ');
-                i += 1;
-            }
-            continue;
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8(out).expect("strip_comments_lua preserves UTF-8 invariant")
-}
-
-fn extract_raw_imports(text: &str, lang: &str, p: &Patterns) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    let mut push = |s: &str| {
-        let trimmed = s.trim();
-        if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {
-            out.push(trimmed.to_string());
-        }
-    };
-    // Comment-strip per language family before applying import regex so
-    // commented-out imports don't appear as live dependencies. JS-style
-    // // + /* */ for the curly-brace family; # for Python/Ruby/shell.
-    let cleaned: String;
-    let scan_text: &str = match comment_family(lang, false) {
-        CommentFamily::Curly { mask_strings } => {
-            cleaned = strip_comments_curly(text, mask_strings);
-            cleaned.as_str()
-        }
-        CommentFamily::Hash => {
-            cleaned = strip_comments_hash(text);
-            cleaned.as_str()
-        }
-        CommentFamily::Lua => {
-            cleaned = strip_comments_lua(text);
-            cleaned.as_str()
-        }
-    };
-    match lang {
-        "javascript" | "typescript" => {
-            for cap in p.js_import.captures_iter(scan_text) {
-                let spec = cap
-                    .get(1)
-                    .or_else(|| cap.get(2))
-                    .or_else(|| cap.get(3))
-                    .map(|m| m.as_str());
-                if let Some(s) = spec {
-                    push(s);
-                }
-            }
-        }
-        "python" => {
-            for cap in p.py_from_import.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-            for cap in p.py_import.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    for part in m.as_str().split(',') {
-                        let base = part.split_whitespace().next().unwrap_or("");
-                        push(base);
-                    }
-                }
-            }
-        }
-        "go" => {
-            for cap in p.go_import_block.captures_iter(scan_text) {
-                if let Some(direct) = cap.get(2) {
-                    push(direct.as_str());
-                    continue;
-                }
-                if let Some(block) = cap.get(1) {
-                    for inner in p.go_import_quoted.captures_iter(block.as_str()) {
-                        if let Some(m) = inner.get(1) {
-                            push(m.as_str());
-                        }
-                    }
-                }
-            }
-        }
-        "rust" => {
-            for cap in p.rust_use.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-            for cap in p.rust_mod.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(&format!("mod::{}", m.as_str()));
-                }
-            }
-        }
-        "java" | "kotlin" => {
-            for cap in p.java_kotlin_import.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "csharp" => {
-            for cap in p.csharp_using.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "c" | "cpp" => {
-            for cap in p.c_cpp_include.captures_iter(scan_text) {
-                let spec = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str());
-                if let Some(s) = spec {
-                    push(s);
-                }
-            }
-        }
-        "ruby" => {
-            for cap in p.ruby_require.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "php" => {
-            for cap in p.php_use.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    for spec in expand_php_use_spec(m.as_str()) {
-                        push(&spec);
-                    }
-                }
-            }
-            for cap in p.php_require.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "swift" => {
-            for cap in p.swift_import.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "scala" => {
-            for cap in p.scala_import.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    // The regex stops at `{` (so `import x.y.{a,b}` captures
-                    // `x.y.`) but the `_` wildcard is a valid identifier char,
-                    // so `import x.y._` captures `x.y._`. Strip a trailing `_`
-                    // wildcard segment and any trailing dot to leave just the
-                    // dotted-identifier prefix.
-                    let mut spec = m.as_str().trim();
-                    if let Some(stripped) = spec.strip_suffix("._") {
-                        spec = stripped;
-                    }
-                    push(spec.trim_end_matches('.'));
-                }
-            }
-        }
-        "bash" => {
-            for cap in p.bash_source.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "lua" => {
-            for cap in p.lua_require.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "dart" => {
-            for cap in p.dart_import.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "objc" => {
-            for cap in p.objc_import.captures_iter(scan_text) {
-                // Group 1 = `<...>` header, 2 = `"..."` header, 3 = `@import`
-                // module. Exactly one matches per capture.
-                let spec = cap
-                    .get(1)
-                    .or_else(|| cap.get(2))
-                    .or_else(|| cap.get(3))
-                    .map(|m| m.as_str());
-                if let Some(s) = spec {
-                    push(s);
-                }
-            }
-        }
-        "elixir" => {
-            for cap in p.elixir_import.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    for spec in expand_elixir_alias_spec(m.as_str()) {
-                        push(&spec);
-                    }
-                }
-            }
-        }
-        "zig" => {
-            for cap in p.zig_import.captures_iter(scan_text) {
-                if let Some(m) = cap.get(1) {
-                    push(m.as_str());
-                }
-            }
-        }
-        "r" => {
-            for cap in p.r_require.captures_iter(scan_text) {
-                // Group 1 = library/require name, 2 = source("path").
-                let spec = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str());
-                if let Some(s) = spec {
-                    push(s);
-                }
-            }
-        }
-        _ => {}
-    }
-    out
-}
-
-fn extract_package(text: &str, lang: &str, p: &Patterns) -> String {
-    match lang {
-        "java" | "kotlin" => p
-            .java_kotlin_package
-            .captures(text)
-            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
-            .unwrap_or_default(),
-        _ => String::new(),
-    }
-}
-
-fn extract_namespace(text: &str, lang: &str, p: &Patterns) -> String {
-    match lang {
-        "csharp" => p
-            .csharp_namespace
-            .captures(text)
-            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
-            .unwrap_or_default(),
-        _ => String::new(),
-    }
-}
-
-fn extract_go_package(text: &str, p: &Patterns) -> String {
-    p.go_package
-        .captures(text)
-        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
-        .unwrap_or_default()
-}
-
-fn extract_top_level_types(text: &str, lang: &str, p: &Patterns) -> Vec<String> {
+fn extract_top_level_types(text: &str, lang: &str, p: &TypePatterns) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     match lang {
@@ -739,471 +284,6 @@ fn extract_top_level_types(text: &str, lang: &str, p: &Patterns) -> Vec<String> 
     out
 }
 
-// Tree-sitter symbol extraction across every language in lang.rs.
-// The parser knows real token
-// boundaries, so comments, string literals, and control-flow keywords
-// (`if`, `for`, ...) are never mistaken for declarations.
-#[derive(Serialize)]
-struct SymbolInfo {
-    name: String,
-    line: u32,
-    // End line (1-indexed) of the full declaration node, captured via the
-    // `@def` query capture. Lets JS-side enclosing-symbol resolution test
-    // `line <= callSite <= endLine` instead of guessing from declaration
-    // order alone. For patterns without a `@def` capture (wrapper bindings),
-    // end_line falls back to `line`.
-    #[serde(rename = "endLine")]
-    end_line: u32,
-    // Full declaration range for column-precise enclosing resolution on
-    // minified / same-line code (multiple decls sharing one physical line).
-    // Columns are 1-based to match the reference scanner's `match.index + 1`
-    // (1-based char column); ASCII same-line code has byte == char.
-    #[serde(rename = "startLine")]
-    start_line: u32,
-    #[serde(rename = "startCol")]
-    start_col: u32,
-    #[serde(rename = "endCol")]
-    end_col: u32,
-    kind: &'static str,
-}
-
-fn extract_source_symbols(text: &str, lang: &str) -> Vec<SymbolInfo> {
-    let (language, query_src, kinds) = match lang {
-        "typescript" => (
-            tree_sitter_typescript::LANGUAGE_TSX.into(),
-            r#"
-            (function_declaration name: (identifier) @name) @def
-            (function_signature name: (identifier) @name) @def
-            (class_declaration name: (type_identifier) @name) @def
-            (abstract_class_declaration name: (type_identifier) @name) @def
-            (interface_declaration name: (type_identifier) @name) @def
-            (type_alias_declaration name: (type_identifier) @name) @def
-            (enum_declaration name: (identifier) @name) @def
-            (method_definition name: (property_identifier) @name) @def
-            (export_statement (lexical_declaration (variable_declarator name: (identifier) @name) @def))
-            (program (lexical_declaration (variable_declarator name: (identifier) @name) @def))
-            (export_statement (variable_declaration (variable_declarator name: (identifier) @name) @def))
-            (program (variable_declaration (variable_declarator name: (identifier) @name) @def))
-            (function_expression name: (identifier) @name) @def
-            (generator_function name: (identifier) @name) @def
-            (class name: (type_identifier) @name) @def
-            (internal_module name: (identifier) @name) @def
-            (module name: (identifier) @name) @def
-            "#,
-            &[
-                "function",
-                "function",
-                "class",
-                "class",
-                "interface",
-                "type",
-                "enum",
-                "method",
-                "binding",
-                "binding",
-                "binding",
-                "binding",
-                "function",
-                "function",
-                "class",
-                "namespace",
-                "namespace",
-            ][..],
-        ),
-        "javascript" => (
-            tree_sitter_javascript::LANGUAGE.into(),
-            r#"
-            (function_declaration name: (identifier) @name) @def
-            (class_declaration name: (identifier) @name) @def
-            (method_definition name: (property_identifier) @name) @def
-            (export_statement (lexical_declaration (variable_declarator name: (identifier) @name) @def))
-            (program (lexical_declaration (variable_declarator name: (identifier) @name) @def))
-            (export_statement (variable_declaration (variable_declarator name: (identifier) @name) @def))
-            (program (variable_declaration (variable_declarator name: (identifier) @name) @def))
-            (function_expression name: (identifier) @name) @def
-            (generator_function name: (identifier) @name) @def
-            (class name: (identifier) @name) @def
-            "#,
-            &[
-                "function", "class", "method", "binding", "binding", "binding", "binding",
-                "function", "function", "class",
-            ][..],
-        ),
-        "python" => (
-            tree_sitter_python::LANGUAGE.into(),
-            r#"
-            (function_definition name: (identifier) @name) @def
-            (class_definition name: (identifier) @name) @def
-"#,
-            &["function", "class"][..],
-        ),
-        "go" => (
-            tree_sitter_go::LANGUAGE.into(),
-            r#"
-            (function_declaration name: (identifier) @name) @def
-            (method_declaration name: (field_identifier) @name) @def
-            (type_spec name: (type_identifier) @name) @def
-            "#,
-            &["function", "method", "type"][..],
-        ),
-        "rust" => (
-            tree_sitter_rust::LANGUAGE.into(),
-            r#"
-            (function_item name: (identifier) @name) @def
-            (struct_item name: (type_identifier) @name) @def
-            (enum_item name: (type_identifier) @name) @def
-            (trait_item name: (type_identifier) @name) @def
-            (mod_item name: (identifier) @name) @def
-            (const_item name: (identifier) @name) @def
-            (type_item name: (type_identifier) @name) @def
-            (static_item name: (identifier) @name) @def
-            (macro_definition name: (identifier) @name) @def
-            "#,
-            &[
-                "function", "struct", "enum", "trait", "module", "const", "type", "static", "macro",
-            ][..],
-        ),
-        "java" => (
-            tree_sitter_java::LANGUAGE.into(),
-            r#"
-            (class_declaration name: (identifier) @name) @def
-            (interface_declaration name: (identifier) @name) @def
-            (enum_declaration name: (identifier) @name) @def
-            (method_declaration name: (identifier) @name) @def
-            (constructor_declaration name: (identifier) @name) @def
-            (record_declaration name: (identifier) @name) @def
-            "#,
-            &[
-                "class",
-                "interface",
-                "enum",
-                "method",
-                "constructor",
-                "record",
-            ][..],
-        ),
-        "c" => (
-            tree_sitter_c::LANGUAGE.into(),
-            r#"
-            (function_definition declarator: (function_declarator declarator: (identifier) @name)) @def
-            (function_definition declarator: (pointer_declarator declarator: (function_declarator declarator: (identifier) @name))) @def
-            (struct_specifier name: (type_identifier) @name) @def
-            (enum_specifier name: (type_identifier) @name) @def
-            "#,
-            &["function", "function", "struct", "enum"][..],
-        ),
-        "cpp" => (
-            tree_sitter_cpp::LANGUAGE.into(),
-            r#"
-            (function_definition declarator: (function_declarator declarator: (identifier) @name)) @def
-            (function_definition declarator: (pointer_declarator declarator: (function_declarator declarator: (identifier) @name))) @def
-            (class_specifier name: (type_identifier) @name) @def
-            (struct_specifier name: (type_identifier) @name) @def
-            (function_definition declarator: (function_declarator declarator: (field_identifier) @name)) @def
-            (function_definition declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @name))) @def
-            "#,
-            &[
-                "function", "function", "class", "struct", "method", "function",
-            ][..],
-        ),
-        "csharp" => (
-            tree_sitter_c_sharp::LANGUAGE.into(),
-            r#"
-            (class_declaration name: (identifier) @name) @def
-            (interface_declaration name: (identifier) @name) @def
-            (struct_declaration name: (identifier) @name) @def
-            (method_declaration name: (identifier) @name) @def
-            (enum_declaration name: (identifier) @name) @def
-            (constructor_declaration name: (identifier) @name) @def
-            (local_function_statement name: (identifier) @name) @def
-            (record_declaration name: (identifier) @name) @def
-            "#,
-            &[
-                "class",
-                "interface",
-                "struct",
-                "method",
-                "enum",
-                "constructor",
-                "local-function",
-                "record",
-            ][..],
-        ),
-        "ruby" => (
-            tree_sitter_ruby::LANGUAGE.into(),
-            r#"
-            (method name: (identifier) @name) @def
-            (method name: (setter) @name) @def
-            (singleton_method name: (identifier) @name) @def
-            (class name: (constant) @name) @def
-            (module name: (constant) @name) @def
-            "#,
-            &["method", "method", "method", "class", "module"][..],
-        ),
-        "php" => (
-            tree_sitter_php::LANGUAGE_PHP.into(),
-            r#"
-            (function_definition name: (name) @name) @def
-            (class_declaration name: (name) @name) @def
-            (method_declaration name: (name) @name) @def
-            (interface_declaration name: (name) @name) @def
-            (trait_declaration name: (name) @name) @def
-            (enum_declaration name: (name) @name) @def
-            "#,
-            &["function", "class", "method", "interface", "trait", "enum"][..],
-        ),
-        "kotlin" => (
-            tree_sitter_kotlin_ng::LANGUAGE.into(),
-            // tree-sitter-kotlin-ng exposes the declared name via a `name:`
-            // field of type `identifier` on all three declaration nodes
-            // (the legacy tree-sitter-kotlin grammar used unnamed
-            // simple_identifier/type_identifier children with no field).
-            r#"
-            (function_declaration name: (identifier) @name) @def
-            (class_declaration name: (identifier) @name) @def
-            (object_declaration name: (identifier) @name) @def
-            "#,
-            &["function", "class", "object"][..],
-        ),
-        "swift" => (
-            tree_sitter_swift::LANGUAGE.into(),
-            // `class_declaration` is the shared node for class/struct/enum/
-            // actor/extension; the `declaration_kind` field carries the
-            // keyword token, so match it to split struct/enum from class.
-            r#"
-            (function_declaration name: (simple_identifier) @name) @def
-            (class_declaration declaration_kind: "class" name: (type_identifier) @name) @def
-            (class_declaration declaration_kind: "struct" name: (type_identifier) @name) @def
-            (class_declaration declaration_kind: "enum" name: (type_identifier) @name) @def
-            (class_declaration declaration_kind: "actor" name: (type_identifier) @name) @def
-            (protocol_declaration name: (type_identifier) @name) @def
-            "#,
-            &["function", "class", "struct", "enum", "actor", "protocol"][..],
-        ),
-        "scala" => (
-            tree_sitter_scala::LANGUAGE.into(),
-            r#"
-            (function_definition name: (identifier) @name) @def
-            (class_definition name: (identifier) @name) @def
-            (object_definition name: (identifier) @name) @def
-            (trait_definition name: (identifier) @name) @def
-            "#,
-            &["function", "class", "object", "trait"][..],
-        ),
-        "bash" => (
-            tree_sitter_bash::LANGUAGE.into(),
-            r#"
-            (function_definition name: (word) @name) @def
-            "#,
-            &["function"][..],
-        ),
-        "lua" => (
-            tree_sitter_lua::LANGUAGE.into(),
-            // `function_declaration` covers `function f()`, `local function f()`
-            // (aliased to the same node), `function M.f()` (dot index) and
-            // `function M:f()` (method index). Anonymous `function_definition`
-            // (assigned to a variable) has no name and is intentionally skipped.
-            r#"
-            (function_declaration name: (identifier) @name) @def
-            (function_declaration name: (dot_index_expression field: (identifier) @name)) @def
-            (function_declaration name: (method_index_expression method: (identifier) @name)) @def
-            "#,
-            &["function", "function", "function"][..],
-        ),
-        "dart" => (
-            tree_sitter_dart::LANGUAGE.into(),
-            // Dart names live behind `signature:` wrappers. A `method_declaration`
-            // (signature + body fields) nests a signature inside its
-            // `method_signature`; capturing @def on `method_declaration` spans the
-            // body so endLine covers the closing brace. The nested signature is a
-            // `function_signature` (plain method), `getter_signature`,
-            // `setter_signature`, or `operator_signature` — each is captured so
-            // accessors and operators become symbols, not just plain methods.
-            // Accessors are class members, so they map to `method` (consistent
-            // with the surrounding `method_declaration`). The operator name is the
-            // `binary_operator` token (`+`, `==`, …); the unnamed `[]`/`[]=`/`~`
-            // operator tokens are NOT identifier-bindable, so those specific
-            // operators are the one documented omission. class/mixin/enum/extension
-            // expose `name:`.
-            r#"
-            (class_declaration name: (identifier) @name) @def
-            (mixin_declaration name: (identifier) @name) @def
-            (enum_declaration name: (identifier) @name) @def
-            (extension_declaration name: (identifier) @name) @def
-            (function_declaration signature: (function_signature name: (identifier) @name)) @def
-            (method_declaration signature: (method_signature (function_signature name: (identifier) @name))) @def
-            (method_declaration signature: (method_signature (getter_signature name: (identifier) @name))) @def
-            (method_declaration signature: (method_signature (setter_signature name: (identifier) @name))) @def
-            (method_declaration signature: (method_signature (operator_signature operator: (binary_operator) @name))) @def
-            "#,
-            &[
-                "class",
-                "mixin",
-                "enum",
-                "extension",
-                "function",
-                "method",
-                "method",
-                "method",
-                "method",
-            ][..],
-        ),
-        "objc" => (
-            tree_sitter_objc::LANGUAGE.into(),
-            // @interface/@implementation → class; the FIRST child identifier is
-            // the class name (`.` anchor stops the superclass identifier from
-            // also matching). @protocol → protocol. Obj-C methods carry the
-            // selector head as the first `identifier` child of the method node;
-            // plain C functions reuse the C `function_declarator` shape.
-            r#"
-            (class_interface . (identifier) @name) @def
-            (class_implementation . (identifier) @name) @def
-            (protocol_declaration . (identifier) @name) @def
-            (method_declaration (identifier) @name) @def
-            (method_definition (identifier) @name) @def
-            (function_definition declarator: (function_declarator declarator: (identifier) @name)) @def
-            "#,
-            &["class", "class", "protocol", "method", "method", "function"][..],
-        ),
-        "elixir" => (
-            tree_sitter_elixir::LANGUAGE.into(),
-            // Elixir has no dedicated def nodes — defmodule/def/defp/defmacro
-            // are generic `call` nodes. APPROACH: capture the call target AND
-            // the name, then filter by the target keyword in Rust below (the
-            // QueryCursor does NOT auto-evaluate #eq?/#any-of? predicates). A
-            // module name is an `(alias)`; a function/macro clause nests a
-            // `(call target: (identifier))`, with a `when`-guard variant whose
-            // clause sits inside a `binary_operator`.
-            r#"
-            (call target: (identifier) @target (arguments (alias) @name)) @def
-            (call target: (identifier) @target (arguments (call target: (identifier) @name))) @def
-            (call target: (identifier) @target (arguments (binary_operator left: (call target: (identifier) @name) operator: "when"))) @def
-            (call target: (identifier) @target (arguments (identifier) @name)) @def
-            "#,
-            // Kinds are resolved per-match from the @target keyword, so the
-            // pattern-indexed slice only needs placeholders here.
-            &["module", "function", "function", "function"][..],
-        ),
-        "zig" => (
-            tree_sitter_zig::LANGUAGE.into(),
-            // `fn name()` → function_declaration with a `name:` field. Container
-            // types are `const X = struct/enum/union {...}`: the grammar exposes
-            // the binding name as the first `identifier` child of the
-            // `variable_declaration` and the container kind as the sibling
-            // struct/enum/union_declaration node.
-            r#"
-            (function_declaration name: (identifier) @name) @def
-            (variable_declaration (identifier) @name (struct_declaration)) @def
-            (variable_declaration (identifier) @name (enum_declaration)) @def
-            (variable_declaration (identifier) @name (union_declaration)) @def
-            "#,
-            &["function", "struct", "enum", "union"][..],
-        ),
-        "r" => (
-            tree_sitter_r::LANGUAGE.into(),
-            // R function defs are assignments: `name <- function(...)` or
-            // `name = function(...)`. Capture the lhs identifier; the `rhs:
-            // (function_definition)` constraint excludes ordinary value
-            // assignments.
-            r#"
-            (binary_operator lhs: (identifier) @name operator: "<-" rhs: (function_definition)) @def
-            (binary_operator lhs: (identifier) @name operator: "=" rhs: (function_definition)) @def
-            "#,
-            &["function", "function"][..],
-        ),
-        _ => return Vec::new(),
-    };
-    let mut parser = Parser::new();
-    if parser.set_language(&language).is_err() {
-        return Vec::new();
-    }
-    let tree = match parser.parse(text, None) {
-        Some(t) => t,
-        None => return Vec::new(),
-    };
-    let query = match Query::new(&language, query_src) {
-        Ok(q) => q,
-        Err(_) => return Vec::new(),
-    };
-    let src = text.as_bytes();
-    // Resolve capture slots once: `@name` is the identifier, `@def` (when the
-    // pattern declares it) is the full declaration node whose end row is the
-    // body end. Patterns without `@def` (wrapper bindings) yield None here.
-    let name_idx = query.capture_index_for_name("name");
-    let def_idx = query.capture_index_for_name("def");
-    // Elixir resolves a symbol's kind from the def-form keyword (the `call`
-    // target), not the pattern index, since defmodule/def/defp/defmacro all
-    // share the generic `call` node. Non-Elixir queries declare no @target,
-    // so this stays None and the pattern-indexed `kinds` slice is used as-is.
-    let target_idx = query.capture_index_for_name("target");
-    let mut cursor = QueryCursor::new();
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    let mut matches = cursor.matches(&query, tree.root_node(), src);
-    while let Some(m) = matches.next() {
-        // Invariant: `kinds` is sized to match the query's pattern count above.
-        // A drift would be a programmer bug, not runtime fallback.
-        let mut kind = kinds[m.pattern_index];
-        let mut name_node = None;
-        let mut def_node = None;
-        let mut target_node = None;
-        for cap in m.captures {
-            if Some(cap.index) == name_idx {
-                name_node = Some(cap.node);
-            } else if Some(cap.index) == def_idx {
-                def_node = Some(cap.node);
-            } else if Some(cap.index) == target_idx {
-                target_node = Some(cap.node);
-            }
-        }
-        // Elixir: filter generic `call` matches by the def-form keyword and
-        // map it to the symbol kind. A keyword that is not a definition form
-        // (import/alias/require/use, control-flow, arbitrary calls) is skipped
-        // so only real declarations become symbols. The QueryCursor never
-        // evaluates #any-of?/#eq? itself, so this is the manual equivalent.
-        if target_idx.is_some() {
-            let kw = target_node
-                .and_then(|n| n.utf8_text(src).ok())
-                .unwrap_or("");
-            kind = match kw {
-                "defmodule" | "defprotocol" | "defimpl" => "module",
-                "def" | "defp" => "function",
-                "defmacro" | "defmacrop" => "macro",
-                _ => continue,
-            };
-        }
-        let name_node = match name_node {
-            Some(n) => n,
-            None => continue,
-        };
-        if let Ok(name) = name_node.utf8_text(src) {
-            if name.is_empty() {
-                continue;
-            }
-            let line = name_node.start_position().row as u32 + 1;
-            // `@def` spans the whole declaration; without it, fall back to the
-            // name node so non-body symbols still serialize a coherent range.
-            let range_node = def_node.unwrap_or(name_node);
-            let start_line = range_node.start_position().row as u32 + 1;
-            let start_col = range_node.start_position().column as u32 + 1;
-            let end_line = range_node.end_position().row as u32 + 1;
-            let end_col = range_node.end_position().column as u32;
-            if seen.insert((name.to_string(), line)) {
-                out.push(SymbolInfo {
-                    name: name.to_string(),
-                    line,
-                    end_line,
-                    start_line,
-                    start_col,
-                    end_col,
-                    kind,
-                });
-            }
-        }
-    }
-    out
-}
-
 fn fingerprint_for(rel: &str, size: u64, mtime_ms: u64) -> String {
     let mut hasher = Sha256::new();
     hasher.update(rel.as_bytes());
@@ -1223,17 +303,18 @@ struct SearchHit {
     text: String,
 }
 
+// `mixdog-graph <root> <symbol>`: every occurrence of `symbol` AS AN
+// IDENTIFIER, one JSONL hit per occurrence.
+//
+// Stage 3-D replaced the masked-text regex scan with the parse tree: a hit is
+// an identifier node whose text IS the symbol, which is the same answer the
+// word-boundary regex gave on masked text, minus the masking approximations —
+// comments and string bodies cannot produce a node of an identifier kind, and
+// an identifier inside a string interpolation still does.
 fn run_search(root: &Path, symbol: &str) {
-    let escaped = regex::escape(symbol);
-    // Use a simple non-anchored regex and emulate Unicode-aware word
-    // boundary via lookbehind-style char checks (the regex crate's
-    // default disables lookbehind for linear-time guarantees).
-    let re_simple = match Regex::new(&format!("({})", escaped)) {
-        Ok(r) => r,
-        Err(_) => return,
-    };
-    // Build an ID_Continue test using regex (single-char match)
-    let id_continue = Regex::new(r"\p{XID_Continue}").unwrap();
+    if symbol.is_empty() {
+        return;
+    }
 
     let mut entries: Vec<_> = WalkBuilder::new(root)
         .standard_filters(true)
@@ -1252,9 +333,11 @@ fn run_search(root: &Path, symbol: &str) {
                 Some(e) => e,
                 None => return Vec::new(),
             };
-            let lang = match lang_for(ext) {
-                Some(l) => l,
-                None => return Vec::new(),
+            if lang_for(ext).is_none() {
+                return Vec::new();
+            }
+            let Some(scan_lang) = scan_lang_for_path(path) else {
+                return Vec::new();
             };
             let rel = match path.strip_prefix(root) {
                 Ok(p) => p.to_string_lossy().replace('\\', "/"),
@@ -1274,70 +357,29 @@ fn run_search(root: &Path, symbol: &str) {
             if !text.contains(symbol) {
                 return Vec::new();
             }
-            // Mask comments/strings so identifiers inside them don't
-            // produce false call-sites. Per-language family.
-            let masked: String = match comment_family(lang, true) {
-                CommentFamily::Curly { mask_strings } => strip_comments_curly(&text, mask_strings),
-                CommentFamily::Hash => strip_comments_hash(&text),
-                CommentFamily::Lua => strip_comments_lua(&text),
-            };
-            let mut out = Vec::new();
-            // Scan masked text line-by-line; emit corresponding
-            // unmasked line text for display.
             let original_lines: Vec<&str> = text.lines().collect();
-            for (i, line) in masked.lines().enumerate() {
-                if !line.contains(symbol) {
-                    continue;
-                }
-                for m in re_simple.find_iter(line) {
-                    let start = m.start();
-                    let end = m.end();
-                    // Unicode-aware word boundary emulation: check chars
-                    // immediately before/after the match aren't
-                    // ID_Continue. `$` is also OK as JS-style prefix.
-                    let before_ok = if start == 0 {
-                        true
-                    } else {
-                        let prev_ch = line[..start].chars().last();
-                        match prev_ch {
-                            None => true,
-                            Some(c) => !id_continue.is_match(&c.to_string()) && c != '$',
-                        }
-                    };
-                    let after_ok = if end >= line.len() {
-                        true
-                    } else {
-                        let next_ch = line[end..].chars().next();
-                        match next_ch {
-                            None => true,
-                            // Mirror the before_ok check: `$` is JS-style
-                            // identifier-continue too, so `foo` inside
-                            // `foo$bar` must not match.
-                            Some(c) => !id_continue.is_match(&c.to_string()) && c != '$',
-                        }
-                    };
-                    if !before_ok || !after_ok {
-                        continue;
-                    }
+            let mut out: Vec<SearchHit> = outline::identifier_hits(&text, scan_lang, symbol)
+                .into_iter()
+                .map(|(line, col)| {
                     let display = original_lines
-                        .get(i)
+                        .get(line as usize - 1)
                         .map(|s| s.trim())
-                        .unwrap_or("")
-                        .to_string();
-                    // Take first 80 chars of trimmed display line.
+                        .unwrap_or("");
+                    // Take first 80 chars of the trimmed display line.
                     let trimmed = if display.len() > 80 {
                         display.chars().take(80).collect::<String>()
                     } else {
-                        display
+                        display.to_string()
                     };
-                    out.push(SearchHit {
+                    SearchHit {
                         rel: rel.clone(),
-                        line: (i + 1) as u32,
-                        col: (start + 1) as u32,
+                        line,
+                        col,
                         text: trimmed,
-                    });
-                }
-            }
+                    }
+                })
+                .collect();
+            out.sort_by_key(|hit| (hit.line, hit.col));
             out
         })
         .collect();
@@ -1368,7 +410,7 @@ struct SrcFile {
 // Full parse (tokens/imports/symbols) from an already-collected SrcFile.
 // Unreadable/non-UTF8 files fail the build instead of producing a partial
 // graph that can be mistaken for a complete cache entry.
-fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Result<FileRecord, String> {
+fn parse_file_from(src: &SrcFile, patterns: &TypePatterns) -> Result<FileRecord, String> {
     let lang = src.lang;
     let bytes = fs::read(&src.path)
         .map_err(|err| format!("read failed for {}: {err}", src.path.display()))?;
@@ -1377,17 +419,28 @@ fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Result<FileRecord, Str
         Ok(text) => (text, String::new()),
         Err(error) => (String::new(), error.to_string()),
     };
-    let tokens = extract_tokens(&text, patterns);
-    let raw_imports = extract_raw_imports(&text, lang, patterns);
-    let package_name = extract_package(&text, lang, patterns);
-    let namespace_name = extract_namespace(&text, lang, patterns);
-    let go_package_name = if lang == "go" {
-        extract_go_package(&text, patterns)
-    } else {
-        String::new()
+    // ONE ast-grep parse per file feeds tokens, imports, symbols, call sites
+    // and the package/namespace metadata; the grammar comes from the registry
+    // (`.tsx` is parsed as tsx, reported as typescript).
+    let outline = match scan_lang_for_path(&src.path) {
+        Some(scan_lang) => outline::extract(&text, lang, scan_lang),
+        None => outline::Extraction::default(),
     };
+    let tokens = outline.tokens;
+    let raw_imports = outline.imports;
+    let symbols = outline.symbols;
+    // A file that never decoded was not parsed, so its call list is unknown
+    // (key omitted) rather than known-empty — `outline::extract` saw an empty
+    // source here, not the file's real contents.
+    let calls = if parse_error.is_empty() {
+        outline.calls
+    } else {
+        None
+    };
+    let package_name = outline.package_name;
+    let namespace_name = outline.namespace_name;
+    let go_package_name = outline.go_package_name;
     let top_level_types = extract_top_level_types(&text, lang, patterns);
-    let symbols = extract_source_symbols(&text, lang);
     Ok(FileRecord {
         rel: src.rel.clone(),
         lang,
@@ -1403,6 +456,7 @@ fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Result<FileRecord, Str
         resolved_imports: Vec::new(),
         imported_by: Vec::new(),
         symbols,
+        calls,
     })
 }
 
@@ -1412,7 +466,11 @@ fn decode_source_text(bytes: &[u8]) -> Result<String, &'static str> {
 
 // Stat-and-parse a single path (used by --files, where paths come from the
 // caller, not the walk). One metadata read, then parse_file_from.
-fn parse_file(path: &Path, root: &Path, patterns: &Patterns) -> Result<Option<FileRecord>, String> {
+fn parse_file(
+    path: &Path,
+    root: &Path,
+    patterns: &TypePatterns,
+) -> Result<Option<FileRecord>, String> {
     let Some(lang) = path.extension().and_then(|s| s.to_str()).and_then(lang_for) else {
         return Ok(None);
     };
@@ -1817,60 +875,116 @@ fn resolve_r_source(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option
     None
 }
 
+// Solidity `import "…"` / `import {A} from "…"`. Three legs, in the order
+// solc itself tries them once remappings are out of the picture:
+//   1. a RELATIVE spec (`./x.sol`, `../lib/y.sol`) against the importing
+//      file's directory — the only form solc resolves relative to the source;
+//   2. `node_modules/<spec>` — how `@openzeppelin/contracts/...` and every
+//      other npm-published library is vendored (hardhat/truffle layouts);
+//   3. the project root — the foundry/`remappings.txt` flat layout, where
+//      `src/Token.sol` names a repo path directly.
+// A spec is only an edge when it lands on a file the graph actually indexed,
+// so a dependency that is not checked in (the usual `node_modules` case)
+// resolves to nothing instead of a phantom node.
+fn resolve_solidity_import(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
+    let norm = normalize_import_spec(spec);
+    if norm.is_empty() || norm.starts_with('/') {
+        return None;
+    }
+    if norm.starts_with("./") || norm.starts_with("../") {
+        let candidate = path_join_norm(rel_dir(rel), &norm);
+        return file_set.contains(&candidate).then_some(candidate);
+    }
+    let vendored = format!("node_modules/{norm}");
+    if file_set.contains(&vendored) {
+        return Some(vendored);
+    }
+    let from_root = path_join_norm("", &norm);
+    file_set.contains(&from_root).then_some(from_root)
+}
+
+// Haskell `import A.B.C`: the module path is a directory path plus `.hs`
+// (or a literate `.lhs`). GHC finds it on the source-import search path, which
+// a repository expresses as its own layout, so the search starts in the
+// importing file's directory and walks UP through every ancestor, trying the
+// ancestor itself and its `src/`, `lib/`, `app/` and `test/` subdirectories —
+// the four roots cabal/stack projects declare as `hs-source-dirs`. The first
+// existing file wins, so the nearest enclosing project answers before a
+// sibling package with the same module name.
+const HASKELL_SOURCE_DIRS: [&str; 5] = ["", "src", "lib", "app", "test"];
+
+fn resolve_haskell_import(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
+    let module = normalize_import_spec(spec);
+    if module.is_empty() || !tokens::is_dotted_path(&module) {
+        return None;
+    }
+    let tail = module.replace('.', "/");
+    let mut dir = rel_dir(rel).to_string();
+    loop {
+        for source_dir in HASKELL_SOURCE_DIRS {
+            let base = if source_dir.is_empty() {
+                dir.clone()
+            } else {
+                path_join_norm(&dir, source_dir)
+            };
+            for ext in ["hs", "lhs"] {
+                let candidate = path_join_norm(&base, &format!("{tail}.{ext}"));
+                if file_set.contains(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+        if dir.is_empty() {
+            break;
+        }
+        dir = dirname_str(&dir);
+    }
+    None
+}
+
+// Terraform local module: `module "x" { source = "./modules/x" }`.
+//
+// A TERRAFORM MODULE IS A DIRECTORY, not a file: terraform loads every `.tf`
+// in it as one configuration, and no single file is "the module". So the
+// source path resolves to the directory and the edge fans out to EVERY `.tf`
+// file directly inside it (no recursion — nested directories are separate
+// modules). Only local paths are edges: the outline rule already restricts
+// `source` to `./`, `../` and `/`, and an absolute `/…` path is a filesystem
+// location this repository cannot name, so it resolves to nothing.
+fn resolve_hcl_module(rel: &str, spec: &str, file_set: &HashSet<String>) -> Vec<String> {
+    let norm = normalize_import_spec(spec);
+    if !(norm.starts_with("./") || norm.starts_with("../")) {
+        return Vec::new();
+    }
+    let dir = path_join_norm(rel_dir(rel), &norm);
+    let prefix = if dir.is_empty() {
+        String::new()
+    } else {
+        format!("{dir}/")
+    };
+    let mut hits: Vec<String> = file_set
+        .iter()
+        .filter(|path| {
+            if !path.ends_with(".tf") {
+                return false;
+            }
+            if dir.is_empty() {
+                !path.contains('/')
+            } else {
+                path.starts_with(&prefix) && !path[prefix.len()..].contains('/')
+            }
+        })
+        .cloned()
+        .collect();
+    hits.sort();
+    hits
+}
+
 fn file_stem_rel(rel: &str) -> Option<&str> {
     let name = rel.rsplit('/').next().unwrap_or(rel);
     name.rsplit_once('.')
         .map(|(stem, _)| stem)
         .filter(|s| !s.is_empty())
-}
-
-fn expand_php_use_spec(spec: &str) -> Vec<String> {
-    let spec = spec.trim();
-    let Some(open) = spec.find('{') else {
-        return vec![spec.to_string()];
-    };
-    let prefix = spec[..open].trim().trim_end_matches('\\');
-    let inner = spec[open + 1..].trim().trim_end_matches('}').trim();
-    inner
-        .split(',')
-        .filter_map(|part| {
-            let mut name = part.trim();
-            if let Some(idx) = name.find(" as ") {
-                name = name[..idx].trim();
-            }
-            if name.is_empty() || name == "*" {
-                return None;
-            }
-            Some(if prefix.is_empty() {
-                name.to_string()
-            } else {
-                format!("{prefix}\\{name}")
-            })
-        })
-        .collect()
-}
-
-fn expand_elixir_alias_spec(spec: &str) -> Vec<String> {
-    let spec = spec.trim();
-    let Some(open) = spec.find('{') else {
-        return vec![spec.to_string()];
-    };
-    let prefix = spec[..open].trim().trim_end_matches('.');
-    let inner = spec[open + 1..].trim().trim_end_matches('}').trim();
-    inner
-        .split(',')
-        .filter_map(|part| {
-            let name = part.trim();
-            if name.is_empty() || name == "*" {
-                return None;
-            }
-            Some(if prefix.is_empty() {
-                name.to_string()
-            } else {
-                format!("{prefix}.{name}")
-            })
-        })
-        .collect()
 }
 
 fn resolve_go_relative(rel: &str, spec: &str, file_set: &HashSet<String>) -> Vec<String> {
@@ -2123,7 +1237,7 @@ fn visit_shallow_files(root: &Path, names: &[&str], mut on_file: impl FnMut(Path
 fn parse_tsconfig_raw(
     text: &str,
 ) -> Option<(Option<String>, Option<String>, Vec<(String, Vec<String>)>)> {
-    let cleaned = strip_comments_curly(text, false);
+    let cleaned = strip_jsonc_comments(text);
     let value: serde_json::Value = serde_json::from_str(&cleaned).ok()?;
     let extends = value
         .get("extends")
@@ -2227,7 +1341,7 @@ fn load_ts_configs(root: &Path) -> Vec<TsConfigScope> {
 }
 
 fn parse_js_package(text: &str, dir: String) -> Option<(String, JsPackage)> {
-    let cleaned = strip_comments_curly(text, false);
+    let cleaned = strip_jsonc_comments(text);
     let value: serde_json::Value = serde_json::from_str(&cleaned).ok()?;
     let name = value.get("name")?.as_str()?.trim();
     if name.is_empty() {
@@ -2726,6 +1840,8 @@ fn resolve_graph_import(
         "php" => resolve_php_require(rel, spec, file_set),
         "zig" => resolve_zig(rel, spec, file_set),
         "rust" => resolve_rust_mod(rel, spec, file_set),
+        "solidity" => resolve_solidity_import(rel, spec, file_set),
+        "haskell" => resolve_haskell_import(rel, spec, file_set),
         _ => None,
     }
 }
@@ -3060,10 +2176,17 @@ fn resolve_indexed_graph_import(
             }
             Vec::new()
         }
-        // bash/lua resolve entirely via the direct fileSet leg above
-        // (resolve_graph_import); they have no index-backed fallback.
+        // bash/lua/solidity/haskell resolve entirely via the direct fileSet
+        // leg above (resolve_graph_import); they have no index-backed
+        // fallback — a solidity spec that is not vendored in the tree and a
+        // haskell module that is not in the source path are external
+        // dependencies, not edges.
         "bash" | "lua" => Vec::new(),
         "r" => Vec::new(),
+        "solidity" | "haskell" => Vec::new(),
+        // A terraform module is a directory, so this one resolves to MANY
+        // files and cannot use the single-answer direct leg.
+        "hcl" => resolve_hcl_module(&rec.rel, &normalized, file_set),
         "dart" => resolve_dart_package(&normalized, file_set, index)
             .into_iter()
             .collect(),
@@ -3115,7 +2238,7 @@ fn resolve_and_link(records: &mut [FileRecord], root: &Path, file_set: &HashSet<
 }
 
 fn run_walk(root: &Path) -> Result<(), String> {
-    let patterns = Patterns::new();
+    let patterns = TypePatterns::new();
     let mut files = collect_source_files(root)?;
     // Cap cold parse work at MAX_FILES so large repos never pay the full
     // native parse cost just to be truncated afterwards.
@@ -3132,7 +2255,7 @@ fn run_walk(root: &Path) -> Result<(), String> {
 }
 
 fn run_files(root: &Path, files: &[String]) -> Result<(), String> {
-    let patterns = Patterns::new();
+    let patterns = TypePatterns::new();
     let paths: Vec<PathBuf> = files
         .iter()
         .map(|f| {
@@ -3220,6 +2343,8 @@ fn parse_meta_from(src: &SrcFile) -> FileRecord {
         resolved_imports: Vec::new(),
         imported_by: Vec::new(),
         symbols: Vec::new(),
+        // Manifest mode reads no text at all, so calls stay unknown.
+        calls: None,
     }
 }
 
@@ -3240,7 +2365,9 @@ fn main() {
     let cwd = match args.get(1) {
         Some(p) if !p.is_empty() => p.clone(),
         _ => {
-            eprintln!("usage: mixdog-graph <cwd> [<symbol> | --files <path>... | --manifest]");
+            eprintln!(
+                "usage: mixdog-graph <cwd> [<symbol> | --files <path>... | --manifest | --langs | --scan --rules <path|-> [--files <rel>...] [--fix] | --outline [--rules <path|->] [--files <rel>...]]"
+            );
             process::exit(2);
         }
     };
@@ -3252,6 +2379,28 @@ fn main() {
     let result = match args.get(2) {
         Some(flag) if flag == "--files" => run_files(root, &args[3..]),
         Some(flag) if flag == "--manifest" => run_manifest(root),
+        // Structural ast-grep scan. Usage / rule-parse problems exit 2 like
+        // the other argument errors; everything else falls through to the
+        // exit-1 internal error path below.
+        Some(flag) if flag == "--scan" => match scan::run(root, &args[3..]) {
+            Ok(()) => Ok(()),
+            Err(scan::ScanError::Usage(message)) => {
+                eprintln!("mixdog-graph: {message}");
+                process::exit(2);
+            }
+            Err(scan::ScanError::Internal(message)) => Err(message),
+        },
+        // Outline debug dump: the raw rule output per file, for validating
+        // outline rule files against real sources.
+        Some(flag) if flag == "--outline" => match outline::run(root, &args[3..]) {
+            Ok(()) => Ok(()),
+            Err(scan::ScanError::Usage(message)) => {
+                eprintln!("mixdog-graph: {message}");
+                process::exit(2);
+            }
+            Err(scan::ScanError::Internal(message)) => Err(message),
+        },
+        Some(flag) if flag == "--langs" => scan::run_langs(),
         Some(flag) if flag == "--serve-search" => {
             serve_search::run();
             Ok(())

@@ -1,7 +1,6 @@
 // Shared low-level helpers for the cycle2 cluster (extracted from
-// memory-cycle2.mjs). Logging shim, abort check, and resource-dir resolution.
+// memory-cycle2.mjs). Logging, cancellation, concurrency and store faults.
 // No cycle2 business logic; safe to import from any cycle2 sub-module.
-import { fileURLToPath } from 'url'
 
 import { __mixdogMemoryLog } from './memory-log.mjs'
 export { __mixdogMemoryLog }
@@ -10,7 +9,7 @@ export function throwIfAborted(signal) {
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
 }
 
-// Tiny inline semaphore — bounds cycle fan-out (cycle1 windows, cycle2 gate
+// Tiny inline semaphore — bounds cycle fan-out (cycle1 windows, cycle2 review
 // packets). One implementation so the two concurrency caps cannot drift.
 export function createSemaphore(limit) {
   const cap = Math.max(1, Number(limit) || 1)
@@ -35,7 +34,7 @@ export function createSemaphore(limit) {
 //     back, or its COMMIT outcome is unknown). Nothing about the verdict was
 //     wrong, and the store's state is no longer known, so the run stops.
 //   * verdict rejection — a guard refused the mutation (stale snapshot, status
-//     moved, content changed, floor budget exhausted). The store is healthy;
+//     moved, content changed). The store is healthy;
 //     these return normally and are counted as ordinary rejections/errors.
 // Only writers raise store faults, via markStoreFault; callers branch on
 // isStoreFault before absorbing an error into a per-action counter.
@@ -48,8 +47,8 @@ export function createSemaphore(limit) {
 // the original message verbatim so logs stay honest.
 //
 // Boundaries this signal actually crosses: none that serialize. The writer
-// (applyMerge) throws and the deciders (the cycle2 apply loop and
-// retro_eval_active) catch it in the same process, same module registry, same
+// (applyHistoryReview) throws and the cycle2 apply loop catches it in the
+// same process, same module registry, same
 // tick. runCycle2 converts it at its own boundary into a plain
 // { ok: false, error: <string>, storeFault: <boolean> } result, so the explicit
 // boolean — not a re-parsed Error — is what any IPC/worker hop carries onward.
@@ -79,13 +78,4 @@ export function isStoreFault(err) {
   if (!err || typeof err !== 'object') return false
   if (err instanceof MemoryStoreFault) return true
   return err.isMemoryStoreFault === true && err.code === MEMORY_STORE_FAULT_CODE
-}
-
-// MIXDOG_ROOT already points at the package resource root (the src/ dir) —
-// the same contract as mixdogRoot() in runtime/shared/plugin-paths.mjs.
-// Joining another 'src' here sent every packaged run to <pkg>/src/src/... so
-// cycle2/cycle3 prompt and rules-digest loads all failed in desktop installs.
-export function resourceDir() {
-  return process.env.MIXDOG_ROOT
-    || fileURLToPath(new URL('../../..', import.meta.url))
 }

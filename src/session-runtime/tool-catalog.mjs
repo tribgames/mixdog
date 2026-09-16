@@ -7,7 +7,9 @@ import {
   applyInitialDeferredToolManifestToBp2,
   stripDeferredToolManifestBlock,
 } from '../runtime/agent/orchestrator/context/collect.mjs';
-import { getMcpServerInstructionsMap } from '../runtime/agent/orchestrator/mcp/client.mjs';
+import { getMcpServerInstructionsMap, getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
+import { filterMcpToolsForSession } from './extension-scopes.mjs';
+import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
 import {
   isResponsesFreeformTool,
   toResponsesCustomTool,
@@ -23,7 +25,7 @@ import {
 import { toolKind, measuredToolUsage, parseToolSelection, routeToolRank, sortedCatalogByMeasuredUsage, activeToolForSurface, deferredProviderMode, nativeProviderFamily } from './tool-catalog-schema.mjs';
 import { filterModelEditTools } from '../runtime/shared/edit-tool-dialect.mjs';
 export { toolKind, toolSchemaBucket, estimateToolSchemaBreakdown, measuredToolUsage, parseToolSelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
-export { resolveProviderRequestTools, snapshotProviderRequestTools } from './provider-request-snapshot.mjs';
+export { snapshotProviderRequestTools } from './provider-request-snapshot.mjs';
 export {
   DEFERRED_DEFAULT_FULL_TOOLS,
   DEFERRED_DEFAULT_LEAD_TOOLS,
@@ -227,13 +229,9 @@ function deferredPoolToolNames(session) {
   return sortedNamesByMeasuredUsage(out);
 }
 
-// Union of the boot-frozen deferred catalog and the late-connected MCP catalog.
-// The boot catalog (session.deferredToolCatalog) is what the Anthropic providers
-// serialize as defer_loading tools, so it MUST stay byte-identical after boot;
-// tools whose MCP servers connected after boot live in
-// session.deferredLateToolCatalog and are merged in ONLY for lookup/selection
-// (never for provider serialization) so the request tools param — and its cache
-// hash — is unchanged until a late tool is actually loaded.
+// Definition history combines the boot catalog with refreshed MCP definitions.
+// Selection separately checks current availability. Native request snapshots
+// expose only discovered definitions; the union never eagerly exposes the pool.
 export function deferredCatalogUnion(session) {
   const boot = filterDisallowedTools(
     Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [],
@@ -245,10 +243,8 @@ export function deferredCatalogUnion(session) {
   );
   if (!late.length) return boot;
   const byName = new Map();
-  // On a same-name collision (a boot MCP tool whose server reconnected with a
-  // possibly fresher schema also lives in the late pool) prefer the LATE entry
-  // for lookup/load resolution. The boot-catalog ARRAY itself is never mutated,
-  // so provider defer_loading serialization stays byte-identical.
+  // Refreshed definitions win same-name collisions without rewriting boot
+  // metadata. Only selected, available schemas reach the next native request.
   for (const tool of boot) {
     const name = clean(tool?.name);
     if (name && !byName.has(name)) byName.set(name, tool);
@@ -445,29 +441,33 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
 }
 
 /**
- * Turn-boundary reconciliation (full snapshot + delta).
+ * Request-boundary reconciliation (full snapshot + delta).
  * Merge currently-connected MCP tools into session.deferredLateToolCatalog (a
  * SEPARATE pool from the boot-frozen session.deferredToolCatalog) so tools from
  * servers that finished their handshake AFTER this session was created become
- * reachable (deferred-call-through / load_tool resolve against the union of both
- * catalogs and auto-load them on first direct call). The boot catalog — the only
- * one the Anthropic providers serialize as defer_loading tools — is never
- * touched, so the tools request parameter (and its cache hash) is byte-identical
- * until a late tool is actually loaded (promoted onto session.tools).
+ * reachable through loading and direct-call discovery. Native boot metadata
+ * stays unchanged; discovered schemas travel through native search history or
+ * deferred request definitions, never by promotion into the eager prefix.
  * Late additions/removals are merged into one persistent typed delta. The ask
  * boundary attaches that delta to the next real prompt and acknowledges it only
  * after the provider accepts the turn; a catalog change never creates a turn.
- * A disconnected server's unloaded tools leave the late pool; a loaded (active)
- * tool stays on session.tools, is never announced as removed, and is re-linked to
- * the fresh server tool on reconnect.
+ * Loaded definitions survive a disconnect for replay, but are not availability
+ * grants. The current scoped names separately govern loading and dispatch.
  * Returns the announced names, or null when nothing was announced.
  */
-export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options = {}) {
-  if (!session || !Array.isArray(session.messages)) return null;
-  if (session.deferredProviderMode === 'full' || session.deferredProviderMode === 'canonical') return null;
+export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
+  if (!session || !Array.isArray(session.tools)) return null;
   const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
-  const live = Array.isArray(liveMcpTools) ? liveMcpTools : [];
-  if (session.deferredProviderMode === 'manifest') {
+  const live = filterDisallowedTools(
+    Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools,
+  );
+  const hadSnapshot = Array.isArray(session.deferredMcpToolNames);
+  const previousNames = new Set(hadSnapshot ? session.deferredMcpToolNames : [
+    ...(session.deferredToolCatalog || []),
+    ...(session.deferredLateToolCatalog || []),
+  ].map((tool) => clean(tool?.name)).filter(isMcp));
+  session.deferredMcpToolNames = [...new Set(live.map((tool) => clean(tool?.name)).filter(isMcp))];
+  if (['full', 'manifest', 'canonical'].includes(session.deferredProviderMode)) {
     const byName = new Map();
     for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
       const name = clean(tool?.name);
@@ -490,7 +490,11 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options =
     return before === after ? null : session.deferredCallableTools;
   }
   const lateCatalog = Array.isArray(session.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [];
-  const active = new Set((session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
+  const active = new Set([
+    ...(session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
+    ...parseToolSelection(session.deferredCallableTools),
+    ...parseToolSelection(session.deferredDiscoveredTools),
+  ]);
 
   const liveMcpByName = new Map();
   for (const tool of live) {
@@ -503,8 +507,8 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options =
   // tools — INCLUDING ones whose name also exists in the boot catalog, so a
   // reconnect's fresher schema is reachable via deferredCatalogUnion (which
   // prefers the late entry). Keep an entry only while its server is still
-  // connected OR the tool is already loaded (active). A disconnected server's
-  // unloaded tool drops out; a loaded one stays on session.tools.
+  // connected OR the tool is already loaded, including native history-only
+  // discoveries. Availability is determined by deferredMcpToolNames, not this pool.
   const nextByName = new Map();
   for (const tool of lateCatalog) {
     const name = clean(tool?.name);
@@ -529,38 +533,35 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options =
     }
   }
 
-  const previousNames = new Set(
-    lateCatalog.map((tool) => clean(tool?.name)).filter((name) => name && isMcp(name)),
-  );
-  const nextNames = new Set(
-    session.deferredLateToolCatalog
-      .map((tool) => clean(tool?.name))
-      .filter((name) => name && isMcp(name)),
-  );
+  const nextNames = new Set(session.deferredMcpToolNames);
   const startupNames = new Set(
     Array.isArray(session.deferredAnnouncedTools) ? session.deferredAnnouncedTools : [],
   );
-  const bootNames = new Set(
-    (Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [])
-      .map((tool) => clean(tool?.name))
-      .filter(Boolean),
-  );
   const added = [];
-  for (const tool of session.deferredLateToolCatalog) {
+  for (const tool of liveMcpByName.values()) {
     const name = clean(tool?.name);
     if (!name || !isMcp(name)) continue;
-    if (previousNames.has(name) || active.has(name) || startupNames.has(name)) continue;
+    if (previousNames.has(name) || (!hadSnapshot && (active.has(name) || startupNames.has(name)))) continue;
     added.push({ name, description: lateAnnouncementDescription(tool?.description) });
   }
   const removed = [];
   for (const name of previousNames) {
-    if (nextNames.has(name) || active.has(name) || bootNames.has(name)) continue;
+    if (nextNames.has(name)) continue;
     removed.push(name);
   }
   if (!added.length && !removed.length) return null;
   mergePendingDeferredToolDelta(session, { added, removed });
   session.updatedAt = Date.now();
   return [...added.map((entry) => entry.name), ...removed];
+}
+
+export function scopedMcpToolsFor(session, config = null) {
+  return filterMcpToolsForSession(getMcpTools(session?.mcpScopeId), session?.cwd || null, config);
+}
+
+export function refreshDeferredMcpToolCatalog(session, config = null) {
+  if (!session?.deferredProviderMode) return null;
+  return reconcileDeferredMcpToolCatalog(session, scopedMcpToolsFor(session, config));
 }
 
 export function selectDeferredTools(session, names, mode, { exact = false } = {}) {
@@ -591,7 +592,7 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
     const requestedName = clean(rawName);
     const tool = byName.get(requestedName) || byName.get(requestedName.toLowerCase());
     const name = clean(tool?.name);
-    if (!tool) {
+    if (!tool || !isDeferredToolAvailable(session, name)) {
       missing.push(requestedName);
       continue;
     }
@@ -738,7 +739,7 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
     missing,
     ...(blocked.length ? { blocked } : {}),
     ...mcpFields,
-    activeTools: sortedNamesByMeasuredUsage(nextActiveNames),
+    activeTools: sortedNamesByMeasuredUsage([...nextActiveNames].filter((name) => isDeferredToolAvailable(session, name))),
     discoveredTools: sortedNamesByMeasuredUsage(session?.deferredDiscoveredTools || []),
     ...(notes.length ? { note: notes.join(' ') } : {}),
   }, null, 2);

@@ -3,6 +3,7 @@ import type { ComputerUseCoordinator } from '../session/coordinator';
 import { computerResultLastNumber, queuedForegroundRequiresRecapture } from '../session/coordinator';
 import { appendComputerRunRecord, computerRunRecord } from '../session/run-log';
 import { computerLogError } from '../session/log-privacy';
+import { captureAttemptsFromError } from '../shared/capture-attempts';
 import { assertSafeComputerSessionId } from '../input/guards';
 import { beginComputerOperation } from '../../human-only-approval';
 import { computerDeliveryMode, isComputerLifecycleControl, READ_ACTIONS, requiresForegroundLane } from './action-sets';
@@ -182,6 +183,7 @@ export function createComputerCommandQueue(options: {
       return outcome;
     } catch (error) {
       if (error instanceof PausedBeforeDispatch) throw error;
+      const captureAttempts = captureAttemptsFromError(error);
       if (state.aborted && state.failureCode) {
         error = new Error(`${state.failureCode}: input recovery failed; inspect the recovery diagnostic`);
       }
@@ -198,19 +200,28 @@ export function createComputerCommandQueue(options: {
         // must be able to drain it. Only progress survives, never stale refs.
         throw pending || new PausedComputerWork(state.progress || { completed: 0 });
       }
-      const record = { ...computerRunRecord(command, startedAt), ok: false, error: code };
+      const record = { ...computerRunRecord(command, startedAt), ok: false, error: code,
+        ...(captureAttempts.length ? { capture_attempts: captureAttempts } : {}) };
       appendComputerRunRecord(sessionId, record);
       let recapture: ComputerCommandResult | null = null;
       try {
         // The recovery capture is an active operation too, so Stop and Resume
         // cannot race a late observation into the next generation.
-        if (!coordinator.snapshot().userControlActive) {
+        if (!coordinator.snapshot().userControlActive && !state.aborted) {
           assertRunnable();
           activeExecutionsBySession.set(sessionId, state);
           recapture = await executionContext.run(state, () => recaptureRequiredReply(command, error));
           assertRunnable();
           coordinator.assertAutomationAllowed();
         }
+      } catch (recoveryError) {
+        // A cancelled/failed recovery capture must not disguise a dispatched
+        // mutation as "cancelled before execution", or publish a stale result.
+        recapture = null;
+        options.recordDiagnostic?.(sessionId, {
+          action: command.action, stage: 'recovery', ok: false,
+          error: computerLogError(recoveryError),
+        });
       } finally {
         options.recordDiagnostic?.(sessionId, {
           ...record, stage: 'execution', input_recovery: { recapture_available: recapture !== null },

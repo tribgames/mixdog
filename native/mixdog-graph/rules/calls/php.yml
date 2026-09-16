@@ -1,0 +1,72 @@
+# Call-site rules for PHP.
+#
+# `$a->b()` is a member call (receiver `$a`), `Foo::bar()` a scoped call
+# (receiver `Foo`), and `new Widget()` explicit constructor syntax.
+#
+# mixdog-call-kind: method
+id: php-call-member
+language: Php
+role: item
+symbolType: function
+rule:
+  kind: member_call_expression
+  all:
+    - has:
+        field: name
+        pattern: $NAME
+    - has:
+        field: object
+        pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: method
+id: php-call-scoped
+language: Php
+role: item
+symbolType: function
+rule:
+  kind: scoped_call_expression
+  all:
+    - has:
+        field: name
+        pattern: $NAME
+    - has:
+        field: scope
+        pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: php-call-plain
+language: Php
+role: item
+symbolType: function
+rule:
+  kind: function_call_expression
+  has:
+    field: function
+    any:
+      - kind: name
+        pattern: $NAME
+      - kind: qualified_name
+        has:
+          kind: name
+          pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: new
+id: php-new
+language: Php
+role: item
+symbolType: function
+rule:
+  kind: object_creation_expression
+  has:
+    nthChild: 1
+    any:
+      - kind: name
+        pattern: $NAME
+      - kind: qualified_name
+        has:
+          kind: name
+          pattern: $NAME
+name: $NAME

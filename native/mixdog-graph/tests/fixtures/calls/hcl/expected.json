@@ -1,0 +1,44 @@
+{
+  "calls": [
+    {
+      "name": "file",
+      "line": 5,
+      "col": 10,
+      "endCol": 14,
+      "kind": "call",
+      "inSymbol": "locals"
+    },
+    {
+      "name": "lookup",
+      "line": 10,
+      "col": 12,
+      "endCol": 18,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "file",
+      "line": 14,
+      "col": 8,
+      "endCol": 12,
+      "kind": "call",
+      "inSymbol": "aws_instance.web"
+    },
+    {
+      "name": "lookup",
+      "line": 14,
+      "col": 13,
+      "endCol": 19,
+      "kind": "call",
+      "inSymbol": "aws_instance.web"
+    },
+    {
+      "name": "format",
+      "line": 16,
+      "col": 16,
+      "endCol": 22,
+      "kind": "call",
+      "inSymbol": "aws_instance.web"
+    }
+  ]
+}

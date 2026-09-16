@@ -17,6 +17,18 @@
 
 const CONFIG_SAVE_DEBOUNCE_MS = 150;
 
+// Only pending writers are retained. A new runtime must also drain changes
+// accepted by OTHER runtimes before reading its initial config from disk.
+const pendingSessionConfigWriters = new Set();
+
+export async function flushPendingSessionConfigWrites() {
+  while (pendingSessionConfigWriters.size) {
+    await Promise.all([...pendingSessionConfigWriters].map((flush) => (
+      flush({ requireSaved: true })
+    )));
+  }
+}
+
 import { withGrandfatheredBuiltins } from './builtin-features.mjs';
 import { webSearchRouteOrDefault } from './workflow.mjs';
 import { createDebouncedWriter } from '../runtime/shared/debounced-writer.mjs';
@@ -150,19 +162,29 @@ export function createConfigLifecycle({
   });
   let configFlushInFlight = null;
 
+  function releaseSavedWriter() {
+    const pending = configWriter.hasPending() || skillsWriter.hasPending() || outputStyleWriter.hasPending();
+    if (!pending) pendingSessionConfigWriters.delete(flushAllConfigSavesAsync);
+    return !pending;
+  }
+
   async function runConfigFlushAsync() {
     // Whole-config snapshots precede the more specific skills.disabled patch.
     do {
-      if (!await configWriter.flush()) break;
-      await skillsWriter.flush();
-    } while (configWriter.hasPending());
+      if (!await configWriter.flush()) return false;
+      if (!await skillsWriter.flush()) return false;
+    } while (configWriter.hasPending() || skillsWriter.hasPending());
+    return true;
   }
 
   function flushConfigSaveAsync() {
     if (configFlushInFlight) return configFlushInFlight;
     const p = runConfigFlushAsync();
     configFlushInFlight = p;
-    const clear = () => { if (configFlushInFlight === p) configFlushInFlight = null; };
+    const clear = () => {
+      if (configFlushInFlight === p) configFlushInFlight = null;
+      releaseSavedWriter();
+    };
     p.then(clear, clear);
     return p;
   }
@@ -171,6 +193,7 @@ export function createConfigLifecycle({
     if (configWriter.flushSyncIfIdle((snapshot) => cfgMod.saveConfig(snapshot))) {
       skillsWriter.flushSyncIfIdle((names) => cfgMod.patchSkillsDisabled(names));
     }
+    releaseSavedWriter();
   }
 
   function saveConfigAndAdopt(nextConfig, { hasSecrets = getConfigHasSecrets() } = {}) {
@@ -180,11 +203,13 @@ export function createConfigLifecycle({
     // Persist the adopted object; coalesce rapid successive changes into one
     // disk write after CONFIG_SAVE_DEBOUNCE_MS of quiet.
     configWriter.schedule(getConfig(), flushConfigSaveAsync);
+    pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
     return adopted;
   }
 
   function scheduleSkillsSave(names) {
     skillsWriter.schedule(names, flushConfigSaveAsync);
+    pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
   }
 
   function outputStyleUpdater(styleId) {
@@ -203,18 +228,28 @@ export function createConfigLifecycle({
   // mixdog-config lock. Start/drain all debounce channels through their async
   // variants, then resolve only when every promise tail (including skills,
   // which config flushes after its whole-section write) has settled.
-  async function flushAllConfigSavesAsync() {
-    await Promise.all([
+  async function flushAllConfigSavesAsync({ requireSaved = false } = {}) {
+    const saved = await Promise.all([
       flushConfigSaveAsync(),
       outputStyleWriter.flush(),
     ]);
     // The shared config layer also tracks writes started directly by channel,
     // webhook, voice, and future async RMW callers.
     await sharedCfgMod.pendingConfigWrites();
+    releaseSavedWriter();
+    if (requireSaved && saved.includes(false)) {
+      throw new Error('Cannot create a new session: pending settings could not be saved.');
+    }
+  }
+
+  async function flushOutputStyleSaveAsync() {
+    await outputStyleWriter.flush();
+    releaseSavedWriter();
   }
 
   function scheduleOutputStyleSave(styleId) {
-    outputStyleWriter.schedule(styleId);
+    outputStyleWriter.schedule(styleId, flushOutputStyleSaveAsync);
+    pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
   }
 
   // --- reload / ensure --------------------------------------------------------

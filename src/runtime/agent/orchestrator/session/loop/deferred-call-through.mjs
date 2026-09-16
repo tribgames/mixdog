@@ -2,6 +2,7 @@
 // then normal executeTool routing (runtime errors only; no pre-dispatch schema).
 import { clean } from '../../../../../session-runtime/session-text.mjs';
 import { deferredCatalogUnion, isReadonlySelectable, selectDeferredTools } from '../../../../../session-runtime/tool-catalog.mjs';
+import { isDeferredToolAvailable } from '../../../../../session-runtime/deferred-tool-availability.mjs';
 
 /** Skill-list plumbing only; mutation/MCP/builtins must use the catalog+mode gate. */
 const INACTIVE_INFRA_BYPASS = new Set(['skills_list', 'skill_view']);
@@ -28,6 +29,7 @@ function lookupDeferredCatalogTool(session, name) {
 
 export function isOnDeferredToolSurface(session, name) {
     if (!session) return false;
+    if (!isDeferredToolAvailable(session, name)) return false;
     return isActiveSessionTool(session, name) || lookupDeferredCatalogTool(session, name) !== null;
 }
 
@@ -60,6 +62,9 @@ function denyDeferredCallThrough(message) {
  */
 export function prepareDeferredToolCallThrough(sessionRef, name, _args) {
     if (!sessionRef) return null;
+    if (!isDeferredToolAvailable(sessionRef, name)) {
+        return denyDeferredCallThrough(`Error: MCP tool "${name}" is unavailable in the current session catalog; no call was sent.`);
+    }
     const tool = lookupDeferredCatalogTool(sessionRef, name);
     if (!tool) return null;
     if (isActiveSessionTool(sessionRef, name)) return null;

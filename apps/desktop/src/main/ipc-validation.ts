@@ -373,13 +373,13 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     throw new TypeError(`${capability} requires a boolean value.`);
   }
   if (capability === 'setBuiltinToolEnabled'
-    && args[0] !== 'git' && args[0] !== 'office' && args[0] !== 'localProvider') {
-    throw new TypeError('setBuiltinToolEnabled requires git, office, or localProvider.');
+    && args[0] !== 'git' && args[0] !== 'office' && args[0] !== 'localProvider' && args[0] !== 'tidy') {
+    throw new TypeError('setBuiltinToolEnabled requires git, office, localProvider, or tidy.');
   }
   if (capability === 'installBuiltinFeature'
     && args[0] !== 'git' && args[0] !== 'memory' && args[0] !== 'office'
-    && args[0] !== 'localProvider') {
-    throw new TypeError('installBuiltinFeature requires git, memory, office, or localProvider.');
+    && args[0] !== 'localProvider' && args[0] !== 'tidy') {
+    throw new TypeError('installBuiltinFeature requires git, memory, office, localProvider, or tidy.');
   }
   if (capability === 'setModel') requiredString(args[0], 'model selector', 512);
   if (capability === 'startLocalProviderInstallation') {

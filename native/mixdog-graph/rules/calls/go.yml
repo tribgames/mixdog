@@ -1,0 +1,37 @@
+# Call-site rules for Go.
+#
+# Go has no constructor syntax: the builtin `new(T)` is a plain function call
+# (name `new`, kind `call`) and a composite literal `T{}` is not a call at
+# all, so no rule here declares `new`.
+#
+# mixdog-call-kind: method
+id: go-call-method
+language: Go
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: selector_expression
+    all:
+      - has:
+          field: field
+          pattern: $NAME
+      - has:
+          field: operand
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: go-call-plain
+language: Go
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME

@@ -17,6 +17,7 @@ test('launch diagnostics omit URL credentials, paths, query strings and fragment
 
 test('diagnostics retain only the error category without provider payloads', () => {
   assert.equal(computerLogError(new Error('target_required: private clipboard text')), 'target_required');
+  assert.equal(computerLogError(new Error('target_mismatch|private clipboard text')), 'target_mismatch');
   assert.equal(computerLogError(new Error('launch failed for https://example.invalid/?secret')), 'computer_command_failed');
 });
 
@@ -41,4 +42,46 @@ test('run history keeps sequence and capture phase timings behind the privacy bo
   assert.equal(record.step_timings[1].timings_ms.execution_ms, 300);
   assert.deepEqual(record.capture_timings_ms, { accessibility_ms: 200, screenshot_ms: 180, ocr_ms: 70 });
   assert.equal(JSON.stringify(record).includes('private-value'), false);
+});
+
+test('uncertain input and failed observation remain independently diagnosable', () => {
+  const record = computerRunRecord({ action: 'sequence' }, performance.now(), {
+    text: JSON.stringify({
+      ok: false, completed: false, input_may_have_executed: true,
+      steps: [{ status: 'uncertain', code: 'background_delivery_unknown',
+        delivery_accepted: null, input_may_have_executed: true,
+        message: 'private-value', timings_ms: { execution_ms: 20 } }],
+      observation: { ok: false, accessibility_status: 'error',
+        accessibility_error: 'computer_command_timeout: private-value',
+        pixel_status: 'unavailable',
+        pixel_unavailable: { code: 'pixel_unavailable', reason: 'capture_source_unavailable' } },
+    }),
+  });
+  assert.equal(record.input_may_have_executed, true);
+  assert.equal(record.step_timings[0].status, 'uncertain');
+  assert.equal(record.step_timings[0].delivery_accepted, null);
+  assert.equal(record.step_timings[0].code, 'background_delivery_unknown');
+  assert.equal(record.observation.accessibility_error, 'computer_command_timeout');
+  assert.equal(record.observation.pixel_reason, 'capture_source_unavailable');
+  assert.equal(JSON.stringify(record).includes('private-value'), false);
+});
+
+test('plain screenshots and failed post-action captures retain bounded private-free attempt evidence', () => {
+  const rows = Array.from({ length: 12 }, () => ({
+    backend: 'wgc', scope: 'target', status: 'failed', elapsed_ms: 40,
+    code: 'capture_timeout', cleanup: { status: 'unconfirmed', cancellation: 'unconfirmed', secret: 'private-value' },
+    text: 'private-value', image: 'private-value', window_title: 'private-value',
+  }));
+  for (const result of [
+    { text: 'Screenshot of private-value', captureAttempts: rows },
+    { text: JSON.stringify({ action: 'click', ok: false, capture_after: { capture_attempts: rows } }) },
+  ]) {
+    const record = computerRunRecord({ action: 'screenshot' }, performance.now(), result);
+    assert.equal(record.capture_attempts.length, 8);
+    assert.deepEqual(record.capture_attempts[0], {
+      backend: 'wgc', scope: 'target', status: 'failed', elapsed_ms: 40,
+      code: 'capture_timeout', cleanup: { status: 'unconfirmed', cancellation: 'unconfirmed' },
+    });
+    assert.equal(JSON.stringify(record).includes('private-value'), false);
+  }
 });

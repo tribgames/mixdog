@@ -22,6 +22,15 @@ test('target normalisation rejects empty, unknown, and ill-typed specs', () => {
   });
 });
 
+test('selector normalization preserves CSS literals and escaped whitespace', () => {
+  for (const selector of ['[data-key="a  b"]', '#a\\  b', '  [title=" spaced "]  ']) {
+    assert.equal(normalizeBrowserTarget({ selector }).selector, selector);
+  }
+  assert.throws(() => normalizeBrowserTarget({ selector: ' \t\n' }), /requires role, name, and\/or selector/);
+  assert.throws(() => normalizeBrowserTarget({ selector: 1 }), /must be a string/);
+  assert.throws(() => normalizeBrowserTarget({ selector: 'x'.repeat(4097) }), /at most 4096/);
+});
+
 test('selection insists on one match, prefers the verbatim name, and lists candidates with refs', () => {
   const elements = [
     element('p1-s2-e1', 'button', 'Save as draft'),
@@ -54,7 +63,43 @@ test('selection insists on one match, prefers the verbatim name, and lists candi
   );
 });
 
-function resolverFixture({ ax = true, elements, unfiltered = elements.length, dom }) {
+test('exact names distinguish case and match the whole normalized name', () => {
+  const elements = [
+    element('p1-s2-e1', 'button', 'Save'),
+    element('p1-s2-e2', 'button', 'SAVE'),
+    element('p1-s2-e3', 'button', 'Save as draft'),
+  ];
+  assert.equal(selectBrowserTarget({ name: 'Save', exact: true }, elements).ref, 'p1-s2-e1');
+  assert.equal(selectBrowserTarget({ name: 'SAVE', exact: true }, elements).ref, 'p1-s2-e2');
+  assert.throws(
+    () => selectBrowserTarget({ name: 'Save', exact: true }, elements.slice(1)),
+    /no element matched/,
+  );
+  assert.throws(
+    () => selectBrowserTarget({ name: 'save', exact: true }, elements),
+    /no element matched/,
+  );
+  assert.equal(
+    selectBrowserTarget(normalizeBrowserTarget({ name: '  Save  as draft ', exact: true }), elements).ref,
+    'p1-s2-e3',
+  );
+  assert.equal(selectBrowserTarget({ name: 'sAvE aS' }, elements).ref, 'p1-s2-e3');
+});
+
+test('exact names preserve ambiguity and nth only counts case-sensitive matches', () => {
+  const elements = [
+    element('p1-s2-e1', 'button', 'Save'),
+    element('p1-s2-e2', 'button', 'SAVE'),
+    element('p1-s2-e3', 'button', 'Save'),
+  ];
+  assert.throws(
+    () => selectBrowserTarget({ name: 'Save', exact: true }, elements),
+    /matched 2 elements/,
+  );
+  assert.equal(selectBrowserTarget({ name: 'Save', exact: true, nth: 2 }, elements).ref, 'p1-s2-e3');
+});
+
+function resolverFixture({ ax = true, elements, unfiltered = elements.length, dom, selectorNodes, describeNode }) {
   const guest = {};
   const state = new BrowserGuestStateStore();
   const captured = [];
@@ -79,9 +124,11 @@ function resolverFixture({ ax = true, elements, unfiltered = elements.length, do
         if (method === 'DOM.getDocument') return { root: { nodeId: 1 } };
         if (method === 'DOM.querySelectorAll') {
           if (params.selector === 'bad(') throw new Error("'bad(' is not a valid selector");
+          if (selectorNodes) return { nodeIds: selectorNodes(params.selector) };
           return { nodeIds: params.selector === 'input[name=agree]' ? [77] : [77, 78] };
         }
         if (method === 'DOM.describeNode') {
+          if (describeNode) return { node: describeNode(params.nodeId) };
           return params.nodeId === 77
             ? { node: { backendNodeId: 2, nodeName: 'INPUT' } }
             : { node: { backendNodeId: 900, nodeName: 'DIV', attributes: ['id', 'consent', 'class', 'row'] } };
@@ -149,12 +196,11 @@ test('a selector target reuses the AX ref for a known node and mints one for an 
   assert.equal(known.ref, 'p1-s2-e2');
   await assert.rejects(
     f.resolver.resolveTargetRefs(f.guest, [{ selector: 'div.row' }]),
-    /matched 2 elements[\s\S]*\[p1-s2-t1\] div "consent"/,
+    /matched 2 elements[\s\S]*\[p1-s2-t\d+\] div "consent"/,
   );
   const [minted] = await f.resolver.resolveTargetRefs(f.guest, [{ selector: 'div.row', nth: 2 }]);
-  assert.equal(minted.ref, 'p1-s2-t1');
-  assert.equal(f.state.for(f.guest).accessibilityRefs.refs.get('p1-s2-t1').backendNodeId, 900);
-  assert.equal(f.state.for(f.guest).refSet.refs.get('p1-s2-t1').role, 'div');
+  assert.equal(f.state.for(f.guest).accessibilityRefs.refs.get(minted.ref).backendNodeId, 900);
+  assert.equal(f.state.for(f.guest).refSet.refs.get(minted.ref).role, 'div');
   await assert.rejects(f.resolver.resolveTargetRefs(f.guest, [{ selector: 'bad(' }]), /not a valid CSS selector/);
 });
 
@@ -178,3 +224,74 @@ test('without an AX tree a selector resolves through the page-side ref table', a
     dom.window.close();
   }
 });
+
+for (const ax of [true, false]) {
+  test(`batched CSS targets keep distinct elements and reuse overlapping matches (${ax ? 'AX' : 'DOM'})`, async () => {
+    const dom = new JSDOM('<input id="first" data-key="a  b"><input id="second" data-key="a b">', { runScripts: 'outside-only' });
+    try {
+      const nodes = [dom.window.document.querySelector('#first'), dom.window.document.querySelector('#second')];
+      dom.window.__mixdogAgentSnapshot = { id: 'p1-s2', refs: new Map() };
+      const f = resolverFixture({
+        ax, elements: [], dom,
+        selectorNodes: selector => [...dom.window.document.querySelectorAll(selector)].map(node => nodes.indexOf(node) + 101),
+        describeNode: id => ({ backendNodeId: id, nodeName: 'INPUT', attributes: ['id', nodes[id - 101].id] }),
+      });
+      const resolved = await f.resolver.resolveTargetRefs(f.guest, [
+        { selector: '[data-key="a  b"]' },
+        { selector: '[data-key="a b"]' },
+        { selector: '#first' },
+      ]);
+      assert.notEqual(resolved[0].ref, resolved[1].ref);
+      assert.equal(resolved[0].ref, resolved[2].ref, 'overlapping selectors retain the same element identity');
+      for (const [index, entry] of resolved.slice(0, 2).entries()) {
+        if (ax) {
+          assert.equal(f.state.for(f.guest).accessibilityRefs.refs.get(entry.ref).backendNodeId, index + 101);
+        } else {
+          assert.equal(dom.window.__mixdogAgentSnapshot.refs.get(entry.ref).element, nodes[index]);
+        }
+        assert.equal(f.state.for(f.guest).refSet.refs.get(entry.ref).name, nodes[index].id);
+      }
+      assert.equal(f.captured.length, 1, 'a batch keeps one observation');
+    } finally {
+      dom.window.close();
+    }
+  });
+
+  test(`CSS matching refuses truncated uniqueness and still supports the limit boundary (${ax ? 'AX' : 'DOM'})`, async () => {
+    const dom = new JSDOM(Array.from({ length: 51 }, (_, i) => (
+      `<button id="b${i}" aria-label="${i === 0 || i === 50 ? 'Delete' : `Other ${i}`}"></button>`
+    )).join(''), { runScripts: 'outside-only' });
+    try {
+      const nodes = [...dom.window.document.querySelectorAll('button')];
+      const elements = nodes.map((node, index) => element(`p1-s2-e${index + 1}`, 'button', node.getAttribute('aria-label')));
+      dom.window.__mixdogAgentSnapshot = {
+        id: 'p1-s2', refs: new Map(elements.map((el, i) => [el.ref, { element: nodes[i], frames: [] }])),
+      };
+      const f = resolverFixture({
+        ax, elements, dom,
+        selectorNodes: selector => [...dom.window.document.querySelectorAll(selector)].map(node => nodes.indexOf(node) + 1),
+        describeNode: id => ({ backendNodeId: id, nodeName: 'BUTTON' }),
+      });
+      for (const target of [
+        { selector: 'button', name: 'Delete', exact: true },
+        { selector: 'button', nth: 51 },
+      ]) {
+        await assert.rejects(f.resolver.resolveTargetRefs(f.guest, [target]),
+          /matched 51 elements, exceeding the limit of 50; narrow target\.selector/);
+      }
+      assert.equal(f.captured.length, 2, 'overflow is final, not an actionability retry');
+      assert.ok(!f.cdpCalls.includes('DOM.describeNode'), 'overflow stops before per-node work');
+      assert.equal(f.state.for(f.guest).refSet.refs.size, elements.length);
+      assert.equal(dom.window.__mixdogAgentSnapshot.refs.size, elements.length);
+      const [atLimit] = await f.resolver.resolveTargetRefs(f.guest, [{ selector: 'button:not(#b50)', nth: 50 }]);
+      assert.equal(atLimit.ref, elements[49].ref);
+      const [narrowed] = await f.resolver.resolveTargetRefs(f.guest, [{ selector: '#b50', name: 'Delete', exact: true }]);
+      assert.equal(narrowed.ref, elements[50].ref);
+      await assert.rejects(f.resolver.resolveTargetRefs(f.guest, [{
+        selector: '#b0, #b50', name: 'Delete', exact: true,
+      }]), /matched 2 elements/);
+    } finally {
+      dom.window.close();
+    }
+  });
+}

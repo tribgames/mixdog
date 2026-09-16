@@ -222,6 +222,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
     browser: settings?.browserInstalled === true,
     computer: settings?.computerInstalled === true,
     office: record(toolModules.office).installed === true,
+    tidy: record(toolModules.tidy).installed === true,
     localProvider: localProvider.installed === true,
     voice: voiceInstalled || voice.installed === true,
   }), [gitStatus?.installed, settings, toolModules, localProvider, voice.installed, voiceInstalled]);
@@ -231,6 +232,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
     browser: settings?.browserControl === true,
     computer: settings?.computerControl === true,
     office: record(toolModules.office).enabled !== false,
+    tidy: record(toolModules.tidy).enabled !== false,
     localProvider: localProvider.enabled === true,
     voice: voice.enabled === true && installed.voice,
   }), [installed.voice, settings, toolModules, localProvider, voice.enabled]);
@@ -254,7 +256,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
       const result = record(await run('setMemoryToolsEnabled', [next], `built-in-${id}`));
       return record(result.memory).enabled === next;
     }
-    if (id === 'git' || id === 'office' || id === 'localProvider') {
+    if (id === 'git' || id === 'office' || id === 'localProvider' || id === 'tidy') {
       const result = record(await run('setBuiltinToolEnabled', [id, next], `built-in-${id}`));
       return record(result[id]).enabled === next;
     }
@@ -295,7 +297,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
         }
         setVoiceInstalled(true);
         window.dispatchEvent(new Event('mixdog:voice-runtime-changed'));
-      } else if (id === 'memory' || id === 'office') {
+      } else if (id === 'memory' || id === 'office' || id === 'tidy') {
         // Office leans on LibreOffice for rendering and recalculation, so its
         // Install step brings the dependency in first (winget/brew) — the same
         // guided pattern the Git card uses for system Git.

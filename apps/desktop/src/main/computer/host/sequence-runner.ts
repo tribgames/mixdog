@@ -68,6 +68,7 @@ export interface SequenceRunnerHost extends Pick<CaptureEngine, 'captureAfterAct
   sessionIdFor(command: ComputerCommand): string;
   freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined;
   recordProgress?(completed: number, inFlight?: number): void;
+  preflightSteps?(command: ComputerCommand, steps: ComputerCommand[]): Promise<void>;
   /** Late-bound: each step goes back through the router. */
   runCommand(command: ComputerCommand): Promise<ComputerCommandResult>;
 }
@@ -154,6 +155,7 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
       );
     }
     const stepCommands = validateSteps(command, windowId);
+    await host.preflightSteps?.(command, stepCommands);
     host.recordProgress?.(0);
     const stepsStartedAt = performance.now();
     const sequence = await executeComputerSequenceSteps(

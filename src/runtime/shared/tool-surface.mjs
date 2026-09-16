@@ -155,6 +155,8 @@ export function displayToolName(name, args = {}) {
       return 'Office';
     case 'media':
       return 'Media';
+    case 'tidy':
+      return 'Tidy';
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
@@ -333,6 +335,13 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         String(a.action || ''),
         String(a.kind || ''),
         a.path ? truncateToolText(a.path, max) : a.job ? String(a.job) : '',
+      ]);
+    case 'tidy':
+      return compactParts([
+        String(a.action || ''),
+        Array.isArray(a.engines) && a.engines.length ? a.engines.join(', ') : '',
+        Array.isArray(a.paths) && a.paths.length ? truncateToolText(a.paths.join(' '), max) : '',
+        a.apply === true ? 'apply' : '',
       ]);
     case 'read_mcp_resource':
       return truncateToolText(a.uri || '', max);
@@ -617,6 +626,10 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return a.action === 'generate'
         ? unitDescriptor('Media', { count: 1, active: 'Generating', done: 'Generated', noun: a.kind === 'video' ? 'video' : 'image' })
         : unitDescriptor('Media', { count: 1, active: 'Checking', done: 'Checked', noun: 'media action' });
+    case 'tidy':
+      return a.action === 'fix'
+        ? unitDescriptor('Tidy', { count: 1, active: 'Tidying', done: 'Tidied', noun: 'cleanup pass' })
+        : unitDescriptor('Tidy', { count: 1, active: 'Checking', done: 'Checked', noun: 'cleanup action' });
     case 'fetch': {
       const fetchLimit = Number(a.limit ?? a.messages);
       const fetchCount = Number.isFinite(fetchLimit) && fetchLimit > 0
@@ -635,7 +648,7 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'memory': {
       const action = String(a.action || '').toLowerCase();
       const op = String(a.op || '').toLowerCase();
-      const isMutation = op === 'add' || op === 'edit' || op === 'delete' || op === 'promote' || op === 'dismiss';
+      const isMutation = op === 'add' || op === 'edit' || op === 'delete';
       if (isMutation) return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Writing', done: 'Wrote', noun: 'memory item' });
       return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Checking', done: 'Checked', noun: 'memory item' });
     }

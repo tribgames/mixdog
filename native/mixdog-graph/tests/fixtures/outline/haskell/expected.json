@@ -1,0 +1,128 @@
+[
+  {
+    "name": "Demo.Accounts",
+    "symbolType": "module",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "module"
+  },
+  {
+    "name": "Data.Text",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Data.Map",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Control.Monad",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "User",
+    "symbolType": "struct",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "data"
+  },
+  {
+    "name": "UserId",
+    "symbolType": "struct",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "newtype"
+  },
+  {
+    "name": "Name",
+    "symbolType": "struct",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "type"
+  },
+  {
+    "name": "Render",
+    "symbolType": "interface",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "class"
+  },
+  {
+    "name": "render",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "renderPrec",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "renderPrec",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "Render",
+    "symbolType": "object",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "instance"
+  },
+  {
+    "name": "render",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "greet",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "greet",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "fromMap",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "fromMap",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "answer",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  }
+]

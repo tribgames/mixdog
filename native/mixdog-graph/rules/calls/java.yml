@@ -1,0 +1,70 @@
+# Call-site rules for Java.
+#
+# `new Widget()` is explicit constructor syntax, so it is kind `new` with the
+# type name as the callee. A qualified type (`new java.util.ArrayList()`) is a
+# `scoped_type_identifier` whose LAST child is the segment to report, and a
+# type argument list wraps either shape in a `generic_type`, so
+# `new java.util.ArrayList<>()` needs the scoped branch nested inside the
+# generic one.
+#
+# mixdog-call-kind: method
+id: java-call-method
+language: Java
+role: item
+symbolType: function
+rule:
+  kind: method_invocation
+  all:
+    - has:
+        field: name
+        pattern: $NAME
+    - has:
+        field: object
+        pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: java-call-plain
+language: Java
+role: item
+symbolType: function
+rule:
+  kind: method_invocation
+  has:
+    field: name
+    pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: new
+id: java-new
+language: Java
+role: item
+symbolType: function
+rule:
+  kind: object_creation_expression
+  has:
+    field: type
+    any:
+      - kind: type_identifier
+        pattern: $NAME
+      - kind: scoped_type_identifier
+        has:
+          kind: type_identifier
+          nthChild:
+            position: 1
+            reverse: true
+          pattern: $NAME
+      - kind: generic_type
+        any:
+          - has:
+              kind: type_identifier
+              pattern: $NAME
+          - has:
+              kind: scoped_type_identifier
+              has:
+                kind: type_identifier
+                nthChild:
+                  position: 1
+                  reverse: true
+                pattern: $NAME
+name: $NAME

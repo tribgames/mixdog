@@ -1,4 +1,4 @@
-import { createContext, isValidElement, useContext, useState, type ReactNode } from "react";
+import { createContext, isValidElement, useContext, useEffect, useState, type ReactNode } from "react";
 import { showDesktopToast } from "./desktop-toasts";
 import { SetiFileIcon } from "./SetiFileIcon";
 import { errorMessageText } from "./ErrorNotice";
@@ -20,7 +20,7 @@ function childrenText(node: ReactNode): string {
 export const MarkdownProjectContext = createContext("");
 /** Opens a Project file in Mixdog's editor at a line; the conversation host
  *  supplies it. Binary documents/media never come here — they go to the OS. */
-export type MarkdownOpenFile = (project: string, rel: string, line?: number) => void;
+export type MarkdownOpenFile = (project: string, rel: string, line?: number, accessToken?: string) => void;
 export const MarkdownOpenFileContext = createContext<MarkdownOpenFile | null>(null);
 
 function displayPath(project: string, rel: string, suffix: string): string {
@@ -31,6 +31,8 @@ function displayPath(project: string, rel: string, suffix: string): string {
 export interface LocalLinkTarget {
   /** False for web URLs, anchors and unsupported schemes. */
   local: boolean;
+  /** True only after an automatic mention's resolved target has been statted. */
+  verified: boolean;
   path: string;
   kind: "folder" | "file" | "unknown";
   /** Display name: file name, or `folder/`. */
@@ -47,10 +49,11 @@ export interface LocalLinkTarget {
  *  text files go to Mixdog's editor at their line, documents launch the OS
  *  app, folders open in the file manager. Each file uses its owning Project,
  *  which may differ from the conversation's current Project. */
-export function useLocalLinkTarget(target: string): LocalLinkTarget {
+export function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const projectPath = useContext(MarkdownProjectContext);
   const openFile = useContext(MarkdownOpenFileContext);
   const [resolved, setResolved] = useState({ key: "", title: "" });
+  const [verifiedKey, setVerifiedKey] = useState("");
   const resolutionKey = `${projectPath}\0${target}`;
   const resolvedTitle = resolved.key === resolutionKey ? resolved.title : "";
   const local = isLocalMarkdownLink(target);
@@ -68,15 +71,40 @@ export function useLocalLinkTarget(target: string): LocalLinkTarget {
   const title = resolvedTitle
     || (rel && !bare && projectPath ? displayPath(projectPath, rel, suffix) : undefined);
 
+  // A filename-shaped mention is not an authored link. Keep its original
+  // children until the owning Project and actual file/folder are confirmed.
+  // Search results may be stale; stat the resolved path as well. Do not use
+  // the resolver's legacy no-stat fallback as evidence that a file exists.
+  useEffect(() => {
+    if (!verify || !local) return;
+    setVerifiedKey("");
+    const statProjectFile = window.mixdogDesktop?.statProjectFile;
+    if (!statProjectFile) return;
+    let active = true;
+    resolveLocalLink(projectPath, location.path)
+      .then(async ({ project, path, accessToken, directory }) => {
+        if (!active) return;
+        // External folders were already statted by resolveLocalPaths and
+        // open in the file manager, without an editor access token.
+        if (!directory) await statProjectFile(project, path, accessToken);
+        if (!active) return;
+        setResolved({ key: resolutionKey, title: displayPath(project, path, suffix) });
+        setVerifiedKey(resolutionKey);
+      })
+      // Missing, ambiguous, inaccessible or unverified mentions remain text.
+      .catch(() => {});
+    return () => { active = false; };
+  }, [verify, local, projectPath, location.path, resolutionKey, suffix]);
+
   const resolveTarget = () => resolveLocalLink(projectPath, location.path);
   const open = async () => {
     try {
-      const { project, path: file } = await resolveTarget();
+      const { project, path: file, accessToken, directory } = await resolveTarget();
       setResolved({ key: resolutionKey, title: displayPath(project, file, suffix) });
       // A text file with an extension opens in the editor directly. Documents,
       // folders and extension-less names go through main, which launches the
       // OS app or file manager and hands text files back as 'editor'.
-      if (kind !== "file" || localFileOpener(file) === "os") {
+      if (directory || kind !== "file" || localFileOpener(file) === "os") {
         const api = window.mixdogDesktop;
         if (!api?.openLocalFileLink) {
           throw new Error(t("Local file links can only be opened in the desktop app."));
@@ -87,7 +115,8 @@ export function useLocalLinkTarget(target: string): LocalLinkTarget {
         if (await api.openLocalFileLink(project, href) !== "editor") return;
       }
       if (!openFile) throw new Error(t("Local file links can only be opened in the desktop app."));
-      openFile(project, file, location.line);
+      if (accessToken) openFile(project, file, location.line, accessToken);
+      else openFile(project, file, location.line);
     } catch (error) {
       showDesktopToast(t("Unable to open file: {{error}}", { error: errorMessageText(error) }), "error");
     }
@@ -101,7 +130,10 @@ export function useLocalLinkTarget(target: string): LocalLinkTarget {
         .catch(() => {});
     }
     : undefined;
-  return { local, path: location.path, kind, name, suffix, title, revealTitle, open };
+  return {
+    local, verified: verifiedKey === resolutionKey,
+    path: location.path, kind, name, suffix, title, revealTitle, open,
+  };
 }
 
 /** The explorer's file glyph, so a file reads the same in chat as in the
@@ -135,15 +167,18 @@ export function MarkdownLink({ href, children, className, title }: {
   const raw = String(href || "").trim();
   const target = /^www\./i.test(raw) ? `https://${raw}` : raw;
   const external = /^https?:\/\//i.test(target);
-  const link = useLocalLinkTarget(target);
+  const automatic = String(className || "").split(/\s+/).includes(PATH_LINK_CLASS);
+  const verify = automatic && typeof window !== "undefined";
+  const link = useLocalLinkTarget(target, verify);
   const local = link.local;
+  if (verify && local && !link.verified) return <>{children}</>;
   if (!external && !local) return <a href={href} className={className} title={title}>{children}</a>;
 
   // Every file mention reads like an editor location — icon, file name and
   // `:line` — with the full path in the tooltip. Only a link whose text is an
   // actual caption (`[수정 요약](output/report.md)`) keeps that caption.
   const text = childrenText(children).trim();
-  const pathLike = local && (String(className || "").split(/\s+/).includes(PATH_LINK_CLASS)
+  const pathLike = local && (automatic
     || text === raw || text === link.path.replace(/^\.\//, "") || text === link.path);
   const linkClass = pathLike
     ? [...new Set([...String(className || "").split(/\s+/), PATH_LINK_CLASS])].filter(Boolean).join(" ")

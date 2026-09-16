@@ -10,6 +10,8 @@ import type { ComputerExecutionPolicy } from './execution-policy';
 import { sequenceStepRequest } from './sequence-dispatch';
 import { assertObservationInputAllowed } from './observation-policy';
 import { waitForElectronTypingTarget } from './electron-text-target';
+import { canUseAppOwnedTextInput } from './input-preflight';
+import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
 
 type DispatchHost = Pick<CommandRouterHost,
   'callPowerShell' | 'callPowerShellElevated' | 'sessionIdFor' | 'readWindowIntegrity'
@@ -40,7 +42,7 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
       assertExecutionNotAborted();
       return sessionIdFor(command) === CHROME_SETUP_SESSION_ID ? {} : policy.dispatchAuthority(targetWindowId);
     };
-    const electronTextTarget = action === 'type' && command.delivery !== 'foreground' && !command.ref
+    const electronTextTarget = canUseAppOwnedTextInput(command)
       ? electronWindowForNativeId(targetWindowId) : null;
     if (electronTextTarget && !electronTextTarget.webContents.isDestroyed()) {
       const text = String(command.text ?? '');
@@ -53,7 +55,17 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
           allowed_window_ids: allowedWindowIds, delivery: 'background', session_id: sessionIdFor(command),
         });
         if (!focused.ok || focused.result?.code || focused.result?.delivery_accepted !== true) {
-          throw new Error(focused.error || String(focused.result?.text || '') || 'element-targeted type could not focus the point');
+          const result = focused.result;
+          const noInput = result?.delivery_accepted === false && result?.input_may_have_executed !== true;
+          return { id: focused.id, ok: true, result: {
+            ...result, action: 'type',
+            code: result?.code || computerErrorCode(focused.error) || 'typing_target_unconfirmed',
+            text: focused.error || result?.text || 'The preparatory click was not confirmed; no text was sent.',
+            effect: 'unverifiable', verified: false, goal_verified: false,
+            delivery: 'background', window_id: targetWindowId,
+            delivery_accepted: noInput ? false : null,
+            input_may_have_executed: !noInput,
+          } };
         }
       }
       const typingPoint = physicalX !== undefined && physicalY !== undefined

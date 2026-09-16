@@ -1,0 +1,7 @@
+id: no-empty-catch
+valid:
+  - try { foo() } catch (e) { bar() }
+  - try { foo() } catch (e) { console.log(e) }
+  - try { foo() } catch (e) { /* ignore */ }
+invalid:
+  - try { foo() } catch (e) {}

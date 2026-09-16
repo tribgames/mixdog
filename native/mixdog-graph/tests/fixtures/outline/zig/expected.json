@@ -1,0 +1,65 @@
+[
+  {
+    "name": "std",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "./util.zig",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Config",
+    "symbolType": "struct",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "struct"
+  },
+  {
+    "name": "init",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "Mode",
+    "symbolType": "enum",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "enum"
+  },
+  {
+    "name": "Payload",
+    "symbolType": "struct",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "union"
+  },
+  {
+    "name": "greet",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "helper",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "main",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  }
+]

@@ -35,6 +35,132 @@ fn fixture() -> std::path::PathBuf {
     root
 }
 
+#[test]
+fn outline_mode_dumps_items_members_and_extra_rules() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-outline-{nonce}"));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("a.ts"),
+        "import { x } from './x.js';\nexport class Store {\n  read() {}\n}\n",
+    )
+    .unwrap();
+
+    let lines = run(&root, &["--outline", "--files", "a.ts"], None);
+    assert_eq!(lines.len(), 2, "one file line plus the summary");
+    let file = &lines[0];
+    assert_eq!(file["file"], "a.ts");
+    assert_eq!(file["lang"], "typescript");
+    let items = file["items"].as_array().unwrap();
+    let import = items
+        .iter()
+        .find(|item| item["isImport"] == true)
+        .expect("import item");
+    assert_eq!(import["symbolType"], "module");
+    assert_eq!(import["name"], "'./x.js'");
+    let class = items
+        .iter()
+        .find(|item| item["symbolType"] == "class")
+        .expect("class item");
+    assert_eq!(class["name"], "Store");
+    assert_eq!(class["isExported"], true);
+    assert_eq!(class["range"]["start"]["line"], 1);
+    assert_eq!(class["range"]["start"]["column"], 7);
+    assert_eq!(class["range"]["byteOffset"][0], 35);
+    let member = &class["members"][0];
+    assert_eq!(member["symbolType"], "method");
+    assert_eq!(member["name"], "read");
+    assert_eq!(member["isPublic"], true);
+    assert_eq!(lines[1]["summary"]["files"], 1);
+    assert_eq!(lines[1]["summary"]["errors"].as_array().unwrap().len(), 0);
+
+    // An extra rule file is layered on top of the bundle and wins per node.
+    let rules = root.join("extra.yml");
+    fs::write(
+        &rules,
+        "id: extra-ts-class\nlanguage: TypeScript\nrole: item\nsymbolType: struct\nrule:\n  kind: class_declaration\n  has:\n    field: name\n    pattern: $NAME\nname: extra-$NAME\n",
+    )
+    .unwrap();
+    let with_extra = run(
+        &root,
+        &[
+            "--outline",
+            "--rules",
+            rules.to_str().unwrap(),
+            "--files",
+            "a.ts",
+        ],
+        None,
+    );
+    let items = with_extra[0]["items"].as_array().unwrap();
+    assert!(items
+        .iter()
+        .any(|item| item["name"] == "extra-Store" && item["symbolType"] == "struct"));
+
+    fs::remove_dir_all(&root).unwrap();
+}
+
+/// The two declaration shapes a `references <name>` query used to miss reach
+/// the RECORD, not only the extraction: a function-valued property of an
+/// object literal, and a method signature of an interface. Both are `method`,
+/// both name their enclosing declaration as `parent`.
+#[test]
+fn object_literal_and_signature_methods_reach_the_record() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-methods-{nonce}"));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("host.ts"),
+        "export interface SequenceRunnerHost {\n  preflightSteps?(command: string, steps: string[]): Promise<void>;\n  flag: boolean;\n  onClick: () => void;\n}\n\nexport function createPowerShellComputerHost() {\n  const sequenceRunner = createSequenceRunner({\n    preflightSteps: createInputPreflight({ retries: 2 }),\n    recordProgress: (completed: number) => completed,\n    label: 'text',\n    headers: authHeaders(key, { Accept: 'application/json' }),\n    style: { color: 'red' },\n  });\n  return sequenceRunner;\n}\n",
+    )
+    .unwrap();
+
+    let walk = run(&root, &["--files", "host.ts"], None);
+    let symbols = walk[0]["symbols"].as_array().unwrap();
+    let named = |name: &str, line: u64| {
+        symbols
+            .iter()
+            .find(|symbol| symbol["name"] == name && symbol["startLine"] == line)
+            .unwrap_or_else(|| panic!("no `{name}` at line {line} in {symbols:?}"))
+    };
+
+    let signature = named("preflightSteps", 2);
+    assert_eq!(signature["kind"], "method");
+    assert_eq!(signature["parent"], "SequenceRunnerHost");
+    assert_eq!(
+        signature["sig"],
+        "preflightSteps?(command: string, steps: string[]): Promise<void>"
+    );
+    assert!(signature.get("exported").is_none(), "{signature}");
+
+    let property = named("preflightSteps", 9);
+    assert_eq!(property["kind"], "method");
+    assert_eq!(property["parent"], "createPowerShellComputerHost");
+    assert_eq!(named("recordProgress", 10)["kind"], "method");
+
+    // Data properties and interface fields are no symbols — a function TYPE
+    // (`onClick: () => void`) is a field like any other, an OPTIONS BAG
+    // (`authHeaders(key, { … })`) is a computed value, not a factory, and an
+    // object literal value is data.
+    assert!(
+        !symbols.iter().any(|symbol| {
+            matches!(
+                symbol["name"].as_str(),
+                Some("label" | "flag" | "onClick" | "headers" | "style" | "Accept" | "color")
+            )
+        }),
+        "{symbols:?}"
+    );
+
+    fs::remove_dir_all(&root).unwrap();
+}
+
 fn run(root: &std::path::Path, args: &[&str], stdin: Option<&str>) -> Vec<serde_json::Value> {
     let mut command = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"));
     command.arg(root).args(args).stdout(Stdio::piped());
@@ -101,33 +227,44 @@ fn manifest_files_walk_and_search_remain_jsonl() {
     let dep = walk.iter().find(|v| v["rel"] == "src/dep.ts").unwrap();
     assert_eq!(main["resolvedImports"], serde_json::json!(["src/dep.ts"]));
     assert_eq!(dep["importedBy"], serde_json::json!(["src/main.ts"]));
+    // Symbol record v2: five always-present fields plus the three optional
+    // ones, which are omitted rather than emitted empty/false.
     let symbols = main["symbols"].as_array().unwrap();
     assert!(symbols.iter().any(|s| s["name"] == "main"));
     for symbol in symbols {
         let object = symbol.as_object().unwrap();
-        assert_eq!(
-            object
-                .keys()
-                .map(String::as_str)
-                .collect::<std::collections::BTreeSet<_>>(),
-            [
-                "endCol",
-                "endLine",
-                "kind",
-                "line",
-                "name",
-                "startCol",
-                "startLine"
-            ]
-            .into_iter()
-            .collect()
+        let keys = object
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        let required: std::collections::BTreeSet<&str> =
+            ["endCol", "endLine", "kind", "name", "startCol", "startLine"]
+                .into_iter()
+                .collect();
+        assert!(required.is_subset(&keys), "{symbol}");
+        let optional: std::collections::BTreeSet<&str> =
+            ["exported", "sig", "parent"].into_iter().collect();
+        assert!(
+            keys.difference(&required)
+                .all(|key| optional.contains(key)),
+            "unknown symbol field: {symbol}"
         );
         assert!(symbol["name"].is_string() && symbol["kind"].is_string());
-        for field in ["line", "endLine", "startLine", "startCol", "endCol"] {
+        for field in ["endLine", "startLine", "startCol", "endCol"] {
             assert!(symbol[field].as_u64().is_some(), "{field}: {symbol}");
         }
-        assert!(symbol["line"].as_u64().unwrap() >= symbol["startLine"].as_u64().unwrap());
-        assert!(symbol["endLine"].as_u64().unwrap() >= symbol["line"].as_u64().unwrap());
+        assert!(symbol["endLine"].as_u64().unwrap() >= symbol["startLine"].as_u64().unwrap());
+        if let Some(exported) = symbol.get("exported") {
+            assert_eq!(exported, true, "exported is omitted when false: {symbol}");
+        }
+        for field in ["sig", "parent"] {
+            if let Some(value) = symbol.get(field) {
+                assert!(
+                    value.as_str().is_some_and(|text| !text.is_empty()),
+                    "{field} is omitted when empty: {symbol}"
+                );
+            }
+        }
     }
 
     let reused = serde_json::json!({
@@ -1319,6 +1456,517 @@ fn go_relative_elixir_braces_and_deep_tsconfig_resolve() {
         find("apps/web/app/main.ts")["resolvedImports"],
         serde_json::json!(["src/util.ts"])
     );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `calls` is tri-state on the wire: `[]` = an extraction language parsed the
+/// file and it has NO call sites (a known answer), key absent = no call
+/// extraction ran for that record at all. The JS side falls back to its text
+/// heuristic only on the absent case, so a parsed-but-callless file must not
+/// silently drop the key.
+#[test]
+fn calls_are_known_empty_when_parsed_and_absent_when_not_extracted() {
+    let root = fixture();
+    fs::write(root.join("src/quiet.ts"), "export const answer = 42;\n").unwrap();
+    // Not decodable as UTF-8: the record carries a parseError and nothing was
+    // parsed, so `calls` must stay unknown.
+    fs::write(root.join("src/broken.ts"), [0xffu8, 0xfe, 0x00, 0x66].as_slice()).unwrap();
+
+    let walk = run(&root, &[], None);
+    let find = |rel: &str| {
+        walk.iter()
+            .find(|value| value["rel"] == rel)
+            .unwrap_or_else(|| panic!("missing {rel}"))
+    };
+
+    // Parsed, no call sites → known empty.
+    assert_eq!(find("src/quiet.ts")["calls"], serde_json::json!([]));
+    assert_eq!(find("java/com/acme/User.java")["calls"], serde_json::json!([]));
+    // Parsed, one call site — wire v2: [name, line, col, kind, recv, inSymbol]
+    // with kind 0 = call, and no endCol (it is col + name length).
+    assert_eq!(
+        find("src/main.ts")["calls"],
+        serde_json::json!([["answer", 2, 32, 0, "", "main"]])
+    );
+    // Not parsed → no key at all.
+    let broken = find("src/broken.ts");
+    assert!(
+        !broken["parseError"].as_str().unwrap().is_empty(),
+        "{broken}"
+    );
+    assert!(broken.get("calls").is_none(), "{broken}");
+
+    // Manifest records read no text, so they never answer.
+    let manifest = run(&root, &["--manifest"], None);
+    assert!(
+        manifest.iter().all(|value| value.get("calls").is_none()),
+        "manifest must not claim a call answer"
+    );
+
+    // Reused nodes are not parsed here either; JS keeps its own cached calls.
+    let reused_meta = serde_json::json!({ "rel": "src/dep.ts", "lang": "typescript" });
+    let files = run(
+        &root,
+        &["--files", "src/quiet.ts"],
+        Some(&format!("{reused_meta}\n")),
+    );
+    let fresh = files
+        .iter()
+        .find(|value| value["rel"] == "src/quiet.ts")
+        .expect("fresh record");
+    assert_eq!(fresh["calls"], serde_json::json!([]));
+    let reused = files
+        .iter()
+        .find(|value| value["rel"] == "src/dep.ts")
+        .expect("reused record");
+    assert!(reused.get("calls").is_none(), "{reused}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Wire v2 tuple `[name, line, col, kind, recv, inSymbol]` → the readable
+/// object the fixtures are written in. `endCol` and the `kind` token are
+/// derived, and an empty `recv` means "no receiver", so the key is dropped.
+fn call_tuple_to_object(call: &serde_json::Value) -> serde_json::Value {
+    let tuple = call
+        .as_array()
+        .unwrap_or_else(|| panic!("call must be a v2 tuple, got {call}"));
+    assert_eq!(tuple.len(), 6, "v2 tuple has 6 elements: {call}");
+    let name = tuple[0].as_str().expect("name");
+    let col = tuple[2].as_u64().expect("col");
+    let kind = match tuple[3].as_u64().expect("kind") {
+        0 => "call",
+        1 => "method",
+        2 => "new",
+        other => panic!("unknown kind code {other} in {call}"),
+    };
+    let recv = tuple[4].as_str().expect("recv");
+    let mut object = serde_json::Map::new();
+    object.insert("name".into(), name.into());
+    object.insert("line".into(), tuple[1].clone());
+    object.insert("col".into(), tuple[2].clone());
+    object.insert(
+        "endCol".into(),
+        (col + name.chars().count() as u64).into(),
+    );
+    object.insert("kind".into(), kind.into());
+    if !recv.is_empty() {
+        object.insert("recv".into(), recv.into());
+    }
+    object.insert("inSymbol".into(), tuple[5].clone());
+    serde_json::Value::Object(object)
+}
+
+/// Call-site fixtures: `tests/fixtures/calls/<lang>/sample.<ext>` plus the
+/// `expected.json` that language's fixture author wrote (`{"calls":[...]}`).
+///
+/// The comparison is EXACT — every field of every call, in order — because
+/// `calls` is a protocol contract, not a heuristic. Fixtures are authored
+/// separately from the extractor, so a language directory that does not exist
+/// yet, or that has no `expected.json`, is SKIPPED with a message instead of
+/// failing the run; the emitted list is never used as the expectation.
+///
+/// The fixtures stay in the READABLE object form (the v1 shape, with `endCol`
+/// and a `kind` token) because a human writes and reviews them; the wire is
+/// the v2 positional tuple. This test converts the emitted tuples back to that
+/// object shape, which is lossless: `endCol` is `col` + the character length
+/// of the name, and the kind code maps 0/1/2 → call/method/new.
+#[test]
+fn call_fixtures_match_expected_calls_exactly() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/calls");
+    if !root.is_dir() {
+        eprintln!(
+            "call fixtures skipped: {} does not exist yet (fixtures are authored separately)",
+            root.display()
+        );
+        return;
+    }
+
+    let mut dirs: Vec<std::path::PathBuf> = fs::read_dir(&root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    dirs.sort();
+
+    let mut checked: Vec<String> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
+
+    for dir in dirs {
+        let lang = dir.file_name().unwrap().to_string_lossy().to_string();
+        let sample = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| path.file_stem().is_some_and(|stem| stem == "sample"));
+        let expected_path = dir.join("expected.json");
+        let (Some(sample), true) = (sample, expected_path.is_file()) else {
+            skipped.push(lang);
+            continue;
+        };
+
+        let rel = format!(
+            "{lang}/{}",
+            sample.file_name().unwrap().to_string_lossy()
+        );
+        let records = run(&root, &["--files", &rel], Some(""));
+        let record = records
+            .iter()
+            .find(|value| value["rel"] == rel)
+            .unwrap_or_else(|| panic!("{rel}: no FileRecord emitted"));
+        let actual = serde_json::Value::Array(
+            record
+                .get("calls")
+                .and_then(|calls| calls.as_array())
+                .map(|calls| calls.iter().map(call_tuple_to_object).collect())
+                .unwrap_or_default(),
+        );
+
+        let expected: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&expected_path).unwrap())
+                .unwrap_or_else(|error| panic!("{}: {error}", expected_path.display()));
+        let expected = expected
+            .get("calls")
+            .cloned()
+            .unwrap_or_else(|| panic!("{}: no `calls` key", expected_path.display()));
+
+        if actual == expected {
+            checked.push(lang);
+        } else {
+            failures.push(format!(
+                "{lang}:\n  expected {}\n  actual   {}",
+                serde_json::to_string(&expected).unwrap(),
+                serde_json::to_string(&actual).unwrap()
+            ));
+        }
+    }
+
+    if !skipped.is_empty() {
+        eprintln!(
+            "call fixtures skipped (no sample/expected.json yet): {}",
+            skipped.join(", ")
+        );
+    }
+    assert!(
+        failures.is_empty(),
+        "call fixtures differ:\n{}",
+        failures.join("\n")
+    );
+    eprintln!("call fixtures checked: {}", checked.join(", "));
+}
+
+/// Copy `tests/fixtures/resolve/<name>` into a fresh temp root and return it.
+///
+/// The fixtures are COPIED rather than walked in place for two reasons: the
+/// resolvers are relative to the graph root, which must be the fixture root
+/// and not this repository, and `_node_modules` has to arrive under its real
+/// name — the repository ignores `node_modules/` everywhere, and the walk
+/// honours git ignore rules, so a directory committed under that name would be
+/// invisible to the very resolver leg it exists to prove.
+fn resolve_fixture(name: &str) -> std::path::PathBuf {
+    fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let raw = entry.file_name().to_string_lossy().to_string();
+            let name = if raw == "_node_modules" {
+                "node_modules".to_string()
+            } else {
+                raw
+            };
+            let target = to.join(name);
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/resolve")
+        .join(name);
+    assert!(source.is_dir(), "missing fixture {}", source.display());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-resolve-{name}-{nonce}"));
+    copy_tree(&source, &root);
+    root
+}
+
+fn resolved(walk: &[serde_json::Value], rel: &str) -> Vec<String> {
+    walk.iter()
+        .find(|value| value["rel"] == rel)
+        .unwrap_or_else(|| panic!("missing {rel} in {walk:?}"))["resolvedImports"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .map(|value| value.as_str().unwrap().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Solidity import resolution: relative first, then `node_modules/<spec>`,
+/// then the project root. A spec that names none of those (an npm package that
+/// is not vendored here) is an external dependency and produces no edge.
+#[test]
+fn solidity_imports_resolve_relative_then_node_modules_then_root() {
+    let root = resolve_fixture("solidity");
+    let walk = run(&root, &[], None);
+
+    assert_eq!(
+        resolved(&walk, "contracts/Token.sol"),
+        vec![
+            "contracts/Base.sol",
+            "lib/Math.sol",
+            "node_modules/@acme/erc20/IERC20.sol",
+            "contracts/Registry.sol",
+        ]
+    );
+    assert_eq!(
+        walk.iter()
+            .find(|value| value["rel"] == "contracts/Base.sol")
+            .unwrap()["importedBy"],
+        serde_json::json!(["contracts/Token.sol"])
+    );
+    // The un-vendored package is still reported as a raw import.
+    let raw = walk
+        .iter()
+        .find(|value| value["rel"] == "contracts/Token.sol")
+        .unwrap()["rawImports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        raw.contains(&"@openzeppelin/contracts/token/ERC20.sol"),
+        "{raw:?}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Haskell module resolution: `A.B.C` is a path, searched from the importing
+/// file's directory up through its ancestors, each with `src`/`lib`/`app`/
+/// `test`. A module that is not in the tree (`Data.List`) is a package.
+#[test]
+fn haskell_modules_resolve_by_walking_up_the_source_dirs() {
+    let root = resolve_fixture("haskell");
+    let walk = run(&root, &[], None);
+
+    // `Acme.Util` is found under the root's `src/`, `Sibling` next to the file.
+    assert_eq!(
+        resolved(&walk, "app/Main.hs"),
+        vec!["src/Acme/Util.hs", "app/Sibling.hs"]
+    );
+    // From `src/Acme`, the ancestor `src` holds `Acme/Internal/Helper.hs`.
+    assert_eq!(
+        resolved(&walk, "src/Acme/Util.hs"),
+        vec!["src/Acme/Internal/Helper.hs"]
+    );
+    // Two ancestors up: `app/deep` and `app` hold nothing, so the module is
+    // only found once the walk reaches the root and tries its `src/`.
+    assert_eq!(
+        resolved(&walk, "app/deep/Far.hs"),
+        vec!["src/Acme/Util.hs"]
+    );
+    // An external package resolves to nothing at all.
+    assert!(resolved(&walk, "src/Acme/Internal/Helper.hs").is_empty());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Terraform module resolution: a local `source` names a DIRECTORY, so the
+/// edge fans out to every `.tf` file directly inside it — not to a nested
+/// directory (its own module) and not to a registry source.
+#[test]
+fn hcl_local_module_sources_resolve_to_every_tf_in_the_directory() {
+    let root = resolve_fixture("hcl");
+    let walk = run(&root, &[], None);
+
+    assert_eq!(
+        resolved(&walk, "main.tf"),
+        vec!["modules/vpc/main.tf", "modules/vpc/variables.tf"]
+    );
+    assert_eq!(
+        walk.iter()
+            .find(|value| value["rel"] == "modules/vpc/variables.tf")
+            .unwrap()["importedBy"],
+        serde_json::json!(["main.tf"])
+    );
+    // Registry/remote sources stay raw imports with no resolution.
+    let raw = walk
+        .iter()
+        .find(|value| value["rel"] == "main.tf")
+        .unwrap()["rawImports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(raw.contains(&"hashicorp/aws"), "{raw:?}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Tokens are the candidate index the JS side reads as `tokenSymbols`: every
+/// identifier that occurs in CODE, and nothing that occurs only in a comment
+/// or a string body. The list is sorted, unique, and always present.
+#[test]
+fn tokens_hold_code_identifiers_only() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-tokens-{nonce}"));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("sample.ts"),
+        r#"// commentOnly mentions nothing real.
+import { helper } from './helper.js';
+const label = "stringOnly";
+const url = `https://x/${interpolated}`;
+export function run(): void {
+  helper(label, url);
+}
+"#,
+    )
+    .unwrap();
+
+    let walk = run(&root, &[], None);
+    let record = walk
+        .iter()
+        .find(|value| value["rel"] == "sample.ts")
+        .expect("sample.ts");
+    let tokens: Vec<&str> = record["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect();
+
+    for present in ["helper", "label", "url", "run", "interpolated"] {
+        assert!(tokens.contains(&present), "{present} missing from {tokens:?}");
+    }
+    for absent in ["commentOnly", "stringOnly", "mentions", "https"] {
+        assert!(!tokens.contains(&absent), "{absent} present in {tokens:?}");
+    }
+    let mut sorted = tokens.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(tokens, sorted, "tokens are sorted and unique");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `packageName` / `namespaceName` / `goPackageName` come from the declaration
+/// node, so a mention in a comment or a string is not one — and C#'s
+/// file-scoped form reports the same name as the block form.
+#[test]
+fn package_and_namespace_come_from_the_declaration_node() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-meta-{nonce}"));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("A.java"),
+        "// package com.decoy.commented;\npackage com.acme.app;\npublic class A {}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("a.kt"),
+        "package com.acme.kt\nclass K\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("scoped.cs"),
+        "namespace Acme.Scoped;\npublic class S {}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("block.cs"),
+        "namespace Acme.Block {\n  public class B {}\n}\n",
+    )
+    .unwrap();
+    fs::write(root.join("a.go"), "package mypkg\n\nfunc F() {}\n").unwrap();
+
+    let walk = run(&root, &[], None);
+    let field = |rel: &str, key: &str| -> String {
+        walk.iter()
+            .find(|value| value["rel"] == rel)
+            .unwrap_or_else(|| panic!("missing {rel}"))
+            .get(key)
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    assert_eq!(field("A.java", "packageName"), "com.acme.app");
+    assert_eq!(field("a.kt", "packageName"), "com.acme.kt");
+    assert_eq!(field("scoped.cs", "namespaceName"), "Acme.Scoped");
+    assert_eq!(field("block.cs", "namespaceName"), "Acme.Block");
+    assert_eq!(field("a.go", "goPackageName"), "mypkg");
+    // Fields a language does not have stay absent, not empty.
+    assert_eq!(field("a.go", "packageName"), "");
+    assert_eq!(field("A.java", "namespaceName"), "");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The two remaining rows of the `calls` tri-state table answer by emitting NO
+/// RECORD at all rather than a record without the key: a file over the 2 MB
+/// cap is never read, and an extension that is not an extraction language is
+/// never collected. Both are "the JS side hears nothing about this file",
+/// which is a stronger statement than "calls unknown" and must stay that way
+/// on both the walk and `--files`.
+#[test]
+fn oversized_and_non_extraction_files_produce_no_record() {
+    let root = fixture();
+    let padding = "x".repeat(2 * 1024 * 1024);
+    fs::write(
+        root.join("src/big.ts"),
+        format!("export const pad = \"{padding}\";\nexport const used = pad.length;\n"),
+    )
+    .unwrap();
+    fs::write(root.join("src/data.json"), "{\"a\": 1}\n").unwrap();
+
+    let walk = run(&root, &[], None);
+    assert!(
+        walk.iter().all(|value| value["rel"] != "src/big.ts"),
+        "a file over the size cap must not be indexed at all"
+    );
+    assert!(
+        walk.iter().all(|value| value["rel"] != "src/data.json"),
+        "a non-extraction extension must not be indexed at all"
+    );
+    // Control: the walk itself worked and still answers `calls` for a file it
+    // did parse.
+    let main = walk
+        .iter()
+        .find(|value| value["rel"] == "src/main.ts")
+        .expect("src/main.ts");
+    assert!(main.get("calls").is_some(), "{main}");
+
+    // Explicit --files selection answers the same way: skipped, not empty.
+    let files = run(
+        &root,
+        &["--files", "src/big.ts", "src/data.json", "src/main.ts"],
+        Some(""),
+    );
+    let rels: Vec<&str> = files
+        .iter()
+        .map(|value| value["rel"].as_str().unwrap())
+        .collect();
+    assert_eq!(rels, vec!["src/main.ts"], "{rels:?}");
 
     fs::remove_dir_all(root).unwrap();
 }

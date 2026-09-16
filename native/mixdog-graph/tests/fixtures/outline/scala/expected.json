@@ -1,0 +1,107 @@
+[
+  {
+    "name": "com.acme.User",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "com.acme.util",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "com.acme.legacy",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "scala.concurrent.Future",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Repository",
+    "symbolType": "interface",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "trait"
+  },
+  {
+    "name": "find",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "UserService",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "class"
+  },
+  {
+    "name": "find",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "save",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "UserService",
+    "symbolType": "object",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "object"
+  },
+  {
+    "name": "apply",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "Clock",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "class"
+  },
+  {
+    "name": "Id",
+    "symbolType": "object",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "object"
+  },
+  {
+    "name": "next",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "topLevelHelper",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  }
+]

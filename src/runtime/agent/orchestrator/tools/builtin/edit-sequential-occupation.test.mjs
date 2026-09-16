@@ -177,6 +177,34 @@ test('a partial reread of a new file version cannot hide its unread tail after a
     assert.doesNotMatch(tail, /file unchanged/);
 });
 
+test('a partial read after an edit does not promote the mutation snapshot to full delivery', async (t) => {
+    const lines = Array.from({ length: 400 }, (_, i) => `line ${i + 1}`);
+    lines[49] = 'alpha';
+    const { dir, file } = makeTempFile(`${lines.join('\n')}\n`);
+    const sessionId = `edit-partial-no-promote-${process.pid}`;
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    const head = String(await executeBuiltinTool('read', { file_path: file, offset: 40, limit: 20 }, dir, { sessionId }));
+    assert.match(head, /alpha/);
+    const first = await tryExecuteExternalToolAdapter('edit', {
+        file_path: file, old_string: 'alpha', new_string: 'omega',
+    }, dir, { sessionId });
+    assert.match(String(first), /^Updated /);
+
+    // A second partial window merges into the edit snapshot; it must not turn
+    // the mutation's synthetic full range into "body delivered".
+    const middle = String(await executeBuiltinTool('read', { file_path: file, offset: 200, limit: 10 }, dir, { sessionId }));
+    assert.match(middle, /line 200/);
+    const second = await tryExecuteExternalToolAdapter('edit', {
+        file_path: file, old_string: 'line 200', new_string: 'line two hundred',
+    }, dir, { sessionId });
+    assert.match(String(second), /^Updated /);
+
+    const tail = String(await executeBuiltinTool('read', { file_path: file, offset: 380, limit: 10 }, dir, { sessionId }));
+    assert.doesNotMatch(tail, /file unchanged/, tail);
+    assert.match(tail, /line 380/);
+});
+
 test('a batch reread returns the requested body after an edit', async (t) => {
     const { dir, file } = makeTempFile('alpha\nkeep\n');
     const sessionId = `edit-batch-force-body-${process.pid}`;

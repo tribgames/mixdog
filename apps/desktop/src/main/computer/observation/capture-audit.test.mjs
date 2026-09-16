@@ -8,7 +8,7 @@ registerHooks({
       url: 'data:text/javascript,' + encodeURIComponent(`
         export const BrowserWindow = { getAllWindows: () => globalThis.captureFixture?.windows || [] };
         export const desktopCapturer = { getSources: async () => globalThis.captureFixture.sources() };
-        export const nativeImage = {};
+        export const nativeImage = { createFromBuffer: (buffer) => globalThis.captureFixture.decode(buffer) };
         export const screen = {};
       `), shortCircuit: true,
     } : next(specifier, context);
@@ -28,7 +28,7 @@ function image(width, height, crops = []) {
     getSize: () => ({ width, height }), isEmpty: () => false,
     toBitmap: () => Buffer.alloc(width * height * 4, 128),
     toJPEG: () => Buffer.from('fixture pixels'),
-    resize: ({ width: next }) => image(next, Math.round(height * next / width), crops),
+    resize: ({ width: next, height: nextHeight }) => image(next, nextHeight ?? Math.round(height * next / width), crops),
     crop: (region) => { crops.push(region); return image(region.width, region.height, crops); },
   };
 }
@@ -66,6 +66,153 @@ function fixture(overrides = {}) {
   const run = (operation) => execution.executionContext.run(active, operation);
   return { state, execution, active, host, capture, run, requests, bounds };
 }
+
+test('missing compositor sources use an exact window-owned surface, including zoom', async () => {
+  const nativeBounds = { x: -8, y: -31, width: 816, height: 631 };
+  const crops = [];
+  const f = fixture({ native: request => request.action === 'window_capture' ? {
+    ok: true, result: { window_id: 'hwnd:0x1', capture_source: 'window_surface',
+      ...nativeBounds, image_base64: Buffer.from('native fixture').toString('base64') },
+  } : undefined });
+  globalThis.captureFixture.sources = async () => [];
+  globalThis.captureFixture.decode = () => image(816, 631, crops);
+  const shot = await f.run(() => f.capture.captureScreenshot({
+    action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a',
+  }));
+  assert.equal(shot.route, 'window_surface');
+  assert.deepEqual([shot.frame.originX, shot.frame.originY, shot.frame.physicalWidth, shot.frame.physicalHeight],
+    [-8, -31, 816, 631]);
+  const zoom = await f.run(() => f.capture.captureZoom({
+    action: 'zoom', frame_id: shot.frameId, region: [10, 20, 110, 120], session_id: 'a',
+  }));
+  assert.ok(zoom.image);
+  assert.deepEqual(crops, [{ x: 10, y: 20, width: 100, height: 100 }]);
+  assert.equal(f.requests.filter(request => request.action === 'window_capture').length, 2);
+});
+
+test('native fallback rejects screen crops and another window before publishing pixels', async () => {
+  for (const result of [
+    { window_id: 'hwnd:0x2', capture_source: 'window_surface' },
+    { window_id: 'hwnd:0x1', capture_source: 'screen_region' },
+  ]) {
+    const f = fixture({ native: request => request.action === 'window_capture'
+      ? { ok: true, result: { ...result, x: 0, y: 0, width: 800, height: 600, image_base64: 'fixture' } } : undefined });
+    globalThis.captureFixture.sources = async () => [];
+    globalThis.captureFixture.decode = () => { throw new Error('foreign pixels must not be decoded'); };
+    const shot = await f.run(() => f.capture.captureScreenshot({ action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a' }));
+    assert.equal(shot.image, undefined);
+    assert.equal(shot.pixelUnavailable.code, 'pixel_unavailable');
+    assert.equal(f.state.framesBySession.get('a')?.size || 0, 0);
+  }
+});
+
+test('unusable PrintWindow pixels fall through to WGC and zoom retains that exact backend', async () => {
+  const crops = [];
+  const f = fixture({ native: request => request.action === 'window_capture' ? {
+    ok: true, result: { window_id: 'hwnd:0x1', capture_source: 'window_surface',
+      x: 0, y: 0, width: 800, height: 600,
+      image_base64: Buffer.from(request.capture_backend).toString('base64') },
+  } : undefined });
+  globalThis.captureFixture.sources = async () => [];
+  globalThis.captureFixture.decode = buffer => {
+    const pixels = image(800, 600, crops);
+    if (buffer.toString() === 'print_window') pixels.toBitmap = () => Buffer.alloc(800 * 600 * 4);
+    return pixels;
+  };
+  const shot = await f.run(() => f.capture.captureScreenshot({
+    action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a',
+  }));
+  assert.equal(shot.route, 'window_surface');
+  assert.equal(shot.frame.sourceId, 'window-surface:wgc:hwnd:0x1');
+  assert.equal(shot.frame.nativeBackend, 'wgc');
+  assert.deepEqual(shot.captureAttempts.map(({ backend, status, code }) => [backend, status, code]), [
+    ['composited', 'failed', 'capture_source_unavailable'],
+    ['print_window', 'unavailable', 'blank_black_frame'],
+    ['wgc', 'captured', undefined],
+  ]);
+  const zoom = await f.run(() => f.capture.captureZoom({
+    action: 'zoom', frame_id: shot.frameId, region: [10, 20, 110, 120], session_id: 'a',
+  }));
+  assert.ok(zoom.image);
+  assert.deepEqual(crops, [{ x: 10, y: 20, width: 100, height: 100 }]);
+  assert.deepEqual(f.requests.filter(request => request.action === 'window_capture')
+    .map(request => request.capture_backend), ['print_window', 'wgc', 'wgc']);
+});
+
+test('native capture denial, geometry changes and minimized targets do not switch backend or owner', async () => {
+  for (const code of ['capture_denied', 'capture_geometry_changed', 'capture_minimized', 'capture_cloaked']) {
+    const f = fixture({ native: request => request.action === 'window_capture'
+      ? { ok: false, error: `${code}|fixture failure` } : undefined });
+    f.bounds.owner_id = 'hwnd:0x2';
+    globalThis.captureFixture.sources = async () => [];
+    const shot = await f.run(() => f.capture.captureScreenshot({
+      action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a',
+    }));
+    assert.equal(shot.image, undefined);
+    assert.match(shot.pixelUnavailable.message, new RegExp(code));
+    assert.deepEqual(f.requests.filter(request => request.action === 'window_capture')
+      .map(request => request.capture_backend), ['print_window']);
+    assert.ok(f.requests.every(request => !request.window_id || request.window_id === 'hwnd:0x1'));
+  }
+});
+
+test('cancellation after PrintWindow failure prevents WGC capture', async () => {
+  const f = fixture({ native: request => {
+    if (request.action !== 'window_capture') return;
+    f.active.aborted = true;
+    return { ok: false, error: 'capture_source_unavailable|fixture failure' };
+  } });
+  globalThis.captureFixture.sources = async () => [];
+  await assert.rejects(f.run(() => f.capture.captureScreenshot({
+    action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a',
+  })), /computer_session_aborted/);
+  assert.equal(f.requests.filter(request => request.action === 'window_capture').length, 1);
+  assert.equal(f.state.framesBySession.get('a')?.size || 0, 0);
+});
+
+test('native cleanup failure remains separate from the primary failure and stops owner fallback', async () => {
+  const f = fixture({ native: request => request.action === 'window_capture' ? {
+    ok: false, error: 'capture_wgc_unavailable|private provider detail',
+    result: { capture_cleanup: { status: 'failed', text: 'private cleanup detail' } },
+  } : undefined });
+  f.bounds.owner_id = 'hwnd:0x2';
+  globalThis.captureFixture.sources = async () => [];
+  const shot = await f.run(() => f.capture.captureScreenshot({
+    action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a',
+  }));
+  assert.equal(shot.image, undefined);
+  assert.equal(shot.captureAttempts.at(-1).code, 'capture_wgc_unavailable');
+  assert.deepEqual(shot.captureAttempts.at(-1).cleanup, { status: 'failed' });
+  assert.equal(f.requests.filter(request => request.action === 'window_capture').length, 1);
+  assert.equal(JSON.stringify(shot).includes('private'), false);
+});
+
+test('capture payload retains earlier failures after successful fallback', async () => {
+  const f = fixture({ native: request => request.action === 'window_capture' ? {
+    ok: true, result: { window_id: 'hwnd:0x1', capture_source: 'window_surface',
+      x: 0, y: 0, width: 800, height: 600, image_base64: 'fixture',
+      capture_cleanup: { status: 'confirmed' } },
+  } : undefined });
+  globalThis.captureFixture.sources = async () => [];
+  globalThis.captureFixture.decode = () => image(800, 600);
+  const capture = await f.run(() => f.capture.captureComputer({
+    action: 'capture', mode: 'vision', window_id: 'hwnd:0x1', session_id: 'a',
+  }));
+  assert.deepEqual(capture.payload.capture_attempts.map(row => row.backend), ['composited', 'print_window']);
+  assert.equal(capture.payload.capture_attempts[1].cleanup.status, 'confirmed');
+});
+
+test('portrait captures register the final bounded image dimensions for coordinate input', async () => {
+  const f = fixture();
+  Object.assign(f.bounds, { width: 1275, height: 2274, client_width: 1275, client_height: 2274 });
+  globalThis.captureFixture.sources = async () => [{ id: 'window:1:0', thumbnail: image(1275, 2274) }];
+  const shot = await f.run(() => f.capture.captureScreenshot({ action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a' }));
+  assert.ok(shot.frame.captureHeight <= 1568);
+  assert.ok(Math.ceil(shot.frame.captureWidth / 28) * Math.ceil(shot.frame.captureHeight / 28) <= 1568);
+  assert.equal(shot.frame.physicalWidth, 1275);
+  assert.equal(shot.frame.physicalHeight, 2274);
+  assert.match(shot.description, new RegExp(`${shot.frame.captureWidth}x${shot.frame.captureHeight}`));
+});
 
 test('client origin zero and app-owned zoom retain the observed surface coordinates', async () => {
   const f = fixture();

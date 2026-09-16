@@ -1,0 +1,80 @@
+# mixdog-kind: import
+# Ports r_require `library(x)` / `require(x)` (bare or quoted name).
+id: r-library
+language: r
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: call
+    - has:
+        field: function
+        regex: '^(library|require)$'
+    - has:
+        field: arguments
+        has:
+          field: argument
+          any:
+            - has:
+                field: value
+                kind: identifier
+                pattern: $NAME
+            - has:
+                field: value
+                kind: string
+                has:
+                  field: content
+                  pattern: $NAME
+            - kind: identifier
+              pattern: $NAME
+name: $NAME
+isImport: true
+isExported: false
+---
+# mixdog-kind: import
+# Ports r_require `source("path.R")` (quotes stripped).
+id: r-source
+language: r
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: call
+    - has:
+        field: function
+        regex: '^source$'
+    - has:
+        field: arguments
+        has:
+          field: argument
+          has:
+            field: value
+            kind: string
+            has:
+              field: content
+              pattern: $PATH
+name: $PATH
+isImport: true
+isExported: false
+---
+# mixdog-kind: function
+# Ports `name <- function(...)` and `name = function(...)`.
+id: r-function
+language: r
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: binary_operator
+    - has:
+        field: operator
+        regex: '^(<-|=)$'
+    - has:
+        field: lhs
+        kind: identifier
+        pattern: $NAME
+    - has:
+        field: rhs
+        kind: function_definition
+name: $NAME
+isExported: true

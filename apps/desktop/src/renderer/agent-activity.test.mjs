@@ -33,6 +33,7 @@ import { desktopHeaderSnapshotsEqual } from "./desktop-snapshot-store.ts";
 import { shellJobsStatusEqual } from "../shared/shell-jobs-status.ts";
 import { shouldOfferSessionInheritance } from "./session-inheritance.ts";
 import { DESKTOP_TOAST_EVENT } from "./desktop-toasts.tsx";
+import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu } from "./agent-group-visibility.tsx";
 
 function installDom() {
   const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
@@ -54,6 +55,12 @@ function installDom() {
       }
     },
   };
+}
+
+async function expandAllAgentGroups() {
+  await act(async () => window.dispatchEvent(
+    new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: true }),
+  ));
 }
 
 test("Agent groups can be hidden, stay hidden through pool pushes and remounts, and be restored", async () => {
@@ -695,6 +702,7 @@ test("Agent pane ignores a stale initial list that resolves after a live push", 
       sessionId: "worker-new",
       ownerSessionId: "lead-a",
     }]));
+    await expandAllAgentGroups();
     assert.ok(document.querySelector('[data-agent-session-id="worker-new"]'));
 
     await act(async () => resolveInitial([]));
@@ -740,6 +748,7 @@ test("active Agent pane reconciles missed pool pushes and clears departed rows",
     await act(async () => {
       dom.root.render(React.createElement(AgentActivityPane, { active: true, sessions }));
     });
+    await expandAllAgentGroups();
     assert.ok(document.querySelector('[data-agent-session-id="worker-live"]'));
     assert.equal(typeof reconcile, "function");
 
@@ -983,6 +992,7 @@ test("Agents groups every active session and renders each session's live agents"
       }));
     });
 
+    await expandAllAgentGroups();
     assert.equal(document.querySelectorAll("[data-agent-owner-session-id]").length, 2);
     assert.match(document.body.textContent, /First task/);
     assert.match(document.body.textContent, /Second task/);
@@ -1072,7 +1082,8 @@ test("Agents keep sibling statuses independent under one owner", async () => {
     const state = (sessionId) => document
       .querySelector(`[data-agent-session-id="${sessionId}"] .agent-activity-elapsed`)
       ?.getAttribute("data-state");
-    assert.equal(state("lead-a"), "done");
+    await expandAllAgentGroups();
+    assert.equal(state("lead-a"), "waiting");
     assert.equal(state("child-running"), "running");
     assert.equal(state("child-completed"), "done");
     assert.equal(state("child-idle"), "idle");
@@ -1081,6 +1092,92 @@ test("Agents keep sibling statuses independent under one owner", async () => {
     dom.close();
   }
 });
+
+for (const outcome of ["idle", "cancelled"]) {
+  test(`Agents wait for nested work, including folded rows, until it is ${outcome}`, async () => {
+    const dom = installDom();
+    const agent = (sessionId, parentSessionId, status) => ({
+      tag: sessionId, agent: sessionId === "lead-a" ? "lead" : "worker",
+      sessionId, ownerSessionId: "lead-a", parentSessionId, status, stage: status,
+    });
+    let pool = [
+      agent("lead-a", null, "idle"),
+      agent("parent-a", "lead-a", "idle"),
+      agent("worker-a", "parent-a", "queued"),
+    ];
+    let push;
+    window.mixdogDesktop = {
+      async listAgentPool() { return pool; },
+      subscribeAgentPool(listener) { push = listener; return () => {}; },
+    };
+    const row = (id) => document.querySelector(`[data-agent-session-id="${id}"]`);
+    const assertStatus = (id, state, text) => {
+      const status = row(id).querySelector(".agent-activity-elapsed");
+      assert.equal(status.dataset.state, state);
+      assert.equal(status.textContent, text);
+    };
+    const setWorkerStatus = async (status) => {
+      pool = pool.map((entry) => entry.sessionId === "worker-a"
+        ? { ...entry, status, stage: status }
+        : entry);
+      await act(async () => push(pool));
+    };
+    const arrow = async (id, key) => {
+      await act(async () => row(id).dispatchEvent(
+        new window.KeyboardEvent("keydown", { key, bubbles: true }),
+      ));
+    };
+    const sessions = [{
+      id: "lead-a", title: "Nested work", preview: "", updatedAt: 1, messageCount: 1,
+    }];
+    const renderPane = async (unreadSessionIds) => {
+      await act(async () => dom.root.render(React.createElement(AgentActivityPane, {
+        active: false, sessions, unreadSessionIds,
+      })));
+    };
+    try {
+      // Waiting is real work, not an unread-message indicator.
+      await renderPane(new Set());
+      assertStatus("lead-a", "waiting", "Waiting for agents");
+      await expandAllAgentGroups();
+      assertStatus("parent-a", "waiting", "Waiting for agents");
+      assertStatus("worker-a", "queued", "Queued");
+      await renderPane(new Set(["lead-a", "parent-a", "worker-a"]));
+      assertStatus("lead-a", "waiting", "Waiting for agents");
+      assertStatus("parent-a", "waiting", "Waiting for agents");
+
+      await arrow("parent-a", "ArrowLeft");
+      assert.equal(row("worker-a"), null);
+      await setWorkerStatus("running");
+      assertStatus("lead-a", "waiting", "Waiting for agents");
+      assertStatus("parent-a", "waiting", "Waiting for agents");
+      // The root and group share one fold; a second collapse remains harmless.
+      await arrow("lead-a", "ArrowLeft");
+      await arrow("lead-a", "ArrowLeft");
+      assert.equal(row("parent-a"), null);
+      assertStatus("lead-a", "waiting", "Waiting for agents");
+
+      if (outcome === "cancelled") {
+        await setWorkerStatus("cancel-unconfirmed");
+        assertStatus("lead-a", "waiting", "Waiting for agents");
+      }
+      await setWorkerStatus(outcome);
+      assertStatus("lead-a", "done", "Task complete");
+      await arrow("lead-a", "ArrowRight");
+      await arrow("lead-a", "ArrowRight");
+      assertStatus("parent-a", "done", "Task complete");
+      await arrow("parent-a", "ArrowRight");
+      assertStatus("worker-a", outcome === "idle" ? "done" : "cancelled",
+        outcome === "idle" ? "Task complete" : "Cancelled");
+      await renderPane(new Set());
+      assertStatus("lead-a", "idle", "Idle");
+      assertStatus("parent-a", "idle", "Idle");
+    } finally {
+      await act(async () => dom.root.unmount());
+      dom.close();
+    }
+  });
+}
 
 test("Agents order sessions by last idle moment and flag unseen completions", async () => {
   const dom = installDom();
@@ -1235,6 +1332,16 @@ test("cancellation is its own lifecycle state, never queued, running, done or id
   assert.equal(desktopAgentActivityState({ status: "running" }), "running");
   assert.equal(desktopAgentActivityState({ status: "idle" }, { unread: true }), "done");
   assert.equal(desktopAgentActivityState({ status: "idle" }), "idle");
+});
+
+test("waiting for descendants overrides completion, not the parent's own work or cancellation", () => {
+  const options = { unread: true, waitingForAgents: true };
+  assert.equal(desktopAgentActivityState({ status: "idle" }, options), "waiting");
+  assert.equal(desktopAgentActivityState({ status: "completed" }, options), "waiting");
+  assert.equal(desktopAgentActivityState({ status: "queued" }, options), "queued");
+  assert.equal(desktopAgentActivityState({ status: "running" }, options), "running");
+  assert.equal(desktopAgentActivityState({ stage: "running", status: "cancelled" }, options), "cancelled");
+  assert.equal(desktopAgentActivityState({ status: "cancel-unconfirmed" }, options), "cancel-unconfirmed");
 });
 
 test("a cancelled agent leaves the live surfaces whatever its twin row still claims", () => {
@@ -1396,6 +1503,7 @@ test("the Agents pane paints a cancelled agent as cancelled, never completed or 
         sessionId: "worker-unconfirmed", ownerSessionId: "lead-a", turnStartedAt: 1_000,
       },
     ]));
+    await expandAllAgentGroups();
     assert.equal(stateOf("worker-queued"), "cancelled");
     assert.equal(stateOf("worker-running"), "cancelled");
     assert.equal(stateOf("worker-unconfirmed"), "cancel-unconfirmed");
@@ -1573,6 +1681,106 @@ test("Agent hierarchy survives a cyclic or self-referencing spawn chain", () => 
   );
 });
 
+for (const inlineActions of [false, true]) {
+  test(`Agent counts and bulk folds work from the ${inlineActions ? "pane toolbar" : "dock header"}`, async () => {
+    const dom = installDom();
+    const emptyLead = {
+      tag: "empty", agent: "lead", status: "idle", stage: "idle",
+      sessionId: "lead-empty", ownerSessionId: "lead-empty",
+    };
+    let pool = [...hierarchyPool(), emptyLead];
+    let push;
+    const opened = [];
+    window.mixdogDesktop = {
+      async listAgentPool() { return pool; },
+      subscribeAgentPool(listener) { push = listener; return () => {}; },
+    };
+    const sessions = ["lead-a", "lead-b", "lead-empty"].map((id) => ({
+      id, title: id, preview: "", updatedAt: 1, messageCount: 1,
+    }));
+    const renderPane = () => React.createElement(React.Fragment, null,
+      !inlineActions && React.createElement("header", { className: "utility-dock-header" },
+        React.createElement(AgentGroupsMenu)),
+      React.createElement(AgentActivityPane, {
+        active: false, sessions, showGroupActions: inlineActions,
+        onOpenLeadSession: (id) => opened.push(id),
+      }));
+    const row = (id) => document.querySelector(`[data-agent-session-id="${id}"]`);
+    const heading = (id) => document.querySelector(`[data-lead-session-id="${id}"]`);
+    const badge = (id) => row(id).querySelector(".dock-review-count");
+    const visibleIds = () => [...document.querySelectorAll("[data-agent-session-id]")]
+      .map((entry) => entry.dataset.agentSessionId).sort();
+    const menuAction = async (action) => {
+      const selector = inlineActions ? ".agent-group-toolbar" : ".utility-dock-header";
+      await act(async () => document.querySelector(`${selector} .row-overflow-trigger`).click());
+      await act(async () => document.querySelector(`[data-action-id="${action}"]`).click());
+    };
+    try {
+      await act(async () => dom.root.render(renderPane()));
+      assert.deepEqual(visibleIds(), ["lead-a", "lead-empty"]);
+      assert.equal(heading("lead-a").getAttribute("aria-expanded"), "false");
+      assert.equal(row("lead-a").getAttribute("aria-expanded"), "false");
+      // Count all five descendants, including nested and idle rows, not the Lead.
+      assert.equal(badge("lead-a").textContent, "5");
+      assert.equal(badge("lead-a").previousElementSibling.textContent, "Lead");
+      assert.equal(badge("lead-empty"), null);
+      await act(async () => badge("lead-a").click());
+      assert.deepEqual(opened, ["lead-a"]);
+      assert.equal(heading("lead-a").getAttribute("aria-expanded"), "false");
+
+      await act(async () => heading("lead-a").click());
+      assert.ok(row("child-a"));
+      assert.equal(row("child-a").getAttribute("aria-expanded"), "false");
+      assert.equal(row("grand-a"), null);
+      assert.equal(badge("child-a"), null);
+      assert.equal(badge("lead-a").textContent, "5");
+
+      await menuAction("expand-agent-groups");
+      assert.equal(visibleIds().length, 7);
+      assert.ok(row("great-a"));
+      assert.equal(row("child-a").getAttribute("aria-expanded"), "true");
+      await menuAction("collapse-agent-groups");
+      assert.deepEqual(visibleIds(), ["lead-a", "lead-empty"]);
+      await act(async () => heading("lead-a").click());
+      assert.equal(row("child-a").getAttribute("aria-expanded"), "false");
+      assert.equal(row("grand-a"), null);
+      // Expand all also clears each nested fold, not only the owner heading.
+      await menuAction("expand-agent-groups");
+      assert.ok(row("great-a"));
+
+      pool = [...pool, {
+        tag: "extra", agent: "reviewer", status: "queued", stage: "queued",
+        sessionId: "extra-a", ownerSessionId: "lead-a", parentSessionId: "great-a",
+      }, {
+        ...emptyLead, tag: "lead-b", sessionId: "lead-b", ownerSessionId: "lead-b",
+      }, {
+        tag: "child-b", agent: "worker", status: "running", stage: "running",
+        sessionId: "child-b", ownerSessionId: "lead-b", parentSessionId: "lead-b",
+      }];
+      await act(async () => push(pool));
+      assert.equal(badge("lead-a").textContent, "6");
+      assert.equal(heading("lead-a").getAttribute("aria-expanded"), "true");
+      assert.equal(badge("lead-b").textContent, "1");
+      assert.equal(heading("lead-b").getAttribute("aria-expanded"), "false");
+      assert.equal(row("child-b"), null);
+      pool = pool.filter((entry) => entry.sessionId !== "extra-a");
+      await act(async () => push(pool));
+      assert.equal(badge("lead-a").textContent, "5");
+      await menuAction("expand-agent-groups");
+      assert.ok(row("child-b"));
+      await menuAction("collapse-agent-groups");
+      assert.deepEqual(visibleIds(), ["lead-a", "lead-b", "lead-empty"]);
+      await menuAction("expand-agent-groups");
+      await act(async () => dom.root.render(null));
+      await act(async () => dom.root.render(renderPane()));
+      assert.deepEqual(visibleIds(), ["lead-a", "lead-b", "lead-empty"]);
+    } finally {
+      await act(async () => dom.root.unmount());
+      dom.close();
+    }
+  });
+}
+
 test("the Agent window renders the Parent-Child tree and folds every generation", async () => {
   const dom = installDom();
   window.mixdogDesktop = {
@@ -1592,6 +1800,7 @@ test("the Agent window renders the Parent-Child tree and folds every generation"
       }));
     });
 
+    await expandAllAgentGroups();
     const tree = document.querySelector(".agent-activity-page .schedules-list");
     assert.equal(tree.getAttribute("role"), "tree");
     assert.equal(tree.getAttribute("aria-label"), "First task");
@@ -1693,6 +1902,7 @@ test("a nested Agent row opens its exact child session without touching session 
           opened.push(["agent", sessionId, title, ownerSessionId]),
       }));
     });
+    await expandAllAgentGroups();
     // Hidden children are reachable ONLY here: they are absent from the
     // session catalog this pane was handed.
     assert.equal(sessions.some((session) => session.id === "grand-a"), false);
@@ -1746,6 +1956,7 @@ test("the Agent tree supports arrow, Home/End and expand-collapse keyboard contr
         }],
       }));
     });
+    await expandAllAgentGroups();
     await act(async () => rowAt("lead-a").focus());
 
     await press("ArrowDown");

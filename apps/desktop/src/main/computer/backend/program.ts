@@ -8,7 +8,7 @@
 import { PS_SESSION } from './ps-session';
 import { PS_OBSERVATION } from './ps-observation';
 import { PS_INPUT } from './ps-input';
-import { PS_RUNTIME } from './ps-runtime';
+import { PS_RUNTIME, PS_WINDOW_CAPTURE } from './ps-runtime';
 import { PS_AUTHORIZATION } from './ps-authorization';
 import { PS_SEQUENCE } from './ps-sequence';
 import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source';
@@ -99,6 +99,7 @@ export function powershellHostProgram(): string {
     PS_OBSERVATION,
     PS_INPUT,
     PS_SEQUENCE,
+    PS_WINDOW_CAPTURE,
     PS_RUNTIME,
   ].join('\n');
 }

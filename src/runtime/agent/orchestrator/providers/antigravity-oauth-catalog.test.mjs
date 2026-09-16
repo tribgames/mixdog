@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     antigravityQuotaWindows,
     fetchAvailableModels,
+    fetchUserQuotaSummary,
     normalizeAntigravityCatalog,
     resolveAntigravityWireModel,
 } from './antigravity-oauth-catalog.mjs';
@@ -92,14 +93,127 @@ test('the curated fallback resolves the same way as a live catalog', () => {
     for (const model of ANTIGRAVITY_MODELS) assert.equal(model.provider, 'antigravity-oauth');
 });
 
-test('quota windows group the most-used model per family and treat reset-only counters as exhausted', () => {
-    const windows = antigravityQuotaWindows(RAW);
-    const byLabel = Object.fromEntries(windows.map((w) => [w.label, w]));
-    assert.deepEqual(Object.keys(byLabel), ['FLASH', 'PRO']);
-    assert.equal(byLabel.FLASH.usedPct, 60);
-    assert.equal(byLabel.PRO.usedPct, 25);
-    assert.equal(byLabel.FLASH.resetAt, Date.parse(RESET));
-    assert.equal(byLabel.FLASH.source, 'antigravity-models');
+const GEMINI_GROUP = {
+    displayName: 'Gemini Models',
+    description: 'Models within this group: Gemini Flash, Gemini Pro',
+};
+const CLAUDE_GPT_GROUP = {
+    displayName: 'Claude and GPT models',
+    description: 'Models within this group: Claude Opus, Claude Sonnet, GPT-OSS',
+};
+
+test('quota windows map Gemini 5-hour and weekly summary buckets to 5H/7D', () => {
+    const windows = antigravityQuotaWindows({
+        groups: [
+            {
+                ...GEMINI_GROUP,
+                buckets: [
+                    {
+                        bucketId: 'gemini-weekly',
+                        displayName: 'Weekly Limit',
+                        window: 'weekly',
+                        resetTime: RESET,
+                        remainingFraction: 0.88,
+                    },
+                    {
+                        bucketId: 'gemini-5h',
+                        displayName: 'Five Hour Limit',
+                        window: '5h',
+                        resetTime: '2026-09-04T12:00:00Z',
+                        remainingFraction: 0.5,
+                    },
+                ],
+            },
+            {
+                ...CLAUDE_GPT_GROUP,
+                buckets: [
+                    { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0.07, resetTime: RESET },
+                    { bucketId: '3p-5h', window: '5h', remainingFraction: 0.05, resetTime: RESET },
+                ],
+            },
+        ],
+    });
+    assert.deepEqual(windows, [
+        { label: '5H', usedPct: 50, resetAt: Date.parse('2026-09-04T12:00:00Z'), source: 'antigravity-quota-summary' },
+        { label: '7D', usedPct: 12, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+    ]);
+});
+
+test('quota windows treat remainingFraction 0 as exhausted and omit missing fields instead of inferring them', () => {
+    assert.deepEqual(antigravityQuotaWindows({
+        groups: [{
+            ...GEMINI_GROUP,
+            buckets: [
+                { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0, resetTime: RESET },
+                { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0 },
+            ],
+        }],
+    }), [
+        { label: '5H', usedPct: 100, resetAt: Date.parse(RESET), source: 'antigravity-quota-summary' },
+        { label: '7D', usedPct: 100, source: 'antigravity-quota-summary' },
+    ]);
+
+    // Reset-only and unknown windows are not guessed into 5H/7D or 100%.
+    assert.deepEqual(antigravityQuotaWindows({
+        groups: [{
+            ...GEMINI_GROUP,
+            buckets: [
+                { bucketId: 'gemini-5h', window: '5h', resetTime: RESET },
+                { bucketId: 'gemini-daily', window: 'daily', remainingFraction: 0.2, resetTime: RESET },
+            ],
+        }],
+    }), []);
+
+    // A present 5-hour bucket does not invent a weekly row.
+    assert.deepEqual(antigravityQuotaWindows({
+        groups: [{
+            ...GEMINI_GROUP,
+            buckets: [{ bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.25 }],
+        }],
+    }), [
+        { label: '5H', usedPct: 75, source: 'antigravity-quota-summary' },
+    ]);
+
+    assert.deepEqual(antigravityQuotaWindows({}), []);
+    assert.deepEqual(antigravityQuotaWindows({ groups: null }), []);
+    assert.deepEqual(antigravityQuotaWindows(RAW), []);
+});
+
+test('quota windows omit lookalike labels and keep usedPct/resetAt on the same selected bucket', () => {
+    assert.deepEqual(antigravityQuotaWindows({
+        groups: [{
+            displayName: 'Gemini Flash',
+            description: 'Models within this group: Gemini Flash, Gemini Pro',
+            buckets: [
+                { bucketId: 'gemini-5h', displayName: 'Five Hour Limit Remaining', window: '15h', remainingFraction: 0.1, resetTime: RESET },
+                { bucketId: 'gemini-weekly', displayName: 'Weekly Limit Remaining', window: '7d', remainingFraction: 0.2, resetTime: RESET },
+                { bucketId: 'week', displayName: 'Weekly Limit', window: 'week', remainingFraction: 0.3, resetTime: RESET },
+            ],
+        }, {
+            ...GEMINI_GROUP,
+            buckets: [
+                { bucketId: 'gemini-5h', displayName: 'Five Hour Limit Remaining', window: '15h', remainingFraction: 0.4, resetTime: RESET },
+                { bucketId: 'gemini-weekly', displayName: 'Weekly Limit Remaining', window: '7d', remainingFraction: 0.5, resetTime: RESET },
+            ],
+        }],
+    }), []);
+
+    const firstReset = '2026-01-01T00:00:00Z';
+    const laterReset = '2030-01-01T00:00:00Z';
+    assert.deepEqual(antigravityQuotaWindows({
+        groups: [{
+            ...GEMINI_GROUP,
+            buckets: [
+                { window: '5h', remainingFraction: 0.1, resetTime: firstReset },
+                { window: '5h', remainingFraction: 0.9, resetTime: laterReset },
+                { window: 'weekly', remainingFraction: 0.8, resetTime: firstReset },
+                { window: 'weekly', remainingFraction: 0.2, resetTime: laterReset },
+            ],
+        }],
+    }), [
+        { label: '5H', usedPct: 90, resetAt: Date.parse(firstReset), source: 'antigravity-quota-summary' },
+        { label: '7D', usedPct: 20, resetAt: Date.parse(firstReset), source: 'antigravity-quota-summary' },
+    ]);
 });
 
 test('fetchAvailableModels posts the project with the hub identity', async () => {
@@ -118,5 +232,24 @@ test('fetchAvailableModels posts the project with the hub identity', async () =>
     await assert.rejects(
         fetchAvailableModels({ accessToken: 'token', projectId: 'proj', fetchFn: async () => new Response('denied', { status: 403 }) }),
         /fetchAvailableModels failed: 403 denied/,
+    );
+});
+
+test('fetchUserQuotaSummary posts the project with the hub identity', async () => {
+    let seen = null;
+    const summary = { groups: [{ ...GEMINI_GROUP, buckets: [] }] };
+    const fetchFn = async (url, init) => {
+        seen = { url, init };
+        return Response.json(summary);
+    };
+    assert.deepEqual(await fetchUserQuotaSummary({ accessToken: 'token', projectId: 'proj', fetchFn }), summary);
+    assert.equal(seen.url, 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary');
+    assert.equal(seen.init.method, 'POST');
+    assert.deepEqual(JSON.parse(seen.init.body), { project: 'proj' });
+    assert.equal(seen.init.headers.Authorization, 'Bearer token');
+    assert.equal(seen.init.headers['User-Agent'], antigravityHeaders()['User-Agent']);
+    await assert.rejects(
+        fetchUserQuotaSummary({ accessToken: 'token', projectId: 'proj', fetchFn: async () => new Response('denied', { status: 403 }) }),
+        /retrieveUserQuotaSummary failed: 403 denied/,
     );
 });

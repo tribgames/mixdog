@@ -31,6 +31,7 @@ let cachedDims = null
 let _modelReady = false
 let _device = 'cpu'
 let _configuredDtype = getDefaultEmbeddingDtype(MODEL_ID)
+let _configurePromise = null
 let _warmupPromise = null
 let _embedCallCount = 0
 let _msgId = 0
@@ -60,8 +61,8 @@ function getCachedEmbedding(key) {
   return queryEmbeddingCache.get(key)
 }
 
-function embeddingCacheKey(text, inputType) {
-  return `${MODEL_ID}\n${normalizeEmbeddingInputType(inputType)}\n${text}`
+function embeddingCacheKey(text, inputType, dtype = _configuredDtype) {
+  return `${MODEL_ID}\n${dtype}\n${normalizeEmbeddingInputType(inputType)}\n${text}`
 }
 
 function ensureWorker() {
@@ -76,7 +77,9 @@ function ensureWorker() {
   }
   _lastRestartMs = now
   const execArgv = embeddingWorkerExecArgv()
-  const created = new Worker(WORKER_PATH, { env: { ...process.env }, execArgv })
+  const created = new Worker(WORKER_PATH, {
+    env: { ...process.env }, execArgv, workerData: { dtype: _configuredDtype },
+  })
   worker = created
   const rejectWorkerPending = (error) => {
     for (const [id, pending] of _pending) {
@@ -199,20 +202,25 @@ function sendToWorker(action, extra = {}, timeoutMs = embeddingWorkerTimeout(act
 }
 
 export function configureEmbedding(config = {}) {
+  const dtype = normalizeEmbeddingDtype(MODEL_ID, config.dtype ?? process.env.MIXDOG_EMBED_DTYPE)
+  if (dtype === _configuredDtype) return _configurePromise
+  const previousDtype = _configuredDtype
   cachedDims = null
   _modelReady = false
   _device = 'cpu'
-  _configuredDtype = normalizeEmbeddingDtype(MODEL_ID, config.dtype ?? process.env.MIXDOG_EMBED_DTYPE)
+  _configuredDtype = dtype
   queryEmbeddingCache.clear()
   if (worker) {
-    sendToWorker('configure', { dtype: _configuredDtype }).catch((err) => {
-      // Silent .catch hid worker reconfigure failures (dtype mismatch,
-      // worker crash, IPC closed). At least one log line so cycle1 /
-      // cycle2 root-cause investigation can see the upstream failure
-      // instead of just the downstream `db write failed`.
-      __mixdogMemoryLog(`[embed] worker configure failed: ${err?.message || err}\n`)
+    const pending = sendToWorker('configure', { dtype }).catch((error) => {
+      if (_configurePromise === pending) _configuredDtype = previousDtype
+      throw error
     })
+    _configurePromise = pending
+    const clear = () => { if (_configurePromise === pending) _configurePromise = null }
+    pending.then(clear, clear)
+    return pending
   }
+  return null
 }
 
 export function primeEmbeddingDims(dims) {
@@ -254,6 +262,7 @@ export function getEmbeddingDims() {
 
 async function runEmbeddingWarmup() {
   if (_modelReady && cachedDims) return true
+  const dtype = _configuredDtype
   const result = await sendToWorker('warmup')
   if (!result.dims) throw new Error('warmup returned no dims — model output missing')
   const known = KNOWN_MODEL_DIMS[MODEL_ID]
@@ -263,12 +272,15 @@ async function runEmbeddingWarmup() {
     )
   }
   cachedDims = result.dims
-  _modelReady = true
-  _device = result.device || 'cpu'
+  if (dtype === _configuredDtype) {
+    _modelReady = true
+    _device = result.device || 'cpu'
+  }
   return true
 }
 
 export function warmupEmbeddingProvider() {
+  if (_configurePromise) return _configurePromise.then(() => warmupEmbeddingProvider())
   if (_modelReady && cachedDims) return Promise.resolve(true)
   if (!_warmupPromise) {
     _warmupPromise = runEmbeddingWarmup().finally(() => {
@@ -282,7 +294,8 @@ export async function embedText(text, options = {}) {
   const clean = String(text ?? '').trim()
   if (!clean) return []
   const inputType = normalizeEmbeddingInputType(options?.inputType)
-  const cacheKey = embeddingCacheKey(clean, inputType)
+  const dtype = _configuredDtype
+  const cacheKey = embeddingCacheKey(clean, inputType, dtype)
   const cached = getCachedEmbedding(cacheKey)
   if (cached) return [...cached]
 
@@ -299,8 +312,10 @@ export async function embedText(text, options = {}) {
     throw new Error(`embed vector dims mismatch: expected ${cachedDims}, got ${resultDims}`)
   }
   cachedDims = resultDims
-  _modelReady = true
-  _device = result.device || 'cpu'
+  if (dtype === _configuredDtype) {
+    _modelReady = true
+    _device = result.device || 'cpu'
+  }
   const vector = result.vector
   if (!Array.isArray(vector) || vector.length !== cachedDims) {
     throw new Error(`embed vector length mismatch: expected ${cachedDims}, got ${vector?.length}`)
@@ -331,16 +346,17 @@ export async function embedText(text, options = {}) {
 export async function embedTexts(texts, options = {}) {
   if (!Array.isArray(texts)) throw new Error('embedTexts requires an array')
   const inputType = normalizeEmbeddingInputType(options?.inputType)
+  const dtype = _configuredDtype
   const cleaned = texts.map(t => String(t ?? '').trim())
   const missing = []
   for (const t of cleaned) {
     if (!t) continue
-    const key = embeddingCacheKey(t, inputType)
+    const key = embeddingCacheKey(t, inputType, dtype)
     if (!queryEmbeddingCache.has(key)) missing.push(t)
   }
   if (missing.length === 0) return cleaned.map(t => {
     if (!t) return []
-    return [...queryEmbeddingCache.get(embeddingCacheKey(t, inputType))]
+    return [...queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype))]
   })
   const result = await sendToWorker('embed-batch', { texts: missing, inputType })
   if (!result.dims) throw new Error(`embed-batch result missing dims (model=${MODEL_ID})`)
@@ -349,8 +365,10 @@ export async function embedTexts(texts, options = {}) {
     throw new Error(`embed-batch vector dims mismatch: expected ${cachedDims}, got ${resultDims}`)
   }
   cachedDims = resultDims
-  _modelReady = true
-  _device = result.device || _device
+  if (dtype === _configuredDtype) {
+    _modelReady = true
+    _device = result.device || _device
+  }
   if (!Array.isArray(result.vectors) || result.vectors.length !== missing.length) {
     throw new Error(`embed-batch vectors count mismatch: expected ${missing.length}, got ${result.vectors?.length}`)
   }
@@ -359,12 +377,12 @@ export async function embedTexts(texts, options = {}) {
     if (!Array.isArray(vec) || vec.length !== cachedDims) {
       throw new Error(`embed-batch vector length mismatch at idx ${i}: expected ${cachedDims}, got ${vec?.length}`)
     }
-    cacheEmbedding(embeddingCacheKey(missing[i], inputType), vec)
+    cacheEmbedding(embeddingCacheKey(missing[i], inputType, dtype), vec)
   }
   _embedCallCount += missing.length
   return cleaned.map(t => {
     if (!t) return []
-    const cached = queryEmbeddingCache.get(embeddingCacheKey(t, inputType))
+    const cached = queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype))
     return cached ? [...cached] : []
   })
 }

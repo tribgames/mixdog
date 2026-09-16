@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { packCycle1Windows } from './memory-cycle1.mjs'
-import { packUnifiedGatePackets } from './memory-cycle2-gate.mjs'
+import { packHistoryPackets } from './memory-cycle2-review.mjs'
 import { periodicCycleDue } from './cycle-scheduler.mjs'
 
 test('cycle1 packets cap each agent at 50 rows and each cycle at four agents', () => {
@@ -30,7 +30,7 @@ test('cycle2 counts roots and lineage together inside the 50-material packet cap
     row.id,
     Array.from({ length: 6 }, (_, i) => ({ older_id: row.id * 100 + i })),
   ]))
-  const packed = packUnifiedGatePackets(rows, candidates, { materialCap: 50, maxPackets: 4 })
+  const packed = packHistoryPackets(rows, candidates, { materialCap: 50, maxPackets: 4 })
   assert.equal(packed.packets.length, 4)
   assert.ok(packed.packets.every(packet => packet.materialCount <= 50))
   assert.equal(packed.packets.reduce((sum, packet) => sum + packet.rows.length, 0), 28)
@@ -39,7 +39,7 @@ test('cycle2 counts roots and lineage together inside the 50-material packet cap
 
 test('cycle2 can place 50 roots without lineage in one disposable agent packet', () => {
   const rows = Array.from({ length: 50 }, (_, i) => ({ id: i + 1 }))
-  const packed = packUnifiedGatePackets(rows, new Map())
+  const packed = packHistoryPackets(rows, new Map())
   assert.equal(packed.packets.length, 1)
   assert.equal(packed.packets[0].materialCount, 50)
   assert.equal(packed.deferredIds.length, 0)

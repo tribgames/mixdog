@@ -1,0 +1,95 @@
+{
+  "calls": [
+    {
+      "name": "deco",
+      "line": 25,
+      "col": 1,
+      "endCol": 5,
+      "kind": "call",
+      "inSymbol": ""
+    },
+    {
+      "name": "inner",
+      "line": 27,
+      "col": 4,
+      "endCol": 9,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "nest",
+      "line": 28,
+      "col": 4,
+      "endCol": 8,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "leaf",
+      "line": 28,
+      "col": 9,
+      "endCol": 13,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "b",
+      "line": 29,
+      "col": 6,
+      "endCol": 7,
+      "kind": "method",
+      "recv": "a",
+      "inSymbol": "run"
+    },
+    {
+      "name": "c",
+      "line": 29,
+      "col": 10,
+      "endCol": 11,
+      "kind": "method",
+      "recv": "a.b()",
+      "inSymbol": "run"
+    },
+    {
+      "name": "helper",
+      "line": 36,
+      "col": 8,
+      "endCol": 14,
+      "kind": "call",
+      "inSymbol": "act"
+    },
+    {
+      "name": "ping",
+      "line": 37,
+      "col": 13,
+      "endCol": 17,
+      "kind": "method",
+      "recv": "self",
+      "inSymbol": "act"
+    },
+    {
+      "name": "plain",
+      "line": 39,
+      "col": 0,
+      "endCol": 5,
+      "kind": "call",
+      "inSymbol": ""
+    },
+    {
+      "name": "seed",
+      "line": 40,
+      "col": 12,
+      "endCol": 16,
+      "kind": "call",
+      "inSymbol": ""
+    },
+    {
+      "name": "Widget",
+      "line": 41,
+      "col": 0,
+      "endCol": 6,
+      "kind": "call",
+      "inSymbol": ""
+    }
+  ]
+}

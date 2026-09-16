@@ -1,6 +1,6 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
-import { parentPort } from 'worker_threads'
+import { parentPort, workerData } from 'worker_threads'
 import { createRequire } from 'module'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
@@ -94,7 +94,7 @@ function prepareWorkerText(text, inputType) {
 }
 
 let extractorPromise = null
-let configuredDtype = DEFAULT_DTYPE
+let configuredDtype = normalizeEmbeddingDtype(MODEL_ID, workerData?.dtype ?? DEFAULT_DTYPE)
 let _device = 'cpu'
 let _idleTimer = null
 let _embedInFlight = false

@@ -1,0 +1,100 @@
+[
+  {
+    "name": "Foundation/Foundation.h",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "User.h",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "UIKit",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "Foundation.NSString",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "User",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "class"
+  },
+  {
+    "name": "initWithName",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "greet",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "User",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "class"
+  },
+  {
+    "name": "initWithName",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "greet",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "Renderable",
+    "symbolType": "interface",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "protocol"
+  },
+  {
+    "name": "render",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "helper",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "add",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  }
+]

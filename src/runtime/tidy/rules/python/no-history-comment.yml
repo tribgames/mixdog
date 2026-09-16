@@ -1,0 +1,9 @@
+id: no-history-comment
+language: Python
+severity: warning
+message: Delete comments that only record a move or copy.
+note: History comments (extracted verbatim, moved from, behavior-preserving move, copied from, was previously in) do not describe the current code. Remove them.
+rule:
+  kind: comment
+  regex: '(?i)(?s).*\b(extracted verbatim|moved (here )?from|behavior-preserving move|copied from|was previously in)\b.*'
+fix: ""

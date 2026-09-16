@@ -1,0 +1,135 @@
+[
+  {
+    "name": "package:demo/a.dart",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "./local.dart",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "package:demo/a.dart",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": true,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "sample.g.dart",
+    "symbolType": "module",
+    "isImport": true,
+    "isExported": false,
+    "mixdogKind": "import"
+  },
+  {
+    "name": "User",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "class"
+  },
+  {
+    "name": "greet",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "label",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "label",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "+",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "_secret",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "Loggable",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "mixin"
+  },
+  {
+    "name": "log",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "Status",
+    "symbolType": "enum",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "enum"
+  },
+  {
+    "name": "StatusX",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "extension"
+  },
+  {
+    "name": "isReady",
+    "symbolType": "method",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "method"
+  },
+  {
+    "name": "_Hidden",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "class"
+  },
+  {
+    "name": "add",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": true,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "_privateTopLevel",
+    "symbolType": "function",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "function"
+  },
+  {
+    "name": "_PrivateMixin",
+    "symbolType": "class",
+    "isImport": false,
+    "isExported": false,
+    "mixdogKind": "mixin"
+  }
+]

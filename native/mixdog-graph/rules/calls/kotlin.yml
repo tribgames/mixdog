@@ -1,0 +1,40 @@
+# Call-site rules for Kotlin.
+#
+# The Kotlin grammar names no fields on `call_expression`, so the callee is
+# addressed positionally: `nthChild: 1` is the callee, the trailing
+# `call_suffix` holds the arguments. Kotlin has no `new` keyword — `Widget()`
+# is an ordinary call — so no rule here declares `new`.
+#
+# mixdog-call-kind: method
+id: kotlin-call-method
+language: Kotlin
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    nthChild: 1
+    kind: navigation_expression
+    all:
+      - has:
+          nthChild: 1
+          pattern: $RECV
+      - has:
+          kind: navigation_suffix
+          has:
+            kind: simple_identifier
+            pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: call
+id: kotlin-call-plain
+language: Kotlin
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    nthChild: 1
+    kind: simple_identifier
+    pattern: $NAME
+name: $NAME

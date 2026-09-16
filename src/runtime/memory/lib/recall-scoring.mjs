@@ -1,9 +1,5 @@
 // Candidate-text and scope helpers shared by the hybrid recall store.
 import { tokenizeRecallQuery } from './memory-text-utils.mjs'
-import { recallReadQuery } from './memory-recall-read-query.mjs'
-
-const _MV_HOT_ACTIVE_TTL_MS = 60_000
-const _mvHotActiveCache = new WeakMap() // db → { populated: boolean, ts: number }
 // Member-hit time gate: a chunk MEMBER whose own ts falls inside the requested
 // [ts_from, ts_to] window is an in-window match even when its ROOT's ts sits
 // outside it. Returns true when the member ts is within the (open-ended) window.
@@ -41,18 +37,4 @@ export function buildExactTerms(query) {
     add(`${tokens[i]} ${tokens[i + 1]}`)
   }
   return [...new Set(terms.map(t => t.toLowerCase()))].slice(0, 12)
-}
-
-export async function _checkMvHotActivePopulated(db) {
-  const cached = _mvHotActiveCache.get(db)
-  const now = Date.now()
-  if (cached && now - cached.ts < _MV_HOT_ACTIVE_TTL_MS) return cached.populated
-  const r = await recallReadQuery(
-    db,
-    `SELECT relispopulated FROM pg_class WHERE relname = 'mv_hot_active' LIMIT 1`,
-  )
-  if (!r.rows?.length) throw new Error('mv_hot_active not found in pg_class')
-  const populated = Boolean(r.rows[0].relispopulated)
-  _mvHotActiveCache.set(db, { populated, ts: now })
-  return populated
 }

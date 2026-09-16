@@ -1,0 +1,74 @@
+# Call-site rules for Dart.
+#
+# `new Widget()` is explicit constructor syntax (kind `new`); the same call
+# written without `new` — Dart 2's preferred form — is an ordinary call.
+#
+# The Dart grammar keeps `this` as an ANONYMOUS token inside
+# `member_expression`, so `this.ping()` has no receiver NODE to bind: the
+# second rule matches that shape by text and names the receiver with
+# `# mixdog-call-recv:`. Every other receiver (`a.b()`, `a.b().c()`) is a
+# named `object` child and is read from the tree.
+#
+# mixdog-call-kind: method
+id: dart-call-method
+language: Dart
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: member_expression
+    all:
+      - has:
+          field: property
+          pattern: $NAME
+      - has:
+          field: object
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: method
+# mixdog-call-recv: this
+id: dart-call-method-this
+language: Dart
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: member_expression
+    regex: '^this\s*[.?]'
+    has:
+      field: property
+      pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: call
+id: dart-call-plain
+language: Dart
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: new
+id: dart-new
+language: Dart
+role: item
+symbolType: function
+rule:
+  kind: new_expression
+  has:
+    field: type
+    kind: type
+    has:
+      kind: type_identifier
+      pattern: $NAME
+name: $NAME

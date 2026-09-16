@@ -6,8 +6,9 @@
 import { repairTranscriptBeforeProviderSend } from './transcript-repair.mjs';
 import { messagesArrayChanged } from './tool-helpers.mjs';
 import { runPreSendCompactPass } from '../pre-send-compact.mjs';
-import { snapshotProviderRequestTools } from '../../../../../session-runtime/tool-catalog.mjs';
+import { refreshDeferredMcpToolCatalog, snapshotProviderRequestTools } from '../../../../../session-runtime/tool-catalog.mjs';
 import {
+    finalizeProviderRequestTools,
     providerNativeToolPrefixCount,
     runWithProviderRequestToolsScope,
 } from '../../../../../session-runtime/provider-request-tools.mjs';
@@ -28,6 +29,7 @@ export async function prepareProviderRequest(state) {
     let compactChanged;
     let sendTools;
     let requestToolScope;
+    refreshDeferredMcpToolCatalog(sessionRef);
     do {
         // Provider-history normalization is part of the request boundary:
         // repair first, then take exactly one immutable tool snapshot.
@@ -44,15 +46,29 @@ export async function prepareProviderRequest(state) {
             messages,
             session: sessionRef,
         });
-        // Only native deferred definitions may join a running request loop.
-        // Skill discovery never promotes them into the eager cache prefix.
-        const deferredToolsAdded = fixedProviderToolSurface
-            && candidateSendTools.some((tool) => (
-                (tool.deferLoading === true || tool.defer_loading === true)
-                && !fixedProviderToolSurface.some((previous) => previous.name === tool.name)
-            ));
-        if (!fixedProviderToolSurface || deferredToolsAdded) {
+        // Preserve the eager prefix, but adopt additions, schema updates and
+        // removals of deferred/MCP definitions between model requests.
+        const isDynamicTool = (tool) => (
+            tool.deferLoading === true || tool.defer_loading === true
+            || String(tool.name || '').startsWith('mcp__')
+        );
+        const dynamicTools = (list) => list
+            .slice(providerNativeToolPrefixCount(list)).filter(isDynamicTool);
+        const dynamicToolsChanged = fixedProviderToolSurface
+            && JSON.stringify(dynamicTools(candidateSendTools)) !== JSON.stringify(dynamicTools(fixedProviderToolSurface));
+        if (!fixedProviderToolSurface) {
             fixedProviderToolSurface = candidateSendTools;
+        } else if (dynamicToolsChanged) {
+            const replacements = new Map(dynamicTools(candidateSendTools).map((tool) => [tool.name, tool]));
+            const nativePrefixCount = providerNativeToolPrefixCount(fixedProviderToolSurface);
+            const merged = fixedProviderToolSurface.flatMap((tool, index) => {
+                if (index < nativePrefixCount || !isDynamicTool(tool)) return [tool];
+                const replacement = replacements.get(tool.name);
+                replacements.delete(tool.name);
+                return replacement ? [replacement] : [];
+            });
+            merged.push(...replacements.values());
+            fixedProviderToolSurface = finalizeProviderRequestTools(merged, nativePrefixCount);
         }
         sendTools = fixedProviderToolSurface;
         requestToolScope = {

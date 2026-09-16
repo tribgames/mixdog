@@ -418,7 +418,8 @@ function UsageTrend({ daily, hourly, view, providerOrder, providers, period, loa
             onBlur: popover.triggerProps.onBlur,
           }} />)}
         {popover.open && active && <div className="stats-trend-detail" ref={detailRef} id={detailId}
-          role="dialog" aria-modal="false" aria-labelledby={`${detailId}-period`} style={position}>
+          role="dialog" aria-modal="false" aria-labelledby={`${detailId}-period`} style={position}
+          data-pinned={popover.pinned ? 'true' : undefined}>
           <div className="stats-trend-detail-heading">
             <b id={`${detailId}-period`}>{trendPeriodLabel(active)}</b>
             <button type="button" aria-label={t('Close')} onClick={popover.close}><X aria-hidden="true" /></button>

@@ -84,7 +84,9 @@ import {
   providerModelCacheRow as providerModelCacheRowRaw,
 } from './model-recency.mjs';
 import { createNativeWebSearch } from './native-web-search.mjs';
-import { createConfigLifecycle, resolveInitialConfigState } from './config-lifecycle.mjs';
+import { createConfigLifecycle, flushPendingSessionConfigWrites, resolveInitialConfigState } from './config-lifecycle.mjs';
+import { createNewSessionConfig } from './new-session-config.mjs';
+import { configureEmbedding } from '../runtime/memory/lib/embedding-provider.mjs';
 import { createQuickModelRows } from './quick-model-rows.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createCwdPlugins } from './cwd-plugins.mjs';
@@ -146,6 +148,7 @@ import {
 import { TOOL_DEFS as COMPUTER_BRIDGE_TOOL_DEFS } from '../runtime/computer-bridge/tool-defs.mjs';
 import { TOOL_DEFS as OFFICE_TOOL_DEFS } from '../runtime/office/tool-defs.mjs';
 import { TOOL_DEFS as MEDIA_TOOL_DEFS } from '../runtime/media/tool-defs.mjs';
+import { TOOL_DEFS as TIDY_TOOL_DEFS } from '../runtime/tidy/tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from './setup-tool/tool-defs.mjs';
 import { createSetupToolExecutor } from './setup-tool/executor.mjs';
 const resolveDefaultProvider = makeResolveDefaultProvider(isKnownProvider);
@@ -252,6 +255,7 @@ export async function createMixdogSessionRuntime({
     officeToolsEnabledFn,
     localProviderEnabledFn,
     mediaToolEnabledFn,
+    tidyToolEnabledFn,
     channelsEnabled,
     featureDisallowedTools,
   } = createRuntimeFeatureGates({
@@ -274,6 +278,9 @@ export async function createMixdogSessionRuntime({
   }
 
   const configStartedAt = performance.now();
+  await flushPendingSessionConfigWrites();
+  await sharedCfgMod.pendingConfigWrites();
+  sharedCfgMod.invalidateConfigReadCache();
   ({
     config: rt.config,
     route: rt.route,
@@ -615,6 +622,7 @@ export async function createMixdogSessionRuntime({
     computerToolDefs: COMPUTER_BRIDGE_TOOL_DEFS,
     officeToolDefs: OFFICE_TOOL_DEFS,
     mediaToolDefs: MEDIA_TOOL_DEFS,
+    tidyToolDefs: TIDY_TOOL_DEFS,
     setupToolDefs: SETUP_TOOL_DEFS,
     goalTools: goalRuntime.tools,
     agentTools: agentTool.tools,
@@ -669,7 +677,8 @@ export async function createMixdogSessionRuntime({
     notifySessionUi,
     getSessionId: () => rt.session?.id || rt.reservedSessionId || null,
   });
-  internalTools.setInternalToolsProvider({
+  const disposeInternalTools = internalTools.setInternalToolsProvider({
+    scopeId: rt.mcpScopeId,
     tools: internalToolDefs,
     executor: createInternalToolExecutor({
       rt,
@@ -681,6 +690,7 @@ export async function createMixdogSessionRuntime({
       memoryToolsEnabled: memoryToolsEnabledFn,
       officeToolsEnabled: officeToolsEnabledFn,
       mediaToolEnabled: mediaToolEnabledFn,
+      tidyToolEnabled: tidyToolEnabledFn,
       channelsEnabled,
       getWebSearchModule,
       getMemoryModule,
@@ -861,6 +871,20 @@ export async function createMixdogSessionRuntime({
   });
 
   // Route resolution + createCurrentSession: session-lifecycle.mjs.
+  const prepareNewSessionConfig = createNewSessionConfig({
+    rt,
+    sharedCfgMod,
+    reloadFullConfig,
+    resolveRoute,
+    initialConfig,
+    initialRouteExplicit: provider !== undefined || model !== undefined
+      || effort !== undefined || fast !== undefined || modelParameters !== undefined,
+    invalidatePreSessionToolSurface,
+    invalidateOutputStyleStatusCache,
+    invalidateSkills,
+    connectConfiguredMcp,
+    configureEmbedding,
+  });
   const {
     resolveMissingRouteModelForFirstTurn,
     scheduleProviderWarmup,
@@ -889,6 +913,7 @@ export async function createMixdogSessionRuntime({
     mgr,
     loadCoreMemoryContext,
     awaitKeychainPrewarm,
+    prepareNewSessionConfig,
     ensureConfigForRouteProvider,
     reg,
     cfgMod,
@@ -1022,6 +1047,7 @@ export async function createMixdogSessionRuntime({
     memoryToolsEnabledFn,
     gitToolsEnabledFn,
     officeToolsEnabledFn,
+    tidyToolEnabledFn,
     localProviderEnabledFn,
     webSearchEnabled,
     channelsEnabled,
@@ -1128,6 +1154,7 @@ export async function createMixdogSessionRuntime({
     clearRuntimeNotifications,
     goalRuntime,
     disposeSessionTitles: () => sessionTitles.disposeAll(),
+    disposeInternalTools,
     disposeGlobalExtensionSubscription: () => disposeGlobalExtensionSubscription(),
   });
   const resourceApi = createResourceApi({

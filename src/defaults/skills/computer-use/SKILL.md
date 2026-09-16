@@ -65,6 +65,8 @@ observed target, and leave windows where they were.
   permits reconsidering the mode within the user's scope. An uncertain result
   requires fresh observation, not a second attempt in another mode.
   `input_may_have_executed:true` or unknown delivery is not a no-input refusal.
+  A refusal applies to that action, not to earlier completed steps. Keep the
+  selected app/browser session when choosing another supported delivery route.
 - User intervention means pending work, not permission to work around the pause
   through background input. Resume only through the recovery flow below.
 
@@ -86,14 +88,19 @@ observed target, and leave windows where they were.
   restoration must not override intervening user input. Cursor appearance and
   click effects are feedback, not proof that the requested action succeeded.
 - **Mixdog settles and re-observes internally** after every `act`; delivery
-  alone does not verify the goal. Use the returned evidence before requesting
-  another read; do not add your own settle loop.
+  alone does not verify the goal. Inspect completed actions separately from
+  the final observation: `ok:false` can mean input completed but observation
+  failed. Recover the observation, not the completed input. Use usable returned
+  evidence before requesting another read; do not add your own settle loop.
 - Window pixels come only from a window-owned capture, never a sampled region
   of the shared desktop. If that surface is unavailable, use semantic refs or
   report `pixel_unavailable`; do not substitute a screen grab.
 - If the user intervenes, preserve their cursor and focus. Worker termination
   and input cleanup must finish before resuming; a failed cleanup is not cleared
-  by a resume request. Obtain a new observation after an interruption.
+  by a resume request. Ask the user to press Stop for verified cleanup recovery.
+  If target-local release remains unconfirmed, the user must inspect/recover
+  that window; restarting the host alone does not prove release. Never operate
+  recovery controls for the user. Obtain a new observation after an interruption.
   Use `wait_for_user` to keep the task waiting without sending input. The host
   may resume ordinary physical-input interruptions after its configured quiet
   interval; renewed input resets that interval. Explicit stops and uncertain
@@ -160,7 +167,8 @@ refs still work.
 - `clipboard` — `read`, or `write` with `text`. Large text goes through the
   clipboard + a paste `key` rather than a long `type`.
 - `diagnose` — read-only backend / OCR / accessibility readiness. Run it first
-  when captures come back empty or actions report backend errors.
+  when neither usable pixels nor semantic targets are available, or an input
+  backend reports an error. An OCR error alone does not block usable vision.
 
 ## Common flows
 
@@ -206,5 +214,9 @@ frames that should stay out of the conversation.
 | Empty semantics | `capture` with `include_ocr:true` (set `ocr_language`), or `mode=som`. |
 | Refs rejected as expired | Use a successful recovery observation if returned; otherwise capture again. |
 | `act` stopped early | Read `recovery` and the observation; the target transitioned. |
-| Coordinates refused (`pixel_unavailable`) | Use `ref` / `element` targets from a fresh capture. |
-| Backend / OCR error | `diagnose`, report the result, do not work around it. |
+| Coordinates refused (`pixel_unavailable`) | Use fresh semantic refs if available; never use unavailable pixels or a desktop-region substitute. |
+| OCR unavailable, pixels usable | Continue from the fresh image/frame. Do not retry the missing recognizer unchanged or install a language pack without approval. |
+| Input completed, observation failed | Capture only to inspect the result; do not repeat completed or uncertain input. |
+| Definite background no-input refusal | Choose a supported route within scope; strict background-only work cannot escalate without approval. |
+| Target-local cleanup unconfirmed | Hand off window recovery to the user. Do not reset the guard or replay input. |
+| Input backend error | `diagnose`, report the cause, and recover through the same tool rather than shell automation. |

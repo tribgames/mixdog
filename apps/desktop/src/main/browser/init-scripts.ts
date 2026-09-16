@@ -48,11 +48,25 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
     return `Init scripts (${registry.size}), each run at the start of every navigation:\n${rows.join('\n')}`;
   }
 
+  async function removeScript(guest: WebContents, script: RegisteredInitScript, signal?: AbortSignal): Promise<void> {
+    try {
+      await cdp.call(guest, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: script.identifier }, signal);
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
+      // Chromium uses this exact message for an absent script. Missing CDP
+      // sessions or targets are not proof that the script was removed.
+      if (!(error instanceof Error) || error.message !== 'Script not found') throw error;
+    }
+    registryFor(guest).delete(script.id);
+    signal?.throwIfAborted();
+  }
+
   async function initScriptResult(
     guest: WebContents,
     command: BrowserCommand,
     signal?: AbortSignal,
   ): Promise<BrowserCommandResult> {
+    signal?.throwIfAborted();
     const operation = String(command.operation || 'list').trim().toLowerCase();
     const registry = registryFor(guest);
     if (operation === 'list') return { text: listText(registry) };
@@ -82,6 +96,7 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
         chars: source.length,
         preview: source.replace(/\s+/g, ' ').trim().slice(0, 80),
       });
+      signal?.throwIfAborted();
       return {
         text: `Registered init script ${id}. It runs from the next navigation onward; the document already loaded is untouched.\n\n${listText(registry)}`,
       };
@@ -93,47 +108,27 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
       if (!script) {
         throw new Error(`unknown init script ${id || '(empty)'}; list init_script to see current ids`);
       }
-      await cdp.call(
-        guest,
-        'Page.removeScriptToEvaluateOnNewDocument',
-        { identifier: script.identifier },
-        signal,
-      );
-      registry.delete(id);
+      await removeScript(guest, script, signal);
       return { text: `Removed init script ${id}.\n\n${listText(registry)}` };
     }
 
     if (operation === 'clear') {
       const removed = registry.size;
-      let failures = 0;
+      const failures: Error[] = [];
       for (const [id, script] of registry) {
         try {
-          await cdp.call(
-            guest,
-            'Page.removeScriptToEvaluateOnNewDocument',
-            { identifier: script.identifier },
-            signal,
-          );
-          registry.delete(id);
+          await removeScript(guest, script, signal);
         } catch (error) {
           if (signal?.aborted) {
             throw signal.reason || error;
           }
-          // A crashed renderer may already have dropped the CDP script. Missing
-          // identifiers are successful cleanup; transient failures stay in the
-          // registry so the caller can retry instead of losing control.
-          if (/not found|no script|unknown identifier/i.test(
-            error instanceof Error ? error.message : String(error),
-          )) {
-            registry.delete(id);
-          } else {
-            failures += 1;
-          }
+          failures.push(new Error(`${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }));
         }
       }
-      if (failures) {
-        throw new Error(
-          `removed ${removed - failures} init script(s), but ${failures} could not be removed; retry clear`,
+      if (failures.length) {
+        throw new AggregateError(failures,
+          `removed ${removed - failures.length} init script(s), but ${failures.length} could not be removed; retry clear\n`
+          + failures.map(error => error.message).join('\n'),
         );
       }
       return { text: `Removed ${removed} init script(s).` };

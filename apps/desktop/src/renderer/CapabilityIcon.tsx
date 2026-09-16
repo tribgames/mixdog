@@ -29,6 +29,7 @@ export const CAPABILITY_ARTWORK = {
   creator: '#c0a0ed',
   attach: '#9aa4b8',
   skill: '#a8afbf',
+  tidy: '#2ec4b6',
 } as const;
 
 export type CapabilityArtwork = keyof typeof CAPABILITY_ARTWORK;
@@ -36,6 +37,7 @@ export type CapabilityArtwork = keyof typeof CAPABILITY_ARTWORK;
 const BUILT_IN_ARTWORK: Record<string, CapabilityArtwork> = {
   git: 'git', memory: 'memory', browser: 'browser', computer: 'computer',
   office: 'office', localProvider: 'local', voice: 'voice',
+  tidy: 'tidy',
 };
 const SKILL_ARTWORK: Record<string, CapabilityArtwork> = {
   'browser-use': 'browser',
@@ -49,6 +51,7 @@ const SKILL_ARTWORK: Record<string, CapabilityArtwork> = {
   setup: 'setup',
   pdf: 'pdf', pptx: 'pptx', docx: 'docx', xlsx: 'xlsx',
   image: 'image', video: 'video',
+  'code-tidy': 'tidy',
 };
 
 const PLATE = { fill: 'currentColor', fillOpacity: 0.14, stroke: 'none' } as const;
@@ -155,6 +158,16 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
     case 'creator': return <>
       <path d={WRENCH} {...PLATE} />
       <path d={WRENCH} />
+    </>;
+    // Code Tidy: broom and sparkles indicating automated cleanup and polish.
+    case 'tidy': return <>
+      <path d="M10.5 10.5 13.5 13.5 10 20.5 4.5 16.5Z" {...PLATE} />
+      <path d="m10.5 10.5 3 3-3.5 7-5.5-4 6-6Z" />
+      <path d="m12 12 7.5-7.5" />
+      <path d="m10.5 10.5 3 3" />
+      <path d="m7.5 15 1.5-2.5M9 17.5l1.5-2.5" />
+      <path d="M6 4.5l.6 1.9 1.9.6-1.9.6L6 9.5l-.6-1.9-1.9-.6 1.9-.6Z" {...SOLID} />
+      <path d="M17 14.5l.4 1.1 1.1.4-1.1.4-.4 1.1-.4-1.1-1.1-.4 1.1-.4Z" {...SOLID} />
     </>;
     // Generic skill: a full-frame hexagon module with a sparkle. The old flat
     // layer stack only used half the frame's height and read undersized beside

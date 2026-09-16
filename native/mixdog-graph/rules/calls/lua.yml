@@ -1,0 +1,56 @@
+# Call-site rules for Lua.
+#
+# `Widget.new()` and `self:ping()` are both qualified calls (kind `method`,
+# receiver `Widget` / `self`); Lua has no constructor syntax, so no rule here
+# declares `new`.
+#
+# mixdog-call-kind: method
+id: lua-call-dot
+language: Lua
+role: item
+symbolType: function
+rule:
+  kind: function_call
+  has:
+    field: name
+    kind: dot_index_expression
+    all:
+      - has:
+          field: field
+          pattern: $NAME
+      - has:
+          field: table
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: method
+id: lua-call-method
+language: Lua
+role: item
+symbolType: function
+rule:
+  kind: function_call
+  has:
+    field: name
+    kind: method_index_expression
+    all:
+      - has:
+          field: method
+          pattern: $NAME
+      - has:
+          field: table
+          pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: lua-call-plain
+language: Lua
+role: item
+symbolType: function
+rule:
+  kind: function_call
+  has:
+    field: name
+    kind: identifier
+    pattern: $NAME
+name: $NAME

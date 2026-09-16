@@ -18,7 +18,7 @@ export function bindComputerOverlayControls(
       controls.configureIdleResume(request.seconds);
       return { accepted: true };
     }
-    if (!['resume', 'pause', 'stop'].includes(request.action)
+    if (!['resume', 'stop'].includes(request.action)
       || Object.keys(request).some((key) => !['action', 'generation'].includes(key))
       || !Number.isSafeInteger(request.generation) || request.generation < 0) {
       throw new Error('Invalid overlay request');

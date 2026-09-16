@@ -43,3 +43,11 @@ test('browser postconditions reject empty contracts and bound explicit settle de
   assert.equal(normalizeBrowserSettleMs(20_000), 5_000);
   assert.throws(() => normalizeBrowserSettleMs(Number.NaN), /finite number/);
 });
+
+test('an unobserved document cannot satisfy text absence, while URL-only checks need no text', () => {
+  assert.equal(browserPostconditionMatches({ textGone: 'Saving' }, { text: null, url: 'https://example.test/' }), false);
+  assert.equal(browserPostconditionMatches({ text: 'Saved' }, { text: null, url: 'https://example.test/' }), false);
+  assert.equal(browserPostconditionMatches({ textGone: 'Saving' }, { text: '', url: 'https://example.test/' }), true);
+  assert.equal(browserPostconditionMatches({ url: '/COMPLETE' }, { text: null, url: 'https://example.test/complete' }), true);
+  assert.equal(browserPostconditionMatches({ text: 'SAVED', textGone: 'LOADING' }, { text: 'Saved', url: '' }), true);
+});

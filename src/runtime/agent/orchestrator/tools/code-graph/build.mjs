@@ -51,6 +51,8 @@ import {
   _runGraphFiles,
   _fileInfoFromRustRecord,
   _reuseFileInfo,
+  callsWireSignatureToken,
+  awaitCallsWireProbe,
 } from './graph-binary.mjs';
 import { _lookupCandidateNodes } from './symbol-index.mjs';
 import { _findDirProjectRoot } from './project-root.mjs';
@@ -131,6 +133,22 @@ export async function _retryCodeGraphBuildAfterInvalidation(run, { signal = null
   }
 }
 
+// The cached graph must be invalidated when the BINARY's call-site capability
+// changes, not only when files change: an entry indexed without the v2 wire has
+// no call sites at all, and call analysis has no text fallback to fall back on.
+// Always computed AFTER the manifest run, which settles the capability probe.
+function _graphSignatureForCapability(fileMetas) {
+  return `${_computeGraphSignature(fileMetas)}${callsWireSignatureToken()}`;
+}
+
+// The capability suffix a persisted/cached graph was indexed under, read back
+// from its own signature — no extra field to migrate.
+function _capabilityTokenOfSignature(signature) {
+  const value = String(signature || '');
+  const marker = value.indexOf('#');
+  return marker < 0 ? '' : value.slice(marker);
+}
+
 // Validate an already-loaded disk entry before paying Worker startup. The
 // manifest process is async; its child-spawn slot is held by the caller until
 // either this returns a hit or the Worker takes over the same slot on a miss.
@@ -141,7 +159,7 @@ async function _validateDiskCodeGraphHit({
   genAtStart,
   now = Date.now(),
   runManifest = _runGraphManifest,
-  computeSignature = _computeGraphSignature,
+  computeSignature = _graphSignatureForCapability,
   deserializeGraph = _deserializeGraph,
   getGeneration = _getCodeGraphGen,
   setMemoryCache = _setCodeGraphCache,
@@ -535,11 +553,16 @@ export async function _buildCodeGraph(cwd, {
   // main-thread disk-cache validation may hand its just-computed manifest to
   // this Worker after a miss, avoiding a duplicate native process.
   const unscopedManifest = Array.isArray(suppliedManifest) ? suppliedManifest : await _runGraphManifest(absRoot);
+  // A Worker build receives the manifest (and signature) from the main thread,
+  // so it never ran a manifest itself and the capability probe has not settled
+  // here. Both the signature suffix and the node-reuse guard below depend on
+  // it; the probe is memoized per binary, so this is free after the first call.
+  await awaitCallsWireProbe(absRoot);
   const scoped = _scopeCodeGraphManifest(unscopedManifest, absRoot, { excludedProjectRoots, maxFiles });
   const manifest = scoped.manifest;
   const signature = typeof suppliedSignature === 'string'
     ? suppliedSignature
-    : _computeGraphSignature(manifest);
+    : _graphSignatureForCapability(manifest);
   if (!Array.isArray(suppliedManifest)) _trace('manifest+sig');
   const { truncated, indexed } = scoped;
 
@@ -567,13 +590,27 @@ export async function _buildCodeGraph(cwd, {
   if (previousGraph && previousGraph.schemaVersion !== SYMBOL_SCHEMA_VERSION) {
     previousGraph = null;
   }
+  // A graph indexed under a DIFFERENT call-site capability must not seed reuse:
+  // its nodes are unchanged by fingerprint, so every file would be carried
+  // forward and the "re-index" after a binary upgrade would produce a graph
+  // without a single call site (and no sidecar to hydrate from). Dropping the
+  // seed re-parses the tree once, which is exactly what the upgrade needs.
+  if (previousGraph && _capabilityTokenOfSignature(previousGraph.signature) !== callsWireSignatureToken()) {
+    previousGraph = null;
+  }
 
   // 4. Build fileInfos. Reuse unchanged nodes by fp; parse the rest in Rust.
   const reusable = [];
   const freshRels = [];
+  // A node reused from a cache entry that was never hydrated carries NO call
+  // sites (the main entry has none; they live in the sidecar). Such a rebuild
+  // must stay eligible for the lazy sidecar read, otherwise one incremental
+  // build silently strips every unchanged file of its call sites.
+  let reusedWithoutCalls = false;
   for (const meta of indexed) {
     const previousNode = previousGraph?.nodes?.get(meta.rel) || null;
     if (previousNode && previousNode.fingerprint === meta.fp) {
+      if (!Array.isArray(previousNode.calls)) reusedWithoutCalls = true;
       reusable.push(_reuseFileInfo(previousNode, previousGraph, absRoot));
     } else {
       freshRels.push(meta.rel);
@@ -647,6 +684,8 @@ export async function _buildCodeGraph(cwd, {
       topLevelTypes: info.topLevelTypes,
       tokenSymbols: info.tokenSymbols,
       symbols: Array.isArray(info.symbols) ? info.symbols : [],
+      // null = unknown (binary without `calls`), [] = no call sites.
+      calls: Array.isArray(info.calls) ? info.calls : null,
     };
     nodes.set(info.rel, node);
     for (const rel of resolvedImportsRel) {
@@ -666,6 +705,10 @@ export async function _buildCodeGraph(cwd, {
     }
   }
   graph._symbolTokenIndexDirty = true;
+  // Same marker _deserializeGraph sets: the first callers/callees/references
+  // query fills the reused nodes from the sidecar. A build that parsed every
+  // file itself needs nothing and stays unmarked, so no mode pays that read.
+  if (reusedWithoutCalls) graph._callsHydration = 'pending';
   if (cache && _getCodeGraphGen(graphCwd) === _genAtStart) {
     _setCodeGraphCache(graphCwd, { ts: now, signature, graph });
     _setDiskCodeGraphEntry(graphCwd, graph);

@@ -30,6 +30,22 @@ test('a thrown sequence step becomes one failed row and skips every remaining st
   assert.equal(result.rows[1].timings_ms, undefined);
 });
 
+test('native target errors keep their category and never execute a continuation', async () => {
+  let dispatched = 0;
+  const result = await executeComputerSequenceSteps(
+    [{ action: 'click' }, { action: 'type', text: 'must not be sent' }],
+    'hwnd:0x1',
+    async () => {
+      dispatched++;
+      throw new Error('target_mismatch|frame point remains covered after exact target focus');
+    },
+  );
+  assert.equal(dispatched, 1);
+  assert.equal(result.stoppedReason, 'target_mismatch');
+  assert.equal(result.rows[0].code, 'target_mismatch');
+  assert.equal(result.rows[1].status, 'skipped');
+});
+
 test('a successful target transition counts the action and skips unsafe continuations', async () => {
   const steps = [
     { action: 'click', window_id: 'hwnd:0x1' },

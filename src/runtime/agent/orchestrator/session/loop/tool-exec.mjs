@@ -15,6 +15,7 @@ import {
     resolvePreToolAskApproval,
 } from './tool-helpers.mjs';
 import { isOnDeferredToolSurface, prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
+import { refreshDeferredMcpToolCatalog } from '../../../../../session-runtime/tool-catalog.mjs';
 import { coerceToolArgsForSession } from './arg-schema-coerce.mjs';
 import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
 import { runWithToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
@@ -163,6 +164,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     // sessionRef.cwd in place, so every later tool call must re-read that live
     // value instead of continuing to use the stale turn snapshot.
     cwd = resolveLiveToolCwd(cwd, sessionRef);
+    refreshDeferredMcpToolCatalog(sessionRef);
     // Structured arguments that arrived as JSON text take their declared shape
     // before any hook or executor reads them.
     args = coerceToolArgsForSession(sessionRef, name, args);
@@ -281,6 +283,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     const afterToolHook = typeof executeOpts.afterToolHook === 'function'
         ? executeOpts.afterToolHook
         : sessionRef?.afterToolHook;
+    if (isMcpTool(name)) refreshDeferredMcpToolCatalog(sessionRef);
     const deferredPrep = prepareDeferredToolCallThrough(sessionRef, name, args);
     if (deferredPrep?.deny) return deferredPrep.deny;
     const __result = await runReadOnlyIoWithDeadline(name, executeOpts.signal || null, async (deadlineSignal) => {
@@ -323,11 +326,12 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
         const graphCwd = (typeof args?.cwd === 'string' && args.cwd.trim()) ? args.cwd.trim() : cwd;
         return executeCodeGraphToolLazy(name, args, graphCwd, executeOpts.signal || null, toolOpts);
     }
-    if (isInternalTool(name)) {
+    if (isInternalTool(name, sessionRef?.mcpScopeId)) {
         // callerSessionId propagates into server.mjs dispatchTool so that
         // dispatchAiWrapped can detect and reject recursive calls from a
         // hidden-role session (recall/search → self).
         return executeInternalTool(name, args, {
+            scopeId: sessionRef?.mcpScopeId || null,
             callerSessionId,
             callerCwd: cwd,
             setCallerCwd: async (nextCwd) => {

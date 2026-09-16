@@ -1,0 +1,69 @@
+{
+  "calls": [
+    {
+      "name": "plain",
+      "line": 28,
+      "col": 6,
+      "endCol": 11,
+      "kind": "call",
+      "inSymbol": "top"
+    },
+    {
+      "name": "inner",
+      "line": 31,
+      "col": 8,
+      "endCol": 13,
+      "kind": "call",
+      "inSymbol": "run"
+    },
+    {
+      "name": "nest",
+      "line": 34,
+      "col": 11,
+      "endCol": 15,
+      "kind": "call",
+      "inSymbol": "nested"
+    },
+    {
+      "name": "leaf",
+      "line": 34,
+      "col": 17,
+      "endCol": 21,
+      "kind": "call",
+      "inSymbol": "nested"
+    },
+    {
+      "name": "bar",
+      "line": 37,
+      "col": 22,
+      "endCol": 25,
+      "kind": "method",
+      "recv": "Foo",
+      "inSymbol": "qualifiedCall"
+    },
+    {
+      "name": "Widget",
+      "line": 40,
+      "col": 8,
+      "endCol": 14,
+      "kind": "call",
+      "inSymbol": "built"
+    },
+    {
+      "name": "helper",
+      "line": 46,
+      "col": 10,
+      "endCol": 16,
+      "kind": "call",
+      "inSymbol": "act"
+    },
+    {
+      "name": "seed",
+      "line": 49,
+      "col": 24,
+      "endCol": 28,
+      "kind": "call",
+      "inSymbol": "seeded"
+    }
+  ]
+}

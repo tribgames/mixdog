@@ -6,6 +6,7 @@
  * post-action observation the runtime acts on.
  */
 import { elapsedMs } from '../shared/common';
+import type { CaptureAttempt } from '../shared/capture-attempts';
 import type {
   ComputerCommand,
   ComputerCommandResult,
@@ -138,11 +139,13 @@ export function createCommandRouter(host: CommandRouterHost) {
     description: string,
     image: { mimeType: string; data: string },
     frameId: string,
+    captureAttempts?: CaptureAttempt[],
   ): ComputerCommandResult {
-    if (String(command.image_output || 'inline') !== 'file') return { text: description, image };
+    if (String(command.image_output || 'inline') !== 'file') return { text: description, image, captureAttempts };
     const stored = persistFrameImage('computer', sessionIdFor(command), frameId, image);
-    if (!stored) return { text: description, image };
+    if (!stored) return { text: description, image, captureAttempts };
     return {
+      captureAttempts,
       text: `${description}; frame written to ${stored.path} (${stored.bytes} bytes)`,
     };
   }
@@ -187,6 +190,7 @@ export function createCommandRouter(host: CommandRouterHost) {
   function pixelUnavailableReply(
     action: string,
     pixelUnavailable: unknown,
+    captureAttempts?: CaptureAttempt[],
   ): ComputerCommandResult {
     return {
       text: JSON.stringify({
@@ -195,6 +199,7 @@ export function createCommandRouter(host: CommandRouterHost) {
         code: 'pixel_unavailable',
         pixel_status: 'unavailable',
         pixel_unavailable: pixelUnavailable,
+        ...(captureAttempts?.length ? { capture_attempts: captureAttempts } : {}),
         escalation: 'recapture',
       }),
     };
@@ -279,7 +284,7 @@ export function createCommandRouter(host: CommandRouterHost) {
     if (action === 'screenshot') {
       const screenshot = await captureScreenshot(command);
       if (screenshot.pixelUnavailable) {
-        return pixelUnavailableReply('screenshot', screenshot.pixelUnavailable);
+        return pixelUnavailableReply('screenshot', screenshot.pixelUnavailable, screenshot.captureAttempts);
       }
       if (!screenshot.image || !screenshot.frame || !screenshot.frameId) {
         throw new Error('screenshot capture returned incomplete state');
@@ -291,16 +296,16 @@ export function createCommandRouter(host: CommandRouterHost) {
           screenshot.frame.relatedWindowIds || [screenshot.frame.windowId],
         );
       }
-      return frameReply(command, screenshot.description, screenshot.image, screenshot.frameId);
+      return frameReply(command, screenshot.description, screenshot.image, screenshot.frameId, screenshot.captureAttempts);
     }
     if (action === 'zoom') {
       const zoom = await captureZoom(command);
       if (!zoom) throw new Error('zoom capture failed');
       if (zoom.pixelUnavailable) {
-        return pixelUnavailableReply('zoom', zoom.pixelUnavailable);
+        return pixelUnavailableReply('zoom', zoom.pixelUnavailable, zoom.captureAttempts);
       }
       if (!zoom.image || !zoom.frameId) throw new Error('zoom capture returned incomplete state');
-      return frameReply(command, zoom.description, zoom.image, zoom.frameId);
+      return frameReply(command, zoom.description, zoom.image, zoom.frameId, zoom.captureAttempts);
     }
     const inputTarget = await resolveInputTarget(command, action, trustedSequenceContinuation);
     const {
@@ -370,7 +375,6 @@ export function createCommandRouter(host: CommandRouterHost) {
       Object.assign(actionTimings, nativeStep.timings);
     }
     const result = nativeStep?.result || response.result || {};
-    const targetWindowBefore = windowsBefore?.find((window) => window.id === targetWindowId);
     if (action === 'list_windows' && Array.isArray(result.windows)) {
       const windows = filterComputerUseInternalWindows(result.windows);
       result.windows = windows;
@@ -443,7 +447,7 @@ export function createCommandRouter(host: CommandRouterHost) {
     }
     return await buildActionReply(captureAfterAction, {
       command, action, result, isMutation, targetWindowId, logicalTargetWindowId,
-      targetWindowBefore, windowTransition, inputRecoveryVerification, semanticTargetIdentity,
+      windowTransition, inputRecoveryVerification, semanticTargetIdentity,
       settleDelayMs, commandStartedAt, actionTimings,
     });
   }

@@ -52,6 +52,7 @@ function panelContext(overrides = {}) {
         git: { enabled: true, installed: true },
         memory: { enabled: true, installed: true },
         office: { enabled: true, installed: true },
+        tidy: { enabled: true, installed: true },
       },
       voice: { enabled: false, installed: false },
       plugins: {
@@ -206,8 +207,10 @@ test('built-in details show their engines and supplied model metadata instead of
       const labels = [...dialog.querySelectorAll('dt')].map((node) => node.textContent);
       assert.ok(!labels.includes('Installation'), id);
       assert.ok(!labels.includes('Status'), id);
-      const facts = dialog.querySelector('.extensions-dialog-facts').textContent;
-      for (const value of expected[id]) assert.ok(facts.includes(value), `${id}: ${value}`);
+      const facts = dialog.querySelector('.extensions-dialog-facts')?.textContent;
+      if (expected[id]) {
+        for (const value of expected[id]) assert.ok(facts?.includes(value), `${id}: ${value}`);
+      }
       await act(async () => dialog.querySelector('header button[aria-label="Close"]').click());
     }
   } finally {
@@ -352,6 +355,7 @@ test('empty Plugin, Skill, and MCP categories keep their own visible empty state
         git: { enabled: true, installed: true },
         memory: { enabled: true, installed: true },
         office: { enabled: true, installed: true },
+        tidy: { enabled: true, installed: true },
       },
       voice: { enabled: false, installed: false },
       plugins: { plugins: [] },
@@ -421,6 +425,7 @@ test('project scope stays in the plugin detail and saves from its scope selector
         git: { enabled: true, installed: true },
         memory: { enabled: true, installed: true },
         office: { enabled: true, installed: true },
+        tidy: { enabled: true, installed: true },
       },
       voice: { enabled: false, installed: false },
       plugins: {
@@ -476,6 +481,7 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
         git: { enabled: true, installed: true },
         memory: { enabled: true, installed: true },
         office: { enabled: true, installed: true },
+        tidy: { enabled: true, installed: true },
       },
       voice: { enabled: false, installed: false },
       plugins: {

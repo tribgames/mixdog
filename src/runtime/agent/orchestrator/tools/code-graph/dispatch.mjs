@@ -1,11 +1,10 @@
 // Tool dispatch layer: codeGraph (mode router), findSymbolTool,
 // executeCodeGraphTool (entry with cwd re-rooting + batch fan-out + abort
 // race), isCodeGraphTool. Extracted verbatim from code-graph.mjs.
-import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename, extname } from 'node:path';
+import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename, dirname as pathDirname, extname } from 'node:path';
 import { homedir as osHomedir } from 'node:os';
 
 import { existsSync, statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { normalizeInputPath, toDisplayPath } from '../builtin/path-utils.mjs';
 import { findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
@@ -17,10 +16,11 @@ import {
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _graphRel, _appendSameBasenameHint } from './source-access.mjs';
 import {
-  _extractSymbolsCheap,
   _buildExplainerFileSummary,
-  _collectCheapSymbols,
   _capGraphList,
+  _symbolOutlineRows,
+  _graphHasNativeSymbols,
+  _graphExpectsNativeSymbols,
 } from './symbol-index.mjs';
 import {
   _PROJECT_ROOT_SENTINELS,
@@ -44,19 +44,29 @@ import {
   _searchSymbolsByKeyword,
   _extractCallees,
   _formatCalleeRow,
-  _CALLEES_BRACE_LANGS,
   _formatRelated,
   _formatImpact,
   _impactSourceNodes,
   _resolveReferenceLanguageNode,
+  _declarationOutsideScope,
+  _isVendorPath,
   _prewarmSourceTextNodes,
   _prewarmReferenceSourceText,
   _cheapReferenceSearch,
   _formatReferenceDetails,
   _formatCallerReferences,
   _formatTransitiveCallers,
+  _astCallerTargetRels,
   _augmentNoHitDiagnostic,
 } from './search.mjs';
+import { _graphHasAstCalls } from './ast-calls.mjs';
+import {
+  callsCapabilityError,
+  callsCapabilityHint,
+  symbolsCapabilityError,
+  symbolsCapabilityHint,
+} from './graph-binary.mjs';
+import { hydrateGraphCallsFromSidecar } from './disk-cache.mjs';
 import { _buildExactFileGraph, _pruneExactFileGraphCache } from './exact-file-graph.mjs';
 import {
   _AGGREGATE_FILE_WILDCARD_RE,
@@ -77,6 +87,15 @@ import {
 // dispatch.test.mjs reaches the aggregate-root probe through this module.
 export { _resolveBoundedSentinelFreeAggregateRootForTest };
 
+// The modes that read AST call sites — the sidecar hydration trigger.
+const CODE_GRAPH_CALL_MODES = new Set(['callers', 'callees', 'references']);
+// …and the two that cannot answer at all without them. `references` still has
+// non-call identifier usages to report, so it is not in this set.
+const CODE_GRAPH_CALL_ONLY_MODES = new Set(['callers', 'callees']);
+// …and the modes that cannot answer without native SYMBOLS. `overview` is not
+// one of them: it still reports files, languages and imports, so it carries the
+// capability hint instead of failing.
+const CODE_GRAPH_SYMBOL_ONLY_MODES = new Set(['symbols', 'find_symbol', 'symbol_search']);
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
 const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
 const CODE_GRAPH_BATCH_CONCURRENCY = 20;
@@ -131,14 +150,14 @@ function _collectGraphSymbolList(args) {
   return list;
 }
 
-// Filter BEFORE capping: the outline of a symbol-dense file exceeds the
+// The file outline: native record rows, every containment level, ordered by
+// line. Filter BEFORE capping: the outline of a symbol-dense file exceeds the
 // 200-entry cap, so filtering a pre-capped outline silently lost every
 // late-file symbol AND the truncation marker itself — a requested symbol
 // past the cap looked like "(no symbols matching …)" with no hint.
-function _filterSymbolOutline(text, lang, args) {
+function _filterSymbolOutline(node, args) {
   const keywords = _collectGraphSymbolList(args);
-  const items = _collectCheapSymbols(text, lang)
-    .map((item) => `${item.kind} ${item.name} (L${item.line})`);
+  const items = _symbolOutlineRows(node);
   if (!items.length) return '(no symbols)';
   if (!keywords.length) return _capGraphList(items).join('\n');
   const needles = keywords.map((keyword) => keyword.toLowerCase());
@@ -146,6 +165,42 @@ function _filterSymbolOutline(text, lang, args) {
   return lines.length
     ? _capGraphList(lines).join('\n')
     : `(no symbols matching ${keywords.map((keyword) => JSON.stringify(keyword)).join(', ')})`;
+}
+
+// A scoped find_symbol whose only hits are imports points AT a declaration the
+// scope excludes. `_declarationOutsideScope` answers from the graph; when the
+// graph is a single scoped file it can only resolve the import specifier to a
+// path, so the target file is indexed on its own (one binary run, cached by
+// source hash) to recover the line and the record facts.
+async function _resolveOutsideDeclaration(graph, symbol, cwd, {
+  language = null,
+  fileRel = null,
+  scopeRelPrefix = null,
+  signal = null,
+} = {}) {
+  const outside = _declarationOutsideScope(graph, symbol, { language, fileRel, scopeRelPrefix });
+  if (!outside?.viaImport || !outside.abs) return outside;
+  if (!_outlineLanguageForPath(outside.abs)) return outside;
+  // A dependency tree stays un-indexed: the path names the file to open, and
+  // reading a record out of node_modules would index a tree nobody asked for.
+  if (_isVendorPath(outside.abs)) return outside;
+  let isFile = false;
+  try { isFile = statSync(outside.abs).isFile(); } catch { isFile = false; }
+  // An import that points at a path this process cannot index still names the
+  // file the caller must open; the note says it was resolved from the
+  // specifier rather than read out of a record.
+  if (!isFile) return outside;
+  const targetGraph = await _buildExactFileGraph(pathDirname(outside.abs), outside.abs, signal);
+  const targetNode = targetGraph?.nodes?.get(_graphRel(outside.abs, pathDirname(outside.abs)));
+  const declared = (Array.isArray(targetNode?.symbols) ? targetNode.symbols : [])
+    .find((item) => item?.name === symbol);
+  if (!declared) return outside;
+  return {
+    rel: outside.rel,
+    line: Number(declared.startLine ?? declared.line) || 0,
+    lang: targetNode.lang || '',
+    facts: `${declared.exported === true ? 'export ' : ''}${String(declared.kind || '') || 'symbol'}`,
+  };
 }
 
 function collectGraphParseWarnings(graph, options) {
@@ -156,7 +211,7 @@ function collectGraphParseWarnings(graph, options) {
   }
 }
 
-async function codeGraph(args, cwd, signal = null, options = {}) {
+export async function codeGraph(args, cwd, signal = null, options = {}) {
   let mode = String(args?.mode || '').trim();
   if (!mode) throw new Error('code_graph: "mode" is required');
   if (mode === 'search') mode = 'symbol_search';
@@ -190,28 +245,36 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   }
 
   // A file outline is source-local: it needs neither imports nor reverse
-  // edges. Read the explicit file directly instead of waiting for a cold
-  // whole-project graph build. Relationship and name-search modes keep the
-  // full graph path below.
-  if (mode === 'symbols') {
+  // edges. Index the explicit file alone (one binary run, cached by source
+  // hash) instead of waiting for a cold whole-project graph build — the
+  // outline is the native record here too, so this path and the full-graph
+  // path below produce the same rows. Relationship and name-search modes keep
+  // the full graph path.
+  if (mode === 'symbols' && !options.graph) {
     const normFile = normalizeInputPath(args?.file);
     const abs = normFile
       ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile))
       : null;
     const lang = abs ? _outlineLanguageForPath(abs) : null;
+    let isFile = false;
     if (abs && lang) {
+      try { isFile = statSync(abs).isFile(); } catch { isFile = false; }
+    }
+    if (isFile) {
       if (signal?.aborted) throw new Error('aborted');
-      try {
-        const text = await readFile(abs, { encoding: 'utf8', signal: signal || undefined });
-        return _filterSymbolOutline(text, lang, args);
-      } catch (error) {
-        if (signal?.aborted) throw new Error('aborted');
-        if (error?.code !== 'ENOENT' && error?.code !== 'EISDIR') throw error;
-      }
+      // The binary indexes paths UNDER its root, so a loose anchor outside cwd
+      // (an absolute file in another tree) is rooted at its own directory —
+      // one file either way, and the outline is identical.
+      const relToCwd = pathRelative(pathResolve(cwd), abs);
+      const insideCwd = !!relToCwd && !relToCwd.startsWith('..') && !isAbsolute(relToCwd);
+      const outlineRoot = insideCwd ? cwd : pathDirname(abs);
+      const exactGraph = await _buildExactFileGraph(outlineRoot, abs, signal);
+      const exactNode = exactGraph?.nodes?.get(_graphRel(abs, outlineRoot));
+      if (exactNode) return _filterSymbolOutline(exactNode, args);
     }
   }
 
-  const graph = await buildCodeGraphAsync(cwd, signal, {
+  const graph = options.graph || await buildCodeGraphAsync(cwd, signal, {
     excludedProjectRoots: options?.excludedProjectRoots,
   });
   collectGraphParseWarnings(graph, options);
@@ -221,6 +284,27 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   if (options?.scopedCacheOutcome && graph.truncated) {
     markScopedCacheIncomplete(options.scopedCacheOutcome);
   }
+  // AST call sites live in a lazily loaded cache sidecar. Only the three modes
+  // that read call sites pay for it, and only on the first such query of the
+  // process (the graph object carries the marker); overview/symbols/imports/…
+  // never touch the file.
+  if (CODE_GRAPH_CALL_MODES.has(mode)) hydrateGraphCallsFromSidecar(graph);
+  // Call analysis is AST-only: a graph without call data cannot answer, and an
+  // empty answer would read like "no callers". Fail loudly with the remedy.
+  if (CODE_GRAPH_CALL_ONLY_MODES.has(mode) && !_graphHasAstCalls(graph)) {
+    throw callsCapabilityError(mode, cwd);
+  }
+  // The same rule for the outline half: symbols have no text fallback either.
+  // A graph of extraction languages that carries no symbol record anywhere
+  // cannot answer a symbol mode — say so instead of reporting "(no symbols)".
+  // `overview` still has file/import structure to report, so it gets the
+  // one-line hint (below) rather than an error, exactly like `references`.
+  if (CODE_GRAPH_SYMBOL_ONLY_MODES.has(mode) && !_graphHasNativeSymbols(graph) && _graphExpectsNativeSymbols(graph)) {
+    throw symbolsCapabilityError(mode, cwd);
+  }
+  const symbolsNote = (mode === 'overview' && !_graphHasNativeSymbols(graph) && _graphExpectsNativeSymbols(graph))
+    ? `\n\nnote: no outline is shown for these files — ${symbolsCapabilityHint()}`
+    : '';
   const normFile = normalizeInputPath(args?.file);
   const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
   let fileIsDirectory = false;
@@ -238,7 +322,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
 
   if (mode === 'overview') {
     if (rel && !node) return _appendSameBasenameHint(`Error: code_graph overview: file not found in graph: ${normFile}`, normFile, graph);
-    if (node) return _buildExplainerFileSummary(node, graph, cwd, { depth: args?.depth });
+    if (node) return `${_buildExplainerFileSummary(node, graph, cwd, { depth: args?.depth })}${symbolsNote}`;
     // A directory anchor is a SCOPE: counting the whole repository under it
     // reported totals the caller never asked for.
     const scopedNodes = scopeRelPrefix
@@ -263,7 +347,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     if (graph?.truncated) {
       lines.push(`WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — some files under cwd were not indexed`);
     }
-    return lines.join('\n');
+    return `${lines.join('\n')}${symbolsNote}`;
   }
 
   if (mode === 'imports') {
@@ -392,10 +476,10 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       const scopeNote = rel ? ` file=${rel}` : '';
       return `(no symbol matches in cwd=${cwd}${scopeNote})`;
     }
-    if (!_CALLEES_BRACE_LANGS.has(declHit.lang)) {
-      return `(callees unsupported for ${declHit.lang})`;
-    }
-    await _prewarmSourceTextNodes(graph, [graph.nodes.get(declHit.rel)].filter(Boolean), { signal });
+    // Language-agnostic: whatever the binary extracted answers, and a file it
+    // did not extract simply has no callees to report.
+    const declNode = graph.nodes.get(declHit.rel) || null;
+    await _prewarmSourceTextNodes(graph, [declNode].filter(Boolean), { signal });
     const rows = _extractCallees(graph, declHit, cwd, {
       cap: 200,
       callerSymbol: symbol,
@@ -409,11 +493,8 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
 
   if (mode === 'symbols') {
     if (!node) return _appendSameBasenameHint(`Error: code_graph symbols: file not found in graph: ${normFile || '(missing file)'}`, normFile, graph);
-    await _prewarmSourceTextNodes(graph, [node], { signal });
-    const cached = graph._sourceTextCache?.get(node.rel);
-    return cached && cached.fingerprint === (node.fingerprint || '')
-      ? _filterSymbolOutline(cached.text, node.lang, args)
-      : '(no symbols)';
+    // Record-only: no source read, so an outline costs nothing beyond the graph.
+    return _filterSymbolOutline(node, args);
   }
 
   if (mode === 'find_symbol') {
@@ -431,7 +512,18 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
         { signal },
       );
     }
-    return _findSymbolAcrossGraph(graph, symbol, cwd, { language, limit, fileRel: rel, body: args?.body !== false });
+    return _findSymbolAcrossGraph(graph, symbol, cwd, {
+      language,
+      limit,
+      fileRel: rel,
+      body: args?.body !== false,
+      outsideDeclaration: await _resolveOutsideDeclaration(graph, symbol, cwd, {
+        language,
+        fileRel: rel,
+        scopeRelPrefix,
+        signal,
+      }),
+    });
   }
 
   if (mode === 'symbol_search') {
@@ -443,14 +535,8 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const keyword = String(args?.symbol || '').trim();
     const keywords = symbolsList.length ? symbolsList : (keyword ? [keyword] : []);
     if (!keywords.length) throw new Error('code_graph symbol_search: "symbol" (or "symbols[]") is required.');
-    // Native graph symbols answer without source text. Nodes lacking native
-    // symbols fall back to cheap text extraction, so warm exactly that subset
-    // asynchronously before the synchronous formatter scans it.
-    await _prewarmSourceTextNodes(
-      graph,
-      [...graph.nodes.values()].filter((candidate) => !Array.isArray(candidate?.symbols) || candidate.symbols.length === 0),
-      { signal },
-    );
+    // Native graph symbols answer without source text at all: nodes without
+    // them have no keyword matches to contribute, so nothing is read here.
     // Honour the file/directory anchor: symbol_search used to scan the whole
     // graph even when the caller scoped the call.
     if (rel && !node) {
@@ -507,19 +593,23 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       fileRel: rel,
       body: args?.body === true,
     });
-    return `# declaration\n${declaration}\n\n# references\n${references}`;
+    // Call-shaped rows are AST-only. On a graph with NO call data at all the
+    // list silently loses every call site — for a symbol used only through
+    // calls that renders as "(no references)", which reads like a verdict.
+    // callers/callees throw here; references still has identifier usages to
+    // report, so it says what is missing instead.
+    const callsNote = _graphHasAstCalls(graph)
+      ? ''
+      : `\n\nnote: call sites are missing from this list — ${callsCapabilityHint()}`;
+    return `# declaration\n${declaration}\n\n# references\n${references}${callsNote}`;
   }
 
   if (mode === 'callers') {
     const symbol = String(args?.symbol || '').trim();
     if (!symbol) throw new Error('code_graph callers: "symbol" is required.');
+    // No regex-language gate here: call sites come from the extractor, so an
+    // unknown `language` simply selects no files.
     const explicitLanguage = String(args?.language || '').trim() || null;
-    if (explicitLanguage) {
-      const langHasFiles = [...graph.nodes.values()].some((n) => n.lang === explicitLanguage);
-      if (!langHasFiles) {
-        throw new Error(`code_graph callers: language '${explicitLanguage}' has no adapter topLevelTypes and is not in supportedRegexLangs for this project`);
-      }
-    }
     const narrowedByCaller = Boolean(rel || scopeRelPrefix || explicitLanguage);
     if (node) await _prewarmSourceTextNodes(graph, [node], { signal });
     const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, cwd, explicitLanguage);
@@ -536,7 +626,9 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const userLimit = Number.isFinite(rawLimit) && rawLimit > 0
       ? Math.min(500, Math.floor(rawLimit))
       : null;
-    const _callerNodes = await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
+    // Rendered call rows quote their source line; prewarm the candidate files
+    // so those reads are async and batched instead of sync per row.
+    await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
     const depth = Math.max(1, Math.min(5, Math.floor(Number(args?.depth) || 1)));
     if (depth > 1) {
       // Scope and limit are honoured at every level: a file/directory anchor
@@ -550,8 +642,16 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
         ...(userLimit ? { pageSize: userLimit } : {}),
       });
     }
-    const refs = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, fileRel: rel, scopeRelPrefix, nodes: _callerNodes });
-    const callerResult = _formatCallerReferences(graph, symbol, refs, userLimit ? { limit: userLimit } : undefined);
+    // The DECLARING files anchor the caller rule (same file or an importer);
+    // a `file`/directory anchor scopes the scan AND narrows those
+    // declarations to the one the caller pointed at.
+    const callerResult = _formatCallerReferences(graph, symbol, {
+      ...(userLimit ? { limit: userLimit } : {}),
+      targetRels: _astCallerTargetRels(graph, symbol, lang, { fileRel: rel, scopeRelPrefix }),
+      language: lang,
+      fileRel: rel,
+      scopeRelPrefix,
+    });
     return narrowedByCaller ? callerResult : _augmentNoHitDiagnostic(callerResult, '(no callers)', graph, cwd, symbol);
   }
 
@@ -584,6 +684,12 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
       });
   if (!graph) throw new Error(`find_symbol: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
   collectGraphParseWarnings(graph, options);
+  // Symbol lookups have no text fallback (see codeGraph above). An exact-file
+  // graph is exempt: one file that declares nothing is an answer, not a
+  // missing capability.
+  if (!exactFile && !_graphHasNativeSymbols(graph) && _graphExpectsNativeSymbols(graph)) {
+    throw symbolsCapabilityError('find_symbol', cwd);
+  }
   if (options?.scopedCacheOutcome && graph.truncated) {
     markScopedCacheIncomplete(options.scopedCacheOutcome);
   }
@@ -596,12 +702,9 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
   }
   if (!symbol) {
     if (fileRel) {
-      const node = graph.nodes.get(fileRel);
-      await _prewarmSourceTextNodes(graph, [node], { signal });
-      const cached = graph._sourceTextCache?.get(node.rel);
-      return cached && cached.fingerprint === (node.fingerprint || '')
-        ? _extractSymbolsCheap(cached.text, node.lang)
-        : '(no symbols)';
+      // Same rows as code_graph symbols: the native record, nested by parent.
+      const items = _symbolOutlineRows(graph.nodes.get(fileRel));
+      return items.length ? _capGraphList(items).join('\n') : '(no symbols)';
     }
     throw new Error('find_symbol: provide "symbol" (to locate) or "file" (to list its symbols).');
   }
@@ -614,7 +717,17 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
       { signal },
     );
   }
-  return _findSymbolAcrossGraph(graph, symbol, cwd, { language, limit, fileRel, body: args?.body !== false });
+  return _findSymbolAcrossGraph(graph, symbol, cwd, {
+    language,
+    limit,
+    fileRel,
+    body: args?.body !== false,
+    outsideDeclaration: await _resolveOutsideDeclaration(graph, symbol, cwd, {
+      language,
+      fileRel,
+      signal,
+    }),
+  });
 }
 
 async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options = {}) {

@@ -1,7 +1,7 @@
 import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { InitialSurface } from './InitialSurface';
-import { AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
+import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 
@@ -508,16 +508,16 @@ export function flattenAgentActivityNodes(
   return nodes.flatMap((node) => [node, ...flattenAgentActivityNodes(node.children)]);
 }
 
-/** Rendered rows in depth-first order, skipping the subtree of every row the
- *  user collapsed. This is the list the tree's roving focus walks, so the
+/** Rendered rows in depth-first order, opening only explicitly expanded rows.
+ *  This is the list the tree's roving focus walks, so the
  *  keyboard can only ever reach rows that are actually painted. */
 export function visibleAgentTreeRows(
   nodes: readonly AgentActivityNode[],
-  collapsedSessionIds: ReadonlySet<string> = new Set<string>(),
+  expandedSessionIds: ReadonlySet<string>,
 ): AgentActivityNode[] {
-  return nodes.flatMap((node) => (collapsedSessionIds.has(node.sessionId)
-    ? [node]
-    : [node, ...visibleAgentTreeRows(node.children, collapsedSessionIds)]));
+  return nodes.flatMap((node) => (expandedSessionIds.has(node.sessionId)
+    ? [node, ...visibleAgentTreeRows(node.children, expandedSessionIds)]
+    : [node]));
 }
 
 /** Seed placement for a group the dock has never ranked: the moment it was
@@ -582,6 +582,8 @@ function AgentPoolRow({
   setSize,
   tabIndex,
   unread = false,
+  waitingForAgents = false,
+  descendantCount = 0,
   onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
@@ -601,9 +603,10 @@ function AgentPoolRow({
   setSize?: number;
   /** Roving tab focus: exactly one row per tree is in the tab order. */
   tabIndex?: number;
-  /** The owner session has unseen activity: this rest is a FINISHED turn, not
-   *  an idle sit — the row carries the completion notice the Recent dot does. */
+  /** Unseen activity is a completion only after descendant work has settled. */
   unread?: boolean;
+  waitingForAgents?: boolean;
+  descendantCount?: number;
   onPrefetchSession?(sessionId: string): void;
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
@@ -612,7 +615,7 @@ function AgentPoolRow({
   // stopped agent can never borrow the running timer or the "Completed" notice
   // (an agent cancelled mid-turn still carries stage `running`, and one
   // cancelled while waiting still carries stage `queued`).
-  const state = desktopAgentActivityState(agent, { unread });
+  const state = desktopAgentActivityState(agent, { unread, waitingForAgents });
   const queued = state === 'queued';
   const running = state === 'running';
   const role = agentRoleLabel(agent.agent || agent.tag);
@@ -645,7 +648,9 @@ function AgentPoolRow({
             // A finished turn, not a generic success: the row says WORK is
             // done (user: 완료보다 작업 완료), and the toast keeps 'Completed'.
             ? t('Task complete')
-            : t('Idle');
+            : state === 'waiting'
+              ? t('Waiting for agents')
+              : t('Idle');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
   const effortValue = String(agent.effort || '').trim();
   const prefetch = () => {
@@ -676,7 +681,10 @@ function AgentPoolRow({
       else onOpenSession?.(sessionId, tabTitle, ownerSessionId);
     }}>
     <span className="schedules-row-copy">
-      <b className="agent-pool-name">{name}</b>
+      <span className="agent-pool-heading">
+        <b className="agent-pool-name">{name}</b>
+        {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
+      </span>
       <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
         <ModelRouteLabel model={modelLabel} effort={effortValue} fast={agent.fast === true} />
       </small>
@@ -704,6 +712,8 @@ function AgentActivityTree({
   group,
   label,
   groupExpanded,
+  expandedSessionIds,
+  onSetExpanded,
   clock,
   unreadSessionIds,
   onExpandGroup,
@@ -715,6 +725,8 @@ function AgentActivityTree({
   group: { ownerId: string; nodes: readonly AgentActivityNode[] };
   label: string;
   groupExpanded: boolean;
+  expandedSessionIds: ReadonlySet<string>;
+  onSetExpanded(sessionId: string, expanded: boolean): void;
   clock: number;
   unreadSessionIds?: ReadonlySet<string>;
   onExpandGroup?(): void;
@@ -724,22 +736,21 @@ function AgentActivityTree({
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
   const treeRef = useRef<HTMLDivElement | null>(null);
-  const [collapsedRowIds, setCollapsedRowIds] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  );
   const [focusedSessionId, setFocusedSessionId] = useState('');
+  const descendantCount = useMemo(() => flattenAgentActivityNodes(group.nodes)
+    .filter((node) => node.sessionId !== group.ownerId).length, [group.nodes, group.ownerId]);
   const rows = useMemo(() => {
-    const visible = visibleAgentTreeRows(group.nodes, collapsedRowIds);
+    const visible = visibleAgentTreeRows(group.nodes, expandedSessionIds);
     // A collapsed GROUP keeps exactly the owner's own row: every descendant,
     // at any generation, folds away with it.
     return groupExpanded
       ? visible
       : visible.filter((node) => node.sessionId === group.ownerId);
-  }, [collapsedRowIds, group.nodes, group.ownerId, groupExpanded]);
+  }, [expandedSessionIds, group.nodes, group.ownerId, groupExpanded]);
   const focusedIndex = rows.findIndex((node) => node.sessionId === focusedSessionId);
   const activeIndex = focusedIndex >= 0 ? focusedIndex : 0;
   const rowExpanded = (node: AgentActivityNode): boolean =>
-    groupExpanded && !collapsedRowIds.has(node.sessionId);
+    groupExpanded && expandedSessionIds.has(node.sessionId);
   const focusRow = (index: number): void => {
     const node = rows[Math.min(Math.max(index, 0), rows.length - 1)];
     if (!node) return;
@@ -750,13 +761,7 @@ function AgentActivityTree({
   };
   const setRowCollapsed = (sessionId: string, collapsed: boolean): void => {
     setFocusedSessionId(sessionId);
-    setCollapsedRowIds((current) => {
-      if (current.has(sessionId) === collapsed) return current;
-      const next = new Set(current);
-      if (collapsed) next.add(sessionId);
-      else next.delete(sessionId);
-      return next;
-    });
+    onSetExpanded(sessionId, !collapsed);
   };
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (!AGENT_TREE_KEYS.has(event.key)) return;
@@ -802,7 +807,10 @@ function AgentActivityTree({
       setSize={node.setSize}
       tabIndex={index === activeIndex ? 0 : -1}
       ownerSessionId={group.ownerId}
+      descendantCount={descendantCount}
       unread={unreadSessionIds?.has(node.sessionId) === true}
+      waitingForAgents={flattenAgentActivityNodes(node.children).some(({ agent }) =>
+        isActiveDesktopAgentEntry(agent) || isCancelUnconfirmedDesktopAgentEntry(agent))}
       onPrefetchSession={onPrefetchSession}
       onOpenLeadSession={onOpenLeadSession}
       onOpenSession={onOpenSession} />)}
@@ -838,7 +846,15 @@ export function AgentActivityPane({
     poolStore.getSnapshot,
   );
   const [clock, setClock] = useState(() => Date.now());
-  const [collapsedOwnerIds, setCollapsedOwnerIds] = useState<Set<string>>(() => new Set());
+  const [expandedSessionIds, setExpandedSessionIds] = useState<ReadonlySet<string>>(() => new Set());
+  const setSessionExpanded = (sessionId: string, expanded: boolean): void =>
+    setExpandedSessionIds((current) => {
+      if (current.has(sessionId) === expanded) return current;
+      const next = new Set(current);
+      if (expanded) next.add(sessionId);
+      else next.delete(sessionId);
+      return next;
+    });
   const { hiddenOwnerIds, hideGroup } = useHiddenAgentGroups();
   const orderRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
@@ -894,6 +910,20 @@ export function AgentActivityPane({
         return rightTime - leftTime || left.ownerId.localeCompare(right.ownerId);
       });
   }, [agents, sessions]);
+  useEffect(() => {
+    const setAllExpanded = (event: Event): void => {
+      const expanded = (event as CustomEvent<boolean>).detail;
+      setExpandedSessionIds(expanded
+        ? new Set(groups.filter((group) => !hiddenOwnerIds.has(group.ownerId))
+          .flatMap((group) => [
+            group.ownerId,
+            ...flattenAgentActivityNodes(group.nodes).map((node) => node.sessionId),
+          ]))
+        : new Set());
+    };
+    window.addEventListener(AGENT_GROUP_EXPANSION_EVENT, setAllExpanded);
+    return () => window.removeEventListener(AGENT_GROUP_EXPANSION_EVENT, setAllExpanded);
+  }, [groups, hiddenOwnerIds]);
   const hasLiveClock = (agents || []).length > 0;
   useEffect(() => {
     if (!active || !hasLiveClock) return undefined;
@@ -919,15 +949,9 @@ export function AgentActivityPane({
     </p>}
     {visibleGroups.map((group) => {
       const title = sessionSummaryTitle(group.session);
-      const expanded = !collapsedOwnerIds.has(group.ownerId);
+      const expanded = expandedSessionIds.has(group.ownerId);
       const setGroupCollapsed = (collapsed: boolean): void =>
-        setCollapsedOwnerIds((current) => {
-          if (current.has(group.ownerId) === collapsed) return current;
-          const next = new Set(current);
-          if (collapsed) next.add(group.ownerId);
-          else next.delete(group.ownerId);
-          return next;
-        });
+        setSessionExpanded(group.ownerId, !collapsed);
       return <section key={group.ownerId} className="workflows-models"
         data-agent-owner-session-id={group.ownerId}>
         <div className="workflows-section-head">
@@ -950,6 +974,8 @@ export function AgentActivityPane({
           group={group}
           label={title}
           groupExpanded={expanded}
+          expandedSessionIds={expandedSessionIds}
+          onSetExpanded={setSessionExpanded}
           clock={clock}
           unreadSessionIds={unreadSessionIds}
           onExpandGroup={() => setGroupCollapsed(false)}

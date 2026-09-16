@@ -135,10 +135,6 @@ function pinPercent(windows: UsageRecord[], provider: string): number | null {
     return percent === null ? [] : [{ label: String(window.label || "").trim(), percent }];
   });
   if (!candidates.length) return null;
-  if (provider === "antigravity-oauth") {
-    const gemini = candidates.filter((candidate) => /^(?:FLSH|FLASH|PRO)$/i.test(candidate.label));
-    return gemini.length ? Math.max(...gemini.map((candidate) => candidate.percent)) : null;
-  }
   const preferredLabel = provider === "cursor-oauth" ? "Basic" : "";
   if (preferredLabel) {
     const preferred = candidates.find((candidate) => candidate.label.toLowerCase() === preferredLabel.toLowerCase());

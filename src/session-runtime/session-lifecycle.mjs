@@ -103,6 +103,7 @@ export function createSessionLifecycle({
   mgr,
   loadCoreMemoryContext,
   awaitKeychainPrewarm,
+  prepareNewSessionConfig,
   ensureConfigForRouteProvider,
   reg,
   cfgMod,
@@ -248,13 +249,15 @@ export function createSessionLifecycle({
       });
     }
     const promise = (async () => {
-      // Demand-only: this starts only after the user submits (unless an
-      // explicitly enabled prewarm caller asks for a session). Core-memory
-      // startup does not depend on keychain/provider readiness, so overlap the
-      // two cold paths instead of paying their bounded waits serially.
+      await runAbortable(signal, () => awaitKeychainPrewarm());
+      // Persistence and reload precede EVERY config consumer, including memory,
+      // workflow, tools and the disk-backed prompt builders. The live-session
+      // return above deliberately bypasses this boundary.
+      await runAbortable(signal, () => prepareNewSessionConfig());
+      // The memory snapshot uses the freshly adopted feature policy and still
+      // overlaps the remaining provider/model preparation.
       const coreMemoryContextPromise = Promise.resolve(loadCoreMemoryContext());
       coreMemoryContextPromise.catch(() => {});
-      await runAbortable(signal, () => awaitKeychainPrewarm());
       ensureConfigForRouteProvider();
       await resolveMissingRouteModelForFirstTurn(signal);
       requireModelRoute();

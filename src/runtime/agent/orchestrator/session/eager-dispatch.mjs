@@ -117,7 +117,7 @@ export function createEagerDispatcher({
             // body handles it via the invalid-args feedback path.
             if (isInvalidToolArgsMarker(call.arguments)) return null;
             // Authorization precedes cache lookup and dedup, not just IO.
-            const toolKind = getToolKind(call.name);
+            const toolKind = getToolKind(call.name, sessionRef?.mcpScopeId);
             if (preDispatchDenyForSession(sessionRef, call, toolKind) !== null) return null;
             const _sig = _intraTurnSig(call.name, call.arguments);
             const _dedupEligible = isToolCallDedupEligible(call.name, tools);

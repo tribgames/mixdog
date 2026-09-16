@@ -29,11 +29,14 @@ test('code_graph guard absorbs stringified file arrays and outline filters', () 
 });
 
 test('code_graph outlines, symbol lookups, and reference ownership', async () => {
+  // Fixed outline row grammar (the desktop editor parses it):
+  //   [export ]<kind> <name> (L<start>[-<end>])[  <sig>]
+  // — unified kind, BARE name, anchor, optional trailing declaration head.
   const graphOut = await executeCodeGraphTool('code_graph', {
     mode: 'symbols',
     file: 'scripts/smoke.mjs',
   }, root);
-  assertOk('code_graph', graphOut, /binding|spawnSync|symbol/i);
+  assertOk('code_graph', graphOut, /^(?:export )?(?:variable|function|class|method|constant) [A-Za-z_$][\w$]* \(L\d+(?:-\d+)?\)(?: {2}\S.*)?$/m);
   const graphFilteredOut = await executeCodeGraphTool('code_graph', {
     mode: 'symbols',
     file: 'src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs',
@@ -58,8 +61,11 @@ test('code_graph outlines, symbol lookups, and reference ownership', async () =>
     file: 'src/runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs',
     depth: 1,
   }, root);
+  // Nesting comes from the record's `parent`; the container row carries the
+  // export marker and its declaration head.
   if (!/outline:/.test(String(graphHierarchyOut))
-    || !/\n  method constructor\b/.test(String(graphHierarchyOut))) {
+    || !/\n {2}method constructor \(L\d+/.test(String(graphHierarchyOut))
+    || !/\nexport class AgentStallAbortError \(L\d+/.test(String(graphHierarchyOut))) {
     throw new Error(`code_graph hierarchical overview failed:\n${graphHierarchyOut}`);
   }
   const graphOwnedReferenceOut = await executeCodeGraphTool('code_graph', {
@@ -106,7 +112,7 @@ test('code_graph outlines, symbol lookups, and reference ownership', async () =>
     file: JSON.stringify(['scripts/smoke.mjs']),
   }, root);
   if (/file not found/.test(String(graphStringifiedFileOut))
-    || !/binding|spawnSync|symbol/i.test(String(graphStringifiedFileOut))) {
+    || !/^(?:export )?(?:variable|function|class|method|constant) [A-Za-z_$][\w$]* \(L\d+/m.test(String(graphStringifiedFileOut))) {
     throw new Error(`code_graph must parse JSON-stringified file array before lookup:\n${graphStringifiedFileOut}`);
   }
 

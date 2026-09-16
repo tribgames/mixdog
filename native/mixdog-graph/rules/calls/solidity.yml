@@ -1,0 +1,63 @@
+# Call-site rules for Solidity.
+#
+# The Solidity grammar wraps every callee in an `expression` node, so each
+# rule reaches through it. `new Chain()` is explicit constructor syntax and is
+# still a `call_expression` whose callee is a `new_expression`.
+#
+# mixdog-call-kind: new
+id: solidity-new
+language: Solidity
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: expression
+    has:
+      kind: new_expression
+      has:
+        field: name
+        kind: type_name
+        has:
+          kind: user_defined_type
+          has:
+            kind: identifier
+            pattern: $NAME
+name: $NAME
+---
+# mixdog-call-kind: method
+id: solidity-call-method
+language: Solidity
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: expression
+    has:
+      kind: member_expression
+      all:
+        - has:
+            field: property
+            pattern: $NAME
+        - has:
+            field: object
+            pattern: $RECV
+name: $NAME
+---
+# mixdog-call-kind: call
+id: solidity-call-plain
+language: Solidity
+role: item
+symbolType: function
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: expression
+    has:
+      kind: identifier
+      pattern: $NAME
+name: $NAME

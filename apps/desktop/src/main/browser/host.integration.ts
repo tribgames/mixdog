@@ -204,6 +204,18 @@ async function run(): Promise<void> {
         <script>console.info('fixture-info-ready'); console.warn('fixture-warning-ready');</script>`);
       return;
     }
+    if (path === '/target-regressions') {
+      response.end(`<!doctype html><title>CSS target regression fixture</title>
+        <div aria-hidden="true">
+          <input id="first" data-key="a  b"><input id="second" data-key="a b">
+        </div>
+        ${Array.from({ length: 51 }, (_, index) => (
+          `<button data-many aria-label="${index === 0 || index === 50 ? 'Duplicate' : `Other ${index}`}"
+            onclick="window.fixtureClicks++">Item ${index}</button>`
+        )).join('')}
+        <script>window.fixtureClicks = 0;</script>`);
+      return;
+    }
     if (path === '/popup') {
       response.end('<!doctype html><title>Popup fixture</title><p>Popup ready</p>');
       return;
@@ -722,6 +734,27 @@ async function run(): Promise<void> {
       /action must be one of/,
     );
     progress('sequence chaining complete');
+    const targetPage = await command({
+      action: 'navigate', url: `${origin}/target-regressions`, tab: 'target-regressions', background: true,
+    });
+    assert.doesNotMatch(targetPage.text, /textbox/, 'CSS-only fields must require minted refs');
+    await command({
+      action: 'fill', tab: 'target-regressions',
+      fields: [
+        { target: { selector: '[data-key="a  b"]' }, text: 'First value' },
+        { target: { selector: '[data-key="a b"]' }, text: 'Second value' },
+      ],
+    });
+    const targetGuest = contentsWithUrl('/target-regressions');
+    assert.deepEqual(await targetGuest.executeJavaScript(
+      '[document.querySelector("#first").value, document.querySelector("#second").value]',
+    ), ['First value', 'Second value']);
+    await assert.rejects(command({
+      action: 'click', tab: 'target-regressions', target: { selector: '[data-many]', name: 'Duplicate', exact: true },
+    }), /matched 51 elements, exceeding the limit of 50/);
+    assert.equal(await targetGuest.executeJavaScript('window.fixtureClicks'), 0, 'overflow must dispatch no click');
+    await command({ action: 'close_tab', tab: 'target-regressions' });
+    progress('CSS literal preservation, distinct batch targets and selector overflow refusal complete');
     turnId = 90;
     await runBrowserLatencyScenarios(command, origin, progress);
 

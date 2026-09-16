@@ -17,6 +17,12 @@ path = "src/main.rs"
 ignore = "0.4"
 notify = "8.2"
 grep = { version = "0.3.2", features = ["pcre2"] }
+# Stage 3-D removed every extraction regex (tokens, package/namespace, the
+# comment strippers). What is left is `TypePatterns` in src/main.rs — the
+# `topLevelTypes` word scan, whose reported value set includes matches no AST
+# rule can express (`enum class Mode` → `class`, type words in prose) and
+# which the java/kotlin FQCN import index keys on verbatim. `--serve-search`
+# uses grep's own regex engines, not this crate.
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -24,27 +30,23 @@ sha2 = "0.10"
 hex = "0.4"
 rayon = "1"
 nucleo-matcher = "0.3.1"
-tree-sitter = "0.25"
-streaming-iterator = "0.1"
-tree-sitter-typescript = "0.23"
-tree-sitter-javascript = "0.25"
-tree-sitter-python = "0.25"
-tree-sitter-go = "0.25"
-tree-sitter-rust = "0.24"
-tree-sitter-java = "0.23"
-tree-sitter-c = "0.24"
-tree-sitter-cpp = "0.23"
-tree-sitter-c-sharp = "0.23"
-tree-sitter-ruby = "0.23"
-tree-sitter-php = "0.24"
-tree-sitter-kotlin-ng = "1.1"
-tree-sitter-swift = "0.7"
-tree-sitter-scala = "0.26"
-tree-sitter-bash = "0.25"
-tree-sitter-lua = "0.5"
-tree-sitter-dart = "0.2"
+# 0.27 is the tree-sitter ABI ast-grep 0.45.x builds against; the grammar
+# crates below already match ast-grep's pins, so one tree-sitter is linked.
+tree-sitter = "0.27"
+# Structural scan/rewrite (`--scan`). ast-grep-language's default feature
+# `builtin-parser` pulls in all 28 builtin grammars; objc/zig/r are added on
+# top by src/scan_lang.rs using the grammar crates already listed here.
+ast-grep-core = "=0.45.3"
+ast-grep-config = "=0.45.3"
+ast-grep-language = { version = "=0.45.3", features = ["builtin-parser"] }
+# Rule-driven symbol/import outline (`extract_source_symbols` /
+# `extract_raw_imports`). Ships `DEFAULT_OUTLINE_RULES` for 14 languages; the
+# rest come from `rules/outline/*.yml`, bundled at build time by build.rs.
+ast-grep-outline = "=0.45.3"
+# Grammars ast-grep does not ship. Every other grammar (including Kotlin,
+# which extraction now parses with ast-grep's tree-sitter-kotlin-sg) comes
+# from ast-grep-language's `builtin-parser`, so each grammar is linked once.
 tree-sitter-objc = "3.0"
-tree-sitter-elixir = "0.3"
 tree-sitter-zig = "1.1"
 tree-sitter-r = "1.2"
 

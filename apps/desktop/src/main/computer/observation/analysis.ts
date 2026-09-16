@@ -13,7 +13,6 @@ import {
 } from '../shared/common';
 import {
   launchTransitionConfirmsTarget,
-  type ComputerWindowRecord,
   type ComputerWindowTransition,
 } from '../shared/window-transition';
 import type {
@@ -401,13 +400,11 @@ export function shouldUseOcrFallback(
 }
 
 export function recommendedRecovery(
-  action: string,
   effect: string,
   code: string | undefined,
   delivery: string,
   transition: ComputerWindowTransition | null,
-  targetWindow?: ComputerWindowRecord,
-): 'switch_target' | 'recapture' | 'user' | 'browser_use' | undefined {
+): 'switch_target' | 'recapture' | 'user' | undefined {
   if (transition?.next_target) return 'switch_target';
   if (code === 'target_mismatch' || code === 'stale_target' || code === 'stale_frame'
     || code === 'user_input_active') {
@@ -416,14 +413,8 @@ export function recommendedRecovery(
   if (code === 'foreground_unavailable' || code === 'foreground_changed') {
     return 'user';
   }
-  const browserTarget = targetWindow
-    && /^(chrome|msedge|edge|brave)$/i.test(targetWindow.app)
-    && /Chrome_WidgetWin/i.test(targetWindow.className);
-  if (browserTarget
-    && (effect === 'suspected_noop' || code?.startsWith('background_'))
-    && ['click', 'double_click', 'right_click', 'type', 'key', 'scroll'].includes(action)) {
-    return 'browser_use';
-  }
+  // A native browser window is a user-selected session. Delivery failure does
+  // not authorize replacing it with the app's separate browser session.
   if (delivery === 'background'
     && (effect === 'suspected_noop' || code?.startsWith('background_'))) {
     return 'recapture';

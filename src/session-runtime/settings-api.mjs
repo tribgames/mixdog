@@ -9,6 +9,7 @@
 import {
   BRIDGE_FIRST_USE_IDS,
   INSTALLABLE_BUILTIN_IDS,
+  builtinFeatureActive,
   builtinFirstUseApproval,
   builtinInstalled,
   setBuiltinFirstUseApprovalInConfig,
@@ -70,6 +71,8 @@ export function createSettingsApi({
   memoryToolsEnabledFn,
   gitToolsEnabledFn,
   officeToolsEnabledFn,
+  // Optional: callers without a live gate fall back to the config-only check.
+  tidyToolEnabledFn,
   localProviderEnabledFn = () => false,
   webSearchEnabled,
   channelsEnabled,
@@ -278,6 +281,10 @@ export function createSettingsApi({
         },
         git: { enabled: gitToolsEnabledFn(), installed: builtinInstalled(config, 'git') },
         office: { enabled: officeToolsEnabledFn(), installed: builtinInstalled(config, 'office') },
+        tidy: {
+          enabled: tidyToolEnabledFn ? tidyToolEnabledFn() : builtinFeatureActive(config, 'tidy'),
+          installed: builtinInstalled(config, 'tidy'),
+        },
         localProvider: {
           ...localProvider,
           ...localSettings.status(),
@@ -325,8 +332,8 @@ export function createSettingsApi({
       };
     },
     async setBuiltinToolEnabled(name, enabled) {
-      if (name !== 'git' && name !== 'office' && name !== 'localProvider') {
-        throw new TypeError('Built-in tool must be git, office, or localProvider.');
+      if (name !== 'git' && name !== 'office' && name !== 'tidy' && name !== 'localProvider') {
+        throw new TypeError('Built-in tool must be git, office, tidy, or localProvider.');
       }
       if (name === 'localProvider'
           && enabled !== false
@@ -355,7 +362,7 @@ export function createSettingsApi({
      *  and enabled in one step. New sessions pick up the tool surface. */
     async installBuiltinFeature(name) {
       if (!INSTALLABLE_BUILTIN_IDS.includes(name)) {
-        throw new TypeError('Built-in feature must be git, memory, office, or localProvider.');
+        throw new TypeError('Built-in feature must be git, memory, office, tidy, or localProvider.');
       }
       await prepareBuiltinFeature?.(name);
       const config = getConfig();

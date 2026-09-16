@@ -74,7 +74,7 @@ export function createLifecycleApi(deps) {
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
     beginRoutePreparation, clearRoutePreparation,
     notificationListeners, clearRuntimeNotifications, goalRuntime,
-    disposeSessionTitles, disposeGlobalExtensionSubscription, abortActiveTurns, getReservedSessionId,
+    disposeSessionTitles, disposeInternalTools, disposeGlobalExtensionSubscription, abortActiveTurns, getReservedSessionId,
   } = deps;
   const closeSurfaceSession = (session, reason, options) => {
     if (!session?.id) return false;
@@ -231,6 +231,7 @@ export function createLifecycleApi(deps) {
       // of reaping every session's jobs. CLI exit paths never set this.
       const keepBackgroundWork = options?.keepBackgroundWork === true;
       setCloseRequested(true);
+      disposeInternalTools?.();
       try { disposeGlobalExtensionSubscription?.(); } catch {}
       const closingTurnId = getSession()?.id || getReservedSessionId?.() || 'pending';
       try {

@@ -9,7 +9,7 @@ import {
 } from './model';
 import { createComputerUseCursorOverlay } from './cursor-overlay';
 import { registerComputerUseInternalWindow } from './internal-windows';
-import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT } from './content';
+import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT, OVERLAY_COMPACT_WIDTH } from './content';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
 import { bindComputerOverlayControls } from './ipc-controls';
 import { renderComputerOverlayWindows } from './render-windows';
@@ -29,7 +29,8 @@ interface OverlayWindowEntry {
 
 function overlayBounds(display: Display): Electron.Rectangle {
   return {
-    x: Math.round(display.workArea.x + ((display.workArea.width - OVERLAY_WIDTH) / 2)),
+    // Center the compact pill; details expand left so Stop never moves.
+    x: Math.round(display.workArea.x + ((display.workArea.width + OVERLAY_COMPACT_WIDTH) / 2) - OVERLAY_WIDTH),
     y: display.workArea.y + 6,
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
@@ -98,6 +99,9 @@ export function createComputerUseOverlay(
     }
     next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     next.webContents.on('will-navigate', (event) => event.preventDefault());
+    next.on('unresponsive', () => {
+      if (!disposed) void controller.invoke('pause', latestPresentation.generation, latestPresentation.sessionIds);
+    });
     next.webContents.on('render-process-gone', () => {
       if (disposed) return;
       rendererCrashes.set(display.id, (rendererCrashes.get(display.id) || 0) + 1);

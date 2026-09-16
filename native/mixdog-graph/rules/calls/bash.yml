@@ -1,0 +1,32 @@
+# Call-site rules for Bash.
+#
+# A shell has ONE invocation form: a `command` node whose `name` field is the
+# word being run. That covers calls to functions defined in the file, external
+# programs and builtins alike — the syntax cannot tell them apart, and the
+# grammar offers no other handle. Commands inside `$(...)` are ordinary
+# `command` nodes within the substitution, so they are reported by the same
+# rule; a bare variable assignment (`x=1`) has no `name` field and is not a
+# call. There is no constructor or method syntax, so `call` is the only kind.
+#
+# The null command `:` is excluded: it is the shell's no-op placeholder (an
+# empty function body is written `f() { :; }`), not an invocation of anything.
+#
+# mixdog-call-kind: call
+id: bash-command
+language: Bash
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: command
+    - has:
+        field: name
+        kind: command_name
+        has:
+          kind: word
+          pattern: $NAME
+    - not:
+        has:
+          field: name
+          regex: '^:$'
+name: $NAME

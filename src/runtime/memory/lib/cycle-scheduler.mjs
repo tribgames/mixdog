@@ -3,7 +3,7 @@
 // This owns the mutually-referential cycle machinery that pass-2 flagged as
 // entangled: cycle-health ledger (_cycleHealth), the run-state file, the
 // cycle1 outer coalesce layer (_startCycle1Run/_awaitCycle1Run), the scheduled
-// enqueue/retry paths for cycle1/2/3, checkCycles(), and the self-rescheduling
+// enqueue/retry paths for cycle1/2, checkCycles(), and the self-rescheduling
 // tick loop. index.mjs keeps lifecycle ownership by injecting live getters
 // (getDb/getConfig/setConfig) plus the cycle runners and LLM adapters.
 //
@@ -16,9 +16,8 @@
 //   log                -> __mixdogMemoryLog
 //   getCycleLastRun / setCycleLastRun -> meta-backed cycle timestamps
 //   readMainConfig / memoryCyclesEnabled -> config-flag helpers
-//   getCycle{1,2,3}CallLlm -> in-process LLM adapters
-//   runCycle1 / runCycle2 / runCycle3 / parseInterval / flushRawEmbeddings
-//   getInFlightCycle1 -> inner cycle1 guard handle (rebuild drain)
+//   getCycle{1,2}CallLlm -> in-process LLM adapters
+//   runCycle1 / runCycle2 / parseInterval / flushRawEmbeddings
 //   claimAndMarkScheduledCycle / resolveCoalesceMaxRetries /
 //     scheduleCoalescedCycleRetry -> coalesced queue primitives
 //   scheduledCycle{1,2,3}Signature -> queue signatures
@@ -58,30 +57,23 @@ export function createCycleScheduler(deps) {
     memoryCyclesEnabled,
     getCycle1CallLlm,
     getCycle2CallLlm,
-    getCycle3CallLlm,
     runCycle1,
     runCycle2,
-    runCycle3,
     parseInterval,
     flushRawEmbeddings,
-    getInFlightCycle1,
     claimAndMarkScheduledCycle,
-    markCycleRequest,
     resolveCoalesceMaxRetries,
     scheduleCoalescedCycleRetry,
     cancelCoalescedCycleRetries,
     scheduledCycle1Signature,
     scheduledCycle2Signature,
-    scheduledCycle3Signature,
     cycleStateFile,
-    onCoreMemoryChanged = async () => {},
   } = deps
 
   // ── Cycle health state ────────────────────────────────────────────────────
   const _cycleHealth = {
     cycle1: { last_success_at: 0, last_error_at: 0, last_error: null, consecutive_failures: 0 },
     cycle2: { last_success_at: 0, last_error_at: 0, last_error: null, consecutive_failures: 0 },
-    cycle3: { last_success_at: 0, last_error_at: 0, last_error: null, consecutive_failures: 0 },
   }
   let _cycleRunning = null // { cycle, started_at }
   let _cycleBacklogSnapshot = { unchunked: 0, cycle2_pending: 0, at: 0 }
@@ -90,7 +82,6 @@ export function createCycleScheduler(deps) {
   // ── Cycle1 outer coalesce layer + tick loop state ─────────────────────────
   let _cycle1InFlight = null
   let _cycle2InFlight = false
-  let _cycle3InFlight = false
   let _rawEmbedFlushInFlight = false
   let _checkCyclesInFlight = false
   let _cyclesActive = false
@@ -240,14 +231,6 @@ export function createCycleScheduler(deps) {
     }
   }
 
-  async function enqueueScheduledCycle3(intervalMs, _reason = 'scheduled') {
-    const config = getConfig() || {}
-    const signature = scheduledCycle3Signature(config)
-    if (await enqueueScheduledCycle('cycle3', intervalMs, signature, config?.cycle3 || config)) {
-      scheduleScheduledCycle3(config, signature)
-    }
-  }
-
   function scheduleScheduledCycle1(config, signature, attempt = 0) {
     const maxRetries = resolveCoalesceMaxRetries(config, 3)
     if (attempt > maxRetries) {
@@ -296,7 +279,7 @@ export function createCycleScheduler(deps) {
           if (typeof c2Options?.callLlm !== 'function') {
             c2Options = { ...c2Options, callLlm: getCycle2CallLlm() }
           }
-          const result = await runCycle2(getDb(), config, c2Options, dataDir)
+          const result = await runCycle2(getDb(), config, c2Options)
           if (result?.skippedInFlight) {
             scheduleScheduledCycle2(config, signature, attempt + 1)
             break
@@ -309,16 +292,13 @@ export function createCycleScheduler(deps) {
             await _finalizeCycle2Run(result)
             break
           }
-          // A gate parse/coverage failure marks the run failed even with
-          // ok=true; never chain passes on a failing gate.
-          if (result?.gate_failed === true) break
           const pendingRes = await getDb().query(
-            `SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND status = 'pending'`,
+            `SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND cycle2_reviewed_at IS NULL AND duplicate_of IS NULL`,
           )
           const pendingLeft = Number(pendingRes?.rows?.[0]?.c ?? 0)
           log(
             `[cycle2] catch-up pass ${pass + 1}/${drainPasses}: `
-            + `promoted=${Number(result?.promoted ?? 0)} pending=${pendingLeft}\n`,
+            + `processed=${Number(result?.processed ?? 0)} pending=${pendingLeft}\n`,
           )
           if (pendingLeft <= 0) break
           if (pass + 1 >= drainPasses) break
@@ -333,75 +313,18 @@ export function createCycleScheduler(deps) {
     }, config, signature)
   }
 
-  function scheduleScheduledCycle3(config, signature, attempt = 0) {
-    const retryConfig = config?.cycle3 || config
-    const maxRetries = resolveCoalesceMaxRetries(retryConfig, 3)
-    if (attempt > maxRetries) {
-      log('[cycle3] scheduled queue retry cap reached\n')
-      return
-    }
-    scheduleCoalescedCycleRetry(getDb(), 'cycle3', async () => {
-      if (!memoryCyclesEnabled()) return
-      if (_cycle3InFlight) {
-        scheduleScheduledCycle3(config, signature, attempt + 1)
-        return
-      }
-      _cycle3InFlight = true
-      markCycleRunning('cycle3')
-      try {
-        let c3Options = {
-          coalescedRetry: true,
-          onCoalescedSuccess: async (result) => {
-            // Only a real, error-free pass persists success; a run that returned
-            // an error (LLM/unparseable) must not stamp last_success_at.
-            if (result?.error) {
-              await setCycleLastRun('cycle3_last_error', String(result.error))
-              markCycleDone('cycle3', false, result.error)
-              return
-            }
-            await setCycleLastRun('cycle3', Date.now())
-            await setCycleLastRun('cycle3_last_error', '')
-            markCycleDone('cycle3', true)
-            await onCoreMemoryChanged('cycle3')
-          },
-        }
-        if (typeof c3Options?.callLlm !== 'function') {
-          c3Options = { ...c3Options, callLlm: getCycle3CallLlm() }
-        }
-        const result = await runCycle3(getDb(), config, dataDir, c3Options)
-        if (result?.skippedInFlight) {
-          scheduleScheduledCycle3(config, signature, attempt + 1)
-        } else if (result?.coalescedRetryNoop) {
-          log('[cycle3] scheduled queue noop\n')
-        }
-      } catch (err) {
-        log(`[cycle3] scheduled queue failed: ${err?.message || err}\n`)
-        // Persist the failure so `status` can surface it: a cycle3 that keeps
-        // throwing (e.g. a missing prompt file) previously left no trace
-        // outside the log while `last_cycle3` looked merely "due".
-        try { await setCycleLastRun('cycle3_last_error', String(err?.message || err)) } catch {}
-        markCycleDone('cycle3', false, err?.message || err)
-      } finally {
-        _cycle3InFlight = false
-        if (_cycleRunning?.cycle === 'cycle3') { _cycleRunning = null; _writeCycleStateFile() }
-      }
-    }, retryConfig, signature)
-  }
-
   async function _finalizeCycle2Run(result) {
     if (result?.skippedInFlight) {
       log('[cycle2] skipped: in flight\n')
       return
     }
-    const gateFailed = result?.gate_failed === true
-    if (result.ok && !gateFailed) {
+    if (result.ok) {
       await setCycleLastRun('cycle2', Date.now())
       await setCycleLastRun('cycle2_last_error', '')
       log('[cycle2] completed\n')
       markCycleDone('cycle2', true)
-      await onCoreMemoryChanged('cycle2')
     } else {
-      const err = gateFailed ? 'gate_failed' : (result.error || 'unknown error')
+      const err = result.error || 'unknown error'
       await setCycleLastRun('cycle2_last_error', err)
       log(`[cycle2] failed: ${err}\n`)
       markCycleDone('cycle2', false, err)
@@ -416,7 +339,6 @@ export function createCycleScheduler(deps) {
 
     const cycle1Ms = parseInterval(mainConfig?.cycle1?.interval || '10m')
     const cycle2Ms = parseInterval(mainConfig?.cycle2?.interval || '1h')
-    const cycle3Ms = parseInterval(mainConfig?.cycle3?.interval || '24h')
 
     const now = Date.now()
     const last = await getCycleLastRun()
@@ -430,9 +352,6 @@ export function createCycleScheduler(deps) {
         await enqueueScheduledCycle2(cycle2Ms, 'scheduled')
       }
 
-      if (periodicCycleDue(last.cycle3, _cyclesStartedAt, cycle3Ms, now)) {
-        await enqueueScheduledCycle3(cycle3Ms, 'scheduled')
-      }
     }
 
     try {
@@ -447,7 +366,7 @@ export function createCycleScheduler(deps) {
         [now - CYCLE1_OMITTED_COOLDOWN_MS],
       )).rows[0]?.c ?? 0)
       const cycle2Pending = Number((await db.query(
-        `SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND status = 'pending'`,
+        `SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND cycle2_reviewed_at IS NULL AND duplicate_of IS NULL`,
       )).rows[0]?.c ?? 0)
       _cycleBacklogSnapshot = { unchunked, unchunked_eligible: unchunkedEligible, cycle2_pending: cycle2Pending, at: now }
       _writeCycleStateFile()
@@ -500,12 +419,10 @@ export function createCycleScheduler(deps) {
     _writeCycleStateFile()
     // Hydrate health success timestamps from the persisted per-cycle last-run
     // meta. Without this, a restart re-inits _cycleHealth to last_success_at=0
-    // and the state file reports 0 until the next run — for cycle3 that is up
-    // to 24h later, so a genuinely-successful cycle3 looks like it never ran.
+    // and the state file reports 0 until the next run.
     Promise.resolve(getCycleLastRun()).then((last) => {
       if (last?.cycle1 > 0 && !_cycleHealth.cycle1.last_success_at) _cycleHealth.cycle1.last_success_at = last.cycle1
       if (last?.cycle2 > 0 && !_cycleHealth.cycle2.last_success_at) _cycleHealth.cycle2.last_success_at = last.cycle2
-      if (last?.cycle3 > 0 && !_cycleHealth.cycle3.last_success_at) _cycleHealth.cycle3.last_success_at = last.cycle3
       _writeCycleStateFile()
     }).catch(() => {})
     _scheduleNextCheck()
@@ -523,7 +440,6 @@ export function createCycleScheduler(deps) {
   function resetInFlight() {
     _cycle1InFlight = null
     _cycle2InFlight = false
-    _cycle3InFlight = false
     _checkCyclesInFlight = false
     _rawEmbedFlushInFlight = false
     _cycleRunning = null
@@ -541,21 +457,6 @@ export function createCycleScheduler(deps) {
     startCycle1Run: _startCycle1Run,
     awaitCycle1Run: _awaitCycle1Run,
     finalizeCycle2Run: _finalizeCycle2Run,
-    // cycle3 success recorder: MCP-driven runs go through runCycle3 directly
-    // (no coalesced onCoalescedSuccess), so callers stamp success here to keep
-    // cycles.cycle3.last_success_at honest. Non-mutating/failed runs skipped.
-    finalizeCycle3Run: async (result) => {
-      if (!result || result.skippedInFlight || result.coalescedRetryNoop) return
-      if (result.error) {
-        await setCycleLastRun('cycle3_last_error', String(result.error))
-        markCycleDone('cycle3', false, result.error)
-        return
-      }
-      await setCycleLastRun('cycle3', Date.now())
-      await setCycleLastRun('cycle3_last_error', '')
-      markCycleDone('cycle3', true)
-      await onCoreMemoryChanged('cycle3')
-    },
     periodicCycle1Config,
     // lifecycle
     startCycles,

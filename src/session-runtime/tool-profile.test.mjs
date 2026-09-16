@@ -27,6 +27,7 @@ test('headless tool profile is an explicit stable allowlist', () => {
     'web_search',
     'web_fetch',
     'office',
+    'tidy',
   ]);
   assert.deepEqual(modelToolSchemaAllowlist('interactive'), null);
   assert.equal(Object.isFrozen(HEADLESS_MODEL_TOOL_NAMES), true);

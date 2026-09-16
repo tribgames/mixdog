@@ -11,9 +11,10 @@ function icon(name, kind = 'skill', size = 16) {
 }
 
 test('all built-in capabilities and shipped skills render self-contained scalable artwork', () => {
-  const features = ['git', 'memory', 'browser', 'computer', 'office', 'localProvider', 'voice'];
+  const features = ['git', 'memory', 'browser', 'computer', 'office', 'localProvider', 'voice', 'tidy'];
   const skills = ['browser-use', 'computer-use', 'memory-management', 'local-provider',
-    'history-recall', 'goal-management', 'skill-creator', 'setup', 'pdf', 'pptx', 'docx', 'xlsx', 'image', 'video'];
+    'history-recall', 'goal-management', 'skill-creator', 'setup', 'pdf', 'pptx', 'docx', 'xlsx', 'image', 'video',
+    'code-tidy'];
   for (const [kind, names] of [['builtin', features], ['skill', skills]]) {
     for (const name of names) {
       const node = icon(name, kind, 24);
@@ -29,7 +30,7 @@ test('all built-in capabilities and shipped skills render self-contained scalabl
 
 test('feature and bundled skill share artwork while document types remain visually distinct', () => {
   for (const [feature, skill] of [['memory', 'memory-management'], ['browser', 'browser-use'],
-    ['computer', 'computer-use'], ['localProvider', 'local-provider']]) {
+    ['computer', 'computer-use'], ['localProvider', 'local-provider'], ['tidy', 'code-tidy']]) {
     assert.equal(icon(feature, 'builtin').outerHTML, icon(skill).outerHTML);
   }
   const docs = ['pdf', 'pptx', 'docx', 'xlsx'].map(name => icon(name));

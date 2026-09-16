@@ -1,105 +1,36 @@
-// Single language registry for mixdog-graph.
-// Extension → language, interned names, and comment-family used by import
-// extraction / symbol search. Adding a language starts here.
+// Graph-language view of the registry in `scan_lang.rs`.
+//
+// Extension → language id and interned names derive from `LANG_INFOS`, so a
+// language exists here exactly when the registry says it has graph extensions
+// AND outline rules. Adding a language starts in `scan_lang.rs` plus a rule
+// file.
+//
+// There is no comment/string masking layer any more: tokens, symbols and the
+// standalone symbol search all read the parse tree, where a comment or a
+// string body simply is not an identifier node.
 
+use crate::scan_lang::{self, LANG_INFOS};
+
+/// Every language that produces graph nodes right now.
 #[allow(dead_code)]
-pub const LANGUAGES: &[&str] = &[
-    "javascript",
-    "typescript",
-    "python",
-    "go",
-    "rust",
-    "java",
-    "kotlin",
-    "csharp",
-    "ruby",
-    "php",
-    "swift",
-    "c",
-    "cpp",
-    "scala",
-    "bash",
-    "lua",
-    "dart",
-    "objc",
-    "elixir",
-    "zig",
-    "r",
-];
+pub fn languages() -> Vec<&'static str> {
+    LANG_INFOS
+        .iter()
+        .filter(|info| info.extract())
+        .map(|info| info.id)
+        .collect()
+}
 
 /// Source extensions the dependents path-classifier should treat as files.
 #[allow(dead_code)]
-pub const SOURCE_EXTENSION_PATTERN: &str = r"\.(mjs|cjs|js|jsx|mts|cts|ts|tsx|json|py|pyi|go|rb|rs|java|kt|kts|c|h|cc|cpp|cxx|hpp|hxx|hh|cs|php|swift|scala|sc|sh|bash|zsh|lua|dart|m|mm|ex|exs|zig|r)$";
-
-pub enum CommentFamily {
-    Curly { mask_strings: bool },
-    Hash,
-    Lua,
+pub fn source_extension_pattern() -> &'static str {
+    scan_lang::source_extension_pattern()
 }
 
 pub fn lang_static(name: &str) -> &'static str {
-    match name {
-        "javascript" => "javascript",
-        "typescript" => "typescript",
-        "python" => "python",
-        "go" => "go",
-        "rust" => "rust",
-        "java" => "java",
-        "kotlin" => "kotlin",
-        "csharp" => "csharp",
-        "ruby" => "ruby",
-        "php" => "php",
-        "swift" => "swift",
-        "c" => "c",
-        "cpp" => "cpp",
-        "scala" => "scala",
-        "bash" => "bash",
-        "lua" => "lua",
-        "dart" => "dart",
-        "objc" => "objc",
-        "elixir" => "elixir",
-        "zig" => "zig",
-        "r" => "r",
-        _ => "",
-    }
+    scan_lang::graph_lang_id(name)
 }
 
 pub fn lang_for(ext: &str) -> Option<&'static str> {
-    match ext {
-        "js" | "mjs" | "cjs" | "jsx" => Some("javascript"),
-        "ts" | "tsx" | "mts" | "cts" => Some("typescript"),
-        "py" | "pyi" => Some("python"),
-        "go" => Some("go"),
-        "rs" => Some("rust"),
-        "java" => Some("java"),
-        "kt" | "kts" => Some("kotlin"),
-        "cs" => Some("csharp"),
-        "rb" => Some("ruby"),
-        "php" => Some("php"),
-        "swift" => Some("swift"),
-        "c" | "h" => Some("c"),
-        "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => Some("cpp"),
-        "scala" | "sc" => Some("scala"),
-        "sh" | "bash" | "zsh" => Some("bash"),
-        "lua" => Some("lua"),
-        "dart" => Some("dart"),
-        "m" | "mm" => Some("objc"),
-        "ex" | "exs" => Some("elixir"),
-        "zig" => Some("zig"),
-        "r" | "R" => Some("r"),
-        _ => None,
-    }
-}
-
-/// `for_symbol_search` masks string bodies so identifiers inside literals
-/// are not treated as call sites. Import extraction keeps quoted specs.
-pub fn comment_family(lang: &str, for_symbol_search: bool) -> CommentFamily {
-    match lang {
-        "python" | "ruby" | "bash" | "elixir" | "r" => CommentFamily::Hash,
-        "lua" => CommentFamily::Lua,
-        "swift" => CommentFamily::Curly { mask_strings: true },
-        _ => CommentFamily::Curly {
-            mask_strings: for_symbol_search,
-        },
-    }
+    scan_lang::graph_lang_for_ext(ext)
 }

@@ -147,7 +147,7 @@ function Invoke-BackgroundSemantic($ref, [scriptblock]$operation) {
   return Invoke-BackgroundWindow $target $operation
 }
 
-function Native-BackgroundFailure($action, $exception, $windowId) {
+function Native-BackgroundFailure($action, $exception, $windowId, [bool]$priorInput = $false) {
   $detail = [string]$exception.Message
   if ($detail.Contains('input_cleanup_unconfirmed:')) {
     throw 'input_cleanup_unconfirmed: background input release was not acknowledged; do not replay input'
@@ -157,6 +157,7 @@ function Native-BackgroundFailure($action, $exception, $windowId) {
     'background_target_hung',
     'background_blocked_uipi',
     'background_message_rejected',
+    'background_target_ambiguous',
     'background_unsupported',
     'target_mismatch',
     'stale_target'
@@ -169,7 +170,7 @@ function Native-BackgroundFailure($action, $exception, $windowId) {
     }
   }
   # Only complete preflight rejection proves that no input was attempted.
-  return Background-Unavailable $action $detail $windowId $code ($code -ne 'background_unsupported')
+  return Background-Unavailable $action $detail $windowId $code ($priorInput -or $code -ne 'background_unsupported')
 }
 
 function Get-ObservableElementState($el, $action) {
@@ -1072,10 +1073,9 @@ function Expand-MenuElement($el) {
 function Do-InvokeMenu($req) {
   $info = Resolve-WindowInfo $req.window $req.window_id
   return Invoke-BackgroundWindow $info.Handle {
-    $win = Find-Window $req.window $req.window_id
     $path = @(@($req.path) | ForEach-Object { [string]$_ } | Where-Object { $_.Trim().Length -gt 0 })
     if ($path.Count -lt 1 -or $path.Count -gt 8) { throw 'menu path must have 1..8 segments' }
-    $root = $win
+    $root = $null
     $walked = @()
     for ($i = 0; $i -lt $path.Count; $i++) {
       $segment = $path[$i]
@@ -1102,9 +1102,12 @@ function Do-InvokeMenu($req) {
           return New-ActionResult 'invoke_menu' 'msaa_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
         }
         Start-Sleep -Milliseconds 120
-        $root = $win
+        $root = $null
         continue
       }
+      # Do not initialize a potentially stalled UIA provider while MSAA can
+      # resolve the exact path. Reacquire only when the next level needs UIA.
+      if ($null -eq $root) { $root = Find-Window $req.window $req.window_id }
       $candidates = Get-MenuCandidates $root $segment
       if ($candidates.Count -eq 0 -and $i -gt 0) {
         # A submenu may live outside the parent item's UIA subtree, but it must

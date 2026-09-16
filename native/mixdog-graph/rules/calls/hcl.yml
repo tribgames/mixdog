@@ -1,0 +1,21 @@
+# Call-site rules for Terraform / HCL.
+#
+# HCL is a configuration language: its only call syntax is a function call
+# inside an expression (`file("a.txt")`, `lookup(m, "k")`), so `call` is the
+# only kind — there are no methods, receivers or constructors. A call inside a
+# `${...}` template interpolation IS an expression in the tree (not string
+# content) and is reported like any other; a quoted string with call-looking
+# text is a `template_literal` and never matches.
+#
+# mixdog-call-kind: call
+id: hcl-function-call
+language: Hcl
+role: item
+symbolType: function
+rule:
+  kind: function_call
+  has:
+    nthChild: 1
+    kind: identifier
+    pattern: $NAME
+name: $NAME

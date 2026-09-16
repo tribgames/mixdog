@@ -3,30 +3,18 @@ export { __mixdogMemoryLog };
 
 // User-curated core memory store — native PG-backed via core_entries table.
 // Per-project entries distinguished by project_id column (NULL = COMMON).
-// addCore / editCore generate an embedding for each row and run a cosine-sim
-// lookup against existing rows in the same project pool: candidates at or
-// above SIM_RECALL go through an LLM "merge or distinct" judge — only the
-// LLM's verdict, not the embedding score, decides whether the prior row is
-// superseded in place. Below the threshold the row is INSERTed fresh.
-// cycle2 reads core_entries via the {{USER_CORE}} prompt slot to avoid
-// re-promoting entries that already overlap a user-curated row.
+// Explicit add/edit/delete operations affect only the requested entry.
+// Generated conversation history never enters this store automatically.
 
 import { getDatabase, embeddingToSql } from './memory.mjs'
 import { cachedEmbedTextBatch } from './memory-embed.mjs'
-import { callAgentDispatch } from './agent-ipc.mjs'
-import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { checkedConnect } from './pg/adapter.mjs'
 import { throwIfAborted } from './memory-cycle2-shared.mjs'
+import { findCoreKeyRows } from './core-memory-uniqueness.mjs'
 
 const VALID_CAT = new Set([
   'rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue',
 ])
-
-// Embedding sim threshold for surfacing a candidate to the LLM judge. Wider
-// than cycle2's tier-1 (0.78) on purpose: LLM verdict is authoritative so
-// the recall side can afford broader recall.
-const SIM_RECALL = 0.65
-export const CORE_DEDUP_TOP_K = 5
 
 const CORE_ELEMENT_DERIVE_LENGTH = 40
 
@@ -92,8 +80,7 @@ export { throwIfAborted }
 async function _backfillNullEmbeddings(db, options = {}) {
   const signal = options?.signal
   throwIfAborted(signal)
-  // Only refill live cores — archiveCore intentionally nulls the embedding to
-  // drop archived rows from recall; refilling them would resurrect them.
+  // Only refill live cores; legacy archived entries stay inactive.
   const r = await db.query(`SELECT id, element, summary FROM core_entries WHERE embedding IS NULL AND (status IS NULL OR status = 'active')`)
   if (r.rows.length === 0) return 0
   let filled = 0
@@ -125,56 +112,6 @@ export async function backfillCoreEmbeddings(dataDir, options = {}) {
 // fact. Gaps left by deletes are the correct, permanent behavior of a surrogate
 // key.
 
-async function _findTopKCore(db, projectId, embedding, excludeId, { forUpdate = false } = {}) {
-  if (!embedding) return []
-  const exclusion = excludeId == null ? '' : 'AND id != $3'
-  const sql = `
-    SELECT id, element, summary, category, 1 - (embedding <=> $1::halfvec) AS sim
-    FROM core_entries
-    WHERE embedding IS NOT NULL
-      AND project_id IS NOT DISTINCT FROM $2
-      AND (status IS NULL OR status = 'active')
-      ${exclusion}
-    ORDER BY embedding <=> $1::halfvec
-    LIMIT ${CORE_DEDUP_TOP_K}${forUpdate ? ' FOR UPDATE' : ''}`
-  const params = excludeId == null
-    ? [embeddingToSql(embedding), projectId]
-    : [embeddingToSql(embedding), projectId, excludeId]
-  const r = await db.query(sql, params)
-  return r.rows.filter(row => Number(row.sim) >= SIM_RECALL)
-}
-
-async function _resolveMergeTarget(candidates, incoming) {
-  for (const c of candidates) {
-    if (await _llmJudgeMerge(c, incoming)) return c
-  }
-  return null
-}
-
-// LLM judge for "is this incoming entry a restatement of the existing one?"
-// One-word reply: merge | distinct. Errors fall back to distinct so a flaky
-// LLM never silently absorbs a fresh registration into an unrelated row.
-async function _llmJudgeMerge(existing, incoming) {
-  const prompt =
-    `Two user-curated core memory entries below. Are they restating the same rule, fact, or preference (just different wording)? Reply ONE WORD: merge or distinct.\n\n` +
-    `EXISTING: ${existing.element} — ${String(existing.summary || '')}\n` +
-    `INCOMING: ${incoming.element} — ${String(incoming.summary || '')}`
-  try {
-    const raw = await callAgentDispatch({
-      agent: 'cycle2-agent',
-      taskType: 'maintenance',
-      mode: 'core-merge-judge',
-      preset: resolveMaintenancePreset('memory'),
-      timeout: 30_000,
-      cwd: null,
-    }, prompt)
-    return String(raw ?? '').trim().toLowerCase().startsWith('merge')
-  } catch (err) {
-    __mixdogMemoryLog(`[core-memory] LLM merge judge failed: ${err.message}\n`)
-    return false
-  }
-}
-
 export async function listCore(dataDir, projectId = null) {
   const db = _getDb(dataDir)
   const cols = `id, element, summary, category, project_id, created_at, updated_at`
@@ -194,12 +131,7 @@ export async function listCore(dataDir, projectId = null) {
 }
 
 // ── In-process mutation serialization ────────────────────────────────────────
-// Every core mutation takes a per-pool advisory lock with a 5s lock_timeout
-// and then runs the LLM merge judge (up to 30s) INSIDE that transaction. Two
-// callers arriving together therefore made the second one fail with
-// "canceling statement due to lock timeout" even though it only had to wait.
-// Queue mutations here so contention is absorbed as a JS await, never as a
-// PG lock error; the advisory locks stay as the cross-process guard.
+// Queue local mutations; pool advisory locks remain the cross-process guard.
 let _mutationTail = Promise.resolve()
 function serializeCoreMutation(fn) {
   const run = _mutationTail.then(fn, fn)
@@ -215,12 +147,6 @@ export function editCore(dataDir, id, patch) {
 }
 export function deleteCore(dataDir, id, options = {}) {
   return serializeCoreMutation(() => _deleteCoreImpl(dataDir, id, options))
-}
-export function archiveCore(dataDir, id, expect = null) {
-  return serializeCoreMutation(() => _archiveCoreImpl(dataDir, id, expect))
-}
-export function reclassifyCore(dataDir, id, newProjectId, expect = null) {
-  return serializeCoreMutation(() => _reclassifyCoreImpl(dataDir, id, newProjectId, expect))
 }
 
 async function _addCoreImpl(dataDir, input, projectId) {
@@ -242,57 +168,27 @@ async function _addCoreImpl(dataDir, input, projectId) {
     await client.query(`SET LOCAL lock_timeout = '5s'`)
     const poolKey = `core:${projectId == null ? 'COMMON' : projectId}`
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey])
-    const candidates = input.verbatim === true ? [] : await _findTopKCore(client, projectId, embedding, null, { forUpdate: true })
-    const mergeTarget = await _resolveMergeTarget(candidates, { element: el, summary: sm })
-    if (mergeTarget) {
-      const r = await client.query(
-        `UPDATE core_entries
-         SET element = $1, summary = $2, category = $3, embedding = $4::halfvec, updated_at = $5
-         WHERE id = $6
+    const collisions = await findCoreKeyRows(client, projectId, el)
+    if (collisions.length) {
+      if (collisions.length !== 1 || collisions[0].status !== 'archived') {
+        throw new Error(`core entry already exists: project=${projectId ?? 'COMMON'} element=${JSON.stringify(el.slice(0, 200))}; use an explicit edit/delete`)
+      }
+      const revived = await client.query(
+        `UPDATE core_entries SET summary = $1, category = $2, embedding = $3::halfvec,
+           status = 'active', archived_at = NULL, updated_at = $4
+         WHERE id = $5
          RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-        [el, sm, cat, embedding ? embeddingToSql(embedding) : null, now, mergeTarget.id],
+        [sm, cat, embedding ? embeddingToSql(embedding) : null, now, collisions[0].id],
       )
       await client.query('COMMIT')
-      const row = r.rows[0]
-      return { ...row, merged_with: mergeTarget.id, sim: Number(mergeTarget.sim).toFixed(3) }
+      return { ...revived.rows[0], revived_from_archived: true }
     }
-    let r
-    try {
-      // Savepoint so a unique-collision doesn't abort the whole tx — we recover
-      // by reviving an archived row on the same connection below.
-      await client.query('SAVEPOINT ins')
-      r = await client.query(
-        `INSERT INTO core_entries(element, summary, category, project_id, embedding, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5::halfvec, $6, $7)
-         RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-        [el, sm, cat, projectId, embedding ? embeddingToSql(embedding) : null, now, now],
-      )
-      await client.query('RELEASE SAVEPOINT ins')
-    } catch (err) {
-      if (err.code === '23505') {
-        await client.query('ROLLBACK TO SAVEPOINT ins')
-        // Unique (project_id, element) collision. If the colliding row is an
-        // archived (superseded) row, the fact is being re-asserted → revive it
-        // in place: flip back to active, clear archived_at, overwrite content.
-        // Avoids a partial-index migration. An active collision is a genuine
-        // duplicate → surface the error.
-        const revived = await client.query(
-          `UPDATE core_entries
-           SET summary = $1, category = $2, embedding = $3::halfvec,
-               status = 'active', archived_at = NULL, updated_at = $4
-           WHERE project_id IS NOT DISTINCT FROM $5 AND element = $6
-             AND status = 'archived'
-           RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-          [sm, cat, embedding ? embeddingToSql(embedding) : null, now, projectId, el],
-        )
-        if (revived.rows.length > 0) {
-          await client.query('COMMIT')
-          return { ...revived.rows[0], revived_from_archived: true }
-        }
-        throw new Error(`core entry already exists: project=${projectId ?? 'COMMON'} element=${JSON.stringify(el.slice(0, 200))}`)
-      }
-      throw err
-    }
+    const r = await client.query(
+      `INSERT INTO core_entries(element, summary, category, project_id, embedding, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::halfvec, $6, $7)
+       RETURNING id, element, summary, category, project_id, created_at, updated_at`,
+      [el, sm, cat, projectId, embedding ? embeddingToSql(embedding) : null, now, now],
+    )
     await client.query('COMMIT')
     return r.rows[0]
   } catch (err) {
@@ -378,22 +274,10 @@ async function _editCoreImpl(dataDir, id, patch) {
         || Number(fresh.updated_at ?? 0) !== Number(cur.updated_at ?? 0)) {
       throw new Error(`core entry id=${numId} changed concurrently — re-read and retry`)
     }
-    const candidates = patch.verbatim === true ? [] : await _findTopKCore(client, newProjectId, embedding, numId, { forUpdate: true })
-    const mergeTarget = await _resolveMergeTarget(candidates, { element: newElement, summary: newSummary })
-    if (mergeTarget) {
-      const r = await client.query(
-        `UPDATE core_entries
-         SET element = $1, summary = $2, category = $3, project_id = $4,
-             embedding = $5::halfvec, updated_at = $6
-         WHERE id = $7
-         RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-        [newElement, newSummary, newCategory, newProjectId,
-          embedding ? embeddingToSql(embedding) : null, now, mergeTarget.id],
-      )
-      await client.query(`DELETE FROM core_entries WHERE id = $1`, [numId])
-      await client.query('COMMIT')
-      const row = r.rows[0]
-      return { ...row, merged_from: numId, merged_with: mergeTarget.id, sim: Number(mergeTarget.sim).toFixed(3) }
+    if (newElement !== cur.element || projectChanged) {
+      if ((await findCoreKeyRows(client, newProjectId, newElement, numId)).length) {
+        throw new Error(`core entry already exists: project=${newProjectId ?? 'COMMON'} element=${JSON.stringify(newElement.slice(0, 200))}`)
+      }
     }
     await client.query(
       `UPDATE core_entries
@@ -431,185 +315,3 @@ async function _deleteCoreImpl(dataDir, id, options = {}) {
   if (r.rows.length === 0) throw new Error(`no entry with id=${numId}`)
   return r.rows[0]
 }
-
-// Archive (retire without physical removal) a core entry whose fact was
-// superseded by a newer active fact. Non-destructive: flips status to
-// 'archived' + stamps archived_at so the row can be recovered/audited, and
-// drops it from the recall/review pool. Safe-by-default: unlike deleteCore this
-// is reversible and runs in conservative mode. Relies on the nullable status/
-// archived_at columns added in ensureCurrentSchemaExtensions (no migration
-// beyond those additive columns).
-//
-// Takes the same core:${project} advisory lock as addCore/editCore and
-// re-checks the row inside it, so a concurrent addCore merge/overwrite that
-// changed the fact after cycle3 read it is NOT clobbered. `expect` carries the
-// element/summary cycle3 reviewed; if the live row drifted from it the archive
-// is skipped (returns { skipped:true, reason:'content drift' }).
-async function _archiveCoreImpl(dataDir, id, expect = null) {
-  const numId = Number(id)
-  if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required')
-  const db = _getDb(dataDir)
-  const now = Date.now()
-  const client = await checkedConnect(db._pool, 'memory')
-  try {
-    await client.query('BEGIN')
-    await client.query(`SET LOCAL lock_timeout = '5s'`)
-    // Lock ORDER must match addCore/editCore: advisory (pool) FIRST, then the
-    // row FOR UPDATE — otherwise same-row concurrency deadlocks. The advisory
-    // key needs project_id, so read it first WITHOUT a row lock (plain SELECT,
-    // no FOR UPDATE → acquires no row lock, can't invert ordering), take the
-    // pool advisory lock, THEN FOR UPDATE the row and re-validate under it.
-    const pre = (await client.query(
-      `SELECT project_id FROM core_entries WHERE id = $1`,
-      [numId],
-    )).rows[0]
-    if (!pre) throw new Error(`no entry with id=${numId}`)
-    const poolKey = `core:${pre.project_id == null ? 'COMMON' : pre.project_id}`
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey])
-    // Now take the row lock under the pool lock and re-read — a concurrent
-    // addCore holding the same advisory lock may have merged/overwritten or
-    // moved the row's project_id between our pre-read and the lock.
-    const locked = (await client.query(
-      `SELECT id, element, summary, project_id, status FROM core_entries WHERE id = $1 FOR UPDATE`,
-      [numId],
-    )).rows[0]
-    if (!locked || !(locked.status == null || locked.status === 'active')) {
-      await client.query('ROLLBACK')
-      return { id: numId, skipped: true, reason: 'concurrently archived/removed' }
-    }
-    // If project_id moved pools between pre-read and lock, our advisory lock is
-    // on the wrong pool → bail rather than archive under a mismatched lock.
-    if ((locked.project_id ?? null) !== (pre.project_id ?? null)) {
-      await client.query('ROLLBACK')
-      return { id: numId, skipped: true, reason: 'pool changed under lock' }
-    }
-    if (expect && (String(expect.element ?? '') !== String(locked.element ?? '') ||
-                   String(expect.summary ?? '') !== String(locked.summary ?? ''))) {
-      await client.query('ROLLBACK')
-      return { id: numId, skipped: true, reason: 'content drift' }
-    }
-    const r = await client.query(
-      `UPDATE core_entries
-       SET status = 'archived', archived_at = $1, updated_at = $2, embedding = NULL
-       WHERE id = $3 AND (status IS NULL OR status = 'active')
-       RETURNING *`,
-      [now, now, numId],
-    )
-    await client.query('COMMIT')
-    if (r.rows.length === 0) return { id: numId, skipped: true, reason: 'concurrently archived/removed' }
-    return r.rows[0]
-  } catch (err) {
-    try { await client.query('ROLLBACK') } catch {}
-    throw err
-  } finally {
-    client.release()
-  }
-}
-
-// Non-destructive project reclassification: move a mis-scoped core entry to the
-// correct pool (a project slug, or COMMON when newProjectId is null). Only the
-// project_id + updated_at change — no delete, and no re-embed (the embedding is
-// derived from element/summary text, which is pool-independent). Takes BOTH the
-// source and target pool advisory locks in a deterministic (sorted) order so a
-// move can't deadlock with a concurrent add/edit/archive on either pool, then
-// FOR UPDATEs the row and re-validates under the lock. `expect` carries the
-// element/summary cycle3 reviewed; if the live row drifted, the move is skipped
-// ({ skipped, reason }). A live (project_id, element) collision in the target
-// pool means the fact already exists there → skipped, so the caller holds it for
-// manual resolution instead of clobbering the existing row.
-async function _reclassifyCoreImpl(dataDir, id, newProjectId, expect = null) {
-  const numId = Number(id)
-  if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required')
-  const targetPid = newProjectId == null ? null : (String(newProjectId).trim() || null)
-  const db = _getDb(dataDir)
-  const now = Date.now()
-  const client = await checkedConnect(db._pool, 'memory')
-  try {
-    await client.query('BEGIN')
-    await client.query(`SET LOCAL lock_timeout = '5s'`)
-    // Read the current pool WITHOUT a row lock first (no FOR UPDATE → acquires
-    // no row lock, can't invert ordering) so the advisory locks are taken first.
-    const pre = (await client.query(`SELECT project_id FROM core_entries WHERE id = $1`, [numId])).rows[0]
-    if (!pre) throw new Error(`no entry with id=${numId}`)
-    const curPid = pre.project_id ?? null
-    if ((curPid ?? null) === (targetPid ?? null)) {
-      await client.query('ROLLBACK')
-      return { id: numId, skipped: true, reason: 'already in target pool' }
-    }
-    // Lock BOTH pools, sorted, so a move in the opposite direction can't deadlock.
-    const keys = [...new Set([
-      `core:${curPid == null ? 'COMMON' : curPid}`,
-      `core:${targetPid == null ? 'COMMON' : targetPid}`,
-    ])].sort()
-    for (const k of keys) await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [k])
-    const locked = (await client.query(
-      `SELECT id, element, summary, project_id, status FROM core_entries WHERE id = $1 FOR UPDATE`,
-      [numId],
-    )).rows[0]
-    if (!locked || !(locked.status == null || locked.status === 'active')) {
-      await client.query('ROLLBACK')
-      return { id: numId, skipped: true, reason: 'concurrently archived/removed' }
-    }
-    if ((locked.project_id ?? null) !== curPid) {
-      await client.query('ROLLBACK')
-      return { id: numId, skipped: true, reason: 'pool changed under lock' }
-    }
-    // Reviewed-source guard: cycle3 decided this move against the pool the row
-    // was in AT REVIEW time. If the row was reclassified into a THIRD pool
-    // between review and now, the in-tx pre-read above sees that new pool (so
-    // the pool-changed-under-lock check passes) but the move is stale → skip.
-    // `expect.sourceProjectId` (null = COMMON) carries the reviewed pool.
-    if (expect && 'sourceProjectId' in expect) {
-      const reviewedPid = expect.sourceProjectId == null ? null : (String(expect.sourceProjectId).trim() || null)
-      if ((locked.project_id ?? null) !== reviewedPid) {
-        await client.query('ROLLBACK')
-        return { id: numId, skipped: true, reason: 'source pool drift' }
-      }
-    }
-    if (expect && (String(expect.element ?? '') !== String(locked.element ?? '') ||
-                   String(expect.summary ?? '') !== String(locked.summary ?? ''))) {
-      await client.query('ROLLBACK')
-      return { id: numId, skipped: true, reason: 'content drift' }
-    }
-    // Unique (project_id, element) guard: a live row with this element already in
-    // the target pool means the fact is present there → don't clobber it.
-    const dup = (await client.query(
-      `SELECT id FROM core_entries
-       WHERE project_id IS NOT DISTINCT FROM $1 AND element = $2
-         AND (status IS NULL OR status = 'active') AND id != $3
-       LIMIT 1`,
-      [targetPid, locked.element, numId],
-    )).rows[0]
-    if (dup) {
-      await client.query('ROLLBACK')
-      return { id: numId, skipped: true, reason: `target pool already has element (id=${dup.id})` }
-    }
-    let r
-    try {
-      await client.query('SAVEPOINT mv')
-      r = await client.query(
-        `UPDATE core_entries SET project_id = $1, updated_at = $2 WHERE id = $3
-         RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-        [targetPid, now, numId],
-      )
-      await client.query('RELEASE SAVEPOINT mv')
-    } catch (err) {
-      if (err.code === '23505') {
-        await client.query('ROLLBACK')
-        return { id: numId, skipped: true, reason: 'unique collision in target pool' }
-      }
-      throw err
-    }
-    await client.query('COMMIT')
-    return { ...r.rows[0], from_project_id: curPid, to_project_id: targetPid }
-  } catch (err) {
-    try { await client.query('ROLLBACK') } catch {}
-    throw err
-  } finally {
-    client.release()
-  }
-}
-
-// ─── Core-candidate promotion pipeline (proposal mode) ───────────────────────
-
-export { nominateCoreCandidates, listCoreCandidates, promoteCoreCandidate, recoverStalePromotions, dismissCoreCandidate } from './core-memory-candidates.mjs';

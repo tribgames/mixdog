@@ -4,29 +4,29 @@
 // they never reach an external LLM. `aiWrapped: true` routes dispatches
 // through ai-wrapped-dispatch.mjs instead of the module's handleToolCall.
 // Shared period grammar for recall/search_memories.
+import { RECALL_LIMIT_CAP, RECALL_OFFSET_CAP } from './lib/recall-limits.mjs'
 const PERIOD_DESCRIPTION = "last (recent sessions; +query topic-filter), Nm/Nh/Nd, today/yesterday/this_week/last_week, all, YYYY-MM-DD, date~date, or HH:MM~HH:MM.";
 export const TOOL_DEFS = [
   {
     name: 'memory',
     title: 'Memory',
     annotations: { title: 'Memory', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    description: 'Manage standing user preferences and constraints. Before add/edit/promote, obtain approval for the exact content and scope unless already explicitly requested. Load memory-management for curation policy; stored history uses recall.',
+    description: 'Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact content and scope unless already explicitly requested. Load memory-management for curation policy; stored history uses recall.',
     inputSchema: {
       type: 'object',
       properties: {
         op: {
           type: 'string',
-          enum: ['add','edit','delete','list','candidates','promote','dismiss','exclude'],
-          description: 'list defaults to active, injection-enabled standing memories only. Set include_inactive:true explicitly to inspect archived, disabled, and generated summaries. exclude disables a generated summary without deleting recall history. Other writes manage curated memory or candidates.',
+          enum: ['add','edit','delete','list'],
+          description: 'Manage user-curated standing memory only. list defaults to active entries; include_inactive:true also shows archived entries. Generated conversation history belongs to recall.',
         },
-        id: { type: 'integer', minimum: 1, description: 'edit/delete: per-project memory index from list, paired with project_id and index_revision; exclude: generated_id; promote/dismiss: candidate id. Never interchange these namespaces.' },
+        id: { type: 'integer', minimum: 1, description: 'edit/delete: per-project memory index from list, paired with project_id and index_revision.' },
         index_revision: { type: 'string', description: 'Required for edit/delete: exact scope version returned by list. Indices compact after deletion or movement; stale versions are rejected. Read the list again, never guess.' },
-        source: { type: 'string', enum: ['all', 'curated', 'generated'], description: 'list filter; default all. Generated summaries use exclude, never edit/delete.' },
-        include_inactive: { type: 'boolean', description: 'list only: default false returns injection-enabled memories only. Set true explicitly for the full management list, including archived and generated records.' },
+        include_inactive: { type: 'boolean', description: 'list only: default false returns active standing memories. Set true to also inspect archived user-curated records.' },
         limit: { type: 'integer', minimum: 1, maximum: 100, description: 'list page size; default 50.' },
         offset: { type: 'integer', minimum: 0, description: 'list continuation offset; default 0.' },
         summary: { type: 'string', description: 'Durable content; required for add and edit. The internal title is derived from its first 40 characters.' },
-        project_id: { type: 'string', description: 'Pool: omit for the current Project, "common" for common memory, or a Project slug; "*" is list/candidates only.' },
+        project_id: { type: 'string', description: 'Pool: omit for the current Project, "common" for common memory, or a Project slug; "*" is list only.' },
       },
       additionalProperties: false,
       required: ['op'],
@@ -43,8 +43,8 @@ export const TOOL_DEFS = [
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, maxItems: 5 }], description: 'Query or independent fan-out array; shared scope/period.' },
         id: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'array', items: { type: 'integer', minimum: 1 } }], description: 'Exact #id(s) from recall. Do not invent ids.' },
         period: { type: 'string', description: PERIOD_DESCRIPTION },
-        limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max entries; default 10, or 5 sessions for period=last.' },
-        offset: { type: 'integer', minimum: 0, maximum: 500, description: 'Legacy static skip; default 0. For period=last paging, use the returned cursor instead.' },
+        limit: { type: 'integer', minimum: 1, maximum: RECALL_LIMIT_CAP, description: 'Max entries; default 10, or 5 sessions for period=last.' },
+        offset: { type: 'integer', minimum: 0, maximum: RECALL_OFFSET_CAP, description: 'Legacy static skip; default 0. For period=last paging, use the returned cursor instead.' },
         cursor: { type: 'string', description: 'Opaque period=last continuation cursor returned by the previous page.' },
         sort: { type: 'string', enum: ['importance', 'date'], description: 'importance or date.' },
         // Categories are listed once here instead of twice as enums; the

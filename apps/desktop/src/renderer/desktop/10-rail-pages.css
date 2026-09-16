@@ -490,6 +490,11 @@
 .utility-dock .agent-activity-page .agent-pool-row:disabled {
   cursor: default;
 }
+.utility-dock .agent-activity-page .agent-pool-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
 .utility-dock .agent-activity-page .agent-pool-name {
   min-width: 0;
   overflow: hidden;

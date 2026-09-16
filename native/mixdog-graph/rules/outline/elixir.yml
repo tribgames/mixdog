@@ -1,0 +1,135 @@
+# mixdog-kind: import
+# Ports elixir_import: import/alias/require/use Foo.Bar (and Foo.{Bar,Baz} as one spec).
+# Brace expansion to Foo.Bar + Foo.Baz is still done by expand_elixir_alias_spec in Rust;
+# the outline name is the captured alias argument, matching the regex capture group.
+id: elixir-import
+language: Elixir
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: call
+    - has:
+        field: target
+        kind: identifier
+        regex: '^(import|alias|require|use)$'
+    - has:
+        kind: arguments
+        has:
+          any:
+            - kind: alias
+              pattern: $NAME
+            - kind: dot
+              pattern: $NAME
+name: $NAME
+isImport: true
+isExported: false
+---
+# mixdog-kind: module
+# Match the defmodule/defprotocol/defimpl `call` so the symbol span covers
+# the body. Native outline never prunes subtrees, so nested def/import stay
+# sibling items. The first arguments alias is the module name (`Demo.Accounts`,
+# not a later `for:` alias on defimpl).
+id: elixir-module
+language: Elixir
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: call
+    - has:
+        field: target
+        kind: identifier
+        regex: '^(defmodule|defprotocol|defimpl)$'
+    - has:
+        kind: arguments
+        stopBy: neighbor
+        has:
+          kind: alias
+          stopBy: neighbor
+          pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: function
+# Ports def / defp, including `when` guards and identifier-style `def foo, do:`.
+id: elixir-function
+language: Elixir
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: call
+    - has:
+        field: target
+        kind: identifier
+        regex: '^(def|defp)$'
+    - has:
+        kind: arguments
+        has:
+          any:
+            - kind: call
+              has:
+                field: target
+                kind: identifier
+                pattern: $NAME
+            - all:
+                - kind: binary_operator
+                - has:
+                    field: operator
+                    regex: '^when$'
+                - has:
+                    field: left
+                    kind: call
+                    has:
+                      field: target
+                      kind: identifier
+                      pattern: $NAME
+            - kind: identifier
+              pattern: $NAME
+name: $NAME
+isExported:
+  has:
+    field: target
+    regex: '^def$'
+---
+# mixdog-kind: macro
+id: elixir-macro
+language: Elixir
+role: item
+symbolType: function
+rule:
+  all:
+    - kind: call
+    - has:
+        field: target
+        kind: identifier
+        regex: '^(defmacro|defmacrop)$'
+    - has:
+        kind: arguments
+        has:
+          any:
+            - kind: call
+              has:
+                field: target
+                kind: identifier
+                pattern: $NAME
+            - all:
+                - kind: binary_operator
+                - has:
+                    field: operator
+                    regex: '^when$'
+                - has:
+                    field: left
+                    kind: call
+                    has:
+                      field: target
+                      kind: identifier
+                      pattern: $NAME
+            - kind: identifier
+              pattern: $NAME
+name: $NAME
+isExported:
+  has:
+    field: target
+    regex: '^defmacro$'

@@ -4,6 +4,8 @@
  * Policies name public actions, not site heuristics. */
 import { BROWSER_ACTIONS } from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
 import type { BrowserCommand } from './command';
+import { describeBrowserTarget } from './target-resolve';
+import { redactBrowserText } from './redaction';
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 
@@ -14,6 +16,24 @@ export interface BrowserApprovalRequest {
   target: string;
   paths: string[];
   expiresAt: number;
+}
+
+/** Describe only actions and addresses, never form values or typed secrets. */
+function describeApprovalTargets(command: BrowserCommand, fallback: string): string {
+  const describe = (input: Pick<BrowserCommand, 'target' | 'ref' | 'snapshotId' | 'name'>) => (
+    input.target
+      ? describeBrowserTarget(input.target)
+      : redactBrowserText(input.ref || input.snapshotId || input.name || fallback)
+  );
+  let summary = describe(command);
+  if (command.action === 'sequence' && command.steps?.length) {
+    summary = command.steps.map((step, index) => (
+      `${index + 1}. ${redactBrowserText(step.action)}${step.submit ? ' (submit)' : ''}: ${describe(step)}`
+    )).join('\n');
+  } else if (command.action === 'fill' && command.fields?.length) {
+    summary = command.fields.map((field, index) => `${index + 1}. fill: ${describe(field)}`).join('\n');
+  }
+  return command.submit ? `${summary}\nSubmit form` : summary;
 }
 
 export function createBrowserActionApproval(host: {
@@ -60,7 +80,7 @@ export function createBrowserActionApproval(host: {
     if (signal?.aborted) throw signal.reason || new Error('approval cancelled');
     const allowed = await host.ask({
       action: command.action, url: original.url, sessionId: command.session_id || '',
-      target: command.ref || command.snapshotId || command.name || original.identity,
+      target: describeApprovalTargets(command, original.identity),
       paths: command.paths || [], expiresAt,
     }, signal);
     if (signal?.aborted) throw signal.reason || new Error('approval cancelled');

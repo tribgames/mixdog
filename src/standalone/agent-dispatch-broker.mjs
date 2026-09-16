@@ -4,7 +4,6 @@ import { hashStructuredValue } from '../runtime/shared/json-metrics.mjs';
 const MEMORY_AGENTS = Object.freeze([
   'cycle1-agent',
   'cycle2-agent',
-  'cycle3-agent',
 ]);
 const MEMORY_AGENT_SET = new Set(MEMORY_AGENTS);
 

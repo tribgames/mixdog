@@ -13,7 +13,8 @@ export interface BrowserPostcondition {
 }
 
 export interface BrowserPostconditionState {
-  text: string;
+  /** Null means text was not observed, never an observed empty document. */
+  text: string | null;
   url: string;
 }
 
@@ -61,17 +62,19 @@ export function normalizeBrowserSettleMs(raw: unknown): number {
 }
 
 export function browserPostconditionMatches(
-  expected: BrowserPostcondition,
+  expected: Pick<BrowserPostconditionInput, 'text' | 'textGone' | 'url'>,
   state: BrowserPostconditionState,
 ): boolean {
-  const text = String(state.text || '').toLowerCase();
-  const url = String(state.url || '').toLowerCase();
-  return (!expected.text || text.includes(expected.text.toLowerCase()))
-    && (!expected.textGone || !text.includes(expected.textGone.toLowerCase()))
+  const text = state.text?.toLowerCase();
+  const url = state.url.toLowerCase();
+  return (!expected.text || (text !== undefined && text.includes(expected.text.toLowerCase())))
+    && (!expected.textGone || (text !== undefined && !text.includes(expected.textGone.toLowerCase())))
     && (!expected.url || url.includes(expected.url.toLowerCase()));
 }
 
-export function describeBrowserPostcondition(expected: BrowserPostcondition): string {
+export function describeBrowserPostcondition(
+  expected: Pick<BrowserPostconditionInput, 'text' | 'textGone' | 'url'>,
+): string {
   return [
     expected.text && `text ${JSON.stringify(expected.text)}`,
     expected.textGone && `textGone ${JSON.stringify(expected.textGone)}`,

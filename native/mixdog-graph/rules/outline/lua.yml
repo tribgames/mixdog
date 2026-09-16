@@ -1,0 +1,74 @@
+# mixdog-kind: import
+# Ports lua_require: require("x") / require 'x' / require[[x]] (quoted content, quotes stripped).
+id: lua-require
+language: Lua
+role: item
+symbolType: module
+rule:
+  all:
+    - kind: function_call
+    - has:
+        field: name
+        regex: '^require$'
+    - has:
+        field: arguments
+        has:
+          kind: string
+          has:
+            field: content
+            pattern: $NAME
+name: $NAME
+isImport: true
+isExported: false
+---
+# mixdog-kind: function
+# Ports function_declaration name as identifier / M.f (dot field) / M:f (method).
+id: lua-function
+language: Lua
+role: item
+symbolType: function
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    any:
+      - kind: identifier
+        pattern: $NAME
+      - kind: dot_index_expression
+        has:
+          field: field
+          kind: identifier
+          pattern: $NAME
+      - kind: method_index_expression
+        has:
+          field: method
+          kind: identifier
+          pattern: $NAME
+name: $NAME
+isExported: true
+---
+# mixdog-kind: function
+id: lua-nested-function
+language: Lua
+role: member
+parentRuleIds: [lua-function]
+symbolType: function
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    any:
+      - kind: identifier
+        pattern: $NAME
+      - kind: dot_index_expression
+        has:
+          field: field
+          kind: identifier
+          pattern: $NAME
+      - kind: method_index_expression
+        has:
+          field: method
+          kind: identifier
+          pattern: $NAME
+name: $NAME
+isPublic: true

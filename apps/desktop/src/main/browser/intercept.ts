@@ -44,6 +44,7 @@ function patternMatcher(pattern: string): RegExp {
 
 function normalizedPattern(raw: string): string {
   const pattern = raw.trim();
+  if (!pattern) throw new Error('intercept add requires url');
   if (pattern.length > MAX_PATTERN_CHARS) {
     throw new Error(`intercept url pattern is limited to ${MAX_PATTERN_CHARS} characters`);
   }
@@ -160,7 +161,6 @@ export function createBrowserIntercept() {
         );
       }
       const pattern = normalizedPattern(String(command.url || ''));
-      if (!pattern) throw new Error('intercept add requires url');
       const abort = command.abort === true;
       const body = abort ? '' : String(command.body ?? '');
       if (body.length > MAX_BODY_CHARS) {

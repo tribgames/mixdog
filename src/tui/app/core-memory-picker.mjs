@@ -44,7 +44,7 @@ export function createCoreMemoryPicker({
       onSelect: () => {},
       onCancel: closeMemoryCorePicker,
     });
-    void store.memoryControl?.({ action: 'core', op: 'list', source: 'curated', project_id: '*' }, { silent: true })
+    void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
       .then((result) => {
         const coreRows = parseMemoryCoreRows(result);
         const rows = [
@@ -119,7 +119,7 @@ export function createCoreMemoryPicker({
       onSelect: () => {},
       onCancel: () => openMemoryCorePicker(),
     });
-    void store.memoryControl?.({ action: 'core', op: 'list', source: 'curated', project_id: '*' }, { silent: true })
+    void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
       .then((result) => {
         renderList(parseMemoryCoreRows(result));
       })

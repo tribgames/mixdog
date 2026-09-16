@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -6,8 +7,10 @@ import { JSDOM } from 'jsdom';
 import i18next from 'i18next';
 import { UsageStatsBody, resolveUsageTrendGrouping } from './UsageStatsSurface.tsx';
 import { CommandSurface } from './CommandSurface.tsx';
+import { holdStatsDataCache, refreshStatsDataCache } from './command-surface-cache.ts';
 import { t } from './i18n.ts';
 import { usageMoney } from './usage-format.ts';
+import { HOVER_POPOVER_CLOSE_DELAY_MS } from './hover-popover.ts';
 import { resolveUsageStatsPeriod } from '../../../../src/standalone/usage-stats-period.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -73,7 +76,7 @@ test('statistics open before the response and repaint cached figures immediately
     assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '2.4K');
 });
 
-test('closing a pending statistics request prevents its late response from opening a dialog', async (context) => {
+test('closing statistics keeps a shared read without allowing it to reopen the dialog', async (context) => {
     const render = harness(context, CommandSurface);
     const resolvers = [];
     let closeCalls = 0;
@@ -83,13 +86,98 @@ test('closing a pending statistics request prevents its late response from openi
     document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(closeCalls, 1);
     await render({ ...props, open: false });
+    assert.equal(document.querySelector('[role="dialog"]'), null);
     await render(props);
-    await act(async () => resolvers[0]({ value: snapshot('hour', 999) }));
+    assert.equal(resolvers.length, 1, 'reopening joins the same authoritative read');
     assert.equal(document.querySelector('[role="dialog"]').getAttribute('aria-busy'), 'true');
-    assert.equal(document.querySelector('.stats-surface').dataset.loading, 'true', 'retired response cannot replace the placeholder');
+    assert.equal(document.querySelector('.stats-surface').dataset.loading, 'true');
     assert.deepEqual([...document.querySelectorAll('.stats-card > b')].map((node) => node.textContent), ['', '', '', '']);
-    await act(async () => resolvers[1]({ value: snapshot('hour', 1200) }));
+    await act(async () => resolvers[0]({ value: snapshot('hour', 1200) }));
     assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K');
+    await render({ ...props, open: false });
+    const background = refreshStatsDataCache(props.api);
+    await act(async () => {
+        resolvers[1]({ value: snapshot('hour', 2400) });
+        await background;
+    });
+    assert.equal(document.querySelector('[role="dialog"]'), null, 'a completed background read stays hidden');
+});
+
+test('statistics show warmed figures in the first committed frame, including after closed usage growth', async (context) => {
+    const commits = [];
+    function Probe(props) {
+        React.useLayoutEffect(() => {
+            if (props.open) commits.push(document.querySelectorAll('.stats-card > b')[2]?.textContent);
+        });
+        return React.createElement(CommandSurface, props);
+    }
+    const render = harness(context, Probe);
+    let update;
+    let tokens = 1200;
+    const api = {
+        async invokeCapability() { return { value: snapshot('hour', tokens) }; },
+        subscribeState(listener) { update = listener; return () => {}; },
+    };
+    const release = holdStatsDataCache(api);
+    context.after(release);
+    await refreshStatsDataCache(api);
+    const props = { surface: 'stats', open: true, onClose() {}, api };
+    await render(props);
+    assert.equal(commits[0], '1.2K');
+    await render({ ...props, open: false });
+    tokens = 2400;
+    update({ sessionId: 'one', stats: { inputTokens: 2200, outputTokens: 200, turns: 2 } });
+    await refreshStatsDataCache(api);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    commits.length = 0;
+    await render(props);
+    assert.equal(commits[0], '2.4K', 'the old 1.2K value is never committed on entry');
+    assert.equal(document.querySelector('.stats-surface').dataset.loading, undefined);
+    assert.ok(document.querySelector('.stats-provider-row').textContent.includes('2.4K'));
+    assert.ok(document.querySelector('.stats-trend').textContent.includes('2.4K'));
+});
+
+test('entry during usage warmup waits for one complete result instead of flashing old figures', async (context) => {
+    const render = harness(context, CommandSurface);
+    let update;
+    const resolvers = [];
+    const api = {
+        invokeCapability: () => new Promise((resolve) => resolvers.push(resolve)),
+        subscribeState(listener) { update = listener; return () => {}; },
+    };
+    const release = holdStatsDataCache(api);
+    context.after(release);
+    const initial = refreshStatsDataCache(api);
+    resolvers[0]({ value: snapshot() });
+    await initial;
+    const props = { surface: 'stats', open: false, onClose() {}, api };
+    await render(props);
+    update({ sessionId: 'one', stats: { inputTokens: 2200, outputTokens: 200, turns: 2 } });
+    await render({ ...props, open: true });
+    assert.equal(resolvers.length, 2, 'entry shares the background read');
+    assert.equal(document.querySelector('.stats-surface').dataset.loading, 'true');
+    assert.deepEqual([...document.querySelectorAll('.stats-card > b')].map((node) => node.textContent), ['', '', '', '']);
+    assert.equal(document.querySelector('.stats-provider-row'), null);
+    await act(async () => resolvers[1]({ value: snapshot('hour', 2400) }));
+    assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '2.4K');
+    assert.ok(document.querySelector('.stats-provider-row').textContent.includes('2.4K'));
+});
+
+test('switching statistics hosts during a read cannot display the previous host response', async (context) => {
+    const render = harness(context, CommandSurface);
+    const resolvers = [];
+    const createApi = () => ({
+        invokeCapability: () => new Promise((resolve) => resolvers.push(resolve)),
+    });
+    const props = { surface: 'stats', open: true, onClose() {} };
+    await render({ ...props, api: createApi() });
+    await render({ ...props, api: createApi() });
+    assert.equal(resolvers.length, 2);
+    await act(async () => resolvers[0]({ value: snapshot('hour', 9999) }));
+    assert.equal(document.querySelector('.stats-surface').dataset.loading, 'true');
+    assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '');
+    await act(async () => resolvers[1]({ value: snapshot('hour', 2400) }));
+    assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '2.4K');
 });
 
 test('an initial statistics failure presents the error without inventing an empty usage dashboard', async (context) => {
@@ -490,6 +578,44 @@ test('chart hover and click expose compact token totals and provider splits, wit
     await act(async () => bar.click());
     assert.deepEqual([...document.querySelectorAll('.stats-trend-detail li > b')].map((node) => node.textContent),
         ['1', '1']);
+});
+
+test('chart hover detail cannot capture the pointer outside the bars, but pinned detail stays interactive', async (context) => {
+    const render = harness(context);
+    const style = document.createElement('style');
+    style.textContent = readFileSync(new URL('./desktop/28-usage-explorer.css', import.meta.url), 'utf8');
+    document.head.append(style);
+    const stats = snapshot();
+    await render({ data: { getUsageStats: stats }, request: async () => stats });
+    const bar = document.querySelectorAll('.stats-trend-bar')[9];
+    const enter = () => act(async () => bar.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })));
+    const leave = async () => {
+        // A pointer-transparent card lets the surface behind it receive the pointer.
+        await act(async () => bar.dispatchEvent(new window.MouseEvent('mouseout', {
+            bubbles: true, relatedTarget: document.body,
+        })));
+        await act(async () => new Promise((resolve) => setTimeout(resolve, HOVER_POPOVER_CLOSE_DELAY_MS + 50)));
+    };
+    await enter();
+    const detail = document.querySelector('.stats-trend-detail');
+    assert.ok(detail);
+    for (const node of [detail, ...detail.querySelectorAll('*')]) {
+        assert.equal(window.getComputedStyle(node).pointerEvents, 'none',
+            'neither the hover card nor its children may extend the chart hover area');
+    }
+    await leave();
+    assert.equal(document.querySelector('.stats-trend-detail'), null);
+    assert.equal(bar.getAttribute('aria-expanded'), 'false');
+
+    await enter();
+    await act(async () => bar.click());
+    const pinned = document.querySelector('.stats-trend-detail');
+    assert.equal(window.getComputedStyle(pinned).pointerEvents, 'auto');
+    assert.equal(window.getComputedStyle(pinned.querySelector('button')).pointerEvents, 'auto');
+    await leave();
+    assert.equal(document.querySelector('.stats-trend-detail'), pinned);
+    await act(async () => pinned.querySelector('button').click());
+    assert.equal(document.querySelector('.stats-trend-detail'), null);
 });
 
 test('Korean chart hover uses the same thousand, ten-thousand and hundred-million token units as the table', async (context) => {

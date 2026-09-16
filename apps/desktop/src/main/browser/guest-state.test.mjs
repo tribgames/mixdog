@@ -83,7 +83,5 @@ test('remembered secrets are redacted from guest text until forgotten', () => {
   assert.match(store.redactText(other, 'password is hunter2-secret ok'), /hunter2-secret/);
   store.forgetSecret(page, 'hunter2-secret');
   assert.match(store.redactText(page, 'password is hunter2-secret ok'), /hunter2-secret/);
-  store.rememberSecret(page, 'another-secret-value');
-  store.forgetSecrets(page);
-  assert.match(store.redactText(page, 'another-secret-value'), /another-secret-value/);
+  assert.equal(store.for(page).sensitiveValues, undefined, 'forgetting the last secret releases the set');
 });

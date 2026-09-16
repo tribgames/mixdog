@@ -7,8 +7,11 @@ import {
   clearSurfaceDataCache,
   getStatsDataCache,
   hasStatsDataCache,
+  holdStatsDataCache,
   readSurfaceDataCache,
+  refreshStatsDataCache,
   setStatsDataCache,
+  subscribeStatsDataCache,
   surfaceDataCacheSize,
   writeSurfaceDataCache,
   SURFACE_DATA_CACHE_LIMIT,
@@ -132,6 +135,147 @@ test('per-api statistics cache isolates separate API host instances', () => {
   assert.equal(hasStatsDataCache(api2), false);
   assert.deepEqual(getStatsDataCache(api1), { stats: { currentContextTokens: 100 } });
   assert.equal(getStatsDataCache(api2), undefined);
+});
+
+test('statistics warmup follows usage in host and session lanes, not streaming text or context estimates', async (context) => {
+  let stateListener;
+  let sessionListener;
+  let subscriptions = 0;
+  let releases = 0;
+  const reads = [];
+  const api = {
+    async invokeCapability(request) {
+      reads.push(request);
+      return { value: { totals: { tokens: reads.length * 1000 } } };
+    },
+    subscribeState(listener) {
+      stateListener = listener;
+      subscriptions++;
+      return () => { releases++; };
+    },
+    subscribeSessionState(listener) {
+      sessionListener = listener;
+      subscriptions++;
+      return () => { releases++; };
+    },
+  };
+  const release = holdStatsDataCache(api);
+  const releaseSecond = holdStatsDataCache(api);
+  context.after(() => { release(); releaseSecond(); });
+  await refreshStatsDataCache(api);
+  assert.equal(reads.length, 1);
+  assert.equal(subscriptions, 2, 'holders share the host and session subscriptions');
+  assert.deepEqual(reads[0], { capability: 'getUsageStats', args: [{ view: 'hour' }] });
+
+  const snapshot = { sessionId: 'one', stats: { inputTokens: 100, outputTokens: 20, turns: 1 } };
+  stateListener(snapshot);
+  assert.equal(hasStatsDataCache(api), false, 'known-stale figures are not an opening seed');
+  assert.equal(getStatsDataCache(api, true).getUsageStats.totals.tokens, 1000);
+  await refreshStatsDataCache(api);
+  assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 2000);
+  stateListener({ ...snapshot, items: [{ text: 'streaming' }], stats: { ...snapshot.stats, currentContextTokens: 900 } });
+  sessionListener({ sessionId: 'one', snapshot });
+  assert.equal(reads.length, 2, 'duplicate lane publications and non-usage changes do not read statistics');
+
+  sessionListener({ sessionId: 'two', snapshot: { stats: { inputTokens: 200, outputTokens: 40, turns: 1 } } });
+  await refreshStatsDataCache(api);
+  assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 3000);
+  release();
+  release();
+  assert.equal(releases, 0);
+  releaseSecond();
+  assert.equal(releases, 2);
+});
+
+test('statistics changes during a shared read publish only the newest complete result', async (context) => {
+  let update;
+  const resolvers = [];
+  const api = {
+    invokeCapability: () => new Promise((resolve) => resolvers.push(resolve)),
+    subscribeState(listener) { update = listener; return () => {}; },
+  };
+  const release = holdStatsDataCache(api);
+  context.after(release);
+  const published = [];
+  context.after(subscribeStatsDataCache(api, () => published.push(getStatsDataCache(api))));
+  const pending = refreshStatsDataCache(api);
+  update({ sessionId: 'one', stats: { inputTokens: 100 } });
+  update({ sessionId: 'one', stats: { inputTokens: 200 } });
+  assert.equal(refreshStatsDataCache(api), pending);
+  assert.equal(resolvers.length, 1);
+  resolvers[0]({ value: { totals: { tokens: 100 } } });
+  await new Promise(setImmediate);
+  assert.equal(resolvers.length, 2, 'changes coalesce into one follow-up read');
+  assert.deepEqual(published, []);
+  resolvers[1]({ value: { totals: { tokens: 200 } } });
+  await pending;
+  assert.deepEqual(published, [{ getUsageStats: { totals: { tokens: 200 } } }]);
+});
+
+test('a failed statistics warmup keeps a stale fallback and can be retried on entry', async (context) => {
+  let update;
+  let fail = false;
+  const api = {
+    async invokeCapability() {
+      if (fail) throw new Error('usage offline');
+      return { value: { totals: { tokens: 1000 } } };
+    },
+    subscribeState(listener) { update = listener; return () => {}; },
+  };
+  const release = holdStatsDataCache(api);
+  context.after(release);
+  await refreshStatsDataCache(api);
+  fail = true;
+  update({ sessionId: 'one', stats: { inputTokens: 100 } });
+  await assert.rejects(refreshStatsDataCache(api), /usage offline/);
+  assert.equal(getStatsDataCache(api), undefined);
+  assert.equal(getStatsDataCache(api, true).getUsageStats.totals.tokens, 1000);
+  fail = false;
+  await refreshStatsDataCache(api);
+  assert.equal(hasStatsDataCache(api), true);
+});
+
+test('desktop state warms statistics before the dialog mounts without blocking boot', async (context) => {
+  const { useDesktopState } = await import('./app-desktop-state.ts');
+  let desktop;
+  function Probe() {
+    desktop = useDesktopState();
+    return null;
+  }
+  function Harness({ mounted = true }) {
+    return mounted ? React.createElement(Probe) : null;
+  }
+  const render = setupDomHarness(context, Harness);
+  const stateListeners = new Set();
+  const sessionListeners = new Set();
+  const resolvers = [];
+  const api = {
+    async getSnapshot() { return { sessionId: '' }; },
+    invokeCapability: () => new Promise((resolve) => resolvers.push(resolve)),
+    subscribeState(listener) {
+      stateListeners.add(listener);
+      return () => stateListeners.delete(listener);
+    },
+    subscribeSessionState(listener) {
+      sessionListeners.add(listener);
+      return () => sessionListeners.delete(listener);
+    },
+  };
+  window.mixdogDesktop = api;
+  await render({});
+  assert.equal(desktop.hydrated, true, 'boot does not await the statistics read');
+  assert.equal(resolvers.length, 1);
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  await act(async () => resolvers[0]({ value: { totals: { tokens: 1000 } } }));
+  assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 1000);
+  sessionListeners.forEach((listener) => listener({
+    sessionId: 'background-session', snapshot: { stats: { inputTokens: 2000 } },
+  }));
+  await act(async () => resolvers[1]({ value: { totals: { tokens: 2000 } } }));
+  assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 2000);
+  await render({ mounted: false });
+  assert.equal(stateListeners.size, 0);
+  assert.equal(sessionListeners.size, 0);
 });
 
 test('inherit blocked reasons evaluate conditions in deterministic sequence', () => {

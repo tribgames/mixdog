@@ -251,7 +251,7 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         return await rt.setBridgeFirstUseApproval(name, requireBoolean(args.enabled));
       }
       case 'install_builtin': {
-        const name = requireEnum(args.name, ['git', 'memory', 'office', 'localProvider'], 'name');
+        const name = requireEnum(args.name, ['git', 'memory', 'office', 'tidy', 'localProvider'], 'name');
         return await rt.installBuiltinFeature(name);
       }
       case 'install_local_model': {

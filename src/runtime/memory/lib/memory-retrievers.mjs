@@ -3,9 +3,9 @@ import { recallReadQuery } from './memory-recall-read-query.mjs'
 import {
   VALID_CATEGORY,
   appendProjectScopeClause,
-  buildPromotedExclusionClauses,
 } from './memory-recall-scope-filter.mjs'
 import { compareRecallNewestFirst } from './recall-order.mjs'
+import { RECALL_WINDOW_CAP } from './recall-limits.mjs'
 
 const VALID_STATUS_SET = new Set(['pending', 'active', 'archived'])
 
@@ -72,13 +72,7 @@ export async function retrieveEntries(db, filters = {}) {
     where.push(`chunk_root IS NULL`)
   }
 
-  // Exclude promoted/promoting core-candidate roots AND members under such a
-  // root — the query-less browse path (includeArchived) would otherwise surface
-  // rows the hybrid recall path already filters. Shared predicate (param-less)
-  // keeps this in lock-step with buildRecallScopeFilter.
-  where.push(...buildPromotedExclusionClauses())
-
-  const limit = Math.max(1, Math.min(500, Number(filters.limit ?? 50)))
+  const limit = Math.max(1, Math.min(RECALL_WINDOW_CAP, Number(filters.limit ?? 50)))
   const offset = Math.max(0, Number(filters.offset ?? 0))
   const sort = String(filters.sort ?? 'importance').trim().toLowerCase()
   const orderBy = sort === 'date'
@@ -86,11 +80,24 @@ export async function retrieveEntries(db, filters = {}) {
     : 'score DESC NULLS LAST, ts DESC, id DESC'
 
   params.push(limit, offset)
-  const sql = `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,
-                      chunk_root, is_root, element, category, summary, project_id,
-                      status, score, last_seen_at
-               FROM entries
-               WHERE ${where.join(' AND ')}
+  // Deduplicate the entire filtered domain before paging. NOT MATERIALIZED
+  // lets PostgreSQL use the entry indexes for both sides without copying all
+  // matching history into a temporary result or loading it into JavaScript.
+  const sql = `WITH eligible AS NOT MATERIALIZED (
+                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,
+                        chunk_root, is_root, element, category, summary, project_id,
+                        status, score, last_seen_at, duplicate_of
+                 FROM entries
+                 WHERE ${where.join(' AND ')}
+               )
+               SELECT candidate.* FROM eligible candidate
+               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL
+                  OR NOT EXISTS (
+                    SELECT 1 FROM eligible representative
+                    WHERE representative.id = candidate.duplicate_of
+                      AND representative.is_root = 1
+                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id
+                  )
                ORDER BY ${orderBy}
                LIMIT $${params.length - 1} OFFSET $${params.length}`
 

@@ -85,6 +85,7 @@ const BROWSER_RUNTIME_TOOLS = ['browser', 'browser_devtools'];
 const COMPUTER_RUNTIME_TOOLS = ['computer'];
 const OFFICE_RUNTIME_TOOLS = ['office'];
 const MEDIA_RUNTIME_TOOLS = ['media'];
+const TIDY_RUNTIME_TOOLS = ['tidy'];
 
 const admitted = (tools, names) => (tools || []).filter((tool) => names.includes(tool?.name));
 
@@ -106,6 +107,7 @@ export function collectStandaloneToolDefs({
   computerToolDefs = [],
   officeToolDefs = [],
   mediaToolDefs = [],
+  tidyToolDefs = [],
   setupToolDefs = [],
   goalTools = [],
   agentTools = [],
@@ -125,6 +127,7 @@ export function collectStandaloneToolDefs({
     ...admitted(computerToolDefs, COMPUTER_RUNTIME_TOOLS),
     ...admitted(officeToolDefs, OFFICE_RUNTIME_TOOLS),
     ...admitted(mediaToolDefs, MEDIA_RUNTIME_TOOLS),
+    ...admitted(tidyToolDefs, TIDY_RUNTIME_TOOLS),
     ...setupToolDefs,
     ...goalTools,
     ...agentTools,

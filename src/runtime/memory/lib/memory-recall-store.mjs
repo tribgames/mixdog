@@ -7,9 +7,8 @@ import { recallReadQuery } from './memory-recall-read-query.mjs'
 import { rankRecallCandidates, recallLaneRanks, recallRrfScore } from './recall-fusion.mjs'
 import { recallSubstringPredicate } from './recall-substring-predicate.mjs'
 
-// Per-db cache of mv_hot_active populated state. The main recall path currently
-// uses entries directly; this guard remains for explicit useHotActive callers.
-import { memberTsInWindow, buildExactTerms, _checkMvHotActivePopulated } from './recall-scoring.mjs';
+import { memberTsInWindow, buildExactTerms } from './recall-scoring.mjs';
+import { collapseHistoryDuplicates } from './history-duplicates.mjs'
 
 // Bounded lexical scan window. The trgm/exact CTE legs run `ILIKE '%…%'`
 // which are indexable when optional pg_trgm indexes exist. On portable
@@ -53,12 +52,8 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   // post-filter time window can wipe the result set.
   const tsFrom = Number.isFinite(Number(options.ts_from)) ? Number(options.ts_from) : null
   const tsTo = Number.isFinite(Number(options.ts_to)) ? Number(options.ts_to) : null
-  // Default = empty exclusion. The archive bucket holds the bulk of historical
-  // work (active is reserved for permanent invariants in this design; the
-  // last-week / last-month / "what did I work on previously" recall pattern
-  // depends on archived rows being in the pool). Cycle2 internal sweeps
-  // that genuinely want active-only data must pass excludeStatuses
-  // explicitly.
+  // All history is searchable by default. Legacy status filters are honored
+  // only when explicitly requested; maintenance no longer assigns importance.
   const excludeStatuses = Array.isArray(options.excludeStatuses)
     ? options.excludeStatuses.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim().toLowerCase())
     : []
@@ -69,49 +64,6 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   const categories = (Array.isArray(options.category) ? options.category : [options.category])
     .map(c => String(c ?? '').trim().toLowerCase())
     .filter(c => VALID_CATEGORY.has(c))
-  // ── mv_hot_active fast-path opt-in ──────────────────────────────────────
-  // When useHotActive:true, the dense and sparse CTE legs query mv_hot_active
-  // instead of the full entries table.
-  //
-  // WHEN TO USE:
-  //   - Explicit active-only recall (no archived inclusion, no ts_from/ts_to
-  //     window). The history-first default recall path should keep useHotActive
-  //     false so archived roots and fresh pending work remain eligible.
-  //   - mv_hot_active holds only active roots with embeddings. Its dedicated
-  //     HNSW (mv_hot_active_hnsw) and GIN (mv_hot_active_tsv) indexes are smaller
-  //     than the partial indexes on entries, so ANN and FTS scans are faster.
-  //   - Caller must ensure cycle2 has run at least once. The MV is created WITH NO
-  //     DATA; a never-refreshed MV silently returns 0 rows — primary risk on fresh
-  //     deployments.
-  //
-  // WHEN NOT TO USE:
-  //   - ts_from / ts_to active: MV lacks the ts column; the filter clause would
-  //     reference a non-existent column and the query would error.
-  //   - Archived entries must be included: MV only holds active rows.
-  //   - trgm is the primary signal: MV lacks content and ts, so the trgm leg
-  //     always routes to entries regardless of useHotActive.
-  //
-  // COLUMN GAPS (resolved per CTE leg):
-  //   ts      : missing → trgm short-query ORDER BY ts DESC impossible on MV;
-  //             also makes ts_from/ts_to filter clauses invalid.
-  //   content : missing → trgm similarity/ILIKE impossible on MV.
-  //   Both gaps are intentional; trgm is unconditionally routed to entries.
-  //
-  // The combined/JOIN fetch after the CTE always queries entries by id, so the
-  // final row shape is identical regardless of which path was taken.
-  const hasTsFilter = tsFrom != null || tsTo != null
-  const hasArchivedInclusion = !excludeStatuses.includes('archived')
-  let useHotActive = Boolean(options.useHotActive)
-    && !hasTsFilter
-    && !hasArchivedInclusion
-  // Guard against unrefreshed mv_hot_active (created WITH NO DATA → SQLSTATE
-  // 55000 on read). Cheap pg_class check, cached 60 s per db handle to avoid
-  // per-recall round-trip cost.
-  if (useHotActive) {
-    const populated = await _checkMvHotActivePopulated(db)
-    if (!populated) useHotActive = false
-  }
-
   // buildFilterClause: pushes ts/status/scope filters INTO candidate SELECTs.
   // offset = 1-based index of the first bind param it may consume.
   // Returns { clause: string, params: any[] }; clause begins with AND or is ''.
@@ -166,50 +118,11 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   // concepts to co-occur before the row can even be scored.
   const minExactHits = 1
 
-  // $5 onward are the filter params for the entries legs (non-MV path).
-  // Each CTE leg duplicates the same positional params because they live in
-  // independent SELECT scopes. When useHotActive=true, the trgm leg still uses
-  // these params but at adjusted offsets (see activeBindParams below).
+  // Each CTE leg uses the same positional filters against the history table.
   const { clause: filterClause, params: filterParams } = buildFilterClause(5)
   const entryRootFilter = rootOnly ? 'AND is_root = 1' : ''
   const exactRootFilter = rootOnly ? 'AND ee.is_root = 1' : ''
 
-  // MV-specific filter: only category/projectScope matter (status='active' and
-  // embedding IS NOT NULL are baked into mv_hot_active; ts_from/ts_to are
-  // unavailable since MV lacks the ts column).
-  function buildMvFilterClause(offset) {
-    const clauses = []
-    const params = []
-    let next = offset
-    if (categories.length > 0) {
-      const placeholders = categories.map(() => `$${next++}`).join(', ')
-      clauses.push(`category IN (${placeholders})`)
-      params.push(...categories)
-    }
-    const { clause: scopeClause, params: scopeParams } = projectScopePredicate(projectScope, next)
-    if (scopeClause) {
-      clauses.push(scopeClause)
-      params.push(...scopeParams)
-      next += scopeParams.length
-    }
-    return { clause: clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '', params }
-  }
-  // mvBindParams layout when useHotActive=true:
-  //   $1–$4 : same prefix (vec, fts, clean, window)
-  //   $5+   : mvFilterParams (category filters + optional projectScope slug)
-  //   $5+N+ : trgmFilterParams (ts/status/scope for the entries-only trgm leg)
-  //
-  // The trgm CTE always targets entries and needs the full filter (excludeStatuses,
-  // ts_from, ts_to, category, projectScope). When useHotActive=true, trgm filter params
-  // start AFTER mvFilterParams so positional params align correctly in the
-  // combined bind array.
-  const { clause: mvFilterClause, params: mvFilterParams } = buildMvFilterClause(5)
-  // trgm filter: when useHotActive, build starting at offset 5 + mvFilterParams.length.
-  const trgmFilterOffset = useHotActive ? 5 + mvFilterParams.length : 5
-  const { clause: trgmFilterClause, params: trgmFilterParams } = buildFilterClause(trgmFilterOffset)
-  // activeBindParams is the single array passed to db.query for the full hybrid SQL.
-  // Non-MV path: [vec,fts,clean,window, ...filterParams] (filterClause == trgmFilterClause).
-  // MV path:     [vec,fts,clean,window, ...mvFilterParams, ...trgmFilterParams].
   const recallScopeOpts = {
     ts_from: tsFrom,
     ts_to: tsTo,
@@ -217,31 +130,16 @@ export async function searchRelevantHybrid(db, query, options = {}) {
     category: categories,
     projectScope,
   }
-  const exactTermsParam = useHotActive
-    ? 5 + mvFilterParams.length + trgmFilterParams.length
-    : 5 + filterParams.length
+  const exactTermsParam = 5 + filterParams.length
   const exactFilterClause = buildRecallScopeFilter(
-    useHotActive ? trgmFilterOffset : 5,
+    5,
     recallScopeOpts,
     'ee',
   ).clause
-  const activeBindParams = useHotActive
-    ? [vecSql, ftsQuery, clean, candidateWindow, ...mvFilterParams, ...trgmFilterParams, ...(exactTerms.length > 0 ? [exactTerms] : [])]
-    : [vecSql, ftsQuery, clean, candidateWindow, ...filterParams, ...(exactTerms.length > 0 ? [exactTerms] : [])]
+  const bindParams = [vecSql, ftsQuery, clean, candidateWindow, ...filterParams, ...(exactTerms.length > 0 ? [exactTerms] : [])]
 
   // dense CTE: active only when a query vector is supplied.
-  // useHotActive → queries mv_hot_active (smaller HNSW, no ts/content needed).
-  const denseCte = vecSql ? (useHotActive ? `
-dense AS (
-  SELECT id,
-         1 - (embedding <=> $1::halfvec) AS sim,
-         ROW_NUMBER() OVER (ORDER BY embedding <=> $1::halfvec) AS dense_rank
-  FROM mv_hot_active
-  WHERE true
-    ${mvFilterClause}
-  ORDER BY embedding <=> $1::halfvec
-  LIMIT $4
-),` : `
+  const denseCte = vecSql ? `
 dense AS (
   SELECT id,
          1 - (embedding <=> $1::halfvec) AS sim,
@@ -252,28 +150,17 @@ dense AS (
     ${entryRootFilter}
   ORDER BY embedding <=> $1::halfvec
   LIMIT $4
-),`) : `
+),` : `
 dense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),`
 
   // sparse CTE: active only when ftsQuery is non-null.
-  // useHotActive → queries mv_hot_active GIN index (mv_hot_active_tsv).
   // tsqExpr: to_tsquery for normalized prefix terms ('stem:* & ...'), else
   // websearch_to_tsquery for a plain fallback token string. Both parse $2 under
   // the 'simple' config to match search_tsv's simple-config lexemes.
   const tsqExpr = ftsPrefixMode
     ? `to_tsquery('simple', $2)`
     : `websearch_to_tsquery('simple', $2)`
-  const sparseCte = ftsQuery ? (useHotActive ? `
-sparse AS (
-  SELECT id,
-         ts_rank_cd(search_tsv, ${tsqExpr}) AS lex,
-         ROW_NUMBER() OVER (ORDER BY ts_rank_cd(search_tsv, ${tsqExpr}) DESC) AS sparse_rank
-  FROM mv_hot_active
-  WHERE search_tsv @@ ${tsqExpr}
-    ${mvFilterClause}
-  ORDER BY lex DESC
-  LIMIT $4
-),` : `
+  const sparseCte = ftsQuery ? `
 sparse AS (
   SELECT id,
          ts_rank_cd(search_tsv, ${tsqExpr}) AS lex,
@@ -284,14 +171,13 @@ sparse AS (
     ${entryRootFilter}
   ORDER BY lex DESC
   LIMIT $4
-),`) : `
+),` : `
 sparse AS (SELECT NULL::bigint AS id, NULL::float8 AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),`
 
   // Portable substring leg. The curated Unix PG runtimes include pgvector but
   // not the optional pg_trgm contrib extension, so fuzzy similarity cannot be
   // a startup/runtime requirement. FTS and dense vector search retain broad
   // matching while this leg gives exact substrings a deterministic rescue.
-  // It always queries entries because mv_hot_active omits display text + ts.
   const trgmCte = `
 trgm AS (
   SELECT id,
@@ -303,7 +189,7 @@ trgm AS (
       OR ${recallSubstringPredicate('element', '$3')}
       OR ${recallSubstringPredicate('summary', '$3')}
     )
-    ${trgmFilterClause}
+    ${filterClause}
     ${entryRootFilter}
     ${lexScanBound()}
   ORDER BY ts DESC
@@ -402,7 +288,7 @@ LEFT JOIN exact  x ON x.id = c.id`
   let exactCount = 0
 
   try {
-    const { rows } = await recallReadQuery(db, hybridSql, activeBindParams)
+    const { rows } = await recallReadQuery(db, hybridSql, bindParams)
     rawRows = rows
     // Count how many rows each leg contributed (a row may appear in multiple legs).
     for (const r of rawRows) {
@@ -590,7 +476,6 @@ LEFT JOIN exact  x ON x.id = c.id`
       conceptExpanded: conceptExpandedRootIds.has(Number(targetRow.id))
         || (options.latestByConcept === true && targetRow.supersedes_id != null),
     })
-    if (rootIdsForReturn.length >= limit) break
   }
 
   // Recall is a read. The member-hit write-back that used to run here bumped
@@ -618,13 +503,13 @@ LEFT JOIN exact  x ON x.id = c.id`
       nonExempt.length > 0
         ? recallReadQuery(db,
             `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-                    concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at
+                    concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of
              FROM entries WHERE id = ANY($1::bigint[]) ${winFilter}`,
             [nonExempt, ...winParams])
         : Promise.resolve({ rows: [] }),
       recallReadQuery(db,
         `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-                concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at
+                concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of
          FROM entries WHERE id = ANY($1::bigint[]) ${statusFilter}`,
         [memberHitExemptIds, ...statusParams]),
     ])
@@ -633,7 +518,7 @@ LEFT JOIN exact  x ON x.id = c.id`
     const { clause: winFilter, params: winParams } = buildFilterClause(2)
     const r = await recallReadQuery(db,
       `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
-              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at
+              concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at, duplicate_of
        FROM entries WHERE id = ANY($1::bigint[]) ${winFilter}`,
       [topIds, ...winParams])
     finalRows = r.rows
@@ -703,31 +588,6 @@ LEFT JOIN exact  x ON x.id = c.id`
   }
   const finalById = new Map(finalRows.map((row, index) => [Number(row.id), resolvedFinalRows[index]]))
 
-  // Members: single batch fetch keyed by chunk_root = ANY($1) — one
-  // round-trip vs N. Map to per-root arrays preserving (ts ASC, id ASC).
-  let membersByRoot = new Map()
-  if (includeMembers) {
-    const rootIds = rootIdsForReturn
-      .map(x => Number(finalById.get(Number(x.root.id))?.id ?? x.root.id))
-      .filter(id => {
-        const fr = finalById.get(id) ?? rootIdsForReturn.find(x => Number(x.root.id) === id)?.root
-        return fr && fr.is_root === 1
-      })
-    if (rootIds.length > 0) {
-      const { rows: memberRows } = await recallReadQuery(
-        db,
-        `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
-         FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
-         ORDER BY ts ASC, id ASC`,
-        [rootIds],
-      )
-      for (const m of memberRows) {
-        const k = Number(m.chunk_root)
-        if (!membersByRoot.has(k)) membersByRoot.set(k, [])
-        membersByRoot.get(k).push(m)
-      }
-    }
-  }
   const results = []
   const emittedRootIds = new Set()
   for (const { root, rrf, retrievalScore, retrievalRank, retrievalEvidence, conceptExpanded } of rootIdsForReturn) {
@@ -743,34 +603,47 @@ LEFT JOIN exact  x ON x.id = c.id`
     if (conceptExpanded || (options.latestByConcept === true && finalRoot.supersedes_id != null)) {
       out._conceptExpanded = true
     }
-    if (includeMembers && finalRoot.is_root === 1) {
-      const allMembers = membersByRoot.get(Number(finalRoot.id)) ?? []
-      // Member-hit root: attach only the turns that actually matched (keeps the
-      // rendered lines on-topic; a broad conversation root that matched on one
-      // buried turn no longer floods with unrelated siblings). Root-matched
-      // chunks keep full expansion for context. Fall back to full expansion if
-      // the matched set somehow resolves empty.
-      const matched = matchedMembersByRoot.get(Number(finalRoot.id))
-      if (matched && matched.size > 0) {
-        const kept = allMembers.filter(m => matched.has(Number(m.id)))
-        const use = kept.length > 0 ? kept : allMembers
-        // Attach only the matched turns (general: avoids flooding with
-        // unrelated siblings of a broad conversation root), rendering each
-        // matched turn's FULL content — no per-line token trimming, which could
-        // drop the answer line when only the question line carries the term.
-        out.members = use
-      } else {
-        out.members = allMembers
-      }
-    }
     results.push(out)
   }
 
+  // The existing bounded retrieval pool, not the requested output size, owns
+  // candidate collection. Apply scope/time resolution and duplicate collapse
+  // before the output limit so duplicates cannot consume distinct-result slots.
+  const page = collapseHistoryDuplicates(results).slice(0, limit)
+  if (includeMembers) {
+    const rootIds = page.filter(row => row.is_root === 1).map(row => Number(row.id))
+    if (rootIds.length > 0) {
+      // Expand only the final page, not every candidate considered above.
+      const { rows: memberRows } = await recallReadQuery(
+        db,
+        `SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
+         FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
+         ORDER BY ts ASC, id ASC`,
+        [rootIds],
+      )
+      const membersByRoot = new Map()
+      for (const member of memberRows) {
+        const id = Number(member.chunk_root)
+        if (!membersByRoot.has(id)) membersByRoot.set(id, [])
+        membersByRoot.get(id).push(member)
+      }
+      for (const row of page) {
+        if (row.is_root !== 1) continue
+        const allMembers = membersByRoot.get(Number(row.id)) ?? []
+        const matched = matchedMembersByRoot.get(Number(row.id))
+        // Preserve complete matched turns, without flooding a member hit with
+        // unrelated siblings. Root hits keep their full original expansion.
+        const kept = matched?.size ? allMembers.filter(member => matched.has(Number(member.id))) : []
+        row.members = kept.length > 0 ? kept : allMembers
+      }
+    }
+  }
+
   __mixdogMemoryLog(
-    `[recall] dense=${denseCount} sparse=${sparseCount} trgm=${trgmCount} exact=${exactCount} merged=${results.length}\n`,
+    `[recall] dense=${denseCount} sparse=${sparseCount} trgm=${trgmCount} exact=${exactCount} merged=${page.length}\n`,
   )
 
-  return results
+  return page
 }
 
 export function preferLatestConceptRows(rows, latestRows) {

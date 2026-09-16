@@ -9,10 +9,9 @@ import type { WebContents } from 'electron';
 
 import type { BrowserCommandResult } from './command';
 import type { BrowserNetworkLedger } from './network';
-import type { BrowserPostcondition } from './postcondition';
+import { browserPostconditionMatches, type BrowserPostcondition } from './postcondition';
 import { timedBrowserOperation } from './timing';
 import { createBrowserDomQuiet } from './dom-quiet';
-import { browserRenderCheckpoint } from './render-checkpoint';
 
 export interface BrowserSettleDiagnostics {
   network: BrowserNetworkLedger;
@@ -22,7 +21,7 @@ export interface BrowserSettleDiagnostics {
 export interface BrowserSettleHost {
   diagnostics(guest: WebContents): BrowserSettleDiagnostics;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
-  renderCheckpoint?(guest: WebContents, background: boolean, signal?: AbortSignal): Promise<void>;
+  renderCheckpoint(guest: WebContents, background: boolean, signal?: AbortSignal): Promise<void>;
   pageText(guest: WebContents, signal?: AbortSignal): Promise<string>;
   /** How long the page must stay quiet before a gesture counts as settled. */
   quietMs: number;
@@ -173,8 +172,7 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
     if (!diagnosticsFor(guest).pendingDialog) {
       try {
-        if (host.renderCheckpoint) await host.renderCheckpoint(guest, background, signal);
-        else await evaluate<void>(guest, browserRenderCheckpoint(background), signal);
+        await host.renderCheckpoint(guest, background, signal);
       } catch (error) {
         if (signal?.aborted) throw signal.reason || error;
         return {
@@ -196,13 +194,14 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     expected: BrowserPostcondition,
     signal?: AbortSignal,
   ): Promise<boolean> {
-    const url = guest.getURL().toLowerCase();
-    if (expected.url && !url.includes(expected.url.toLowerCase())) return false;
+    signal?.throwIfAborted();
+    const url = guest.getURL();
+    if (!browserPostconditionMatches({ url: expected.url }, { url, text: null })) return false;
     if (!expected.text && !expected.textGone) return true;
     try {
-      const text = (await host.pageText(guest, signal)).toLowerCase();
-      return (!expected.text || text.includes(expected.text.toLowerCase()))
-        && (!expected.textGone || !text.includes(expected.textGone.toLowerCase()));
+      const text = await host.pageText(guest, signal);
+      signal?.throwIfAborted();
+      return guest.getURL() === url && browserPostconditionMatches(expected, { url, text });
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;
       return false;
@@ -210,10 +209,7 @@ export function createBrowserSettle(host: BrowserSettleHost) {
   }
 
   return {
-    pause,
     waitForLoadSettle: timedBrowserOperation('wait', waitForLoadSettle),
-    waitForDomQuiet,
-    waitForNetworkQuiet,
     settleAfterAction,
     stepSettleResult: timedBrowserOperation('wait', stepSettleResult),
     postconditionMatchesGuest,

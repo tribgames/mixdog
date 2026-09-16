@@ -17,9 +17,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
-import { readPluginVersion, readPromotionCodeFingerprint } from './lib/promotion-fingerprint.mjs'
+import { readPluginVersion, readMemoryCodeFingerprint } from './lib/memory-fingerprint.mjs'
 const PLUGIN_VERSION = readPluginVersion(PLUGIN_ROOT)
-const BOOT_PROMOTION_CODE_FINGERPRINT = readPromotionCodeFingerprint(PLUGIN_ROOT)
+const BOOT_MEMORY_CODE_FINGERPRINT = readMemoryCodeFingerprint(PLUGIN_ROOT)
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -44,10 +44,9 @@ import {
 } from './lib/memory.mjs'
 import { configureEmbedding, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, primeEmbeddingDims, shutdownEmbeddingProvider, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
-import { runCycle1, runCycle2, runCycle3, parseInterval, flushEmbeddingDirty, flushRawEmbeddings } from './lib/memory-cycle.mjs'
+import { runCycle1, runCycle2, parseInterval, flushEmbeddingDirty, flushRawEmbeddings } from './lib/memory-cycle.mjs'
 import { callAgentDispatch } from './lib/agent-ipc.mjs'
-import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
-import { cancelCoalescedCycleRetries, claimAndMarkScheduledCycle, markCycleRequest, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
+import { cancelCoalescedCycleRetries, claimAndMarkScheduledCycle, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
 import { backfillCoreEmbeddings } from './lib/core-memory-store.mjs'
 import { drainEmbeddingReindex } from './lib/embedding-reindex.mjs'
 import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs'
@@ -56,7 +55,7 @@ import { openTraceDatabase, closeTraceDatabase, enqueueTraceEvents, insertAgentC
 import { writeJsonAtomicSync } from '../shared/atomic-file.mjs'
 import { safeIpcSend } from '../shared/safe-ipc-send.mjs'
 import { resolvePluginData, mixdogHome } from '../shared/plugin-paths.mjs'
-import { scheduledCycle1Signature, scheduledCycle2Signature, scheduledCycle3Signature } from './lib/cycle-signatures.mjs'
+import { scheduledCycle1Signature, scheduledCycle2Signature } from './lib/cycle-signatures.mjs'
 import { createTranscriptIngest } from './lib/transcript-ingest.mjs'
 import { createCycleLlmAdapters } from './lib/cycle-llm-adapters.mjs'
 import { createCycleScheduler } from './lib/cycle-scheduler.mjs'
@@ -234,7 +233,7 @@ async function _initStore() {
   mainConfig = readMainConfig()
   const embeddingConfig = mainConfig?.embedding
   if (embeddingConfig?.provider || embeddingConfig?.ollamaModel || embeddingConfig?.dtype) {
-    configureEmbedding({
+    await configureEmbedding({
       provider: embeddingConfig.provider,
       ollamaModel: embeddingConfig.ollamaModel,
       dtype: embeddingConfig.dtype,
@@ -325,7 +324,6 @@ async function getCycleLastRun() {
     return {
       cycle1: Number(obj.cycle1) || 0,
       cycle2: Number(obj.cycle2) || 0,
-      cycle3: Number(obj.cycle3) || 0,
       // Phase B §2.4 auto-restart book-keeping — last time an overdue cycle1
       // triggered an unscheduled run, rate-limited separately from the
       // normal cycle timestamp so a long chain of failures cannot tight-loop.
@@ -336,15 +334,14 @@ async function getCycleLastRun() {
       // failed/skipped runs cannot disguise itself as a healthy keeper.
       cycle1_heartbeat: Number(obj.cycle1_heartbeat) || 0,
       cycle1_autoRestart_attempt: Number(obj.cycle1_autoRestart_attempt) || 0,
-      // Last cycle2/cycle3 failure message; cleared to '' on success.
+      // Last cycle2 failure message; cleared to '' on success.
       cycle2_last_error: typeof obj.cycle2_last_error === 'string' ? obj.cycle2_last_error : '',
-      cycle3_last_error: typeof obj.cycle3_last_error === 'string' ? obj.cycle3_last_error : '',
     }
   } catch {
     return {
-      cycle1: 0, cycle2: 0, cycle3: 0, cycle1_autoRestart: 0,
+      cycle1: 0, cycle2: 0, cycle1_autoRestart: 0,
       cycle1_heartbeat: 0, cycle1_autoRestart_attempt: 0,
-      cycle2_last_error: '', cycle3_last_error: '',
+      cycle2_last_error: '',
     }
   }
 }
@@ -373,7 +370,7 @@ async function refreshCoreMemorySnapshot(reason = 'mutation') {
 const CYCLE_STATE_FILE = path.join(DATA_DIR, 'memory-cycle-state.json')
 
 const _cycleLlmAdapters = createCycleLlmAdapters({ callAgentDispatch })
-const { getCycle1CallLlm, getCycle2CallLlm, getCycle3CallLlm } = _cycleLlmAdapters
+const { getCycle1CallLlm, getCycle2CallLlm } = _cycleLlmAdapters
 
 const _cycleScheduler = createCycleScheduler({
   getDb: () => db,
@@ -387,29 +384,22 @@ const _cycleScheduler = createCycleScheduler({
   memoryCyclesEnabled,
   getCycle1CallLlm,
   getCycle2CallLlm,
-  getCycle3CallLlm,
   runCycle1,
   runCycle2,
-  runCycle3,
   parseInterval,
   flushRawEmbeddings,
-  getInFlightCycle1,
   claimAndMarkScheduledCycle,
-  markCycleRequest,
   resolveCoalesceMaxRetries,
   scheduleCoalescedCycleRetry,
   cancelCoalescedCycleRetries,
   scheduledCycle1Signature,
   scheduledCycle2Signature,
-  scheduledCycle3Signature,
   cycleStateFile: CYCLE_STATE_FILE,
-  onCoreMemoryChanged: refreshCoreMemorySnapshot,
 })
 // Cycle1 run primitives + cycle2 finalize used by MCP action handlers below.
 const _startCycle1Run = _cycleScheduler.startCycle1Run
 const _awaitCycle1Run = _cycleScheduler.awaitCycle1Run
 const _finalizeCycle2Run = _cycleScheduler.finalizeCycle2Run
-const _finalizeCycle3Run = _cycleScheduler.finalizeCycle3Run
 
 // Transcript watcher lifecycle stays in the facade (owns _transcriptIngest);
 // the cycle tick loop start/stop is delegated to the scheduler.
@@ -519,11 +509,9 @@ const _actionHandlers = createMemoryActionHandlers({
   awaitCycle1Run: _awaitCycle1Run,
   startCycle1Run: _startCycle1Run,
   finalizeCycle2Run: _finalizeCycle2Run,
-  finalizeCycle3Run: _finalizeCycle3Run,
   refreshCoreMemoryFile: refreshCoreMemorySnapshot,
   getSchedulerCycle1InFlight: () => _cycleScheduler.getCycle1InFlight(),
   getCycle2CallLlm,
-  getCycle3CallLlm,
   ingestTranscriptFile,
   cwdFromTranscriptPath,
 })
@@ -544,7 +532,7 @@ const _httpRouter = createHttpRouter({
   dataDir: DATA_DIR,
   log: __mixdogMemoryLog,
   pluginVersion: PLUGIN_VERSION,
-  bootPromotionCodeFingerprint: BOOT_PROMOTION_CODE_FINGERPRINT,
+  bootMemoryCodeFingerprint: BOOT_MEMORY_CODE_FINGERPRINT,
   touchDaemonIdleTimer,
   entryStats,
   cycleScheduler: _cycleScheduler,

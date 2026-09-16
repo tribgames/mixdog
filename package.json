@@ -124,7 +124,9 @@
     "deploy:fast": "pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1 -FastDirect",
     "release:patch": "gh workflow run deploy.yml --ref main -f bump=patch -f native=auto",
     "release:minor": "gh workflow run deploy.yml --ref main -f bump=minor -f native=auto",
-    "release:major": "gh workflow run deploy.yml --ref main -f bump=major -f native=auto"
+    "release:major": "gh workflow run deploy.yml --ref main -f bump=major -f native=auto",
+    "tidy:engines:sync": "node scripts/tidy/sync-engines-manifest.mjs",
+    "graph:parity": "node scripts/graph-parity.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

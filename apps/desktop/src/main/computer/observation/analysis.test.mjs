@@ -258,17 +258,16 @@ test('state and SOM automatically use OCR only when semantic accessibility is em
 
 test('foreground-lock failures request user focus instead of another input attempt', () => {
   assert.equal(
-    recommendedRecovery('key', 'suspected_noop', 'foreground_unavailable', 'foreground', null),
+    recommendedRecovery('suspected_noop', 'foreground_unavailable', 'foreground', null),
     'user',
   );
   assert.equal(
-    recommendedRecovery('click', 'suspected_noop', 'foreground_changed', 'foreground', null),
+    recommendedRecovery('suspected_noop', 'foreground_changed', 'foreground', null),
     'user',
   );
 });
 
 test('an uncertain background effect requests evidence instead of switching delivery', () => {
-  for (const action of ['invoke', 'click', 'drag', 'scroll', 'type', 'key']) {
-    assert.equal(recommendedRecovery(action, 'suspected_noop', undefined, 'background', null), 'recapture');
-  }
+  assert.equal(recommendedRecovery('suspected_noop', undefined, 'background', null), 'recapture');
+  assert.equal(recommendedRecovery('unverifiable', 'background_unsupported', 'background', null), 'recapture');
 });

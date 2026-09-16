@@ -33,10 +33,24 @@ import {
   RE_CACHE_TMP,
   RE_MANIFEST_TMP,
   RE_CACHE_LOCK,
+  RE_CALLS_CACHE_TMP,
+  RE_CALLS_CACHE_LOCK,
 } from './constants.mjs';
 import { _serializeGraph } from './graph-model.mjs';
+import {
+  callsSidecarPath,
+  callsSidecarHash,
+  buildCallsSidecarPayload,
+  graphHasCallsToPersist,
+  readCallsSidecarPayload,
+  applyCallsSidecarToGraph,
+} from './calls-cache.mjs';
 
 const _diskCodeGraphCache = new Map();
+// Call-site sidecars waiting for the next persist, keyed by canonical cwd.
+// Dropped once written: the file is the durable copy, and a graph that needs
+// them again reads it through hydrateGraphCallsFromSidecar().
+const _pendingCallsSidecars = new Map();
 // Approximate serialized bytes of each resident entry, taken from the same
 // numbers the manifest already records (statSync on persist, the read length
 // on demand-load). Backs the resident-memory budget in the prune below.
@@ -139,11 +153,15 @@ export function _pruneCodeGraphManifestForBudget(manifest, dir, options = {}) {
     const file = join(dir, `${hash}.json`);
     let size = 0;
     try { size = statSync(file).size; } catch { continue; }
+    // The call-site sidecar is part of this root's disk footprint, so the
+    // byte budget must see it even though no mode parses it eagerly.
+    let sidecarSize = 0;
+    try { sidecarSize = statSync(callsSidecarPath(dir, hash)).size; } catch { /* no sidecar */ }
     rows.push({
       cwd,
       hash,
       builtAt: Number(meta?.builtAt) || 0,
-      size: Math.max(0, Number(size) || 0),
+      size: Math.max(0, Number(size) || 0) + Math.max(0, Number(sidecarSize) || 0),
     });
   }
   rows.sort((a, b) => (a.builtAt - b.builtAt) || a.cwd.localeCompare(b.cwd));
@@ -223,18 +241,20 @@ function _sweepCodeGraphCacheDir(dir, validHashes, opts = {}) {
       if (f === 'manifest.json') continue;
       if (f.endsWith('.json')) {
         if (!sweepJson) continue;
-        const hash = f.slice(0, -5);
+        // `<hash>.calls.json` belongs to `<hash>`: it lives and dies with the
+        // main entry instead of looking like an orphan of its own.
+        const hash = callsSidecarHash(f) ?? f.slice(0, -5);
         if (!validHashes.has(hash)) {
           try { unlinkSync(full); } catch { /* best-effort */ }
         }
         continue;
       }
-      if (RE_CACHE_TMP.test(f) || RE_MANIFEST_TMP.test(f)) {
+      if (RE_CACHE_TMP.test(f) || RE_MANIFEST_TMP.test(f) || RE_CALLS_CACHE_TMP.test(f)) {
         if (!_cacheFileOlderThanGuard(full, now, ORPHAN_TMP_MIN_AGE_MS)) continue;
         try { unlinkSync(full); } catch { /* best-effort */ }
         continue;
       }
-      if (f === 'manifest.json.lock' || RE_CACHE_LOCK.test(f)) {
+      if (f === 'manifest.json.lock' || RE_CACHE_LOCK.test(f) || RE_CALLS_CACHE_LOCK.test(f)) {
         if (!_cacheFileOlderThanGuard(full, now, ORPHAN_TMP_MIN_AGE_MS)) continue;
         if (!_cacheLockOwnerIsDead(full)) continue;
         try { unlinkSync(full); } catch { /* best-effort */ }
@@ -340,10 +360,23 @@ function _persistDiskCodeGraphCacheNow({
         let bytes = null;
         try { bytes = statSync(file).size; } catch { /* written entry may be unavailable */ }
         _noteDiskEntryBytes(cwd, bytes);
+        // The call-site sidecar is written in the same critical section as the
+        // entry it belongs to, so a reader never sees calls from one build
+        // paired with the graph of another. An absent pending payload keeps
+        // the existing file: this build simply had nothing new to say.
+        let callsBytes = Number(preserved?.[cwd]?.callsBytes);
+        const sidecar = _pendingCallsSidecars.get(cwd);
+        if (sidecar) {
+          const sidecarFile = callsSidecarPath(dir, hash);
+          writeJson(sidecarFile, sidecar, { compact: true, lock: false });
+          _pendingCallsSidecars.delete(cwd);
+          try { callsBytes = statSync(sidecarFile).size; } catch { callsBytes = undefined; }
+        }
         manifest[cwd] = {
           hash,
           builtAt: entry.builtAt || Date.now(),
           bytes: Number.isFinite(bytes) ? bytes : undefined,
+          callsBytes: Number.isFinite(callsBytes) ? callsBytes : undefined,
           maxFiles: Number.isFinite(entry.maxFiles) ? entry.maxFiles : undefined,
         };
       }
@@ -479,6 +512,55 @@ export function listCachedCodeGraphRoots() {
   }
 }
 
+// ── call-site sidecar ───────────────────────────────────────────────────────
+// Resolve the sidecar file of a canonical cwd. The manifest hash wins when the
+// entry is known (it is what the persist loop wrote); otherwise the hash is
+// derived the same way the writer would.
+function _callsSidecarFileFor(key) {
+  const meta = _diskManifest?.[key];
+  const hash = meta && _isCodeGraphCacheHash(meta.hash) ? meta.hash : _hashCwd(key);
+  return callsSidecarPath(_codeGraphDiskDir(), hash);
+}
+
+// Stage the sidecar for the next persist (full build AND `--files`
+// incremental, both of which end in _setDiskCodeGraphEntry). A build that
+// contributes no call data leaves the existing sidecar alone, so a run with an
+// older binary cannot wipe call sites a newer one produced.
+function _stageCallsSidecar(key, graph) {
+  try {
+    if (!graphHasCallsToPersist(graph)) return;
+    const previous = _pendingCallsSidecars.get(key)
+      || readCallsSidecarPayload(_callsSidecarFileFor(key));
+    const { payload } = buildCallsSidecarPayload(graph, previous);
+    _pendingCallsSidecars.set(key, payload);
+  } catch (err) {
+    process.stderr.write(`[code-graph] calls sidecar staging failed: ${err?.message || err}\n`);
+  }
+}
+
+/**
+ * Fill a cache-loaded graph's nodes with their persisted AST call sites.
+ * Called by the callers/callees/references modes only — the first such query
+ * of a process pays one sidecar read, every other mode pays nothing. Runs at
+ * most once per graph object (the marker is cleared even on a miss, so a
+ * missing/corrupt sidecar cannot be re-read on every query).
+ * Returns the number of files hydrated.
+ */
+export function hydrateGraphCallsFromSidecar(graph) {
+  if (!graph || graph._callsHydration !== 'pending') return 0;
+  graph._callsHydration = 'done';
+  try {
+    _loadDiskCodeGraphCache();
+    const key = _canonicalGraphCwd(graph.cwd);
+    const payload = _pendingCallsSidecars.get(key)
+      || readCallsSidecarPayload(_callsSidecarFileFor(key));
+    if (!payload) return 0; // old cache without a sidecar → calls stay null
+    return applyCallsSidecarToGraph(graph, payload);
+  } catch {
+    return 0;
+  }
+}
+
 export function _setDiskCodeGraphEntry(cwd, graph, { persist = true } = {}) {
   _loadDiskCodeGraphCache();
   // Stamp the cache entry with the persistence timestamp (not the build
@@ -491,6 +573,10 @@ export function _setDiskCodeGraphEntry(cwd, graph, { persist = true } = {}) {
   // delete-then-set makes this the newest entry for the recency prune below.
   _diskCodeGraphCache.delete(key);
   _diskCodeGraphCache.set(key, serialized);
+  // persist:false is the "adopt what another process already wrote" path (the
+  // Worker fenced its own sidecar write): staging here would re-read and
+  // re-serialize the whole sidecar for a flush that never happens.
+  if (persist) _stageCallsSidecar(key, graph);
   // The rebuilt graph of a root is close in size to its last persisted form;
   // the next flush replaces this with the exact statSync figure.
   _noteDiskEntryBytes(key, Number(_diskManifest?.[key]?.bytes));

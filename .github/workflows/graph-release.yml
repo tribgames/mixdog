@@ -25,7 +25,7 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   MANIFEST: src/runtime/agent/orchestrator/tools/graph-manifest.json
-  RUST_VERSION: "1.85.1"
+  RUST_VERSION: "1.95.0"
 
 jobs:
   gate:
@@ -136,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (4eb161250 2025-03-15)"
+          test "$(rustc --version)" = "rustc ${RUST_VERSION} (59807616e 2026-04-14)"
           cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
 
   build:
@@ -180,7 +180,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (4eb161250 2025-03-15)"
+          test "$(rustc --version)" = "rustc ${RUST_VERSION} (59807616e 2026-04-14)"
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
       - name: Build primary reproducible binary
@@ -266,7 +266,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(rustc --version)" = "rustc ${RUST_VERSION} (4eb161250 2025-03-15)"
+          test "$(rustc --version)" = "rustc ${RUST_VERSION} (59807616e 2026-04-14)"
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
           BIN="native/mixdog-graph/target/${{ matrix.target }}/release/mixdog-graph${{ matrix.ext }}"
           ASSET="mixdog-graph-${{ matrix.pkey }}${{ matrix.ext }}"
@@ -356,7 +356,7 @@ jobs:
             if (record.platform !== platform || record.target !== targets[platform]
                 || record.asset !== file || record.assetDigest !== digest
                 || record.sourceSha !== process.env.SOURCE_SHA
-                || record.rustc !== 'rustc 1.85.1 (4eb161250 2025-03-15)') {
+                || record.rustc !== 'rustc 1.95.0 (59807616e 2026-04-14)') {
               throw new Error(`Invalid provenance for ${platform}`);
             }
             return record;
@@ -365,7 +365,7 @@ jobs:
             graphVersion: process.env.GRAPH_VERSION,
             tag: process.env.GRAPH_TAG,
             sourceSha: process.env.SOURCE_SHA,
-            rustc: 'rustc 1.85.1 (4eb161250 2025-03-15)',
+            rustc: 'rustc 1.95.0 (59807616e 2026-04-14)',
             platforms: provenance,
           }) + '\n');
           const sums = Object.fromEntries(Object.values(files).map(file => [

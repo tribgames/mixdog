@@ -11,8 +11,9 @@ import { createBridgeFirstUseGate } from './bridge-first-use-gate.mjs';
 import { executeComputerTool } from '../runtime/computer-bridge/client.mjs';
 import { executeOfficeTool } from '../runtime/office/index.mjs';
 import { executeMediaTool } from '../runtime/media/tool.mjs';
+import { executeTidyTool } from '../runtime/tidy/tool.mjs';
 import { featureEnvOverride } from './config-helpers.mjs';
-import { renderToolSearch } from './tool-catalog.mjs';
+import { refreshDeferredMcpToolCatalog, renderToolSearch } from './tool-catalog.mjs';
 import { clean } from './session-text.mjs';
 import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
 import { listProjects } from '../standalone/projects.mjs';
@@ -31,6 +32,7 @@ export function createInternalToolExecutor({
   memoryToolsEnabled,
   officeToolsEnabled,
   mediaToolEnabled,
+  tidyToolEnabled = () => true,
   channelsEnabled,
   getWebSearchModule,
   getMemoryModule,
@@ -118,6 +120,16 @@ export function createInternalToolExecutor({
         signal: callerCtx?.signal || rt.session?.controller?.signal || null,
       });
     }
+    if (name === 'tidy') {
+      if (callerCtx?.invocationSource === 'model-tool' && !tidyToolEnabled()) {
+        throw new Error('tidy is disabled in settings; start a new session to refresh the tool list');
+      }
+      return await executeTidyTool(args, {
+        cwd: callerCwd,
+        sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
+        signal: callerCtx?.signal || rt.session?.controller?.signal || null,
+      });
+    }
     if (name === 'setup') {
       return await setupTool.execute(args || {});
     }
@@ -145,7 +157,9 @@ export function createInternalToolExecutor({
       return await codeGraphMod.executeCodeGraphTool(name, args || {}, args?.cwd || callerCwd);
     }
     if (name === 'tool_search' || name === 'load_tool') {
-      return renderToolSearch(args, activeToolSurface(), rt.mode, { mcpStatus });
+      const surface = activeToolSurface();
+      refreshDeferredMcpToolCatalog(surface, rt.config);
+      return renderToolSearch(args, surface, rt.mode, { mcpStatus });
     }
     if (name === 'cwd') {
       const action = clean(args?.action || (args?.path ? 'set' : 'get')).toLowerCase();

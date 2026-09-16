@@ -106,7 +106,7 @@ function settleHarness() {
         recentInflight: () => [],
       },
     }),
-    evaluate: async () => undefined,
+    renderCheckpoint: async () => undefined,
     quietMs: 20,
     domTimeoutMs: 100,
     loadTimeoutMs: 1_000,
@@ -150,7 +150,7 @@ test('browser sequence step settling propagates cancellation instead of absorbin
         recentInflight: () => [],
       },
     }),
-    evaluate: async (_guest, _script, signal) => {
+    renderCheckpoint: async (_guest, _background, signal) => {
       controller.abort(new Error('fixture sequence cancelled'));
       throw signal.reason;
     },

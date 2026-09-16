@@ -97,6 +97,7 @@ export interface PowerShellResponse {
 export interface ComputerCommandResult {
   text: string;
   image?: { mimeType: string; data: string };
+  captureAttempts?: import('./capture-attempts').CaptureAttempt[];
 }
 
 export interface CaptureFrame {
@@ -105,6 +106,7 @@ export interface CaptureFrame {
   capturedAt: number;
   kind: 'screen' | 'window';
   sourceId: string;
+  nativeBackend?: import('./capture-attempts').NativeCaptureBackend;
   windowId?: string;
   displayId?: string;
   originX: number;
@@ -190,14 +192,13 @@ export interface ObservedWindowScope {
 }
 
 export interface ScreenshotCapture {
-  /** Where the pixels came from: the window's own render, a direct grab of the
-   *  screen region it occupies, or the compositor's window thumbnail. Only the
-   *  first is independent of what is physically on screen. */
-  route?: 'app_owned' | 'window_region' | 'composited';
+  /** Only window-owned render surfaces are eligible for a window capture. */
+  route?: 'app_owned' | 'window_surface' | 'composited';
   image?: { mimeType: string; data: string };
   description: string;
   frameId?: string;
   windowId?: string;
   frame?: CaptureFrame;
   pixelUnavailable?: PixelUnavailable;
+  captureAttempts?: import('./capture-attempts').CaptureAttempt[];
 }
