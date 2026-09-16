@@ -170,10 +170,11 @@ test('mago dry-run headers and lint JSON map onto the shared shape', () => {
   assert.deepEqual(format.changedFiles, ['src/Service.php', 'src/Model.php']);
   assert.ok(format.diagnostics.every((entry) => entry.code === 'mago/format' && entry.fixable));
 
-  // Colorized headers, a Windows absolute path, and output split across the two
-  // streams (the caller merges stdout + stderr) must parse the same way.
+  // Colorized headers, an absolute path in the host's native form (backslashes
+  // on Windows), and output split across the two streams (the caller merges
+  // stdout + stderr) must parse the same way.
   const colored = [
-    `\u001B[1mdiff of '${CWD.replaceAll('/', '\\')}\\src\\Colored.php'\u001B[0m\u001B[1m:\u001B[0m`,
+    `\u001B[1mdiff of '${resolve(CWD, 'src', 'Colored.php')}'\u001B[0m\u001B[1m:\u001B[0m`,
     '\u001B[31m-old\u001B[0m',
     '', // stdout/stderr join
     "\u001B[32mdiff of 'src/FromStderr.php':\u001B[0m",

@@ -187,7 +187,7 @@ export async function executeComputerTool(rawArgs, context = {}) {
   }
   cancelDeferredComputerSessionRelease(sessionId);
   try {
-    const released = await waitForComputerRelease(pendingComputerSessionReleases.get(sessionId), context.signal);
+    const released = await waitForComputerRelease(pendingComputerSessionReleases.get(sessionId)?.promise, context.signal);
     if (!released) {
       return { content: [{ type: 'text', text: formatComputerToolError(
         'computer_cleanup_pending: previous session release was not confirmed; no new input was dispatched', args,
@@ -393,11 +393,30 @@ export function deferComputerSessionRelease(sessionId, delayMs = DEFERRED_SESSIO
   const delay = Math.max(1, Number(delayMs) || DEFERRED_SESSION_RELEASE_MS);
   const timer = setTimeout(() => {
     deferredComputerSessionReleases.delete(id);
-    void releaseComputerSession(id);
+    // A release already in flight is this idle cleanup's outcome too.
+    if (pendingComputerSessionReleases.has(id)) return;
+    void startComputerSessionRelease(id, SESSION_RELEASE_TIMEOUT_MS, true).catch(() => false);
   }, delay);
   timer.unref?.();
   deferredComputerSessionReleases.set(id, timer);
   return true;
+}
+
+/** One in-flight host release per session; `deferred` marks the idle timer's
+ * speculative attempt so a caller asking for cleanup never inherits it. */
+function startComputerSessionRelease(id, timeoutMs, deferred) {
+  activeComputerExecutions.delete(id);
+  activeComputerSessions.delete(id);
+  const record = { deferred, promise: null };
+  record.promise = sendComputerSessionControl(id, 'session_release', timeoutMs).then(released => {
+    if (released) hostBoundComputerSessions.delete(id);
+    else if (hostBoundComputerSessions.has(id)) activeComputerSessions.add(id);
+    return released;
+  }).finally(() => {
+    if (pendingComputerSessionReleases.get(id) === record) pendingComputerSessionReleases.delete(id);
+  });
+  pendingComputerSessionReleases.set(id, record);
+  return record.promise;
 }
 
 /** Explicit session cleanup invalidates refs/frames and releases the
@@ -405,17 +424,19 @@ export function deferComputerSessionRelease(sessionId, delayMs = DEFERRED_SESSIO
 export async function releaseComputerSession(sessionId, timeoutMs = SESSION_RELEASE_TIMEOUT_MS) {
   const id = String(sessionId || '').trim();
   if (!id) return false;
-  cancelDeferredComputerSessionRelease(id);
-  if (pendingComputerSessionReleases.has(id)) return pendingComputerSessionReleases.get(id);
-  activeComputerExecutions.delete(id);
-  activeComputerSessions.delete(id);
-  const pending = sendComputerSessionControl(id, 'session_release', timeoutMs).then(released => {
-    if (released) hostBoundComputerSessions.delete(id);
-    else if (hostBoundComputerSessions.has(id)) activeComputerSessions.add(id);
-    return released;
-  }).finally(() => pendingComputerSessionReleases.delete(id));
-  pendingComputerSessionReleases.set(id, pending);
-  return pending;
+  for (;;) {
+    cancelDeferredComputerSessionRelease(id);
+    const pending = pendingComputerSessionReleases.get(id);
+    if (!pending) break;
+    // Another caller's release is this caller's release too. The idle timer's
+    // is not: its request was composed before this cleanup was asked for, so a
+    // host that refused it would silently become this caller's failure and
+    // leave the closing session's worker and target claims pinned. Wait it out,
+    // then issue the release this caller is waiting on.
+    if (!pending.deferred) return await pending.promise;
+    await pending.promise.catch(() => false);
+  }
+  return await startComputerSessionRelease(id, timeoutMs, false);
 }
 
 /** Process-shutdown backstop. The deferred release timer is unref'd, so a
