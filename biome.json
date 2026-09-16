@@ -33,7 +33,10 @@
       "!scripts/build-voice-runtime-windows.ps1",
       "!scripts/build-voice-runtime-unix.sh",
       "!scripts/build-ffmpeg-runtime.sh",
-      "!scripts/voice-runtime-config.json"
+      "!scripts/voice-runtime-config.json",
+      "!scripts/plan-voice-runtime-release.mjs",
+      "!scripts/verify-voice-runtime-release.mjs",
+      "!scripts/sync-voice-runtime-manifest.mjs"
     ]
   },
   "formatter": {
