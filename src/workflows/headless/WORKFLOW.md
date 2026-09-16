@@ -2,7 +2,6 @@
 id: headless
 name: Headless
 description: "No user mid-run; requests are approved. Complete, then report."
-delegation: none
 hidden: true
 ---
 

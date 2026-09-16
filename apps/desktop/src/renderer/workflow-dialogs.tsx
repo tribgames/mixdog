@@ -28,8 +28,8 @@ export type RouteEditorTarget = {
 const NEW_WORKFLOW_BODY = [
   '# New Workflow',
   '',
-  'Describe how the Lead runs this workflow: when to delegate to agents,',
-  'what each phase must deliver, and how results are verified.',
+  'Describe how the Lead runs this workflow: how the work is approved,',
+  'what each phase must deliver, and how results are reviewed and verified.',
 ].join('\n');
 
 const NEW_AGENT_BODY = [
@@ -65,9 +65,7 @@ function RouteControls({
   );
 }
 
-// Popup editor (schedules-dialog grammar): name/description, delegation
-// on/off, and the WORKFLOW.md body. `pack` null means create. Agents are
-// global — packs no longer carry a roster.
+// Workflow instructions are independent of orchestration and global agents.
 export function WorkflowEditorDialog({
   pack,
   deletable,
@@ -86,9 +84,6 @@ export function WorkflowEditorDialog({
   onDelete(): void;
 }) {
   const editing = Boolean(pack);
-  // ONE agent-related setting per pack: delegates (every defined agent is
-  // available) or not (Solo-style, `delegation: none`).
-  const [delegates, setDelegates] = useState(() => !editing || pack?.delegatesAgents !== false);
   const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   return (
@@ -122,9 +117,6 @@ export function WorkflowEditorDialog({
               ...(editing ? { id: String(pack?.id || '') } : {}),
               name: text('workflow-name'),
               description: text('workflow-description'),
-              // null keeps the pack delegating (no frontmatter key); 'none'
-              // writes `delegation: none` (Solo-style, no agents at all).
-              delegation: delegates ? null : 'none',
               body,
             });
           }}
@@ -154,14 +146,6 @@ export function WorkflowEditorDialog({
               maxLength={160}
             />
           </label>
-          <div className="schedules-field">
-            <span>{t('Agents')}</span>
-            <small>{t('Whether this workflow can delegate to agents.')}</small>
-            <div className="workflows-agent-mode-field">
-              <span>{t(delegates ? 'Allow agents' : 'Use no agents')}</span>
-              <CompactSwitch label={t('Allow agents')} checked={delegates} disabled={busy} onChange={setDelegates} />
-            </div>
-          </div>
           <label className="schedules-field workflows-md-field">
             <span data-i18n-skip>WORKFLOW.md</span>
             <small>{t('Instructions that define how this workflow works.')}</small>

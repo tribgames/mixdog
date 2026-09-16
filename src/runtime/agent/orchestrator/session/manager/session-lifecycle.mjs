@@ -27,6 +27,7 @@ import { loadConfig } from '../../config.mjs';
 import { buildProviderCacheOpts, cacheCapabilityForProvider } from '../../agent-runtime/cache-strategy.mjs';
 import { normalizeAutoClearConfig, resolveAutoClearIdleMs } from '../../../../../session-runtime/config-helpers.mjs';
 import { toSessionWorkflowMeta, workflowDisallowsAgentTool } from '../../../../../session-runtime/workflow.mjs';
+import { sessionOrchestrationMode } from '../../../../shared/orchestration.mjs';
 import {
   _buildSharedRules,
   _buildAgentRules,
@@ -221,7 +222,7 @@ export function createSession(opts) {
   // override role-inapplicable entries.
   const sessionDeny = [
     ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
-    ...(!ownerIsAgent && workflowDisallowsAgentTool(opts.workflow) ? ['agent'] : []),
+    ...(!ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow)) ? ['agent'] : []),
   ];
   // Role permission is prompt/diagnostic metadata only. Resolve and persist
   // it without shaping the provider-visible Agent schema.
@@ -265,7 +266,7 @@ export function createSession(opts) {
         omitTools: ruleOmitTools,
         allowTools: schemaAllowedTools,
       });
-  const delegationFree = !ownerIsAgent && workflowDisallowsAgentTool(opts.workflow);
+  const delegationFree = !ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow));
   const roleRules = skipAgentRules
     ? ''
     : ownerIsAgent
@@ -422,6 +423,7 @@ export function createSession(opts) {
     // their persisted shape and classification behavior remain unchanged.
     desktopSession: normalizeDesktopSessionMetadata(opts.desktopSession, opts.cwd),
     workflow: workflowMeta,
+    orchestrationMode: sessionOrchestrationMode(opts),
     disallowedTools: sessionDeny.map((name) => String(name)),
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -492,7 +494,7 @@ export function _refreshSessionRuleVariantsForModel(session, previousModel) {
   const deny = [
     ...(Array.isArray(session?.disallowedTools) ? session.disallowedTools : []),
     ...(getHiddenAgent(session?.agent || null) ? ['Skill'] : []),
-    ...(!isAgentOwner(session) && workflowDisallowsAgentTool(session?.workflow) ? ['agent'] : []),
+    ...(!isAgentOwner(session) && (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session?.workflow)) ? ['agent'] : []),
   ];
   const allowTools = isAgentOwner(session) ? null : session?.schemaAllowedTools;
   const previousRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(previousModel)], allowTools });
@@ -659,7 +661,7 @@ function _prepareResumeTools(session, preset) {
           : null,
       disallowedTools: [
         ...(Array.isArray(session.disallowedTools) ? session.disallowedTools : []),
-        ...(!isAgentOwner(session) && workflowDisallowsAgentTool(session.workflow) ? ['agent'] : []),
+        ...(!isAgentOwner(session) && (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session.workflow)) ? ['agent'] : []),
       ],
       ownerIsAgent,
       resolvedAgent: session.agent || null,

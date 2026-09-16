@@ -903,6 +903,9 @@ export class SessionHost implements DesktopService {
       if (request.phase === 'reserved' && draft.workflowId) {
         await this.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
       }
+      if (request.phase === 'reserved' && draft.orchestrationMode !== undefined) {
+        await this.invokeSession(sessionId, 'setOrchestrationMode', [draft.orchestrationMode]);
+      }
       if (request.phase === 'reserved' && draft.route) {
         const routeResult = await this.invokeSession(sessionId, 'setRoute', [
           {

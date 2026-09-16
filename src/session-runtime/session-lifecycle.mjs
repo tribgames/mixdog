@@ -273,7 +273,7 @@ export function createSessionLifecycle({
       throwIfAborted(signal);
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       // Load the active WORKFLOW.md pack once for both summary + context block.
-      const { summary: workflow, context: workflowContext } = activeWorkflowContext(rt.config, dataDir);
+      const { summary: workflow, context: workflowContext, orchestrationMode } = activeWorkflowContext(rt.config, dataDir);
       const sessionProfile = rt.sessionProfile && typeof rt.sessionProfile === 'object' ? rt.sessionProfile : null;
       const agentOwned = sessionProfile?.owner === 'agent' || sessionProfile?.visibility === 'agent-only';
       const sessionOpts = {
@@ -299,6 +299,7 @@ export function createSessionLifecycle({
         coreMemoryContext,
         workflow,
         workflowContext,
+        orchestrationMode,
         fast: rt.route.fast === true,
         modelParameters: rt.route.modelParameters || {},
         contextPercent: rt.route.contextPercent,

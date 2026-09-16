@@ -306,6 +306,33 @@ test('agent data arriving before the session catalog cannot announce no running 
   assert.match(view.host.textContent, /No agents are running/);
 });
 
+test('orchestration selector inherits its mode and stages all four choices without changing workflow', async (t) => {
+  const view = harness(t);
+  const calls = [];
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    calls.push(request);
+    return { value: 'none', snapshot: null };
+  };
+  const { OrchestrationModeSelect } = await import('./model-controls.tsx');
+  const staged = [];
+  const props = {
+    disabled: false, invokeResult: (work) => work(), applySnapshot() {},
+    onDraftChange: (value) => staged.push(value),
+  };
+  await view.render(React.createElement(OrchestrationModeSelect, props));
+  assert.match(view.host.textContent, /Not applicable/);
+  assert.deepEqual(calls, [{ capability: 'getOrchestrationMode', args: [] }]);
+  for (const [mode, label] of [['focused', 'Focused'], ['balanced', 'Balanced'], ['swarm', 'Swarm'], ['none', 'Not applicable']]) {
+    await view.render(React.createElement(OrchestrationModeSelect, { ...props, mode: mode === 'none' ? 'swarm' : 'none' }));
+    await view.settle(() => view.host.querySelector('[role="combobox"]').click());
+    const option = [...document.querySelectorAll('[role="option"]')].find((item) => item.textContent === label);
+    assert.ok(option, `${label} is selectable`);
+    await view.settle(() => option.click());
+    assert.equal(staged.at(-1), mode);
+  }
+  assert.equal(calls.length, 1, 'draft choices remain local until submit');
+});
+
 test('native boot keeps the mounted content inert until its ready frame, with bounded recovery', async (t) => {
   const view = harness(t);
   const { DesktopBootGate } = await import('./PaneSurfaceGate.tsx');

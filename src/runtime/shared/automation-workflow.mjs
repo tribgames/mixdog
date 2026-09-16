@@ -33,10 +33,12 @@ export function automationWorkflowOpts(workflowId) {
     const h = helpers();
     const pack = h.loadWorkflowPack(undefined, id);
     if (!pack) return approvalOpts;
+    const resolved = h.activeWorkflowContext({ workflow: { active: id } }, undefined);
     return {
       ...approvalOpts,
-      workflow: h.workflowSummary(pack),
-      workflowContext: h.workflowContextBlock({ workflow: { active: id } }, undefined),
+      workflow: resolved.summary,
+      workflowContext: resolved.context,
+      orchestrationMode: resolved.orchestrationMode,
     };
   } catch {
     return approvalOpts;

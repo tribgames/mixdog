@@ -140,6 +140,7 @@ export type Snapshot = RecordValue & {
     }>;
   };
   workflow?: RecordValue | null;
+  orchestrationMode?: import('../shared/contract').DesktopOrchestrationMode;
 };
 
 export const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };

@@ -17,6 +17,7 @@ export function createRuntimeFacade({
   getSystemShell,
   getWebSearchRoute,
   getWorkflow,
+  getOrchestrationMode,
   getOutputStyle,
   getContextStatus,
   getContextStatusForSession,
@@ -87,6 +88,9 @@ export function createRuntimeFacade({
     },
     get workflow() {
       return getWorkflow();
+    },
+    get orchestrationMode() {
+      return getOrchestrationMode();
     },
     get outputStyle() {
       return getOutputStyle();

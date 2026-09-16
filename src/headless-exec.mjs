@@ -700,6 +700,7 @@ export async function runHeadlessExec({
       initialConfig: {
         ...boundary.loadConfig(),
         workflow: { active: 'headless' },
+        orchestrationMode: 'none',
       },
     });
     if (lifecycle && !clean(runtime?.id) && typeof runtime?.reserveSessionId === 'function') {

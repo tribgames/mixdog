@@ -24,6 +24,7 @@ import { ONBOARDING_VERSION } from './quick-web-search-models.mjs';
 import { findOutputStyle } from './output-styles.mjs';
 import { ensureProviderEnabled } from './config-helpers.mjs';
 import { fastCapableFor } from './model-capabilities.mjs';
+import { ORCHESTRATION_MODES, configuredOrchestrationMode } from '../runtime/shared/orchestration.mjs';
 import {
   canonicalizeAgentRouteStorage,
   isAgentDisabled,
@@ -191,9 +192,6 @@ export function createWorkflowAgentsApi(deps) {
         description: workflow.description,
         source: workflow.source,
         active: workflow.id === active,
-        // Delegation on/off is the only agent-related pack surface left:
-        // agents are global, packs never carry a roster.
-        delegatesAgents: workflow.delegatesAgents !== false,
       }));
     },
     getOutputStyle() {
@@ -228,7 +226,8 @@ export function createWorkflowAgentsApi(deps) {
       return { ...freshStatus, appliedToCurrentSession };
     },
     async setWorkflow(workflowId) {
-      const id = normalizeWorkflowId(workflowId, DEFAULT_WORKFLOW_ID);
+      const requested = normalizeWorkflowId(workflowId, DEFAULT_WORKFLOW_ID);
+      const id = requested === 'solo' ? DEFAULT_WORKFLOW_ID : requested;
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const pack = loadWorkflowPack(dataDir, id);
       if (!pack || pack.id !== id) throw new Error(`workflow "${workflowId}" not found`);
@@ -238,6 +237,19 @@ export function createWorkflowAgentsApi(deps) {
       const applied = await refreshEmptySessionToolPolicy?.();
       invalidatePreSessionToolSurface?.();
       return { ...workflowSummary(pack), appliedToCurrentSession: applied?.appliedToCurrentSession !== false };
+    },
+    getOrchestrationMode() {
+      return configuredOrchestrationMode(displayConfig());
+    },
+    async setOrchestrationMode(mode) {
+      if (!ORCHESTRATION_MODES.includes(mode)) {
+        throw new Error(`orchestration mode must be one of ${ORCHESTRATION_MODES.join(', ')}`);
+      }
+      saveConfigAndAdopt({ ...getConfig(), orchestrationMode: mode });
+      const applied = await refreshEmptySessionToolPolicy?.();
+      invalidatePreSessionToolSurface?.();
+      invalidateContextStatusCache();
+      return { mode, appliedToCurrentSession: applied?.appliedToCurrentSession !== false };
     },
     // Workflow editor surface (desktop Workflows page): full pack read/write.
     // User packs live at <dataDir>/workflows/<id>/WORKFLOW.md; saving a
@@ -253,7 +265,6 @@ export function createWorkflowAgentsApi(deps) {
         name: pack.name,
         description: pack.description,
         source: pack.source,
-        delegatesAgents: pack.delegatesAgents !== false,
         body: pack.body,
         userOverride: existsSync(join(dataDir, 'workflows', id, 'WORKFLOW.md')),
       };
@@ -267,11 +278,6 @@ export function createWorkflowAgentsApi(deps) {
       const oneLine = (value) => clean(value).replace(/\s+/g, ' ');
       const name = oneLine(payload.name) || id;
       const description = oneLine(payload.description);
-      // Delegation on/off replaces the legacy `agents` roster payload: only an
-      // explicit "none" writes frontmatter; anything else means "delegates".
-      const delegation = String(payload.delegation ?? '')
-        .trim()
-        .toLowerCase();
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const dir = join(dataDir, 'workflows', id);
       mkdirSync(dir, { recursive: true });
@@ -282,7 +288,6 @@ export function createWorkflowAgentsApi(deps) {
             id,
             name,
             ...(description ? { description } : {}),
-            ...(delegation === 'none' ? { delegation: 'none' } : {}),
           },
           body
         )

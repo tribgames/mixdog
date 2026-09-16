@@ -641,6 +641,18 @@ export function createSessionApiB(bag) {
         set({ commandBusy: false });
       }
     },
+    getOrchestrationMode: () => runtime.getOrchestrationMode(),
+    setOrchestrationMode: async (mode) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.setOrchestrationMode(mode);
+        set({ ...routeState(), stats: { ...getState().stats } });
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     getVoiceStatus: () => getVoiceStatus(),
     // Desktop push-to-talk dictation: accept a recorded audio payload
     // (base64), stage it as a temp file, and run it through the SAME managed

@@ -6,6 +6,7 @@ import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from './effort.mjs';
 import { loadSkillToolDependencies } from './skill-tool-loading.mjs';
 import { disallowedModelToolNamesForProfile, filterModelToolsForProfile } from './tool-profile.mjs';
+import { configuredOrchestrationMode, sessionOrchestrationMode } from '../runtime/shared/orchestration.mjs';
 
 export function createToolSurface({
   mgr,
@@ -19,36 +20,20 @@ export function createToolSurface({
   getMcpScopeId = () => null,
   getCurrentCwd = () => null,
   cfgMod,
-  loadWorkflowPack,
-  activeWorkflowId,
+  delegatableAgentIds,
   dataDir,
   getFeatureDisallowedTools = () => [],
 }) {
   let preSessionSurface = null;
 
-  // A workflow that delegates to NOBODY must not advertise the agent tool: a
-  // schema-visible tool policy always rejects is a guaranteed error turn.
-  // The SESSION's effective workflow wins over the config-active one: headless
-  // and per-session overrides (e.g. bench `workflow=solo`) never touch the
-  // config default, so keying off config alone left the agent tool visible in
-  // Solo sessions (observed across a full TB2.1 run: advertised, never used).
+  // A live session keeps its frozen mode; a new session uses current settings.
   function workflowAllowsAgents() {
-    try {
-      const sessionWorkflow = getSession()?.workflow;
-      if (sessionWorkflow && typeof sessionWorkflow === 'object') {
-        if (typeof sessionWorkflow.delegatesAgents === 'boolean') {
-          return sessionWorkflow.delegatesAgents;
-        }
-        // Legacy persisted sessions carry the old roster fields.
-        if (sessionWorkflow.agentsConfigured === true) {
-          return Array.isArray(sessionWorkflow.agents) && sessionWorkflow.agents.length > 0;
-        }
-      }
-      const pack = loadWorkflowPack(cfgMod.getPluginData?.() || dataDir, activeWorkflowId(getConfig()));
-      return !pack || pack.delegatesAgents !== false;
-    } catch {
-      return true;
+    const session = getSession();
+    if (session?.id || session?.workflow || session?.orchestrationMode) {
+      return sessionOrchestrationMode(session) !== 'none' && session?.workflow?.delegatesAgents !== false;
     }
+    return configuredOrchestrationMode(getConfig()) !== 'none' &&
+      (delegatableAgentIds?.(getConfig(), cfgMod.getPluginData?.() || dataDir).length ?? 1) > 0;
   }
 
   function modelStandaloneTools() {

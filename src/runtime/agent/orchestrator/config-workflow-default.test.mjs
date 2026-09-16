@@ -8,7 +8,7 @@ import test from 'node:test';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
-test('new and unset workflows use Solo without replacing explicit selections', () => {
+test('Default and independent orchestration preserve legacy Solo/Cowork selections', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-workflow-default-'));
   const source = String.raw`
     import assert from 'node:assert/strict';
@@ -24,9 +24,10 @@ test('new and unset workflows use Solo without replacing explicit selections', (
       rootDir: join(process.cwd(), 'src'),
       dataDir: process.env.MIXDOG_DATA_DIR,
     });
-    assert.equal(buildDefaultConfig({ detectCredentials: false }).workflow.active, 'solo');
-    assert.equal(loadConfig({ secrets: false }).workflow.active, 'solo');
-    assert.equal(activeWorkflowId({}), 'solo');
+    assert.equal(buildDefaultConfig({ detectCredentials: false }).workflow.active, 'default');
+    assert.equal(buildDefaultConfig({ detectCredentials: false }).orchestrationMode, 'none');
+    assert.equal(loadConfig({ secrets: false }).workflow.active, 'default');
+    assert.equal(activeWorkflowId({}), 'default');
 
     for (const agent of [
       {},
@@ -36,23 +37,35 @@ test('new and unset workflows use Solo without replacing explicit selections', (
     ]) {
       writeFileSync(path, JSON.stringify({ agent }));
       const loaded = loadConfig({ secrets: false });
-      assert.equal(loaded.workflow.active, 'solo');
-      assert.equal(activeWorkflowId(loaded), 'solo');
+      assert.equal(loaded.workflow.active, 'default');
+      assert.equal(loaded.orchestrationMode, 'none');
+      assert.equal(activeWorkflowId(loaded), 'default');
     }
 
     for (const save of [saveConfig, saveConfigAsync]) {
       await save({});
-      assert.equal(JSON.parse(readFileSync(path, 'utf8')).agent.workflow.active, 'solo');
-      assert.equal(loadConfig({ secrets: false }).workflow.active, 'solo');
+      assert.equal(JSON.parse(readFileSync(path, 'utf8')).agent.workflow.active, 'default');
+      assert.equal(loadConfig({ secrets: false }).workflow.active, 'default');
+      assert.equal(loadConfig({ secrets: false }).orchestrationMode, 'none');
 
       for (const active of ['solo', 'default', 'custom-workflow']) {
         writeFileSync(path, JSON.stringify({ agent: { workflow: { active } } }));
         const loaded = loadConfig({ secrets: false });
-        assert.equal(loaded.workflow.active, active);
-        assert.equal(activeWorkflowId(loaded), active);
+        const nextActive = active === 'solo' ? 'default' : active;
+        const mode = active === 'solo' ? 'none' : 'swarm';
+        assert.equal(loaded.workflow.active, nextActive);
+        assert.equal(activeWorkflowId(loaded), nextActive);
+        assert.equal(loaded.orchestrationMode, mode);
         await save(loaded);
-        assert.equal(JSON.parse(readFileSync(path, 'utf8')).agent.workflow.active, active);
-        assert.equal(loadConfig({ secrets: false }).workflow.active, active);
+        assert.equal(JSON.parse(readFileSync(path, 'utf8')).agent.workflow.active, nextActive);
+        assert.equal(loadConfig({ secrets: false }).workflow.active, nextActive);
+        assert.equal(loadConfig({ secrets: false }).orchestrationMode, mode);
+      }
+      for (const orchestrationMode of ['none', 'focused', 'balanced', 'swarm']) {
+        await save({ workflow: { active: 'default' }, orchestrationMode });
+        const loaded = loadConfig({ secrets: false });
+        assert.equal(loaded.workflow.active, 'default');
+        assert.equal(loaded.orchestrationMode, orchestrationMode);
       }
     }
   `;

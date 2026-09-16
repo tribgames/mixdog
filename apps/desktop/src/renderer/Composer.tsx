@@ -1541,6 +1541,7 @@ export const Composer = memo(function Composer({
 export {
   ModelSelector,
   WorkflowSelect,
+  OrchestrationModeSelect,
   providerSetupEntries,
   providerSetupState,
   workflowOptionsCache,

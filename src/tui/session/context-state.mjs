@@ -59,6 +59,7 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     webSearchRoute: runtime.getWebSearchRoute?.() || runtime.webSearchRoute || null,
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
+    orchestrationMode: runtime.orchestrationMode || 'none',
     // Every `set({ ...routeState() })` (the 2s runtime pulse, model/effort
     // switches, turn end, resume) republishes the Goal. It must read it
     // through the goal-continuation mask: the raw record still holds a

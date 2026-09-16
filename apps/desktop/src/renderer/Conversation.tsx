@@ -9,6 +9,7 @@ import type {
   DesktopPromptContent,
   DesktopSubmitOptions,
   DesktopWorkflowState,
+  DesktopOrchestrationMode,
   SessionSnapshot,
 } from '../shared/contract';
 import { t } from './i18n';
@@ -17,7 +18,7 @@ import { approvalInstanceKey, transcriptTurnKeys } from './renderer-logic.mjs';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 
 import { ApprovalCard } from './ApprovalCard';
-import { Composer, ProjectContextSelector, WorkflowSelect } from './Composer';
+import { Composer, ProjectContextSelector, WorkflowSelect, OrchestrationModeSelect } from './Composer';
 import { BrandTile } from './WorkspaceEmptyState';
 import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from './desktop-types';
 import { ComposerDock } from './ComposerDock';
@@ -88,9 +89,11 @@ export function Conversation({
   draftId = '',
   draftModelSelection,
   draftWorkflow,
+  draftOrchestrationMode,
   onDraftModelSelection,
   onRoutePreferenceApplied,
   onDraftWorkflow,
+  onDraftOrchestrationMode,
   onOpenCommandSurface,
   onOpenFile,
   streamingTailSlot,
@@ -132,9 +135,11 @@ export function Conversation({
   draftId?: string;
   draftModelSelection?: DesktopModelSelection | null;
   draftWorkflow?: DesktopWorkflowState | null;
+  draftOrchestrationMode?: DesktopOrchestrationMode | null;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
   onDraftWorkflow?: (workflow: DesktopWorkflowState) => void;
+  onDraftOrchestrationMode?: (mode: DesktopOrchestrationMode) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
   onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string) => void;
   /** Selector-driven live row; keeps token publications out of this shell. */
@@ -1005,6 +1010,13 @@ export function Conversation({
                 invokeResult={composerInvokeResult}
                 applySnapshot={composerApplySnapshot}
                 onDraftChange={onDraftWorkflow}
+              />
+              <OrchestrationModeSelect
+                mode={draftOrchestrationMode ?? (draftMode ? null : routeSnapshot.orchestrationMode)}
+                disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
+                invokeResult={composerInvokeResult}
+                applySnapshot={composerApplySnapshot}
+                onDraftChange={onDraftOrchestrationMode}
               />
             </>
           }

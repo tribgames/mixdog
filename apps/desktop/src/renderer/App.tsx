@@ -353,6 +353,7 @@ export function App() {
     newTaskModelSelection,
     newTaskProjectPath,
     newTaskWorkflow,
+    newTaskOrchestrationMode,
     persistDraftPanePrefs,
     rememberSessionRouteForNextTask,
     resetNewTaskDraft,
@@ -362,6 +363,7 @@ export function App() {
     stageNewTaskModelSelection,
     stageNewTaskProject,
     stageNewTaskWorkflow,
+    stageNewTaskOrchestrationMode,
   } = useDraftPanePreferences({
     selection,
     selectionRef,
@@ -846,6 +848,7 @@ export function App() {
       workflow:
         (asRecord(source?.workflow) ? (source?.workflow as unknown as DesktopWorkflowState) : null) ??
         inherited.workflow,
+      orchestrationMode: source?.orchestrationMode ?? inherited.orchestrationMode,
     };
     const draftSelection = newDraftSelection();
     // Per-draft prefs are keyed by draftId, not navigationKey: the old
@@ -1512,9 +1515,11 @@ export function App() {
           draftId: draftKey,
           draftModelSelection: draftKey ? prefs.modelSelection : undefined,
           draftWorkflow: draftKey ? prefs.workflow : undefined,
+          draftOrchestrationMode: draftKey ? prefs.orchestrationMode : undefined,
           onDraftModelSelection: focusedDraft ? stageNewTaskModelSelection : undefined,
           onRoutePreferenceApplied: rememberSessionRouteForNextTask,
           onDraftWorkflow: focusedDraft ? stageNewTaskWorkflow : undefined,
+          onDraftOrchestrationMode: focusedDraft ? stageNewTaskOrchestrationMode : undefined,
           activeProjectPath: paneProjectPath,
           activeProjectLabel: paneProjectLabel,
           onSelectProject: conversationSelectProject,
@@ -1926,9 +1931,11 @@ export function App() {
                     draftId={selection.kind === 'new' ? selection.draftId || 'default' : ''}
                     draftModelSelection={newTaskModelSelection}
                     draftWorkflow={newTaskWorkflow}
+                    draftOrchestrationMode={newTaskOrchestrationMode}
                     onDraftModelSelection={selection.kind === 'new' ? stageNewTaskModelSelection : undefined}
                     onRoutePreferenceApplied={rememberSessionRouteForNextTask}
                     onDraftWorkflow={selection.kind === 'new' ? stageNewTaskWorkflow : undefined}
+                    onDraftOrchestrationMode={selection.kind === 'new' ? stageNewTaskOrchestrationMode : undefined}
                     activeProjectPath={activeProjectPath}
                     activeProjectLabel={activeProjectLabel}
                     onSelectProject={conversationSelectProject}

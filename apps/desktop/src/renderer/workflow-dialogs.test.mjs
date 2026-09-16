@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
-import { AgentEditorDialog, RouteEditorDialog } from './workflow-dialogs.tsx';
 
+// React DOM detects input-event support at import time; initialize the DOM first.
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://mixdog.test/' });
+globalThis.window = dom.window;
+globalThis.document = dom.window.document;
+globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const { createRoot } = await import('react-dom/client');
+const { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog } = await import('./workflow-dialogs.tsx');
+test.after(() => dom.window.close());
 
 const route = { provider: 'openai', model: 'test-model' };
 const models = [
@@ -17,16 +23,12 @@ const models = [
 ];
 
 function harness(t) {
-  const dom = new JSDOM('<!doctype html><html><body><main></main></body></html>', {
-    url: 'https://mixdog.test/',
-  });
-  globalThis.window = dom.window;
-  globalThis.document = dom.window.document;
-  globalThis.HTMLElement = dom.window.HTMLElement;
-  const root = createRoot(document.querySelector('main'));
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
   t.after(async () => {
     await act(async () => root.unmount());
-    dom.window.close();
+    host.remove();
   });
   return async (element) => act(async () => root.render(element));
 }
@@ -58,6 +60,18 @@ const editors = [
     }),
   },
 ];
+
+test('workflow editor contains only instructions and metadata, not delegation controls', async (t) => {
+  const render = harness(t);
+  await render(React.createElement(WorkflowEditorDialog, {
+    pack: null, deletable: false, busy: false, onCancel() {}, onSave() {}, onDelete() {},
+  }));
+  const dialog = document.querySelector('[role="dialog"]');
+  assert.equal(dialog.querySelector('input[type="checkbox"]'), null);
+  assert.doesNotMatch(dialog.textContent, /Allow agents|Use no agents|Whether this workflow can delegate/);
+  assert.doesNotMatch(dialog.querySelector('textarea').value, /delegate to agents/);
+  assert.match(dialog.querySelector('textarea').value, /reviewed and verified/);
+});
 
 for (const editor of editors) {
   for (const initiallyDisabled of [false, true]) {

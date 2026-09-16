@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DesktopModelOption, DesktopModelSelection, SessionSnapshot } from '../shared/contract';
+import type { DesktopModelOption, DesktopModelSelection, DesktopOrchestrationMode, SessionSnapshot } from '../shared/contract';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import { routePreferenceStore } from './app-route-preference';
 import { useModelSelection } from './use-model-selection';
@@ -195,6 +195,75 @@ export const WorkflowSelect = memo(function WorkflowSelect({
         onChange={(value) => void changeWorkflow(value)}
         options={displayOptions}
       />
+    </div>
+  );
+});
+
+export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
+  mode,
+  disabled,
+  invokeResult,
+  applySnapshot,
+  onDraftChange,
+}: {
+  mode?: DesktopOrchestrationMode | null;
+  disabled: boolean;
+  invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
+  applySnapshot: (snapshot: SessionSnapshot | null) => void;
+  onDraftChange?: (mode: DesktopOrchestrationMode) => void;
+}) {
+  const [inherited, setInherited] = useState<DesktopOrchestrationMode | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const guard = useRef(false);
+  useEffect(() => {
+    if (mode) return;
+    let cancelled = false;
+    void window.mixdogDesktop.invokeCapability<DesktopOrchestrationMode>({
+      capability: 'getOrchestrationMode', args: [],
+    }).then((result) => {
+      if (!cancelled) setInherited(result.value);
+    }).catch(() => {
+      // Keep the unknown control disabled; do not claim an unconfirmed mode.
+    });
+    return () => { cancelled = true; };
+  }, [mode]);
+  const selected = mode ?? inherited;
+  const change = async (value: string) => {
+    if (disabled || guard.current || value === selected) return;
+    const next = value as DesktopOrchestrationMode;
+    if (onDraftChange) {
+      onDraftChange(next);
+      return;
+    }
+    guard.current = true;
+    setSwitching(true);
+    try {
+      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability({
+        capability: 'setOrchestrationMode', args: [next],
+      }));
+      if (result !== undefined) applySnapshot(result.snapshot);
+    } finally {
+      guard.current = false;
+      setSwitching(false);
+    }
+  };
+  return (
+    <div className="composer-route-workflow">
+      {selected ? (
+        <OpenSelect
+          variant="route"
+          ariaLabel={t('Orchestration Mode')}
+          disabled={disabled || switching}
+          value={selected}
+          onChange={(value) => void change(value)}
+          options={[
+            { value: 'none', label: t('Not applicable') },
+            { value: 'focused', label: t('Focused') },
+            { value: 'balanced', label: t('Balanced') },
+            { value: 'swarm', label: t('Swarm') },
+          ]}
+        />
+      ) : <InitialSurface variant="control" />}
     </div>
   );
 });

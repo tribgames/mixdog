@@ -9,6 +9,8 @@ import { normalizeEffortInput } from './effort.mjs';
 import { isLikelyRawModelId } from './config-helpers.mjs';
 import { readTextSafe, readJsonSafe } from './fs-utils.mjs';
 import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
+import { configuredOrchestrationMode } from '../runtime/shared/orchestration.mjs';
+import { orchestrationInstructions } from './orchestration.mjs';
 import {
   DEFAULT_DISABLED_AGENT_IDS,
   configuredAgentRouteCandidates,
@@ -29,10 +31,7 @@ const BUILTIN_SLOT_AGENT_IDS = new Set(
   FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id)
 );
 const STARTER_AGENT_ORDER = new Map(DEFAULT_DISABLED_AGENT_IDS.map((id, index) => [id, index]));
-// Fallback workflow for a config with no explicit selection, for an unknown
-// id, and for the pack reset after a delete. Solo is the shipped default
-// working mode; the cowork pack (directory id `default`) is opt-in.
-export const DEFAULT_WORKFLOW_ID = 'solo';
+export const DEFAULT_WORKFLOW_ID = 'default';
 
 const WEB_SEARCH_CAPABLE_PROVIDERS = new Set([
   'openai-oauth',
@@ -97,9 +96,8 @@ export function normalizeWorkflowId(value, fallback = '') {
   return /^[a-z0-9][a-z0-9_.-]*$/.test(id) ? id : fallback;
 }
 
-// Persist the delegation bit onto session.workflow. createSession used to
-// keep only id/name/description/source, so Solo sessions lost
-// delegatesAgents:false and the agent tool leaked back onto the surface.
+// Persist the effective agent capability alongside workflow display metadata.
+// This is derived from orchestration and available agents, never pack policy.
 export function toSessionWorkflowMeta(workflow) {
   if (!workflow || typeof workflow !== 'object') return null;
   const id = String(workflow.id || '').trim();
@@ -113,11 +111,8 @@ export function toSessionWorkflowMeta(workflow) {
   };
 }
 
-// A workflow that delegates to NOBODY (`delegation: none` — e.g. Solo)
-// must not put the `agent` tool in the session tool list: policy rejects
-// every call, so a schema-visible tool is a guaranteed error turn plus dead
-// schema weight. Field source: workflowSummary() carries delegatesAgents;
-// older persisted sessions carry the legacy roster fields or nothing (safe).
+// Older sessions stored delegation policy here. Current summaries retain the
+// effective capability so an empty agent catalog still removes the tool.
 export function workflowDisallowsAgentTool(workflow) {
   if (!workflow || typeof workflow !== 'object') return false;
   if (workflow.delegatesAgents === false) return true;
@@ -217,21 +212,6 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     const fm = doc.frontmatter || {};
     const id = normalizeWorkflowId(clean(fm.id) || dirName || basename(dir));
     if (!id) return null;
-    // Workflows no longer carry an agent roster: a pack either delegates
-    // (every defined agent is available) or it does not (`delegation: none`,
-    // e.g. Solo). Legacy `agents:` frontmatter maps empty→no delegation and
-    // non-empty→delegates; the roster itself is ignored.
-    const delegationRaw = String(fm.delegation ?? '')
-      .trim()
-      .toLowerCase();
-    let delegatesAgents = !['none', 'false', 'off', '0'].includes(delegationRaw);
-    if (!delegationRaw && Object.hasOwn(fm, 'agents')) {
-      delegatesAgents =
-        String(fm.agents || '')
-          .split(',')
-          .map((agent) => agent.trim())
-          .filter(Boolean).length > 0;
-    }
     return {
       id,
       name: clean(fm.name) || id,
@@ -241,7 +221,6 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
         String(fm.hidden ?? '')
           .trim()
           .toLowerCase() === 'true',
-      delegatesAgents,
       body,
       source,
     };
@@ -265,21 +244,18 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
         if (pack && !pack.hidden) byId.set(pack.id, pack);
       }
     }
-    // Solo leads (user decision: solo is the default working mode), the
-    // cowork pack (built-in id `default`) second, then customs alphabetically
-    // — every picker (TUI, desktop sidebar, onboarding) shares this order.
-    // The cowork id stays literal here: DEFAULT_WORKFLOW_ID now means "the
-    // fallback pack" (solo), not "the pack whose directory is `default`".
-    const weight = (pack) => (pack.id === 'solo' ? 0 : pack.id === 'default' || pack.id === 'cowork' ? 1 : 2);
+    const weight = (pack) => (pack.id === DEFAULT_WORKFLOW_ID ? 0 : 1);
     return [...byId.values()].sort((a, b) => weight(a) - weight(b) || a.name.localeCompare(b.name));
   }
 
   function activeWorkflowId(config) {
-    return normalizeWorkflowId(config?.workflow?.active, DEFAULT_WORKFLOW_ID);
+    const id = normalizeWorkflowId(config?.workflow?.active, DEFAULT_WORKFLOW_ID);
+    return id === 'solo' ? DEFAULT_WORKFLOW_ID : id;
   }
 
   function loadWorkflowPack(dir, id) {
-    const wanted = normalizeWorkflowId(id, DEFAULT_WORKFLOW_ID);
+    const normalized = normalizeWorkflowId(id, DEFAULT_WORKFLOW_ID);
+    const wanted = normalized === 'solo' ? DEFAULT_WORKFLOW_ID : normalized;
     for (const { root, source } of workflowSourceDirs(dir).reverse()) {
       const pack = readWorkflowPackFromDir(join(root, wanted), source, wanted);
       if (pack) return pack;
@@ -295,28 +271,22 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     );
   }
 
-  function workflowSummary(pack, { hasAgents = true } = {}) {
+  function workflowSummary(pack, { hasAgents = true, orchestrationMode = 'none' } = {}) {
     const id = normalizeWorkflowId(pack?.id, DEFAULT_WORKFLOW_ID);
     return {
       id,
       name: clean(pack?.name) || (id === 'default' ? 'Default' : id),
       description: clean(pack?.description),
       source: clean(pack?.source),
-      // Delegation surface field: the session stores this summary as
-      // session.workflow, and the agent-tool gates (tool-surface.mjs
-      // workflowAllowsAgents + orchestrator workflowDisallowsAgentTool) need
-      // it to drop the agent tool for packs that delegate to nobody —
-      // including headless/bench sessions whose workflow never touches the
-      // config-active pack.
-      // Every agent switched off leaves nobody to delegate to, so the agent
-      // tool drops exactly as it does for a non-delegating pack.
-      delegatesAgents: pack?.delegatesAgents !== false && hasAgents !== false,
+      // Effective session capability, not an editable workflow property.
+      delegatesAgents: orchestrationMode !== 'none' && hasAgents !== false,
     };
   }
 
   function activeWorkflowSummary(config, dir) {
     return workflowSummary(loadWorkflowPack(dir, activeWorkflowId(config)), {
       hasAgents: delegatableAgentIds(config, dir).length > 0,
+      orchestrationMode: configuredOrchestrationMode(config),
     });
   }
 
@@ -350,10 +320,10 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
   }
 
   function workflowContextBlock(config, dir) {
-    return workflowContextBlockFromPack(loadWorkflowPack(dir, activeWorkflowId(config)), dir, config);
+    return activeWorkflowContext(config, dir).context;
   }
 
-  function workflowContextBlockFromPack(pack, dir, config = null) {
+  function workflowContextBlockFromPack(pack) {
     if (!pack) return '';
     // The pack body opens with its own `# <name>` title, so header + description
     // + body used to repeat the workflow name three times in the prompt. Emit one
@@ -366,17 +336,21 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
         ? rawBody.slice(firstBreak + 1).replace(/^\s+/, '')
         : rawBody;
     const lines = [`# Active Workflow: ${pack.name}${pack.description ? ` — ${pack.description}` : ''}`, body];
-    // Agents are global: a delegating pack sees every active custom agent.
-    // Slot-backed built-ins (maintainer) ride their own channels and
-    // hidden roles stay Mixdog-internal.
-    const agentIds = pack.delegatesAgents === false ? [] : delegatableAgentIds(config, dir);
+    return lines.join('\n\n');
+  }
+
+  function orchestrationContextBlock(config, dir) {
+    const instructions = orchestrationInstructions(configuredOrchestrationMode(config));
+    if (!instructions) return '';
+    const lines = [instructions];
+    const agentIds = delegatableAgentIds(config, dir);
     const agentBlocks = agentIds.map((id) => loadAgentDefinition(dir, id)).filter(Boolean);
     if (agentBlocks.length) {
       lines.push('# Available Agents');
       // Name + description only: the AGENT.md body is the worker's own system
       // prompt and rides in the worker session at spawn time — repeating it in
       // the Lead prompt only bloats context. Lead picks agents by description
-      // (a when-to-use signal); the workflow body carries the rules.
+      // (a when-to-use signal); orchestration carries the delegation rules.
       lines.push(
         agentBlocks
           .map((agent) => `- ${agent.name} (${agent.id})${agent.description ? `: ${agent.description}` : ''}`)
@@ -391,9 +365,11 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
   // and re-parse WORKFLOW.md twice on the hot boot path.
   function activeWorkflowContext(config, dir) {
     const pack = loadWorkflowPack(dir, activeWorkflowId(config));
+    const orchestrationMode = configuredOrchestrationMode(config);
     return {
-      summary: workflowSummary(pack, { hasAgents: delegatableAgentIds(config, dir).length > 0 }),
-      context: workflowContextBlockFromPack(pack, dir, config),
+      summary: workflowSummary(pack, { hasAgents: delegatableAgentIds(config, dir).length > 0, orchestrationMode }),
+      orchestrationMode,
+      context: [workflowContextBlockFromPack(pack), orchestrationContextBlock(config, dir)].filter(Boolean).join('\n\n'),
     };
   }
 

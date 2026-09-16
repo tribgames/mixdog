@@ -74,6 +74,7 @@ export function useAppSubmitRouting({
             ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
             ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
             ...(draftPrefs?.workflow?.id ? { workflowId: draftPrefs.workflow.id } : {}),
+            ...(draftPrefs?.orchestrationMode ? { orchestrationMode: draftPrefs.orchestrationMode } : {}),
           });
           accepted = result.accepted;
           startedSessionId = result.accepted ? String(result.sessionId || '') : '';
