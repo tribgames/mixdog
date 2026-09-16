@@ -5,12 +5,12 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.168 - 2026-09-16
+
 - Closing a Computer Use session always sends its own release request. The
   idle timer's speculative release used to be inherited when it was still in
   flight, so a refused early release could leave the closing session's worker
   and window claims pinned until the app restarted.
-
-## v0.9.168 - 2026-09-16
 
 - Computer Use overlay: two controls, Stop and Resume. The pause button is
   gone (touching the desktop already hands control to the user); the pill now
