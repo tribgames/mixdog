@@ -341,7 +341,7 @@ function poolParentId(agent: DesktopAgentPoolRow): string {
  *  deep is a defect, and walking it forever would freeze the window. */
 const MAX_AGENT_TREE_DEPTH = 16;
 
-export interface AgentActivityNode {
+interface AgentActivityNode {
   agent: DesktopAgentPoolRow;
   sessionId: string;
   /** Immediate parent as rendered: '' for a row that sits directly under the
@@ -354,7 +354,7 @@ export interface AgentActivityNode {
   children: AgentActivityNode[];
 }
 
-export interface AgentActivityGroup {
+interface AgentActivityGroup {
   ownerId: string;
   agents: DesktopAgentPoolRow[];
   nodes: AgentActivityNode[];

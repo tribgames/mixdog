@@ -4,7 +4,7 @@
 // point of moving gallery bytes off the RPC lane.
 import type { DesktopService } from './desktop-service-contract';
 
-export interface MediaFileTarget {
+interface MediaFileTarget {
   path: string;
   mime: string;
 }

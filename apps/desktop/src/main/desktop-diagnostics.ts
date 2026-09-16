@@ -1,7 +1,7 @@
 import { appendFile, mkdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-export interface DesktopDiagnosticContext {
+interface DesktopDiagnosticContext {
   appVersion: string;
   packaged: boolean;
   bootId?: string;

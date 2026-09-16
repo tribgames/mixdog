@@ -35,7 +35,7 @@ export interface DesktopTransport {
   on(event: string, listener: (...args: any[]) => void): unknown;
 }
 
-export interface DesktopServiceClientOptions {
+interface DesktopServiceClientOptions {
   connect(): DesktopTransport;
   sessionOptions(): SerializableDesktopServiceOptions;
   initialSnapshot?: SessionSnapshot;

@@ -12,7 +12,7 @@ import { isSessionId } from './desktop-state';
 
 const FILE_NAME = 'desktop-session-metadata.json';
 
-export interface SessionMetadataMaps {
+interface SessionMetadataMaps {
   titles: Record<string, string>;
   names: Record<string, string>;
   archived: Record<string, number>;

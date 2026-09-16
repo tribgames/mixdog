@@ -33,7 +33,7 @@ import {
   type PaneDragSession,
 } from './pane-drag-session';
 
-export interface WorkspaceTabStripProps {
+interface WorkspaceTabStripProps {
   tabs: WorkspaceTab[];
   activeKey: string;
   activeBusy?: boolean;

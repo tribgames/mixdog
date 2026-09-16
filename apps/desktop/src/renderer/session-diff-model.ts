@@ -1,6 +1,6 @@
 import { parseUnifiedDiff } from './renderer-logic.mjs';
 
-export type SessionDiffFile = {
+type SessionDiffFile = {
   path?: unknown;
   oldPath?: unknown;
   status?: unknown;
@@ -18,7 +18,7 @@ export type SessionDiffResult = {
   files?: SessionDiffFile[];
 };
 
-export type SessionDiffPart = ReturnType<typeof parseUnifiedDiff>[number];
+type SessionDiffPart = ReturnType<typeof parseUnifiedDiff>[number];
 
 export type SessionDiffRow = {
   path: string;

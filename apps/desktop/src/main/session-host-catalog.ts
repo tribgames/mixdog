@@ -27,7 +27,7 @@ export function catalogRelevantStoreEntry(filename: string | Buffer | null | und
   return top === '' || CATALOG_STORE_ENTRIES.has(top);
 }
 
-export interface SessionHostCatalogOwner {
+interface SessionHostCatalogOwner {
   isDisposed(): boolean;
   listSessions(): Promise<DesktopSessionSummary[]>;
   listAgentPool(): Promise<DesktopAgentPoolRow[]>;

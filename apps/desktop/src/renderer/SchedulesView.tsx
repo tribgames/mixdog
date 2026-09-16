@@ -7,11 +7,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
-import {
-  parseModelRef,
-  preferredModelEffort,
-  preferredModelParameters,
-} from './model-route-utils';
+import { parseModelRef, preferredModelEffort, preferredModelParameters } from './model-route-utils';
 import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -23,24 +19,16 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import {
-  ModelRouteLabel,
-  modelDisplayName,
-  modelFastAvailable,
-  normalizeModelOptions,
-} from './provider-display';
+import { ModelRouteLabel, modelDisplayName, modelFastAvailable, normalizeModelOptions } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
-import {
-  useSidebarReferences,
-  type SidebarReferenceKey,
-} from './sidebar-reference-cache';
+import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import { CompactSwitch } from './settings/capability-controls';
 
 type RecordValue = Record<string, unknown>;
-export type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
+type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
 type FrequencyKind = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'once';
 
@@ -97,10 +85,16 @@ function datetimeLocalValue(date: Date): string {
 // Recognize the cron shapes the frequency dropdown can produce so existing
 // schedules prefill the same controls; anything else falls back to Daily.
 function frequencyFromCron(cron: string): {
-  kind: FrequencyKind; minute: string; clock: string; weekday: string; matched: boolean;
+  kind: FrequencyKind;
+  minute: string;
+  clock: string;
+  weekday: string;
+  matched: boolean;
 } {
   const fallback = { kind: 'daily' as FrequencyKind, minute: '0', clock: '09:00', weekday: '1', matched: false };
-  const parts = String(cron || '').trim().split(/\s+/);
+  const parts = String(cron || '')
+    .trim()
+    .split(/\s+/);
   if (parts.length !== 5) return fallback;
   const [minute, hour, dom, month, dow] = parts;
   const numeric = (value: string) => /^\d{1,2}$/.test(value);
@@ -122,9 +116,14 @@ function describeSchedule(schedule: RecordValue): string {
     const at = new Date(String(schedule.whenAt));
     return Number.isNaN(at.getTime())
       ? t('One-shot')
-      : t('Once at {{time}}', { time: at.toLocaleString(uiFormatLocale(), {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-      }) });
+      : t('Once at {{time}}', {
+          time: at.toLocaleString(uiFormatLocale(), {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        });
   }
   const cron = String(schedule.whenCron || '');
   const parsed = frequencyFromCron(cron);
@@ -145,18 +144,23 @@ function scheduleMeta(schedule: RecordValue) {
   let route: { model: string; effort: string; fast: boolean } | null = null;
   if (ref.route) {
     const slash = ref.route.indexOf('/');
-    const model = slash > 0
-      ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash))
-      : ref.route;
+    const model = slash > 0 ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash)) : ref.route;
     route = { model, effort: ref.effort || '', fast: ref.fast };
   }
   const cwd = String(schedule.cwd || '');
   const cwdLabel = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() || cwd : '';
-  return <>
-    {scheduleLabel}
-    {route && <> · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} /></>}
-    {cwdLabel && <> · {cwdLabel}</>}
-  </>;
+  return (
+    <>
+      {scheduleLabel}
+      {route && (
+        <>
+          {' '}
+          · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} />
+        </>
+      )}
+      {cwdLabel && <> · {cwdLabel}</>}
+    </>
+  );
 }
 
 // Map the engine's schedule display shape (channel-admin scheduleToDisplay)
@@ -170,7 +174,7 @@ function scheduleDraft(schedule: RecordValue | undefined): ScheduleDraft {
   return {
     name: String(source.name || ''),
     description: String(source.description || ''),
-    frequency: source.whenAt && !cron ? 'once' : (cron ? parsed.kind : 'daily'),
+    frequency: source.whenAt && !cron ? 'once' : cron ? parsed.kind : 'daily',
     minute: parsed.minute,
     clock: parsed.clock,
     weekday: parsed.weekday,
@@ -247,148 +251,248 @@ function ScheduleEditor({
   if (cwd && !projectOptions.some((option) => option.value === cwd)) {
     projectOptions.push({ value: cwd, label: cwd });
   }
-  return <SidebarDialogLayer onClose={onCancel}>
-    <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="schedules-dialog-title">
-      <header>
-        <h2 id="schedules-dialog-title">{editing ? t('Edit scheduled task') : t('Create scheduled task')}</h2>
-        <div className="schedules-dialog-header-actions">
-          <CompactSwitch label={t('Enabled')} checked={enabled} disabled={busy}
-            onChange={(next) => {
-              setEnabled(next);
-              if (editing) onToggle?.(next);
-            }} />
-          <button type="button" aria-label={t("Close schedule editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
-        </div>
-      </header>
-      <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        const data = new FormData(event.currentTarget);
-        const text = (name: string) => String(data.get(name) || '').trim();
-        if (!model) {
-          setFormError(t('Choose a model for this schedule.'));
-          return;
-        }
-        const buildCron = () => {
-          if (frequency === 'hourly') {
-            const minute = Math.min(59, Math.max(0, Number(text('schedule-minute') || '0') || 0));
-            return `${minute} * * * *`;
-          }
-          const [hour = '9', minute = '0'] = text('schedule-clock').split(':');
-          const base = `${Number(minute)} ${Number(hour)}`;
-          if (frequency === 'weekdays') return `${base} * * 1-5`;
-          if (frequency === 'weekly') return `${base} * * ${weekday}`;
-          return `${base} * * *`;
-        };
-        setFormError('');
-        const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
-        const fastSuffix = fastAvailable && fast ? '+fast' : '';
-        const parameterSuffix = Object.keys(selectedModelParameters).length
-          ? `?${new URLSearchParams(selectedModelParameters).toString()}`
-          : '';
-        onSave({
-          name: editing ? draft.name : text('schedule-name'),
-          description: draft.description,
-          ...(frequency === 'once'
-            ? { at: text('schedule-at') }
-            : { time: buildCron() }),
-          delivery: 'app',
-          model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}`,
-          ...(cwd ? { cwd } : {}),
-          ...(workflow ? { workflow } : {}),
-          ...(attachments.length ? { attachments } : {}),
-          instructions: text('schedule-instructions'),
-          enabled,
-          ...(editing ? { overwrite: true } : {}),
-        });
-      }}>
-        <label className="schedules-field"><span>{t('Name')}</span>
-          <small>{t('Shown in schedule lists and notifications.')}</small>
-          <input name="schedule-name" defaultValue={draft.name} placeholder="daily-briefing" required autoFocus
-            disabled={busy || editing} maxLength={64} />
-        </label>
-        {/* Field order (user decision): composer right under Name, then
-            Project → Delivery → Frequency as labeled fields. */}
-        <div className="schedules-composer">
-          <textarea name="schedule-instructions" defaultValue={draft.instructions} required disabled={busy}
-            placeholder={t("What should Mixdog do when this schedule fires?")} aria-label={t("Schedule instructions")} />
-          <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
-          <div className="composer-footer schedules-composer-footer">
-            <AutomationAttachButton attachments={attachments} disabled={busy}
-              ariaLabel={t("Attach files to this schedule")}
-              onChange={setAttachments} onError={setFormError} />
-            <ModelRouteEditor models={models} disabled={busy} ariaLabel={t("Schedule model")}
-              value={{
-                provider: modelProvider,
-                model: modelId,
-                ...(effortValue ? { effort: effortValue } : {}),
-                fast,
-                modelParameters: selectedModelParameters,
+  return (
+    <SidebarDialogLayer onClose={onCancel}>
+      <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="schedules-dialog-title">
+        <header>
+          <h2 id="schedules-dialog-title">{editing ? t('Edit scheduled task') : t('Create scheduled task')}</h2>
+          <div className="schedules-dialog-header-actions">
+            <CompactSwitch
+              label={t('Enabled')}
+              checked={enabled}
+              disabled={busy}
+              onChange={(next) => {
+                setEnabled(next);
+                if (editing) onToggle?.(next);
               }}
-              onChange={(selection) => {
-                setModel(`${selection.provider}/${selection.model}`);
-                setEffort(String(selection.effort || ''));
-                setFast(selection.fast === true);
-                setModelParameters(selection.modelParameters || {});
-                setFormError('');
-              }} />
-            {/* Same flat, right-aligned workflow control as the chat
+            />
+            <button type="button" aria-label={t('Close schedule editor')} onClick={onCancel}>
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+        <form
+          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            const text = (name: string) => String(data.get(name) || '').trim();
+            if (!model) {
+              setFormError(t('Choose a model for this schedule.'));
+              return;
+            }
+            const buildCron = () => {
+              if (frequency === 'hourly') {
+                const minute = Math.min(59, Math.max(0, Number(text('schedule-minute') || '0') || 0));
+                return `${minute} * * * *`;
+              }
+              const [hour = '9', minute = '0'] = text('schedule-clock').split(':');
+              const base = `${Number(minute)} ${Number(hour)}`;
+              if (frequency === 'weekdays') return `${base} * * 1-5`;
+              if (frequency === 'weekly') return `${base} * * ${weekday}`;
+              return `${base} * * *`;
+            };
+            setFormError('');
+            const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
+            const fastSuffix = fastAvailable && fast ? '+fast' : '';
+            const parameterSuffix = Object.keys(selectedModelParameters).length
+              ? `?${new URLSearchParams(selectedModelParameters).toString()}`
+              : '';
+            onSave({
+              name: editing ? draft.name : text('schedule-name'),
+              description: draft.description,
+              ...(frequency === 'once' ? { at: text('schedule-at') } : { time: buildCron() }),
+              delivery: 'app',
+              model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}`,
+              ...(cwd ? { cwd } : {}),
+              ...(workflow ? { workflow } : {}),
+              ...(attachments.length ? { attachments } : {}),
+              instructions: text('schedule-instructions'),
+              enabled,
+              ...(editing ? { overwrite: true } : {}),
+            });
+          }}
+        >
+          <label className="schedules-field">
+            <span>{t('Name')}</span>
+            <small>{t('Shown in schedule lists and notifications.')}</small>
+            <input
+              name="schedule-name"
+              defaultValue={draft.name}
+              placeholder="daily-briefing"
+              required
+              autoFocus
+              disabled={busy || editing}
+              maxLength={64}
+            />
+          </label>
+          {/* Field order (user decision): composer right under Name, then
+            Project → Delivery → Frequency as labeled fields. */}
+          <div className="schedules-composer">
+            <textarea
+              name="schedule-instructions"
+              defaultValue={draft.instructions}
+              required
+              disabled={busy}
+              placeholder={t('What should Mixdog do when this schedule fires?')}
+              aria-label={t('Schedule instructions')}
+            />
+            <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
+            <div className="composer-footer schedules-composer-footer">
+              <AutomationAttachButton
+                attachments={attachments}
+                disabled={busy}
+                ariaLabel={t('Attach files to this schedule')}
+                onChange={setAttachments}
+                onError={setFormError}
+              />
+              <ModelRouteEditor
+                models={models}
+                disabled={busy}
+                ariaLabel={t('Schedule model')}
+                value={{
+                  provider: modelProvider,
+                  model: modelId,
+                  ...(effortValue ? { effort: effortValue } : {}),
+                  fast,
+                  modelParameters: selectedModelParameters,
+                }}
+                onChange={(selection) => {
+                  setModel(`${selection.provider}/${selection.model}`);
+                  setEffort(String(selection.effort || ''));
+                  setFast(selection.fast === true);
+                  setModelParameters(selection.modelParameters || {});
+                  setFormError('');
+                }}
+              />
+              {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
-            <div className="effort-control workflow-control">
-              <OpenSelect variant="route" ariaLabel={t("Schedule workflow")} value={workflow} disabled={busy}
-                options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
-                onChange={setWorkflow} />
+              <div className="effort-control workflow-control">
+                <OpenSelect
+                  variant="route"
+                  ariaLabel={t('Schedule workflow')}
+                  value={workflow}
+                  disabled={busy}
+                  options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
+                  onChange={setWorkflow}
+                />
+              </div>
             </div>
           </div>
-        </div>
-        <div className="schedules-field">
-          <span>{t('Project')}</span>
-          <small>{t('Project used for each run.')}</small>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel={t("Schedule project")} value={cwd || '__none__'} disabled={busy}
-              options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
+          <div className="schedules-field">
+            <span>{t('Project')}</span>
+            <small>{t('Project used for each run.')}</small>
+            <div className="schedules-frequency">
+              <OpenSelect
+                ariaLabel={t('Schedule project')}
+                value={cwd || '__none__'}
+                disabled={busy}
+                options={projectOptions}
+                onChange={(next) => setCwd(next === '__none__' ? '' : next)}
+              />
+            </div>
           </div>
-        </div>
-        <div className="schedules-field">
-          <span>{t('Frequency')}</span>
-          <small>{t('How often this schedule runs.')}</small>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel={t("Schedule frequency")} value={frequency} disabled={busy}
-              options={FREQUENCY_OPTIONS}
-              onChange={(value) => setFrequency((FREQUENCY_OPTIONS.some((option) => option.value === value)
-                ? value : 'daily') as FrequencyKind)} />
-            {frequency === 'hourly' && <input name="schedule-minute" type="number" min={0} max={59}
-              defaultValue={draft.minute} required disabled={busy} aria-label={t("Minute of each hour")} />}
-            {(frequency === 'daily' || frequency === 'weekdays') && <input name="schedule-clock" type="time"
-              defaultValue={draft.clock} required disabled={busy} aria-label={t("Time of day")} />}
-            {frequency === 'weekly' && <>
-              <OpenSelect ariaLabel="Weekday" value={weekday} disabled={busy}
-                options={WEEKDAY_OPTIONS} onChange={setWeekday} />
-              <input name="schedule-clock" type="time" defaultValue={draft.clock} required disabled={busy}
-                aria-label={t("Time of day")} />
-            </>}
-            {frequency === 'once' && <input name="schedule-at" type="datetime-local" defaultValue={draft.at}
-              required disabled={busy} aria-label={t("Run at")} />}
+          <div className="schedules-field">
+            <span>{t('Frequency')}</span>
+            <small>{t('How often this schedule runs.')}</small>
+            <div className="schedules-frequency">
+              <OpenSelect
+                ariaLabel={t('Schedule frequency')}
+                value={frequency}
+                disabled={busy}
+                options={FREQUENCY_OPTIONS}
+                onChange={(value) =>
+                  setFrequency(
+                    (FREQUENCY_OPTIONS.some((option) => option.value === value) ? value : 'daily') as FrequencyKind
+                  )
+                }
+              />
+              {frequency === 'hourly' && (
+                <input
+                  name="schedule-minute"
+                  type="number"
+                  min={0}
+                  max={59}
+                  defaultValue={draft.minute}
+                  required
+                  disabled={busy}
+                  aria-label={t('Minute of each hour')}
+                />
+              )}
+              {(frequency === 'daily' || frequency === 'weekdays') && (
+                <input
+                  name="schedule-clock"
+                  type="time"
+                  defaultValue={draft.clock}
+                  required
+                  disabled={busy}
+                  aria-label={t('Time of day')}
+                />
+              )}
+              {frequency === 'weekly' && (
+                <>
+                  <OpenSelect
+                    ariaLabel="Weekday"
+                    value={weekday}
+                    disabled={busy}
+                    options={WEEKDAY_OPTIONS}
+                    onChange={setWeekday}
+                  />
+                  <input
+                    name="schedule-clock"
+                    type="time"
+                    defaultValue={draft.clock}
+                    required
+                    disabled={busy}
+                    aria-label={t('Time of day')}
+                  />
+                </>
+              )}
+              {frequency === 'once' && (
+                <input
+                  name="schedule-at"
+                  type="datetime-local"
+                  defaultValue={draft.at}
+                  required
+                  disabled={busy}
+                  aria-label={t('Run at')}
+                />
+              )}
+            </div>
           </div>
-        </div>
-        <footer>
-          {(formError || error) && <ErrorNotice error={formError || error} />}
-          {editing && onDelete && <button type="button"
-            className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
-            onClick={() => {
-              if (!confirmDelete) {
-                setConfirmDelete(true);
-                return;
-              }
-              onDelete();
-            }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
-          {editing && onRun && <button type="button" disabled={busy || running}
-            onClick={onRun}>{running ? t('Running…') : t('Run now')}</button>}
-          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
-          <button type="submit" disabled={busy}>{t('Save')}</button>
-        </footer>
-      </form>
-    </section>
-  </SidebarDialogLayer>;
+          <footer>
+            {(formError || error) && <ErrorNotice error={formError || error} />}
+            {editing && onDelete && (
+              <button
+                type="button"
+                className={`danger${confirmDelete ? ' confirming' : ''}`}
+                disabled={busy}
+                onClick={() => {
+                  if (!confirmDelete) {
+                    setConfirmDelete(true);
+                    return;
+                  }
+                  onDelete();
+                }}
+              >
+                {confirmDelete ? t('Confirm delete') : t('Delete')}
+              </button>
+            )}
+            {editing && onRun && (
+              <button type="button" disabled={busy || running} onClick={onRun}>
+                {running ? t('Running…') : t('Run now')}
+              </button>
+            )}
+            <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
+              {t('Cancel')}
+            </button>
+            <button type="submit" disabled={busy}>
+              {t('Save')}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </SidebarDialogLayer>
+  );
 }
 
 // Shared, process-wide reference keys. channelSetup is first: it carries the
@@ -403,7 +507,11 @@ const SCHEDULE_REFERENCE_KEYS = [
 
 // Scheduled-tasks panel (rail -> Schedules): a compact searchable list in the
 // session-panel area, plus a popup editor.
-export function SchedulesPane({ api = window.mixdogDesktop, active = true, runningNames }: {
+export function SchedulesPane({
+  api = window.mixdogDesktop,
+  active = true,
+  runningNames,
+}: {
   api?: SchedulesApi;
   active?: boolean;
   runningNames?: ReadonlySet<string>;
@@ -411,19 +519,22 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   // Seeded synchronously from the shared cache: a warm boot paints rows on the
   // first render instead of showing a loading cover, and re-entry revalidates
   // silently underneath the rows that are already there.
-  const { values, loading, completeMutation } =
-    useSidebarReferences(api, SCHEDULE_REFERENCE_KEYS, active);
+  const { values, loading, completeMutation } = useSidebarReferences(api, SCHEDULE_REFERENCE_KEYS, active);
   const setup = values.channelSetup;
   // Same configured-provider semantics as the Workflows panel: a disconnected
   // provider's models never reach the picker.
-  const models = useMemo(() => filterConfiguredModels(
-    normalizeModelOptions(values.quickProviderModels),
-    values.providerSetup,
-  ), [values.quickProviderModels, values.providerSetup]);
+  const models = useMemo(
+    () => filterConfiguredModels(normalizeModelOptions(values.quickProviderModels), values.providerSetup),
+    [values.quickProviderModels, values.providerSetup]
+  );
   const projects = values.projects;
-  const workflows = useMemo(() => values.workflows
-    .map((row) => ({ value: String(row.id || ''), label: String(row.name || row.id || '') }))
-    .filter((option) => option.value), [values.workflows]);
+  const workflows = useMemo(
+    () =>
+      values.workflows
+        .map((row) => ({ value: String(row.id || ''), label: String(row.name || row.id || '') }))
+        .filter((option) => option.value),
+    [values.workflows]
+  );
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -439,7 +550,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   const run = async (
     capability: DesktopCapability,
     args: unknown[] = [],
-    errorMode: 'inline' | 'toast' = 'inline',
+    errorMode: 'inline' | 'toast' = 'inline'
   ): Promise<unknown> => {
     if (!api?.invokeCapability || pending) return undefined;
     setPending(capability);
@@ -464,7 +575,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   const schedules = rows(setup.schedules);
   const scheduleOrder = usePersistedListOrder(
     'mixdog.sidebar-order.schedules.v1',
-    schedules.map((schedule) => String(schedule.name)),
+    schedules.map((schedule) => String(schedule.name))
   );
   const orderedSchedules = scheduleOrder.orderedIds
     .map((name) => schedules.find((schedule) => String(schedule.name) === name))
@@ -479,7 +590,9 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
       void completeMutation('runScheduleNow');
       notifySessionsRefresh();
     } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', { scope: `schedule:run:${name}` });
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+        scope: `schedule:run:${name}`,
+      });
     } finally {
       setRunningName('');
     }
@@ -488,73 +601,124 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   const visible = orderedSchedules.filter((schedule) => {
     if (!text) return true;
     return [schedule.name, schedule.description, schedule.time, schedule.model]
-      .map((value) => String(value || '').toLowerCase()).join(' ').includes(text);
+      .map((value) => String(value || '').toLowerCase())
+      .join(' ')
+      .includes(text);
   });
   const saveSchedule = async (entry: RecordValue) => {
     const result = await run('saveSchedule', [entry]);
     if (result !== undefined) setEditor(null);
   };
 
-  return <div className="schedules-pane stable-surface-preserved stable-takeover-surface"
-    data-surface-active={active ? 'true' : 'false'}
-    inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
-    <div className="schedules-page">
-      {/* Title and primary action live in the sidebar panel header. */}
-      <SidebarPanelAction active={active} label={t("New schedule")} icon={Plus}
-        className="schedules-add" disabled={busy}
-        onClick={() => {
-          setError('');
-          setEditor({ name: '', draft: scheduleDraft(undefined) });
-        }} />
-      <div className="schedules-search">
-        <Search size={14} aria-hidden="true" />
-        <input aria-label={t("Search schedules")} placeholder={t("Search schedules…")} value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)} />
-      </div>
-      {active && editor && <ScheduleEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
-        busy={busy} running={runningName === editor.name}
-        models={models} projects={projects} workflows={workflows} error={error}
-        onCancel={() => {
-          setError('');
-          setEditor(null);
-        }}
-        onRun={editor.name ? () => void runNow(editor.name) : undefined}
-        onDelete={editor.name ? () => {
-          const name = editor.name;
-          setEditor(null);
-          void run('deleteSchedule', [name], 'toast');
-        } : undefined}
-        onSave={(entry) => void saveSchedule(entry)}
-        onToggle={(enabled) => void run('setScheduleEnabled', [editor.name, enabled], 'toast')} />}
-      {/* Reserve the first-read list, without claiming it is empty. Cached
-          rows stay visible while their background refresh runs. */}
-      {loading ? <InitialSurface />
-        : visible.length ? <div className="schedules-list">{visible.map((schedule) => {
-          const name = String(schedule.name);
-          const enabled = schedule.enabled !== false;
-          const running = runningNames?.has(name) === true;
-          return <button type="button" key={name}
-            className="schedules-row utilities-row sidebar-resource-row"
-            data-enabled={enabled ? 'true' : 'false'}
-            disabled={busy} onClick={() => {
+  return (
+    <div
+      className="schedules-pane stable-surface-preserved stable-takeover-surface"
+      data-surface-active={active ? 'true' : 'false'}
+      inert={active ? undefined : true}
+      aria-hidden={active ? undefined : true}
+    >
+      <div className="schedules-page">
+        {/* Title and primary action live in the sidebar panel header. */}
+        <SidebarPanelAction
+          active={active}
+          label={t('New schedule')}
+          icon={Plus}
+          className="schedules-add"
+          disabled={busy}
+          onClick={() => {
+            setError('');
+            setEditor({ name: '', draft: scheduleDraft(undefined) });
+          }}
+        />
+        <div className="schedules-search">
+          <Search size={14} aria-hidden="true" />
+          <input
+            aria-label={t('Search schedules')}
+            placeholder={t('Search schedules…')}
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </div>
+        {active && editor && (
+          <ScheduleEditor
+            key={editor.name || '(new)'}
+            draft={editor.draft}
+            editing={Boolean(editor.name)}
+            busy={busy}
+            running={runningName === editor.name}
+            models={models}
+            projects={projects}
+            workflows={workflows}
+            error={error}
+            onCancel={() => {
               setError('');
-              setEditor({ name, draft: scheduleDraft(schedule) });
-            }} {...scheduleOrder.getReorderProps(name)}>
-            <span className="schedules-row-copy utilities-row-copy">
-              <SidebarResourceTitle label={name} tag={!enabled ? { label: t('Disabled'), tone: 'muted' } : null} />
-              <small>{scheduleMeta(schedule)}</small>
-            </span>
-            {running && <span className="sidebar-resource-running" role="status"
-              aria-label={t("{{name}} is running", { name })}>
-              <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
-            </span>}
-            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-          </button>;
-        })}</div>
-        : <div className="schedules-empty">
-          <AlarmClock size={40} strokeWidth={1.5} aria-hidden="true" />
-          <p>{schedules.length ? t('No schedules match the current filter.') : t('No scheduled tasks yet.')}</p>
-        </div>}
+              setEditor(null);
+            }}
+            onRun={editor.name ? () => void runNow(editor.name) : undefined}
+            onDelete={
+              editor.name
+                ? () => {
+                    const name = editor.name;
+                    setEditor(null);
+                    void run('deleteSchedule', [name], 'toast');
+                  }
+                : undefined
+            }
+            onSave={(entry) => void saveSchedule(entry)}
+            onToggle={(enabled) => void run('setScheduleEnabled', [editor.name, enabled], 'toast')}
+          />
+        )}
+        {/* Reserve the first-read list, without claiming it is empty. Cached
+          rows stay visible while their background refresh runs. */}
+        {loading ? (
+          <InitialSurface />
+        ) : visible.length ? (
+          <div className="schedules-list">
+            {visible.map((schedule) => {
+              const name = String(schedule.name);
+              const enabled = schedule.enabled !== false;
+              const running = runningNames?.has(name) === true;
+              return (
+                <button
+                  type="button"
+                  key={name}
+                  className="schedules-row utilities-row sidebar-resource-row"
+                  data-enabled={enabled ? 'true' : 'false'}
+                  disabled={busy}
+                  onClick={() => {
+                    setError('');
+                    setEditor({ name, draft: scheduleDraft(schedule) });
+                  }}
+                  {...scheduleOrder.getReorderProps(name)}
+                >
+                  <span className="schedules-row-copy utilities-row-copy">
+                    <SidebarResourceTitle
+                      label={name}
+                      tag={!enabled ? { label: t('Disabled'), tone: 'muted' } : null}
+                    />
+                    <small>{scheduleMeta(schedule)}</small>
+                  </span>
+                  {running && (
+                    <span
+                      className="sidebar-resource-running"
+                      role="status"
+                      aria-label={t('{{name}} is running', { name })}
+                    >
+                      <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
+                    </span>
+                  )}
+                  <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="schedules-empty">
+            <AlarmClock size={40} strokeWidth={1.5} aria-hidden="true" />
+            <p>{schedules.length ? t('No schedules match the current filter.') : t('No scheduled tasks yet.')}</p>
+          </div>
+        )}
+      </div>
     </div>
-  </div>;
+  );
 }

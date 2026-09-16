@@ -19,8 +19,13 @@
   visibility: visible;
   pointer-events: auto;
 }
-.session-sidebar-panels { display: flex; flex-direction: column; }
-.sidebar-view-section[data-active="false"] { display: none; }
+.session-sidebar-panels {
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-view-section[data-active="false"] {
+  display: none;
+}
 .sidebar-view-section[data-active="true"][data-sectioned="false"],
 .sidebar-view-section[data-active="true"][data-sectioned="false"] > .sidebar-view-section-body {
   display: contents;
@@ -99,7 +104,9 @@
   inset: auto;
   min-height: 100%;
 }
-.session-sidebar-panels .stable-takeover-surface { width: 100%; }
+.session-sidebar-panels .stable-takeover-surface {
+  width: 100%;
+}
 .session-sidebar-panels .stable-takeover-surface[data-surface-active="false"] {
   position: absolute;
   inset: 0;
@@ -143,7 +150,9 @@
 /* The page's rail gap (8px) alone spaces search → filters → list on one
    even rhythm; the old +2/+4 margins predate the 6px page gap and drifted
    the stack to 10/12px (user: 스케줄/웹훅 전체적으로 정리). */
-.session-sidebar-panels .schedules-filters { gap: 4px; }
+.session-sidebar-panels .schedules-filters {
+  gap: 4px;
+}
 /* Filter chips speak the search box's control grammar — same 28px height,
    same 5px radius, same 12px side inset (user: 검색박스랑 아래 태그들도
    같게 맞춰야지) — instead of a second, smaller pill language. */
@@ -161,27 +170,41 @@
   --mx-rail-item-outline: color-mix(in srgb, var(--mx-text) 10%, transparent);
   --mx-rail-item-outline-active: color-mix(in srgb, var(--mx-text) 20%, transparent);
 }
-.session-sidebar-panels .schedules-list { gap: 6px; }
-.session-sidebar-panels .schedules-row[draggable="true"] { cursor: grab; }
-.session-sidebar-panels .schedules-row[draggable="true"]:active { cursor: grabbing; }
-.session-sidebar-panels .schedules-row[data-reordering="true"] { opacity: .48; }
+.session-sidebar-panels .schedules-list {
+  gap: 6px;
+}
+.session-sidebar-panels .schedules-row[draggable="true"] {
+  cursor: grab;
+}
+.session-sidebar-panels .schedules-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+.session-sidebar-panels .schedules-row[data-reordering="true"] {
+  opacity: 0.48;
+}
 .session-sidebar-panels .schedules-row[data-drop-position="before"] {
-  box-shadow: inset 0 2px 0 var(--mx-focus), inset 0 0 0 .5px var(--mx-rail-item-outline);
+  box-shadow:
+    inset 0 2px 0 var(--mx-focus),
+    inset 0 0 0 0.5px var(--mx-rail-item-outline);
 }
 .session-sidebar-panels .schedules-row[data-drop-position="after"] {
-  box-shadow: inset 0 -2px 0 var(--mx-focus), inset 0 0 0 .5px var(--mx-rail-item-outline);
+  box-shadow:
+    inset 0 -2px 0 var(--mx-focus),
+    inset 0 0 0 0.5px var(--mx-rail-item-outline);
 }
 /* No extra section break in the rail (user: 간격이 어색하다): the page's own
    6px gap already separates the blocks, so the added margin doubled the gap
    between Common Instructions and the first project card (12px vs 6px). */
-.session-sidebar-panels .projects-common-instructions { margin-bottom: 0; }
+.session-sidebar-panels .projects-common-instructions {
+  margin-bottom: 0;
+}
 .session-sidebar-panels .schedules-row {
   gap: 8px;
   padding: var(--mx-rail-row-padding) var(--mx-rail-gutter);
   border: 0;
   border-radius: var(--mx-radius-md);
   background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline);
   transition: background-color var(--mx-motion-ink);
 }
 /* In-row ramp: NAME leads at 13/400 full ink, then description/meta at 12. */
@@ -190,7 +213,9 @@
   font-weight: var(--mx-weight-regular);
   line-height: 18px;
 }
-.session-sidebar-panels .schedules-row-copy { gap: 4px; }
+.session-sidebar-panels .schedules-row-copy {
+  gap: 4px;
+}
 .session-sidebar-panels .schedules-row-copy small {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-supporting);
@@ -205,15 +230,17 @@
 }
 .session-sidebar-panels .schedules-row.selected {
   background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
+  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline-active);
 }
 /* Projects open editors; the current path is not a persistent selection.
    Hover still acknowledges that the row can be opened. */
 .session-sidebar-panels .projects-pane .projects-row.selected {
   background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline);
 }
-.session-sidebar-panels .projects-pane .projects-row:hover { background: var(--mx-hover); }
+.session-sidebar-panels .projects-pane .projects-row:hover {
+  background: var(--mx-hover);
+}
 .session-sidebar-panels .schedules-row:focus-visible,
 .session-sidebar-panels .schedules-row:has(:focus-visible),
 .session-sidebar-panels .projects-pane .projects-row:focus-visible,
@@ -235,8 +262,12 @@
   align-self: center;
   color: var(--mx-icon-muted);
 }
-.session-sidebar-panels .utilities-row-copy { gap: 4px; }
-.session-sidebar-panels .utilities-row .schedules-row-copy b { line-height: 18px; }
+.session-sidebar-panels .utilities-row-copy {
+  gap: 4px;
+}
+.session-sidebar-panels .utilities-row .schedules-row-copy b {
+  line-height: 18px;
+}
 .session-sidebar-panels .sidebar-resource-title {
   min-width: 0;
   display: flex;
@@ -268,7 +299,7 @@
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   font-size: var(--mx-font-micro);
   font-weight: var(--mx-weight-regular);
   line-height: 1;
@@ -277,17 +308,17 @@
 .session-sidebar-panels .sidebar-resource-tag[data-tone="warn"] {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-warning) 35%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-warning) 35%, transparent);
 }
 .session-sidebar-panels .sidebar-resource-tag[data-tone="danger"] {
   color: var(--mx-danger);
   background: color-mix(in srgb, var(--mx-danger) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 35%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 35%, transparent);
 }
 .session-sidebar-panels .sidebar-resource-tag[data-tone="ok"] {
   color: var(--mx-success);
   background: color-mix(in srgb, var(--mx-success) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-success) 35%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-success) 35%, transparent);
 }
 .session-sidebar-panels .sidebar-resource-row {
   border: 0;
@@ -324,11 +355,24 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.session-sidebar-panels .utilities-row:hover .utilities-row-chevron { color: var(--mx-text-soft); }
-.session-sidebar-panels .row-overflow-trigger { width: var(--mx-control-xs); height: var(--mx-control-xs); border-radius: var(--mx-radius-md); }
+.session-sidebar-panels .utilities-row:hover .utilities-row-chevron {
+  color: var(--mx-text-soft);
+}
+.session-sidebar-panels .row-overflow-trigger {
+  width: var(--mx-control-xs);
+  height: var(--mx-control-xs);
+  border-radius: var(--mx-radius-md);
+}
 /* Empty panel: one quiet glyph over one line of copy, centered top-to-bottom */
-.session-sidebar-panels .schedules-empty { gap: 10px; padding: 12px; text-align: center; }
-.session-sidebar-panels .schedules-empty svg { width: var(--mx-icon-2xl); height: var(--mx-icon-2xl); }
+.session-sidebar-panels .schedules-empty {
+  gap: 10px;
+  padding: 12px;
+  text-align: center;
+}
+.session-sidebar-panels .schedules-empty svg {
+  width: var(--mx-icon-2xl);
+  height: var(--mx-icon-2xl);
+}
 /* Agents Dock: session categories lead, then compact role/model/tag rows. */
 .utility-dock .agent-activity-page {
   width: 100%;
@@ -355,7 +399,9 @@
   margin: 0;
   text-align: center;
 }
-.utility-dock .agent-activity-empty svg { color: var(--mx-icon-muted); }
+.utility-dock .agent-activity-empty svg {
+  color: var(--mx-icon-muted);
+}
 .utility-dock .agent-group-toolbar {
   display: flex;
   justify-content: flex-end;
@@ -446,7 +492,10 @@
   margin-left: -1px;
   color: var(--mx-text-accent);
 }
-.fast-mode-indicator svg { width: 12px; height: 12px; }
+.fast-mode-indicator svg {
+  width: 12px;
+  height: 12px;
+}
 .utility-dock .agent-activity-elapsed {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-supporting);
@@ -490,15 +539,20 @@
    dock and the cards inherited that width, so the right gutter changed per
    title (user: 제목에 따라 오른쪽 여백이 들쭉날쭉). minmax(0, 1fr) pins the
    track to the dock width; the heading ellipsizes instead of pushing. */
-.utility-dock .agent-activity-page .workflows-models { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-.utility-dock .agent-activity-page .schedules-list { gap: 6px; }
+.utility-dock .agent-activity-page .workflows-models {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+.utility-dock .agent-activity-page .schedules-list {
+  gap: 6px;
+}
 .utility-dock .agent-activity-page .schedules-row {
   gap: 8px;
   padding: var(--mx-rail-row-padding) var(--mx-rail-gutter);
   border: 0;
   border-radius: var(--mx-radius-md);
   background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline);
 }
 .utility-dock .agent-activity-page :is(.agent-session-heading, .agent-pool-row) {
   user-select: none;
@@ -524,7 +578,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.utility-dock .agent-activity-page .schedules-row:hover { background: var(--mx-hover); }
+.utility-dock .agent-activity-page .schedules-row:hover {
+  background: var(--mx-hover);
+}
 .utility-dock .agent-activity-page .schedules-row-copy b {
   font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
@@ -535,8 +591,12 @@
 }
 /* Workflow settings sub-sections read as sidebar section headings on the 6px line,
    with a real section break above each one. */
-.session-sidebar-panels .workflows-models { gap: 2px; }
-.session-sidebar-panels .workflows-models > p { display: none; }
+.session-sidebar-panels .workflows-models {
+  gap: 2px;
+}
+.session-sidebar-panels .workflows-models > p {
+  display: none;
+}
 .session-sidebar-panels .workflows-models h2 {
   height: 32px;
   /* Compact section break ABOVE, tight binding to the list below. */
@@ -562,10 +622,21 @@
    internal centering slack so the first category TEXT sits on the same
    12px line; spacing below and every later section stay untouched. */
 .sidebar.session-sidebar > .session-sidebar-scroll > .sidebar-recent:first-child > .sidebar-recent-heading:first-child,
-.session-sidebar-panels .workflows-packs > .workflows-section-head { margin-top: -6px; }
-.session-sidebar-panels .workflows-packs > .workflows-section-head { padding-top: 0; }
-.session-sidebar-panels .workflows-section-head { align-items: center; gap: 8px; padding: 6px 0 0; }
-.session-sidebar-panels .workflows-section-head h2 { flex: 1; margin: 0; }
+.session-sidebar-panels .workflows-packs > .workflows-section-head {
+  margin-top: -6px;
+}
+.session-sidebar-panels .workflows-packs > .workflows-section-head {
+  padding-top: 0;
+}
+.session-sidebar-panels .workflows-section-head {
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 0;
+}
+.session-sidebar-panels .workflows-section-head h2 {
+  flex: 1;
+  margin: 0;
+}
 .session-sidebar-panels .workflows-section-head > .schedules-new {
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
 }
@@ -593,10 +664,14 @@
    drawer keeps its own transform transition (keyframe reused at the
    narrow-desktop drawer frame). */
 @keyframes sidebar-slide-in {
-  from { transform: translateX(-100%); }
+  from {
+    transform: translateX(-100%);
+  }
 }
 /* Phone drawer scrim: only the narrow-viewport media query displays it. */
-.sidebar-backdrop { display: none; }
+.sidebar-backdrop {
+  display: none;
+}
 .session-sidebar .task-link,
 .session-sidebar .projects-link,
 .session-sidebar .session-row {
@@ -687,24 +762,44 @@
   );
   pointer-events: auto;
 }
-.session-row-action:hover { color: var(--mx-icon); background: var(--mx-hover); }
+.session-row-action:hover {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
 .session-row-delete:hover,
-.session-row-delete-confirm:hover { color: var(--mx-danger); }
-.session-row-action:disabled { opacity: var(--mx-op-disabled); pointer-events: none; }
+.session-row-delete-confirm:hover {
+  color: var(--mx-danger);
+}
+.session-row-action:disabled {
+  opacity: var(--mx-op-disabled);
+  pointer-events: none;
+}
 /* Archive carries the red tone (user decision); restore stays neutral. */
-.session-row-action.session-row-archive { color: var(--mx-danger); }
+.session-row-action.session-row-archive {
+  color: var(--mx-danger);
+}
 .session-row:hover .session-row-action.session-row-archive,
 .session-row:has(:focus-visible) .session-row-action.session-row-archive {
   color: var(--mx-danger);
   opacity: 1;
 }
-.session-row-action.session-row-archive:hover { color: var(--mx-danger); opacity: 1; }
-.session-row-action.session-row-restore { color: var(--mx-icon); }
-.session-row-action.session-row-restore:hover { color: var(--mx-text); }
+.session-row-action.session-row-archive:hover {
+  color: var(--mx-danger);
+  opacity: 1;
+}
+.session-row-action.session-row-restore {
+  color: var(--mx-icon);
+}
+.session-row-action.session-row-restore:hover {
+  color: var(--mx-text);
+}
 /* Delete-only row action (rename menu removed): the trash glyph reads as a
    destructive affordance, so it carries the danger tone at rest and full
    danger on hover. */
-.session-row-action.session-row-delete { color: var(--mx-danger); opacity: 0; }
+.session-row-action.session-row-delete {
+  color: var(--mx-danger);
+  opacity: 0;
+}
 .session-row:hover .session-row-action.session-row-delete,
 .session-row:has(:focus-visible) .session-row-action.session-row-delete {
   /* Full danger tone the moment the ROW is hovered — the generic action rule
@@ -712,7 +807,10 @@
   color: var(--mx-danger);
   opacity: 1;
 }
-.session-row-action.session-row-delete:hover { color: var(--mx-danger); opacity: 1; }
+.session-row-action.session-row-delete:hover {
+  color: var(--mx-danger);
+  opacity: 1;
+}
 .session-title-input {
   position: absolute;
   /* Centered in the 31px row and starting on the row's own text line: the
@@ -751,9 +849,13 @@
   visibility: hidden;
   pointer-events: none;
 }
-.session-title-input[aria-invalid="true"] { outline-color: var(--mx-danger); }
+.session-title-input[aria-invalid="true"] {
+  outline-color: var(--mx-danger);
+}
 /* No blue ring on list rows; keyboard focus uses the neutral inner line. */
-.session-sidebar .session-row-main:focus-visible { outline: none; }
+.session-sidebar .session-row-main:focus-visible {
+  outline: none;
+}
 .session-sidebar .session-row:has(.session-row-main:focus-visible) {
   box-shadow: var(--mx-list-focus-ring);
 }
@@ -763,9 +865,13 @@
    wants no ring (rail buttons, menu items, composer ghost triggers, the SCM
    commit button…) still opts out locally, and the canonical
    `button:focus-visible` ring at the top of this sheet covers the rest. */
-:focus-visible:not(button, input, textarea, select, a) { outline: none !important; }
+:focus-visible:not(button, input, textarea, select, a) {
+  outline: none !important;
+}
 .effort-control .mx-select-trigger:focus-visible,
-.send-button:focus-visible { box-shadow: none; }
+.send-button:focus-visible {
+  box-shadow: none;
+}
 /* Double-click rename: the editor replaces the row button, so the row itself
    must center the 24px input inside its 36px height and keep the focus ring
    clear of the rail edges. */
@@ -773,7 +879,12 @@
   padding: 0 var(--mx-rail-gutter) 0 0;
 }
 .session-sidebar .task-link,
-.session-sidebar .projects-link { font-size: var(--mx-font-item); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); cursor: pointer; }
+.session-sidebar .projects-link {
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  cursor: pointer;
+}
 .session-sidebar .task-link:hover,
 .session-sidebar .projects-link:hover,
 .session-sidebar .session-row:hover {
@@ -785,7 +896,7 @@
   --session-row-action-surface: var(--mx-bg-layer-2);
   color: var(--mx-text);
   background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
+  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline-active);
 }
 /* Primary-nav selection mirror: the surface that owns the screen renders its
    nav button with the same selected tone as a chosen session row. */
@@ -831,9 +942,14 @@
 .session-sidebar-sessions > .session-sidebar-scroll {
   overflow-anchor: none;
 }
-.sidebar-recent { display: grid; gap: 2px; }
+.sidebar-recent {
+  display: grid;
+  gap: 2px;
+}
 /* Sibling sections stay distinct without opening an oversized empty band. */
-.session-sidebar-scroll > .sidebar-recent + .sidebar-recent { margin-top: 2px; }
+.session-sidebar-scroll > .sidebar-recent + .sidebar-recent {
+  margin-top: 2px;
+}
 /* Fixed launcher block (user: 세션 위에 새 작업·새 스튜디오 고정): New Task
    and New Studio sit ABOVE the scroller as a real fixed block. The first
    cut kept them INSIDE it as a sticky block with a -12px margin, but the
@@ -854,7 +970,9 @@
   padding-top: 12px;
   padding-bottom: 8px;
 }
-.session-sidebar-sessions > .session-sidebar-scroll { padding-top: 2px; }
+.session-sidebar-sessions > .session-sidebar-scroll {
+  padding-top: 2px;
+}
 /* Fixed launchers use category typography and leading icons on the same
    left edge as category headings, retaining the primary-link hit area. */
 .session-sidebar .task-link.session-launcher-row {
@@ -900,7 +1018,10 @@
   letter-spacing: 0;
   line-height: var(--mx-line-ui);
 }
-.sidebar-recent-heading > span { min-width: 0; flex: 1; }
+.sidebar-recent-heading > span {
+  min-width: 0;
+  flex: 1;
+}
 .sidebar-recent-heading > small {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
@@ -915,7 +1036,9 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
-.sidebar-recent-heading.session-list-more:hover { color: var(--mx-text); }
+.sidebar-recent-heading.session-list-more:hover {
+  color: var(--mx-text);
+}
 /* AFTER the base heading rules on purpose: the collapsible variant must win
    order-dependent overrides. Same CATEGORY tier as the base heading above. */
 .sidebar-recent-heading.sidebar-heading-toggle {
@@ -943,7 +1066,10 @@
   background: var(--mx-hover);
   box-shadow: var(--mx-list-focus-ring);
 }
-.sidebar-recent-heading.sidebar-heading-toggle > span { flex: 0 0 auto; min-width: 0; }
+.sidebar-recent-heading.sidebar-heading-toggle > span {
+  flex: 0 0 auto;
+  min-width: 0;
+}
 .sidebar-recent-heading.sidebar-heading-toggle svg {
   color: var(--mx-text-muted);
   flex: 0 0 auto;
@@ -983,7 +1109,9 @@
   align-items: center;
   gap: 2px;
 }
-.sidebar-section-heading { margin-top: 2px; }
+.sidebar-section-heading {
+  margin-top: 2px;
+}
 .sidebar-section-toggle,
 .project-group-toggle,
 .sidebar-section-action,
@@ -1007,7 +1135,9 @@
 /* Section heads are CATEGORY tier too: they used to render 13/400 muted —
    smaller AND quieter than the rows underneath, the one inversion the rail
    ladder forbids. */
-.sidebar-section-toggle { color: var(--mx-text); }
+.sidebar-section-toggle {
+  color: var(--mx-text);
+}
 .sidebar-section-toggle > span {
   font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
@@ -1022,7 +1152,7 @@
 .project-group-toggle.selected {
   color: var(--mx-text);
   background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .project-group-label {
   min-width: 0;
@@ -1047,8 +1177,13 @@
 }
 .project-group-toggle:hover .project-group-chevron,
 .project-group-toggle:focus-visible .project-group-chevron,
-.project-group-toggle.selected .project-group-chevron { opacity: 1; }
-.project-row-icon { flex: 0 0 16px; color: var(--mx-icon-muted); }
+.project-group-toggle.selected .project-group-chevron {
+  opacity: 1;
+}
+.project-row-icon {
+  flex: 0 0 16px;
+  color: var(--mx-icon-muted);
+}
 .sidebar-section-toggle:hover,
 .project-group-toggle:hover,
 .sidebar-section-action:hover,
@@ -1070,24 +1205,42 @@
   border-radius: var(--mx-radius-md);
 }
 .sidebar-section-action,
-.project-task-add { opacity: 0; pointer-events: none; }
+.project-task-add {
+  opacity: 0;
+  pointer-events: none;
+}
 .sidebar-section-heading:hover .sidebar-section-action,
 .sidebar-section-heading:focus-within .sidebar-section-action,
-.sidebar-section-action:focus-visible { opacity: 1; pointer-events: auto; }
+.sidebar-section-action:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
 .project-group-heading:hover .project-task-add,
 .project-group-heading:focus-within .project-task-add,
-.project-task-add:focus-visible { opacity: 1; pointer-events: auto; }
-.session-sidebar .recent-session-list { padding: 0; }
-.session-sidebar .recent-session-list .sidebar-section-empty { padding-left: 8px; }
+.project-task-add:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.session-sidebar .recent-session-list {
+  padding: 0;
+}
+.session-sidebar .recent-session-list .sidebar-section-empty {
+  padding-left: 8px;
+}
 /* Titles start at the compact rail inset; the trailing working status overlays
    the existing fade instead of reserving a permanent leading column. */
 /* Session labels keep a small inner inset so text never collides with the
    rounded hover/selection frame. */
 .session-sidebar .project-group .session-row,
-.session-sidebar .standalone-session-list .session-row { padding-left: 8px; }
+.session-sidebar .standalone-session-list .session-row {
+  padding-left: 8px;
+}
 /* Session rows sit tighter than the 36px nav links: 31px keeps the 14px title
    comfortable while the list stops reading airy (user request). */
-.session-sidebar .session-row { height: 31px; min-height: 31px; }
+.session-sidebar .session-row {
+  height: 31px;
+  min-height: 31px;
+}
 .sidebar-section-empty,
 .project-sessions-empty {
   margin: 0;

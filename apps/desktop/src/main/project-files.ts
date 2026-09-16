@@ -60,7 +60,7 @@ export function decodeProjectText(bytes: Buffer): {
   };
 }
 
-export function encodeProjectText(content: string, encoding: ProjectTextEncoding): Buffer {
+function encodeProjectText(content: string, encoding: ProjectTextEncoding): Buffer {
   if (encoding === 'utf8bom') {
     return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(content, 'utf8')]);
   }

@@ -1,31 +1,37 @@
-import { useEffect, useLayoutEffect, useReducer, useState } from "react";
-import { createPortal } from "react-dom";
-import { Check, Sparkles, X } from "lucide-react";
-import { t } from "./i18n";
-import type { Toast } from "./desktop-types";
-import { ErrorNotice, safeErrorDetails } from "./ErrorNotice";
-import { groupToasts, reduceToasts } from "./desktop-toast-state";
-import { reportRendererNotice } from "./RendererRecovery";
-import { relayPayloadTooLargeMessage } from "../shared/remote-payload-limit";
+import { useEffect, useLayoutEffect, useReducer, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Check, Sparkles, X } from 'lucide-react';
+import { t } from './i18n';
+import type { Toast } from './desktop-types';
+import { ErrorNotice, safeErrorDetails } from './ErrorNotice';
+import { groupToasts, reduceToasts } from './desktop-toast-state';
+import { reportRendererNotice } from './RendererRecovery';
+import { relayPayloadTooLargeMessage } from '../shared/remote-payload-limit';
 
-export const DESKTOP_TOAST_EVENT = "mixdog:desktop-toast";
-export const DESKTOP_TOAST_DISMISS_EVENT = "mixdog:desktop-toast-dismiss";
-export type DesktopToastTone = "info" | "success" | "warn" | "error";
+export const DESKTOP_TOAST_EVENT = 'mixdog:desktop-toast';
+export const DESKTOP_TOAST_DISMISS_EVENT = 'mixdog:desktop-toast-dismiss';
+type DesktopToastTone = 'info' | 'success' | 'warn' | 'error';
 let sequence = 0;
-export type DesktopToastOptions = { scope?: string; groupKey?: string; lifetime?: "event" | "state" };
+type DesktopToastOptions = { scope?: string; groupKey?: string; lifetime?: 'event' | 'state' };
 
-export function showDesktopToast(text: string, tone: DesktopToastTone = "info", options: DesktopToastOptions = {}): string | undefined {
+export function showDesktopToast(
+  text: string,
+  tone: DesktopToastTone = 'info',
+  options: DesktopToastOptions = {}
+): string | undefined {
   const message = safeErrorDetails(text);
-  if (!message || typeof window === "undefined") return;
+  if (!message || typeof window === 'undefined') return;
   const id = `renderer:${Date.now()}:${++sequence}`;
-  window.dispatchEvent(new window.CustomEvent<Toast>(DESKTOP_TOAST_EVENT, {
-    detail: { id, text: message, tone, ...options },
-  }));
+  window.dispatchEvent(
+    new window.CustomEvent<Toast>(DESKTOP_TOAST_EVENT, {
+      detail: { id, text: message, tone, ...options },
+    })
+  );
   return id;
 }
 
 export function dismissDesktopToast(id: string | undefined) {
-  if (!id || typeof window === "undefined") return;
+  if (!id || typeof window === 'undefined') return;
   window.dispatchEvent(new window.CustomEvent(DESKTOP_TOAST_DISMISS_EVENT, { detail: id }));
 }
 
@@ -33,30 +39,47 @@ export function dismissDesktopToast(id: string | undefined) {
 export function useErrorToast(error: string, scope: string) {
   useEffect(() => {
     if (!error) return;
-    const id = showDesktopToast(error, "error", { scope, lifetime: "state" });
+    const id = showDesktopToast(error, 'error', { scope, lifetime: 'state' });
     return () => dismissDesktopToast(id);
   }, [error, scope]);
 }
 
-export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
-  bridgeError: string; toasts: Toast[]; onDismissBridgeError(): void;
+export function DesktopToastRegion({
+  bridgeError,
+  toasts,
+  onDismissBridgeError,
+}: {
+  bridgeError: string;
+  toasts: Toast[];
+  onDismissBridgeError(): void;
 }) {
   const [records, dispatch] = useReducer(reduceToasts, []);
   const [placement, setPlacement] = useState({ right: 16, top: 54, width: 320, maxHeight: 400 });
-  const hostToasts = [...toasts, ...(bridgeError
-    ? [{ id: "desktop-bridge", text: bridgeError, tone: "error", lifetime: "state" }]
-    : [])];
+  const hostToasts = [
+    ...toasts,
+    ...(bridgeError ? [{ id: 'desktop-bridge', text: bridgeError, tone: 'error', lifetime: 'state' }] : []),
+  ];
   const hostToken = JSON.stringify(hostToasts);
-  useEffect(() => { dispatch({ type: "host", toasts: hostToasts }); }, [hostToken]);
+  useEffect(() => {
+    dispatch({ type: 'host', toasts: hostToasts });
+  }, [hostToken]);
   useLayoutEffect(() => {
-    const receive = (event: Event) => dispatch({ type: "receive", toast: (event as CustomEvent<Toast>).detail });
-    const dismiss = (event: Event) => dispatch({ type: "dismiss", ids: [`renderer:${String((event as CustomEvent).detail)}`] });
+    const receive = (event: Event) => dispatch({ type: 'receive', toast: (event as CustomEvent<Toast>).detail });
+    const dismiss = (event: Event) =>
+      dispatch({ type: 'dismiss', ids: [`renderer:${String((event as CustomEvent).detail)}`] });
     window.addEventListener(DESKTOP_TOAST_EVENT, receive);
     window.addEventListener(DESKTOP_TOAST_DISMISS_EVENT, dismiss);
     const unsubscribe = window.mixdogDesktop?.subscribeRelayPayloadRefused?.((detail) => {
-      showDesktopToast(relayPayloadTooLargeMessage({
-        bytes: detail?.bytes ?? null, limit: detail?.limit ?? null, callId: null, scope: "unknown",
-      }), "error", { scope: "relay" });
+      showDesktopToast(
+        relayPayloadTooLargeMessage({
+          bytes: detail?.bytes ?? null,
+          limit: detail?.limit ?? null,
+          callId: null,
+          scope: 'unknown',
+        }),
+        'error',
+        { scope: 'relay' }
+      );
     });
     return () => {
       window.removeEventListener(DESKTOP_TOAST_EVENT, receive);
@@ -65,15 +88,21 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
     };
   }, []);
   const entries = groupToasts(records);
-  const expiringIds = entries.filter((entry) => entry.tone !== "error").flatMap((entry) => entry.ids).join("\u0000");
+  const expiringIds = entries
+    .filter((entry) => entry.tone !== 'error')
+    .flatMap((entry) => entry.ids)
+    .join('\u0000');
   useEffect(() => {
     if (!expiringIds) return;
-    const timer = window.setTimeout(() => dispatch({ type: "dismiss", ids: expiringIds.split("\u0000") }), 5000);
+    const timer = window.setTimeout(() => dispatch({ type: 'dismiss', ids: expiringIds.split('\u0000') }), 5000);
     return () => window.clearTimeout(timer);
   }, [expiringIds]);
-  const shownErrors = entries.filter((entry) => entry.tone === "error").map((entry) => entry.text).join("\u0000");
+  const shownErrors = entries
+    .filter((entry) => entry.tone === 'error')
+    .map((entry) => entry.text)
+    .join('\u0000');
   useEffect(() => {
-    for (const text of shownErrors.split("\u0000").filter(Boolean)) reportRendererNotice(text);
+    for (const text of shownErrors.split('\u0000').filter(Boolean)) reportRendererNotice(text);
   }, [shownErrors]);
   const hasEntries = entries.length > 0;
   useLayoutEffect(() => {
@@ -81,44 +110,78 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
     // keeps its own `.workspace` sheet mounted (parked ones included), so the
     // first sheet in the document is not the visible one.
     const measure = () => {
-      const panel = document.querySelector(".main-panel");
+      const panel = document.querySelector('.main-panel');
       const sheet = panel?.getBoundingClientRect();
       if (!sheet?.width || !sheet.height) return;
-      const strip = panel?.querySelector(".workspace-tabs-shell")?.getBoundingClientRect();
+      const strip = panel?.querySelector('.workspace-tabs-shell')?.getBoundingClientRect();
       const top = Math.max(16, (strip?.height ? strip.bottom : sheet.top) + 16);
       const next = {
-        right: Math.max(16, window.innerWidth - sheet.right + 16), top,
-        width: Math.min(320, Math.max(0, sheet.width - 32)), maxHeight: Math.max(0, sheet.bottom - top - 16),
+        right: Math.max(16, window.innerWidth - sheet.right + 16),
+        top,
+        width: Math.min(320, Math.max(0, sheet.width - 32)),
+        maxHeight: Math.max(0, sheet.bottom - top - 16),
       };
-      setPlacement((current) => Object.keys(next).every((key) =>
-        current[key as keyof typeof next] === next[key as keyof typeof next]) ? current : next);
+      setPlacement((current) =>
+        Object.keys(next).every((key) => current[key as keyof typeof next] === next[key as keyof typeof next])
+          ? current
+          : next
+      );
     };
     measure();
-    window.addEventListener("resize", measure);
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    const panel = document.querySelector(".main-panel");
+    window.addEventListener('resize', measure);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    const panel = document.querySelector('.main-panel');
     if (observer && panel) observer.observe(panel);
-    return () => { window.removeEventListener("resize", measure); observer?.disconnect(); };
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer?.disconnect();
+    };
   }, [hasEntries]);
   if (!hasEntries) return null;
-  return createPortal(<section className="mx-toast-region" aria-label={t("Notifications")} aria-live="polite"
-    data-count={entries.length} style={placement}>
-    {entries.map((entry) => {
-      const dismiss = () => {
-        dispatch({ type: "dismiss", ids: entry.ids });
-        if (entry.ids.includes("host:desktop-bridge")) onDismissBridgeError();
-      };
-      return <article className="mx-toast" data-tone={entry.tone} key={entry.key}>
-        {entry.tone === "error" ? <ErrorNotice errors={entry.details} count={entry.count} onDismiss={dismiss} /> : <>
-          {entry.tone === "success" ? <Check size={16} /> : <Sparkles size={16} />}
-          <span className="mx-toast-copy" role="status"><b>{entry.tone === "success" ? t("Completed")
-            : entry.tone === "warn" || entry.tone === "warning" ? t("Attention") : "Mixdog"}</b>
-            <span>{entry.text}</span></span>
-          <button type="button" className="mx-toast-close" aria-label={t("Dismiss notification")} onClick={dismiss}>
-            <X size={16} />
-          </button>
-        </>}
-      </article>;
-    })}
-  </section>, document.body);
+  return createPortal(
+    <section
+      className="mx-toast-region"
+      aria-label={t('Notifications')}
+      aria-live="polite"
+      data-count={entries.length}
+      style={placement}
+    >
+      {entries.map((entry) => {
+        const dismiss = () => {
+          dispatch({ type: 'dismiss', ids: entry.ids });
+          if (entry.ids.includes('host:desktop-bridge')) onDismissBridgeError();
+        };
+        return (
+          <article className="mx-toast" data-tone={entry.tone} key={entry.key}>
+            {entry.tone === 'error' ? (
+              <ErrorNotice errors={entry.details} count={entry.count} onDismiss={dismiss} />
+            ) : (
+              <>
+                {entry.tone === 'success' ? <Check size={16} /> : <Sparkles size={16} />}
+                <span className="mx-toast-copy" role="status">
+                  <b>
+                    {entry.tone === 'success'
+                      ? t('Completed')
+                      : entry.tone === 'warn' || entry.tone === 'warning'
+                        ? t('Attention')
+                        : 'Mixdog'}
+                  </b>
+                  <span>{entry.text}</span>
+                </span>
+                <button
+                  type="button"
+                  className="mx-toast-close"
+                  aria-label={t('Dismiss notification')}
+                  onClick={dismiss}
+                >
+                  <X size={16} />
+                </button>
+              </>
+            )}
+          </article>
+        );
+      })}
+    </section>,
+    document.body
+  );
 }

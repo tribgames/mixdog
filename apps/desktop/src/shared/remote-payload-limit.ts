@@ -50,7 +50,7 @@ export const RELAY_PAYLOAD_TOO_LARGE_CODE = 'RELAY_PAYLOAD_TOO_LARGE';
  *  `push`  — a frame with no caller behind it; no pending call is affected,
  *  `unknown` — nobody could attribute it, so some in-flight call may be
  *  waiting for an answer that will never arrive. */
-export type RelayRejectionScope = 'call' | 'push' | 'unknown';
+type RelayRejectionScope = 'call' | 'push' | 'unknown';
 
 export interface RelayPayloadRejection {
   /** Wire size of the refused frame, when the relay reported a usable one. */

@@ -15,7 +15,7 @@ import {
   trimTrailingCodeNewline,
 } from './markdown-plugins';
 
-export interface MarkdownAstNode {
+interface MarkdownAstNode {
   type: 'root' | 'element' | 'text';
   tagName?: string;
   value?: string;

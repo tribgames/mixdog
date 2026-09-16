@@ -1,13 +1,13 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron';
 import { nativeT } from './native-i18n';
 
-export interface NativeZoomActions {
+interface NativeZoomActions {
   reset(): void;
   zoomIn(): void;
   zoomOut(): void;
 }
 
-export interface NativeMenuExtras {
+interface NativeMenuExtras {
   /** Opens the phone pairing window (starts the remote legs on demand). */
   showRemoteAccess?: () => void;
 }

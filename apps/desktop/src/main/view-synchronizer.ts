@@ -6,7 +6,7 @@ import type {
 } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 
-export interface ViewSyncSnapshot {
+interface ViewSyncSnapshot {
   snapshot: SessionSnapshot;
   sessions: DesktopSessionSummary[];
   agents: DesktopAgentPoolRow[];

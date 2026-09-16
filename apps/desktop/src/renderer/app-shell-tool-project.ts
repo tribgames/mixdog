@@ -6,7 +6,7 @@ import type { paneActiveSelection } from './pane-layout';
 
 export const LAST_PROJECT_KEY = 'mixdog.desktop-last-project.v1';
 
-export interface AppToolProjectProps {
+interface AppToolProjectProps {
   navigationSelection: NavigationSelection;
   focusedPaneSelection: ReturnType<typeof paneActiveSelection>;
   selectedSessionProjectPath: string;

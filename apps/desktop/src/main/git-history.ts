@@ -39,7 +39,7 @@ export interface GitReviewFile {
   uncommitted: boolean;
 }
 
-export interface GitReviewResult {
+interface GitReviewResult {
   base: string;
   files: GitReviewFile[];
 }
@@ -75,7 +75,7 @@ async function resolveMergeBase(cwd: string): Promise<{ base: string; ref: strin
   return { base, ref: base === 'HEAD' ? 'HEAD' : `${base}...HEAD` };
 }
 
-export interface GitLogEntry {
+interface GitLogEntry {
   hash: string;
   shortHash: string;
   subject: string;
@@ -186,7 +186,7 @@ export async function gitLog(cwd: string, query = '', skip = 0, limit = 40): Pro
     });
 }
 
-export interface GitCommitFile {
+interface GitCommitFile {
   path: string;
   oldPath?: string;
   status: string;
@@ -194,7 +194,7 @@ export interface GitCommitFile {
   deletions: number;
 }
 
-export interface GitCommitDetails {
+interface GitCommitDetails {
   hash: string;
   shortHash: string;
   subject: string;

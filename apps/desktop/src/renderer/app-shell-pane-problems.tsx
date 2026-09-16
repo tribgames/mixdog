@@ -12,7 +12,7 @@ import {
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import type { EditorNavigationState } from './use-editor-navigation';
 
-export interface PaneProblemsRendererProps {
+interface PaneProblemsRendererProps {
   bottomPanel: ReturnType<typeof useBottomPanelState>;
   problemsFilter: ProblemsPanelFilter;
   setProblemsFilter: (filter: ProblemsPanelFilter) => void;

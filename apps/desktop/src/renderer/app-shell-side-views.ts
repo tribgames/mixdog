@@ -8,7 +8,7 @@ import type { useAppSideDocks } from './use-app-side-docks';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 import type { WorkbenchSideViewId, WorkbenchSide, WorkbenchSideViewPlacement } from './workbench-side-view-layout';
 
-export interface SideViewRoutingActions {
+interface SideViewRoutingActions {
   sideOf: ReturnType<typeof useAppSideDocks>['workbenchSideLayout']['sideOf'];
   selectDock: ReturnType<typeof useAppSideDocks>['paneSideDocks']['select'];
   activeSideViews: ReturnType<typeof useAppSideDocks>['activeSideViews'];

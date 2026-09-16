@@ -25,10 +25,6 @@ import {
 } from './editor-pane-surfaces';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { nextEditorLayoutDimension, type EditorLayoutDimension } from './editor-layout';
-// @ts-expect-error The Peek submenu registry is internal and has no declarations.
-import { MenuId, MenuRegistry } from 'monaco-editor/esm/vs/platform/actions/common/actions.js';
-// @ts-expect-error See the menu-registry import above.
-import { ContextKeyExpr } from 'monaco-editor/esm/vs/platform/contextkey/common/contextkey.js';
 import type { DesktopEditorSettings } from '../shared/contract';
 import { explicitEditorLanguageIdForPath } from '../shared/editor-languages';
 import type { EditorCodeGraphMode } from './editor-code-graph';

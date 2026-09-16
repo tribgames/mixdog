@@ -4,7 +4,7 @@ import { localFileMimeTypeForPath } from '../shared/local-files';
 export const MIXDOG_PROJECT_PATHS_MIME = 'application/x-mixdog-project-paths';
 export const MIXDOG_ABSOLUTE_PATHS_MIME = 'application/x-mixdog-folder-paths';
 
-export type MixdogFileDragPayload =
+type MixdogFileDragPayload =
   | { kind: 'project'; projectPath: string; paths: string[] }
   | { kind: 'absolute'; paths: string[] };
 
@@ -97,12 +97,16 @@ export async function localFilesFromPaths(
   files: File[];
   directories: DesktopLocalPathEntry[];
   errors: string[];
+  sourcePaths: Map<File, string>;
+  unattachedPaths: string[];
 }> {
   const files: File[] = [];
   const directories: DesktopLocalPathEntry[] = [];
   const errors: string[] = [];
+  const sourcePaths = new Map<File, string>();
+  const unattachedPaths: string[] = [];
   if (!api.resolveLocalPaths || !api.readLocalFile || !paths.length) {
-    return { files, directories, errors };
+    return { files, directories, errors, sourcePaths, unattachedPaths: [...paths] };
   }
   let entries: DesktopLocalPathEntry[];
   try {
@@ -112,6 +116,8 @@ export async function localFilesFromPaths(
       files,
       directories,
       errors: [reason instanceof Error ? reason.message : String(reason)],
+      sourcePaths,
+      unattachedPaths: [...paths],
     };
   }
   for (const entry of entries) {
@@ -119,7 +125,10 @@ export async function localFilesFromPaths(
       directories.push(entry);
       continue;
     }
-    if (files.length >= limit) continue;
+    if (files.length >= limit) {
+      unattachedPaths.push(entry.absolutePath);
+      continue;
+    }
     try {
       const loaded = await api.readLocalFile(entry.absolutePath);
       const binary = atob(loaded.data);
@@ -127,16 +136,17 @@ export async function localFilesFromPaths(
       for (let index = 0; index < binary.length; index += 1) {
         bytes[index] = binary.charCodeAt(index);
       }
-      files.push(
-        new File([bytes], loaded.name, {
-          type: loaded.mimeType || localFileMimeTypeForPath(loaded.name),
-        })
-      );
+      const file = new File([bytes], loaded.name, {
+        type: loaded.mimeType || localFileMimeTypeForPath(loaded.name),
+      });
+      files.push(file);
+      sourcePaths.set(file, entry.absolutePath);
     } catch (reason) {
       errors.push(reason instanceof Error ? reason.message : String(reason));
+      unattachedPaths.push(entry.absolutePath);
     }
   }
-  return { files, directories, errors };
+  return { files, directories, errors, sourcePaths, unattachedPaths };
 }
 
 export async function materializeDroppedFiles(

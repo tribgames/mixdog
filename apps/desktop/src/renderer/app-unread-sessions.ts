@@ -1,7 +1,7 @@
 // Recent-list unread dots. Seen state is a per-session MESSAGE COUNT (v2) in
 // localStorage: only message growth that lands while the surface is unread —
 // hidden, unfocused, or showing another session — earns a dot, so housekeeping
-// saves never re-dot a checked row. Extracted from App.tsx.
+// saves never re-dot a checked row.
 import { useCallback, useRef, useState, type MutableRefObject } from 'react';
 
 import type { DesktopSessionSummary } from '../shared/contract';

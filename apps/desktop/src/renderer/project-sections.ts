@@ -1,7 +1,7 @@
 // The Projects rail destination hosts two sections behind one toolbar (the
 // Extensions panel's Plugin | Skill grammar): the project list and the
 // workflow/agent configuration that used to own its own rail icon.
-export const PROJECT_SECTIONS = ['projects', 'workflows'] as const;
+const PROJECT_SECTIONS = ['projects', 'workflows'] as const;
 
 export type ProjectsSection = (typeof PROJECT_SECTIONS)[number];
 

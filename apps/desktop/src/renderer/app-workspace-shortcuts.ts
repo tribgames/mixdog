@@ -15,7 +15,7 @@ import { useEffect, useRef } from 'react';
 import type { WorkspaceTab } from './navigation';
 import { modalDialogPresented } from './surface-input-focus';
 
-export interface WorkspaceShortcutActions {
+interface WorkspaceShortcutActions {
   tabs: WorkspaceTab[];
   activeTabKey: string;
   navigateTab: (tab: WorkspaceTab) => void;

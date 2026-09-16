@@ -1,8 +1,8 @@
 import { formatRemoteByteReport, type RemoteByteReport } from '../shared/remote-performance';
 
-export type RemotePerformanceInfoWriter = (message: string) => void;
+type RemotePerformanceInfoWriter = (message: string) => void;
 
-export function writeRemotePerformanceInfo(message: string): void {
+function writeRemotePerformanceInfo(message: string): void {
   console.info(message);
 }
 

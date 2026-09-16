@@ -4,7 +4,7 @@ import { isMobileRemoteSurface } from './MobileTabOverview';
 import { registerMobileBack } from './mobile-back';
 import type { WorkbenchQuickAccessMode } from './workbench-overlays-loader';
 
-export interface MobileBackProps {
+interface MobileBackProps {
   sidebarOpen: boolean;
   applySidebarOpen: (open: boolean, motion?: 'animated' | 'instant') => void;
   bottomPanelOpen: boolean;

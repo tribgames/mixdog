@@ -1,6 +1,6 @@
 export type DesktopFilePreviewKind = 'image' | 'pdf' | 'audio' | 'video';
 
-export interface DesktopFilePreviewType {
+interface DesktopFilePreviewType {
   kind: DesktopFilePreviewKind;
   mime: string;
 }

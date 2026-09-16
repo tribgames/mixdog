@@ -34,38 +34,30 @@ const bootScenario = additionalArgument('mixdog-boot-scenario');
 const api: DesktopApi = {
   ...(bootId && Number.isFinite(processStartedAt)
     ? {
-      bootContext: Object.freeze({
-        bootId,
-        processStartedAt,
-        ...(bootScenario ? { scenario: bootScenario } : {}),
-      }),
-    }
+        bootContext: Object.freeze({
+          bootId,
+          processStartedAt,
+          ...(bootScenario ? { scenario: bootScenario } : {}),
+        }),
+      }
     : {}),
   chooseProject: () => ipcRenderer.invoke(DESKTOP_IPC.chooseProject),
   chooseFile: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFile, defaultPath),
   chooseFiles: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFiles, defaultPath),
   chooseWorkspace: () => ipcRenderer.invoke(DESKTOP_IPC.chooseWorkspace),
-  saveWorkspace: (workspaceFile, folders) =>
-    ipcRenderer.invoke(DESKTOP_IPC.saveWorkspace, workspaceFile, folders),
+  saveWorkspace: (workspaceFile, folders) => ipcRenderer.invoke(DESKTOP_IPC.saveWorkspace, workspaceFile, folders),
   readEditorSettings: (projectPath, relPath, workspaceFile) =>
-    ipcRenderer.invoke(
-      DESKTOP_IPC.readEditorSettings,
-      projectPath,
-      relPath,
-      workspaceFile,
-    ),
+    ipcRenderer.invoke(DESKTOP_IPC.readEditorSettings, projectPath, relPath, workspaceFile),
   startProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.startProject, projectPath),
   startProjectTask: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.startProjectTask, projectPath),
   startTask: () => ipcRenderer.invoke(DESKTOP_IPC.startTask),
   listProjects: () => ipcRenderer.invoke(DESKTOP_IPC.listProjects),
   addProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.addProject, projectPath),
-  openProjectInExplorer: (projectPath) =>
-    ipcRenderer.invoke(DESKTOP_IPC.openProjectInExplorer, projectPath),
+  openProjectInExplorer: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.openProjectInExplorer, projectPath),
   openMediaAsset: (assetId) => ipcRenderer.invoke(DESKTOP_IPC.openMediaAsset, assetId),
   openMediaFolder: (assetId) => ipcRenderer.invoke(DESKTOP_IPC.openMediaFolder, assetId),
   openExternal: (url) => ipcRenderer.invoke(DESKTOP_IPC.openExternal, url),
-  openLocalFileLink: (projectPath, href) =>
-    ipcRenderer.invoke(DESKTOP_IPC.openLocalFileLink, projectPath, href),
+  openLocalFileLink: (projectPath, href) => ipcRenderer.invoke(DESKTOP_IPC.openLocalFileLink, projectPath, href),
   githubStarStatus: () => ipcRenderer.invoke(DESKTOP_IPC.githubStarStatus),
   starGithub: () => ipcRenderer.invoke(DESKTOP_IPC.starGithub),
   gitCliStatus: () => ipcRenderer.invoke(DESKTOP_IPC.gitCliStatus),
@@ -80,30 +72,28 @@ const api: DesktopApi = {
   githubCliLogout: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliLogout),
   githubCliAccount: () => ipcRenderer.invoke(DESKTOP_IPC.githubCliAccount),
   gitGlobalConfig: () => ipcRenderer.invoke(DESKTOP_IPC.gitGlobalConfig),
-  setGitGlobalConfig: (key, value) =>
-    ipcRenderer.invoke(DESKTOP_IPC.setGitGlobalConfig, key, value),
-  renameProject: (projectPath, alias) =>
-    ipcRenderer.invoke(DESKTOP_IPC.renameProject, projectPath, alias),
+  setGitGlobalConfig: (key, value) => ipcRenderer.invoke(DESKTOP_IPC.setGitGlobalConfig, key, value),
+  renameProject: (projectPath, alias) => ipcRenderer.invoke(DESKTOP_IPC.renameProject, projectPath, alias),
   removeProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.removeProject, projectPath),
   readInstructions: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.readInstructions, projectPath),
-  writeInstructions: (projectPath, content) =>
-    ipcRenderer.invoke(DESKTOP_IPC.writeInstructions, projectPath, content),
-  listProjectDir: (projectPath, relDir) =>
-    ipcRenderer.invoke(DESKTOP_IPC.listProjectDir, projectPath, relDir),
+  writeInstructions: (projectPath, content) => ipcRenderer.invoke(DESKTOP_IPC.writeInstructions, projectPath, content),
+  listProjectDir: (projectPath, relDir) => ipcRenderer.invoke(DESKTOP_IPC.listProjectDir, projectPath, relDir),
   // File.path was removed in modern Electron; webUtils resolves native drops.
   folderPathForFile: (file) => {
-    try { return webUtils.getPathForFile(file); } catch { return ''; }
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
   },
   resolveLocalPaths: (paths) => ipcRenderer.invoke(DESKTOP_IPC.resolveLocalPaths, paths),
   readLocalFile: (path) => ipcRenderer.invoke(DESKTOP_IPC.readLocalFile, path),
-  folderWatch: (dir, recursive) =>
-    ipcRenderer.invoke(DESKTOP_IPC.folderWatch, dir, recursive === true),
-  folderUnwatch: (dir, recursive) =>
-    ipcRenderer.invoke(DESKTOP_IPC.folderUnwatch, dir, recursive === true),
+  folderWatch: (dir, recursive) => ipcRenderer.invoke(DESKTOP_IPC.folderWatch, dir, recursive === true),
+  folderUnwatch: (dir, recursive) => ipcRenderer.invoke(DESKTOP_IPC.folderUnwatch, dir, recursive === true),
   subscribeRelayPayloadRefused: (listener) => {
     const receive = (
       _event: Electron.IpcRendererEvent,
-      detail: { bytes: number | null; limit: number | null },
+      detail: { bytes: number | null; limit: number | null }
     ): void => {
       listener(detail ?? { bytes: null, limit: null });
     };
@@ -124,13 +114,7 @@ const api: DesktopApi = {
   previewDocumentFile: (projectPath, relPath, accessToken) =>
     ipcRenderer.invoke(DESKTOP_IPC.previewDocumentFile, projectPath, relPath, accessToken),
   previewDocumentPages: (projectPath, relPath, accessToken, options) =>
-    ipcRenderer.invoke(
-      DESKTOP_IPC.previewDocumentPages,
-      projectPath,
-      relPath,
-      accessToken,
-      options,
-    ),
+    ipcRenderer.invoke(DESKTOP_IPC.previewDocumentPages, projectPath, relPath, accessToken, options),
   writeProjectFile: (projectPath, relPath, content, expectedContent, accessToken, encoding) =>
     ipcRenderer.invoke(
       DESKTOP_IPC.writeProjectFile,
@@ -139,19 +123,12 @@ const api: DesktopApi = {
       content,
       expectedContent,
       accessToken,
-      encoding,
+      encoding
     ),
   readEditorBackup: (projectPath, relPath, accessToken) =>
     ipcRenderer.invoke(DESKTOP_IPC.readEditorBackup, projectPath, relPath, accessToken),
   writeEditorBackup: (projectPath, relPath, content, expectedContent, accessToken) =>
-    ipcRenderer.invoke(
-      DESKTOP_IPC.writeEditorBackup,
-      projectPath,
-      relPath,
-      content,
-      expectedContent,
-      accessToken,
-    ),
+    ipcRenderer.invoke(DESKTOP_IPC.writeEditorBackup, projectPath, relPath, content, expectedContent, accessToken),
   deleteEditorBackup: (projectPath, relPath, accessToken) =>
     ipcRenderer.invoke(DESKTOP_IPC.deleteEditorBackup, projectPath, relPath, accessToken),
   statProjectFile: (projectPath, relPath, accessToken) =>
@@ -160,8 +137,7 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.createProjectEntry, projectPath, relDir, name, dir),
   renameProjectEntry: (projectPath, relPath, newName) =>
     ipcRenderer.invoke(DESKTOP_IPC.renameProjectEntry, projectPath, relPath, newName),
-  trashProjectEntry: (projectPath, relPath) =>
-    ipcRenderer.invoke(DESKTOP_IPC.trashProjectEntry, projectPath, relPath),
+  trashProjectEntry: (projectPath, relPath) => ipcRenderer.invoke(DESKTOP_IPC.trashProjectEntry, projectPath, relPath),
   moveProjectEntry: (projectPath, relPath, targetDirRel) =>
     ipcRenderer.invoke(DESKTOP_IPC.moveProjectEntry, projectPath, relPath, targetDirRel),
   copyProjectEntry: (projectPath, relPath, targetDirRel) =>
@@ -173,18 +149,12 @@ const api: DesktopApi = {
   lspApplyWorkspaceEdit: (projectPath, writes) =>
     ipcRenderer.invoke(DESKTOP_IPC.lspApplyWorkspaceEdit, projectPath, writes),
   subscribeLspDiagnostics: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      payload: DesktopLspDiagnosticEvent,
-    ): void => listener(payload);
+    const receive = (_event: Electron.IpcRendererEvent, payload: DesktopLspDiagnosticEvent): void => listener(payload);
     ipcRenderer.on(DESKTOP_IPC.lspDiagnostics, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.lspDiagnostics, receive);
   },
   subscribeLspStatus: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      payload: DesktopLspStatusEvent,
-    ): void => listener(payload);
+    const receive = (_event: Electron.IpcRendererEvent, payload: DesktopLspStatusEvent): void => listener(payload);
     ipcRenderer.on(DESKTOP_IPC.lspStatus, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.lspStatus, receive);
   },
@@ -207,18 +177,13 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener(DESKTOP_IPC.agentPoolChanged, receive);
   },
   renameSession: (sessionId, title) => ipcRenderer.invoke(DESKTOP_IPC.renameSession, sessionId, title),
-  setSessionArchived: (sessionId, archived) =>
-    ipcRenderer.invoke(DESKTOP_IPC.setSessionArchived, sessionId, archived),
+  setSessionArchived: (sessionId, archived) => ipcRenderer.invoke(DESKTOP_IPC.setSessionArchived, sessionId, archived),
   deleteSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.deleteSession, sessionId),
   getRemoteAccessInfo: () => ipcRenderer.invoke(DESKTOP_IPC.remoteAccessInfo),
   rotateRemoteAccess: () => ipcRenderer.invoke(DESKTOP_IPC.rotateRemoteAccess),
-  revokeRemoteAccessClient: (clientId) =>
-    ipcRenderer.invoke(DESKTOP_IPC.revokeRemoteAccessClient, clientId),
+  revokeRemoteAccessClient: (clientId) => ipcRenderer.invoke(DESKTOP_IPC.revokeRemoteAccessClient, clientId),
   subscribeRemoteClientClaim: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      claim: DesktopRemoteClientClaim,
-    ): void => listener(claim);
+    const receive = (_event: Electron.IpcRendererEvent, claim: DesktopRemoteClientClaim): void => listener(claim);
     ipcRenderer.on(DESKTOP_IPC.remoteClientClaim, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.remoteClientClaim, receive);
   },
@@ -227,8 +192,7 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.resolveRemoteClientClaim, claimId, approved),
   prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
     ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId, transcriptItemLimit, readTraceId),
-  setVisibleSessions: (sessionIds) =>
-    ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),
+  setVisibleSessions: (sessionIds) => ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),
   searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
     ipcRenderer.invoke(DESKTOP_IPC.searchProjectFiles, projectIdOrWorkspaceId, query, limit),
   searchWorkspaceText: (projectPath, options) =>
@@ -249,12 +213,12 @@ const api: DesktopApi = {
       const fields: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(record)) {
         if (
-          key !== 'items'
-          && key !== 'streamingTail'
-          && key !== '__itemsRevision'
-          && key !== '__itemsPatch'
-          && key !== '__streamingTailPatch'
-          && key !== '__statePatch'
+          key !== 'items' &&
+          key !== 'streamingTail' &&
+          key !== '__itemsRevision' &&
+          key !== '__itemsPatch' &&
+          key !== '__streamingTailPatch' &&
+          key !== '__statePatch'
         ) {
           fields[key] = value;
         }
@@ -283,23 +247,28 @@ const api: DesktopApi = {
           items = [];
           revision = null;
         }
-        streamingTail = snapshot.streamingTail && typeof snapshot.streamingTail === 'object'
-          ? snapshot.streamingTail as DesktopTranscriptItem
-          : null;
+        streamingTail =
+          snapshot.streamingTail && typeof snapshot.streamingTail === 'object'
+            ? (snapshot.streamingTail as DesktopTranscriptItem)
+            : null;
         stateFields = stateFieldsFrom(snapshot);
         listener(snapshot as SessionSnapshot);
         return;
       }
       const statePatch = record.__statePatch as DesktopStateFieldsPatch | undefined;
       if (
-        revision === null
-        || patch.base !== revision
-        || (statePatch && (statePatch.base !== revision || statePatch.revision !== patch.revision))
+        revision === null ||
+        patch.base !== revision ||
+        (statePatch && (statePatch.base !== revision || statePatch.revision !== patch.revision))
       ) {
         // Lost sync (preload reload, missed event): drop the patch and ask the
         // host to restart from a full snapshot.
         revision = null;
-        try { ipcRenderer.send(DESKTOP_IPC.stateResync); } catch { /* next full send recovers */ }
+        try {
+          ipcRenderer.send(DESKTOP_IPC.stateResync);
+        } catch {
+          /* next full send recovers */
+        }
         return;
       }
       if (statePatch) {
@@ -315,14 +284,18 @@ const api: DesktopApi = {
       if (tailPatch) {
         const priorText = typeof streamingTail?.text === 'string' ? streamingTail.text : '';
         if (
-          !streamingTail
-          || streamingTail.id == null
-          || streamingTail.id !== tailPatch.tail.id
-          || tailPatch.prefix < 0
-          || tailPatch.prefix > priorText.length
+          !streamingTail ||
+          streamingTail.id == null ||
+          streamingTail.id !== tailPatch.tail.id ||
+          tailPatch.prefix < 0 ||
+          tailPatch.prefix > priorText.length
         ) {
           revision = null;
-          try { ipcRenderer.send(DESKTOP_IPC.stateResync); } catch { /* next full send recovers */ }
+          try {
+            ipcRenderer.send(DESKTOP_IPC.stateResync);
+          } catch {
+            /* next full send recovers */
+          }
           return;
         }
         nextStreamingTail = {
@@ -330,9 +303,10 @@ const api: DesktopApi = {
           text: priorText.slice(0, tailPatch.prefix) + tailPatch.append,
         };
       } else if (Object.hasOwn(record, 'streamingTail')) {
-        nextStreamingTail = record.streamingTail && typeof record.streamingTail === 'object'
-          ? record.streamingTail as DesktopTranscriptItem
-          : null;
+        nextStreamingTail =
+          record.streamingTail && typeof record.streamingTail === 'object'
+            ? (record.streamingTail as DesktopTranscriptItem)
+            : null;
       }
       // A streaming-tail-only publication carries an empty settled-items
       // patch. Preserve the array identity so renderer memos do not rescan the
@@ -355,28 +329,51 @@ const api: DesktopApi = {
   // them from scheduling measurements that the daemon would only discard.
   ...(process.env.MIXDOG_DESKTOP_PERF === '1'
     ? {
-      perfLog: (line: string) => {
-        try { ipcRenderer.send(DESKTOP_IPC.perfLog, String(line)); } catch { /* diagnostics only */ }
-      },
-    }
+        perfLog: (line: string) => {
+          try {
+            ipcRenderer.send(DESKTOP_IPC.perfLog, String(line));
+          } catch {
+            /* diagnostics only */
+          }
+        },
+      }
     : {}),
   rendererDiagnostic: (diagnostic) => {
-    try { ipcRenderer.send(DESKTOP_IPC.rendererDiagnostic, diagnostic); } catch { /* diagnostics only */ }
+    try {
+      ipcRenderer.send(DESKTOP_IPC.rendererDiagnostic, diagnostic);
+    } catch {
+      /* diagnostics only */
+    }
   },
   rendererReady: () => {
-    try { ipcRenderer.send(DESKTOP_IPC.rendererReady); } catch { /* show falls back to timeout */ }
+    try {
+      ipcRenderer.send(DESKTOP_IPC.rendererReady);
+    } catch {
+      /* show falls back to timeout */
+    }
   },
-  termEnsure: (id, cwd, shell) =>
-    ipcRenderer.invoke(DESKTOP_IPC.termEnsure, id, cwd ?? null, shell ?? null),
+  termEnsure: (id, cwd, shell) => ipcRenderer.invoke(DESKTOP_IPC.termEnsure, id, cwd ?? null, shell ?? null),
   termProfiles: () => ipcRenderer.invoke(DESKTOP_IPC.termProfiles),
   termWrite: (id, data) => {
-    try { ipcRenderer.send(DESKTOP_IPC.termWrite, id, data); } catch { /* keystroke lost */ }
+    try {
+      ipcRenderer.send(DESKTOP_IPC.termWrite, id, data);
+    } catch {
+      /* keystroke lost */
+    }
   },
   termResize: (id, cols, rows) => {
-    try { ipcRenderer.send(DESKTOP_IPC.termResize, id, cols, rows); } catch { /* next resize wins */ }
+    try {
+      ipcRenderer.send(DESKTOP_IPC.termResize, id, cols, rows);
+    } catch {
+      /* next resize wins */
+    }
   },
   termAcknowledge: (id, charCount) => {
-    try { ipcRenderer.send(DESKTOP_IPC.termAcknowledge, id, charCount); } catch { /* teardown */ }
+    try {
+      ipcRenderer.send(DESKTOP_IPC.termAcknowledge, id, charCount);
+    } catch {
+      /* teardown */
+    }
   },
   termDispose: (id) => ipcRenderer.invoke(DESKTOP_IPC.termDispose, id),
   subscribeTermData: (listener) => {
@@ -390,14 +387,11 @@ const api: DesktopApi = {
   gitBranches: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitBranches, cwd),
   gitCheckoutBranch: (cwd, branch, remote) =>
     ipcRenderer.invoke(DESKTOP_IPC.gitCheckoutBranch, cwd, branch, remote === true),
-  gitCreateBranch: (cwd, branch) =>
-    ipcRenderer.invoke(DESKTOP_IPC.gitCreateBranch, cwd, branch),
+  gitCreateBranch: (cwd, branch) => ipcRenderer.invoke(DESKTOP_IPC.gitCreateBranch, cwd, branch),
   gitRenameBranch: (cwd, branch, nextBranch) =>
     ipcRenderer.invoke(DESKTOP_IPC.gitRenameBranch, cwd, branch, nextBranch),
-  gitDeleteBranch: (cwd, branch) =>
-    ipcRenderer.invoke(DESKTOP_IPC.gitDeleteBranch, cwd, branch),
-  gitMergeBranch: (cwd, branch) =>
-    ipcRenderer.invoke(DESKTOP_IPC.gitMergeBranch, cwd, branch),
+  gitDeleteBranch: (cwd, branch) => ipcRenderer.invoke(DESKTOP_IPC.gitDeleteBranch, cwd, branch),
+  gitMergeBranch: (cwd, branch) => ipcRenderer.invoke(DESKTOP_IPC.gitMergeBranch, cwd, branch),
   gitDiff: (cwd, path, staged, worktreeOnly, untracked) =>
     ipcRenderer.invoke(DESKTOP_IPC.gitDiff, cwd, path, staged === true, worktreeOnly === true, untracked === true),
   gitApplyPatch: (cwd, path, patch, reverse) =>
@@ -406,8 +400,7 @@ const api: DesktopApi = {
   gitUnstage: (cwd, paths) => ipcRenderer.invoke(DESKTOP_IPC.gitUnstage, cwd, paths),
   gitIgnore: (cwd, path, scope) => ipcRenderer.invoke(DESKTOP_IPC.gitIgnore, cwd, path, scope),
   gitCommit: (cwd, message) => ipcRenderer.invoke(DESKTOP_IPC.gitCommit, cwd, message),
-  gitCommitPaths: (cwd, message, paths) =>
-    ipcRenderer.invoke(DESKTOP_IPC.gitCommitPaths, cwd, message, paths),
+  gitCommitPaths: (cwd, message, paths) => ipcRenderer.invoke(DESKTOP_IPC.gitCommitPaths, cwd, message, paths),
   gitAmend: (cwd, message) => ipcRenderer.invoke(DESKTOP_IPC.gitAmend, cwd, message),
   gitUndoLastCommit: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitUndoLastCommit, cwd),
   gitStash: (cwd, message) => ipcRenderer.invoke(DESKTOP_IPC.gitStash, cwd, message),
@@ -442,8 +435,7 @@ const api: DesktopApi = {
   gitResetToCommit: (cwd, hash, mode, confirmedDirty) =>
     ipcRenderer.invoke(DESKTOP_IPC.gitResetToCommit, cwd, hash, mode, confirmedDirty),
   gitRevertCommit: (cwd, hash) => ipcRenderer.invoke(DESKTOP_IPC.gitRevertCommit, cwd, hash),
-  gitCherryPickCommit: (cwd, hash) =>
-    ipcRenderer.invoke(DESKTOP_IPC.gitCherryPickCommit, cwd, hash),
+  gitCherryPickCommit: (cwd, hash) => ipcRenderer.invoke(DESKTOP_IPC.gitCherryPickCommit, cwd, hash),
   gitCreateTag: (cwd, tag, hash) => ipcRenderer.invoke(DESKTOP_IPC.gitCreateTag, cwd, tag, hash),
   gitDeleteTag: (cwd, tag) => ipcRenderer.invoke(DESKTOP_IPC.gitDeleteTag, cwd, tag),
   gitCheckoutCommit: (cwd, hash) => ipcRenderer.invoke(DESKTOP_IPC.gitCheckoutCommit, cwd, hash),
@@ -451,12 +443,9 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.gitCreateBranchAtCommit, cwd, branch, hash),
   gitReview: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitReview, cwd),
   gitReviewDiff: (cwd, path, untracked) => ipcRenderer.invoke(DESKTOP_IPC.gitReviewDiff, cwd, path, untracked === true),
-  revealFile: (cwd, path, accessToken) =>
-    ipcRenderer.invoke(DESKTOP_IPC.revealFile, cwd, path, accessToken),
-  openFilePath: (cwd, path, accessToken) =>
-    ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path, accessToken),
-  openAttachmentImage: (dataUrl, name) =>
-    ipcRenderer.invoke(DESKTOP_IPC.openAttachmentImage, dataUrl, name),
+  revealFile: (cwd, path, accessToken) => ipcRenderer.invoke(DESKTOP_IPC.revealFile, cwd, path, accessToken),
+  openFilePath: (cwd, path, accessToken) => ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path, accessToken),
+  openAttachmentImage: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.openAttachmentImage, dataUrl, name),
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {
@@ -467,21 +456,16 @@ const api: DesktopApi = {
   },
   checkForDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.checkForDesktopUpdate),
   showDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.showDesktopUpdate),
-  submitNewTask: (prompt, options, draft) =>
-    ipcRenderer.invoke(DESKTOP_IPC.submitNewTask, prompt, options, draft),
+  submitNewTask: (prompt, options, draft) => ipcRenderer.invoke(DESKTOP_IPC.submitNewTask, prompt, options, draft),
   submitToSession: (sessionId, prompt, options) =>
     ipcRenderer.invoke(DESKTOP_IPC.submitToSession, sessionId, prompt, options),
-  abortSession: (sessionId, options) =>
-    ipcRenderer.invoke(DESKTOP_IPC.abortSession, sessionId, options),
+  abortSession: (sessionId, options) => ipcRenderer.invoke(DESKTOP_IPC.abortSession, sessionId, options),
   resolveToolApprovalForSession: (sessionId, id, decision) =>
     ipcRenderer.invoke(DESKTOP_IPC.resolveToolApprovalForSession, sessionId, id, decision),
   resyncSessionState: (sessionId) => ipcRenderer.send(DESKTOP_IPC.sessionStateResync, sessionId),
   subscribeSessionState: (listener) => {
     const decoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      update: DesktopSessionStateWireUpdate,
-    ): void => {
+    const receive = (_event: Electron.IpcRendererEvent, update: DesktopSessionStateWireUpdate): void => {
       const sessionId = String(update?.sessionId || '');
       if (!sessionId) return;
       let decoder = decoders.get(sessionId);
@@ -491,7 +475,9 @@ const api: DesktopApi = {
       const decoded = decoder.decode(update.wire);
       if (!decoded.ok) {
         decoder.reset();
-        try { ipcRenderer.send(DESKTOP_IPC.sessionStateResync, sessionId); } catch {}
+        try {
+          ipcRenderer.send(DESKTOP_IPC.sessionStateResync, sessionId);
+        } catch {}
         return;
       }
       if (update.wire === null) decoders.delete(sessionId);
@@ -501,9 +487,7 @@ const api: DesktopApi = {
         ...(update.readTraceId ? { readTraceId: update.readTraceId } : {}),
         frameSource: update.frameSource,
         ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
-        ...(typeof update.contentRevision === 'number'
-          ? { contentRevision: update.contentRevision }
-          : {}),
+        ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
       } satisfies DesktopSessionStateUpdate);
     };
     ipcRenderer.on(DESKTOP_IPC.sessionState, receive);
@@ -515,8 +499,7 @@ const api: DesktopApi = {
   inheritSession: (sourceSessionId, selection) =>
     ipcRenderer.invoke(DESKTOP_IPC.inheritSession, sourceSessionId, selection ?? null),
   listProviderModels: (options) => ipcRenderer.invoke(DESKTOP_IPC.listProviderModels, options),
-  setModelRoute: (selection, sessionId) =>
-    ipcRenderer.invoke(DESKTOP_IPC.setModelRoute, selection, sessionId),
+  setModelRoute: (selection, sessionId) => ipcRenderer.invoke(DESKTOP_IPC.setModelRoute, selection, sessionId),
   setFast: (enabled, sessionId) => ipcRenderer.invoke(DESKTOP_IPC.setFast, enabled, sessionId),
   readSettings: () => ipcRenderer.invoke(DESKTOP_IPC.readSettings),
   updateSetting: (key, enabled) => ipcRenderer.invoke(DESKTOP_IPC.updateSetting, key, enabled),
@@ -531,10 +514,8 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener(DESKTOP_IPC.zoomFactorChanged, receive);
   },
   onBrowserOpenRequested: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      request: Parameters<typeof listener>[0],
-    ): void => listener(request);
+    const receive = (_event: Electron.IpcRendererEvent, request: Parameters<typeof listener>[0]): void =>
+      listener(request);
     ipcRenderer.on(DESKTOP_IPC.browserOpenRequested, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserOpenRequested, receive);
   },
@@ -547,47 +528,31 @@ const api: DesktopApi = {
   browserSetActiveGuest: (sessionId, webContentsId, active) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active),
   ...createBrowserTextureBridge(),
-  browserPageControl: (sessionId, input) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserPageControl, sessionId, input),
+  browserPageControl: (sessionId, input) => ipcRenderer.invoke(DESKTOP_IPC.browserPageControl, sessionId, input),
   browserConfigureGuestViewport: (sessionId, webContentsId, config) =>
-    ipcRenderer.invoke(
-      DESKTOP_IPC.browserConfigureGuestViewport,
-      sessionId,
-      webContentsId,
-      config,
-    ),
+    ipcRenderer.invoke(DESKTOP_IPC.browserConfigureGuestViewport, sessionId, webContentsId, config),
   onBrowserGuestViewportChanged: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      change: Parameters<typeof listener>[0],
-    ): void => listener(change);
+    const receive = (_event: Electron.IpcRendererEvent, change: Parameters<typeof listener>[0]): void =>
+      listener(change);
     ipcRenderer.on(DESKTOP_IPC.browserGuestViewportChanged, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserGuestViewportChanged, receive);
   },
   onBrowserRemoteViewerChanged: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      change: Parameters<typeof listener>[0],
-    ): void => listener(change);
+    const receive = (_event: Electron.IpcRendererEvent, change: Parameters<typeof listener>[0]): void =>
+      listener(change);
     ipcRenderer.on(DESKTOP_IPC.browserRemoteViewerChanged, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserRemoteViewerChanged, receive);
   },
-  browserProfileImportSources: () =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportSources),
-  browserProfileImportStart: (request) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportStart, request),
+  browserProfileImportSources: () => ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportSources),
+  browserProfileImportStart: (request) => ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportStart, request),
   onBrowserProfileImportProgress: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      progress: Parameters<typeof listener>[0],
-    ): void => listener(progress);
+    const receive = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof listener>[0]): void =>
+      listener(progress);
     ipcRenderer.on(DESKTOP_IPC.browserProfileImportProgress, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserProfileImportProgress, receive);
   },
-  browserHistorySearch: (query) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserHistorySearch, query),
-  browserCredentialSuggestions: (sessionId) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions, sessionId),
+  browserHistorySearch: (query) => ipcRenderer.invoke(DESKTOP_IPC.browserHistorySearch, query),
+  browserCredentialSuggestions: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions, sessionId),
   browserCredentialFill: (sessionId, credentialId) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserCredentialFill, sessionId, credentialId),
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),

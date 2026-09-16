@@ -9,7 +9,7 @@ const stack: number[] = [];
 const surfaces = new Map<number, HTMLElement>();
 let sequence = 0;
 
-export interface ModalLayerHandle {
+interface ModalLayerHandle {
   isTop(): boolean;
   attachSurface(element: HTMLElement | null): void;
   release(): void;

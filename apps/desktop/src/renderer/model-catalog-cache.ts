@@ -4,7 +4,7 @@ import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope'
 const MODEL_CATALOG_STORAGE_KEY = 'mixdog.desktop-model-catalog.v2';
 const MODEL_CATALOG_LIMIT = 1_000;
 
-export interface CachedModelCatalog {
+interface CachedModelCatalog {
   models: DesktopModelOption[];
   updatedAt: number;
 }
@@ -166,7 +166,7 @@ function normalizeModelCatalog(models: unknown): DesktopModelOption[] {
 // catalog unavailable" onto a surface that never reloads (the mobile PWA)
 // long after the daemon recovered.
 
-export type SharedModelCatalogRequest = {
+type SharedModelCatalogRequest = {
   api: DesktopApi;
   scope: string;
   isCurrent(): boolean;

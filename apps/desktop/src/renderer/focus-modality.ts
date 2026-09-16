@@ -6,7 +6,7 @@
 // The root records the modality of the last interaction; 02-base.css drops
 // button focus frames while that modality is the pointer. Text fields are
 // deliberately untouched: a caret still needs its field outlined.
-export type FocusModality = 'pointer' | 'keyboard';
+type FocusModality = 'pointer' | 'keyboard';
 
 const ROOT_ATTRIBUTE = 'data-mx-input';
 // Boot quiet: nothing has been navigated by key yet, so focus restored during

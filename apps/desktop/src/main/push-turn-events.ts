@@ -12,7 +12,7 @@ export interface TurnCompletion {
   at: number;
 }
 
-export interface TurnCompletionTracker {
+interface TurnCompletionTracker {
   /** Feeds one roster push; returns the turns that just finished. */
   observe(sessions: readonly DesktopSessionSummary[], nowMs: number): TurnCompletion[];
   /** Still idle? Delivery waits out a quiet period and re-asks, so a turn that

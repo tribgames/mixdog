@@ -9,7 +9,7 @@ import { isSessionId } from './desktop-state';
 import { remoteTranscriptSnapshot } from './remote-transcript';
 import { MAX_VIEW_BASELINE_BYTES, readViewBaselineOffer, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 
-export interface RelayViewSyncState {
+interface RelayViewSyncState {
   syncing?: boolean;
   visibleSessionIds: Set<string>;
   compactWire: boolean;

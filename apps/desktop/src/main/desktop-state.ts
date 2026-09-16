@@ -1,7 +1,7 @@
 import type { DesktopSessionClassification, DesktopSessionSummary } from '../shared/contract';
 import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 
-export const SESSION_WORKING_HEARTBEAT_MS = 2 * 60 * 1000;
+const SESSION_WORKING_HEARTBEAT_MS = 2 * 60 * 1000;
 
 function normalizedPath(value: string): string {
   return value
@@ -15,8 +15,8 @@ function isDesktopTaskWorkspace(value: string): boolean {
 }
 
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
-export const MAX_SESSION_ID_LENGTH = 256;
-export const MAX_VISIBLE_SESSION_IDS = 256;
+const MAX_SESSION_ID_LENGTH = 256;
+const MAX_VISIBLE_SESSION_IDS = 256;
 
 export function isSessionId(value: unknown): value is string {
   return typeof value === 'string' && SESSION_ID_PATTERN.test(value);

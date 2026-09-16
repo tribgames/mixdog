@@ -91,7 +91,7 @@ const OS_DOCUMENT_EXTENSIONS = new Set([
   'mkv',
 ]);
 
-export type LocalFileOpener = 'editor' | 'os';
+type LocalFileOpener = 'editor' | 'os';
 /** What the main process did with a chat link: launched the OS app for a
  *  document, opened a folder in the file manager, or handed a text file back
  *  for Mixdog's editor without launching anything. */
@@ -127,7 +127,7 @@ export function localLinkKind(path: string): 'folder' | 'file' | 'unknown' {
   return fileExtension(target) ? 'file' : 'unknown';
 }
 
-export interface LocalFileLocation {
+interface LocalFileLocation {
   path: string;
   line?: number;
   column?: number;

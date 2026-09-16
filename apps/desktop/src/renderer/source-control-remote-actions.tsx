@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 import type { DesktopGitStatus } from '../shared/contract';
 
-export interface SourceControlRemoteAction {
+interface SourceControlRemoteAction {
   key: string;
   runKey: string;
   verb: string;

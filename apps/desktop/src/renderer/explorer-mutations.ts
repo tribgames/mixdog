@@ -15,7 +15,7 @@ export function explorerErrorText(reason: unknown): string {
 
 /** Outcome of a multi-entry mutation: what survived to be retried, and the
  *  failure the pane reports (the first one — later ones repeat the cause). */
-export interface ExplorerBatchResult {
+interface ExplorerBatchResult {
   failed: string[];
   firstError?: unknown;
 }

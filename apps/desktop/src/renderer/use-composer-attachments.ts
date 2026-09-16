@@ -125,38 +125,6 @@ export function useComposerAttachments({
     [draftRef, removeAttachments, setDraft]
   );
 
-  const attachFiles = useCallback(
-    async (files: FileList | File[]) => {
-      if (transitioningRef.current) return;
-      setAttachmentError('');
-      const available = Math.max(0, MAX_COMPOSER_ATTACHMENTS - attachmentsRef.current.length);
-      if (available === 0) {
-        setAttachmentError(`Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`);
-        return;
-      }
-      const incoming = Array.from(files);
-      if (incoming.length > available) {
-        setAttachmentError(
-          `Only the first ${available} item${available === 1 ? '' : 's'} fit; remove an attachment to add more.`
-        );
-      }
-      for (const file of incoming.slice(0, available)) {
-        if (transitioningRef.current) return;
-        try {
-          const attachment = await attachmentFromFile(file, {
-            id: attachmentSequence.current++,
-            cancelled: () => transitioningRef.current,
-          });
-          if (!attachment) return;
-          insertAttachment(attachment);
-        } catch (reason) {
-          setAttachmentError(reason instanceof Error ? reason.message : String(reason));
-        }
-      }
-    },
-    [insertAttachment, transitioningRef]
-  );
-
   const insertProjectMentions = useCallback(
     (paths: string[]) => {
       const mentions = paths
@@ -211,16 +179,59 @@ export function useComposerAttachments({
     [draftRef, historyNavigation, setDraft, textarea]
   );
 
+  const attachFiles = useCallback(
+    async (files: FileList | File[], sourcePaths?: ReadonlyMap<File, string>) => {
+      if (transitioningRef.current) return;
+      setAttachmentError('');
+      const fallbackPaths: string[] = [];
+      for (const file of Array.from(files)) {
+        if (transitioningRef.current) return;
+        try {
+          if (attachmentsRef.current.length >= MAX_COMPOSER_ATTACHMENTS) {
+            throw new Error(`Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`);
+          }
+          const attachment = await attachmentFromFile(file, {
+            id: attachmentSequence.current++,
+            cancelled: () => transitioningRef.current,
+          });
+          if (!attachment) return;
+          if (insertAttachment(attachment)) continue;
+        } catch (reason) {
+          if (transitioningRef.current) return;
+          setAttachmentError(reason instanceof Error ? reason.message : String(reason));
+        }
+        // Native selections retain their OS path; materialized internal drops
+        // need the source path carried separately from their in-memory File.
+        const path = sourcePaths?.get(file) || window.mixdogDesktop?.folderPathForFile?.(file);
+        if (path) {
+          fallbackPaths.push(path);
+        } else {
+          setAttachmentError(
+            (current) => `${current} ${file.name || 'Pasted file'}: local file path is unavailable.`
+          );
+        }
+      }
+      insertAbsolutePaths(fallbackPaths);
+    },
+    [insertAbsolutePaths, insertAttachment, transitioningRef]
+  );
+
   const attachLocalPaths = useCallback(
     async (paths: string[]) => {
+      if (transitioningRef.current) return;
       const loaded = await localFilesFromPaths(window.mixdogDesktop, paths);
-      if (loaded.directories.length) {
-        insertAbsolutePaths(loaded.directories.map((entry) => entry.absolutePath));
+      if (transitioningRef.current) return;
+      if (loaded.files.length) await attachFiles(loaded.files, loaded.sourcePaths);
+      if (transitioningRef.current) return;
+      insertAbsolutePaths([
+        ...loaded.directories.map((entry) => entry.absolutePath),
+        ...loaded.unattachedPaths,
+      ]);
+      if (loaded.errors.length) {
+        setAttachmentError((current) => [...loaded.errors, current].filter(Boolean).join('\n'));
       }
-      if (loaded.errors.length) setAttachmentError(loaded.errors[0]);
-      if (loaded.files.length) await attachFiles(loaded.files);
     },
-    [attachFiles, insertAbsolutePaths]
+    [attachFiles, insertAbsolutePaths, transitioningRef]
   );
 
   const attachProjectPaths = useCallback(

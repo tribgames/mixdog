@@ -9,7 +9,7 @@ const MAX_PROMPT_CHARS = 100_000;
 const MAX_REFERENCE_COUNT = 7;
 const MAX_REFERENCE_BASE64_CHARS = 64 * 1024 * 1024;
 
-export interface StudioDraftMetadata {
+interface StudioDraftMetadata {
   kind: MediaKind;
   laneId: string;
   model: string;
@@ -17,7 +17,7 @@ export interface StudioDraftMetadata {
   prompt: string;
 }
 
-export interface StudioCachedReference {
+interface StudioCachedReference {
   base64: string;
   mime: string;
 }

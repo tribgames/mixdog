@@ -33,8 +33,8 @@ import { SourceControlErrorNotice } from './SourceControlErrorNotice';
 import { ErrorNotice } from './ErrorNotice';
 import { GithubReviewForm } from './github/GithubReviewForm';
 
-export type PullRequestViewMode = 'overview' | 'changes';
-export type PullRequestListView = 'open' | 'mine' | 'review';
+type PullRequestViewMode = 'overview' | 'changes';
+type PullRequestListView = 'open' | 'mine' | 'review';
 export type PullRequestOpenHandler = (
   projectPath: string,
   pullRequest: DesktopPullRequestEntry,

@@ -5,7 +5,7 @@
 
 type NetworkInformation = { saveData?: boolean; effectiveType?: string };
 
-export type ConnectionQuality = 'metered' | 'slow' | 'normal';
+type ConnectionQuality = 'metered' | 'slow' | 'normal';
 
 /** True for the relay-served web app; false inside the Electron shell. */
 export function isRemoteSurface(): boolean {

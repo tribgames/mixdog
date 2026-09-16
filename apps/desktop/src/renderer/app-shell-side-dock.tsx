@@ -16,7 +16,7 @@ import type {
   WorkbenchSideViewId,
 } from './workbench-side-view-layout';
 
-export interface PaneDockContext {
+interface PaneDockContext {
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;
   paneSideDocks: ReturnType<typeof useAppSideDocks>['paneSideDocks'];
   sessionSurfaces: ReturnType<typeof useSessionPaneSurfaces>;

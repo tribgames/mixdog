@@ -1,4 +1,4 @@
-export interface ShellJobStatusRowLike {
+interface ShellJobStatusRowLike {
   taskId?: unknown;
   task_id?: unknown;
   command?: unknown;
@@ -6,7 +6,7 @@ export interface ShellJobStatusRowLike {
   startedAt?: unknown;
 }
 
-export interface ShellJobsStatusLike {
+interface ShellJobsStatusLike {
   count?: unknown;
   elapsedLabel?: unknown;
   jobs?: readonly ShellJobStatusRowLike[];

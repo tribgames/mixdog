@@ -1,4 +1,4 @@
-export interface FrameCoordinator {
+interface FrameCoordinator {
   schedule(key: object, work: () => void): void;
   flush(key: object): void;
   cancel(key: object): void;

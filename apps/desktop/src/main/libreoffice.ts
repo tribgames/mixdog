@@ -11,7 +11,7 @@ import { run } from './cli-run';
 import { packagedRuntimeSourceRoot } from './runtime-layout';
 import type { DesktopLibreOfficeStatus } from '../shared/contract';
 
-export interface InstallLibreOfficeOptions {
+interface InstallLibreOfficeOptions {
   packaged?: boolean;
   resourcesPath?: string;
   appPath?: string;
@@ -21,7 +21,7 @@ export interface InstallLibreOfficeOptions {
  *  Resolved through the runtime layout like every other runtime module: a
  *  literal relative import would make the daemon bundle swallow the module and
  *  its native canvas binding, which esbuild cannot load. */
-export function fontProvisionerModuleUrl(
+function fontProvisionerModuleUrl(
   packaged = false,
   resourcesPath = process.resourcesPath,
   appPath = process.cwd()

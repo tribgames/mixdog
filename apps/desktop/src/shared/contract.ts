@@ -415,12 +415,14 @@ export interface DesktopStateFieldsPatch {
   changed: Readonly<Record<string, unknown>>;
   removed: string[];
 }
-export type DesktopStateWire = (DesktopSessionState & {
-  __itemsRevision?: number;
-  __itemsPatch?: DesktopStateItemsPatch;
-  __streamingTailPatch?: DesktopStateStreamingTailPatch;
-  __statePatch?: DesktopStateFieldsPatch;
-}) | null;
+export type DesktopStateWire =
+  | (DesktopSessionState & {
+      __itemsRevision?: number;
+      __itemsPatch?: DesktopStateItemsPatch;
+      __streamingTailPatch?: DesktopStateStreamingTailPatch;
+      __statePatch?: DesktopStateFieldsPatch;
+    })
+  | null;
 
 /** IPC-only split-pane lane wire. Preload reconstructs this delta before the
  * renderer-facing DesktopSessionStateUpdate listener runs. */
@@ -512,7 +514,8 @@ export interface DesktopPromptFilePart {
 }
 
 export type DesktopPromptContent =
-  string | Array<DesktopPromptTextPart | DesktopPromptImagePart | DesktopPromptFilePart>;
+  | string
+  | Array<DesktopPromptTextPart | DesktopPromptImagePart | DesktopPromptFilePart>;
 
 export type DesktopPromptPriority = 'now' | 'next' | 'later';
 
@@ -721,7 +724,7 @@ export const DESKTOP_CAPABILITIES = [
   'clear',
 ] as const;
 
-export type DesktopCapability = typeof DESKTOP_CAPABILITIES[number];
+export type DesktopCapability = (typeof DESKTOP_CAPABILITIES)[number];
 
 export const DESKTOP_READ_CAPABILITIES = [
   'getLocalProviderModelDetails',
@@ -773,7 +776,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getMediaDefault',
 ] as const satisfies ReadonlyArray<DesktopCapability>;
 
-export type DesktopReadCapability = typeof DESKTOP_READ_CAPABILITIES[number];
+export type DesktopReadCapability = (typeof DESKTOP_READ_CAPABILITIES)[number];
 
 export interface DesktopCapabilityRequest {
   capability: DesktopCapability;
@@ -790,18 +793,23 @@ export interface DesktopCapabilityReadRequest {
   sessionId?: string;
 }
 
-export type DesktopCapabilityReadResult =
-  | { ok: true; value: unknown }
-  | { ok: false; error: string };
+export type DesktopCapabilityReadResult = { ok: true; value: unknown } | { ok: false; error: string };
 
 export interface DesktopCapabilityResult<T = unknown> {
   value: T;
   snapshot: SessionSnapshot;
 }
 
-export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake' | 'usagePinned'
-  | 'computerControl' | 'computerObserveOnly' | 'browserControl'
-  | 'computerInstalled' | 'browserInstalled';
+export type DesktopSettingKey =
+  | 'autoClear'
+  | 'autoCompact'
+  | 'keepAwake'
+  | 'usagePinned'
+  | 'computerControl'
+  | 'computerObserveOnly'
+  | 'browserControl'
+  | 'computerInstalled'
+  | 'browserInstalled';
 
 export interface DesktopSettings {
   autoClear: boolean;
@@ -979,9 +987,14 @@ export type DesktopBrowserPageAction =
   | { type: 'composition'; text: string; selectionStart: number; selectionEnd: number }
   | { type: 'composition-end'; text: string }
   | {
-      type: 'pointer'; phase: 'mouseMoved' | 'mousePressed' | 'mouseReleased';
-      x: number; y: number; button: 'none' | 'left' | 'middle' | 'right';
-      buttons: number; modifiers: number; clickCount: number;
+      type: 'pointer';
+      phase: 'mouseMoved' | 'mousePressed' | 'mouseReleased';
+      x: number;
+      y: number;
+      button: 'none' | 'left' | 'middle' | 'right';
+      buttons: number;
+      modifiers: number;
+      clickCount: number;
     }
   | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number };
 
@@ -1053,13 +1066,9 @@ export interface DesktopGithubCliAccount {
   email: string;
 }
 
-export const DESKTOP_GIT_GLOBAL_CONFIG_KEYS = [
-  'user.name',
-  'user.email',
-  'init.defaultBranch',
-] as const;
+export const DESKTOP_GIT_GLOBAL_CONFIG_KEYS = ['user.name', 'user.email', 'init.defaultBranch'] as const;
 
-export type DesktopGitGlobalConfigKey = typeof DESKTOP_GIT_GLOBAL_CONFIG_KEYS[number];
+export type DesktopGitGlobalConfigKey = (typeof DESKTOP_GIT_GLOBAL_CONFIG_KEYS)[number];
 
 /** Settings → Git: the global git identity/defaults (`git config --global`). */
 export interface DesktopGitGlobalConfig {
@@ -1324,7 +1333,7 @@ export const DESKTOP_LSP_REQUEST_METHODS = [
   'workspace/executeCommand',
 ] as const;
 
-export type DesktopLspRequestMethod = typeof DESKTOP_LSP_REQUEST_METHODS[number];
+export type DesktopLspRequestMethod = (typeof DESKTOP_LSP_REQUEST_METHODS)[number];
 
 export interface DesktopLspRequestInput {
   projectPath: string;
@@ -1376,8 +1385,15 @@ export interface DesktopRendererLongTaskDiagnostic {
 export interface DesktopRendererComposerActionDiagnostic {
   kind: 'composer-action';
   action: 'submit' | 'restore-queue';
-  source: 'keyboard-enter' | 'form-submit' | 'slash-keyboard' | 'slash-click'
-    | 'escape' | 'arrow-up' | 'queue-row' | 'voice-submit';
+  source:
+    | 'keyboard-enter'
+    | 'form-submit'
+    | 'slash-keyboard'
+    | 'slash-click'
+    | 'escape'
+    | 'arrow-up'
+    | 'queue-row'
+    | 'voice-submit';
   turnBusy: boolean;
   queueCount: number;
   draftLength: number;
@@ -1425,7 +1441,7 @@ export interface DesktopGitStatus {
   remoteUrl?: string;
   ahead: number;
   behind: number;
-  operation: "" | "merge" | "rebase" | "cherry-pick" | "revert";
+  operation: '' | 'merge' | 'rebase' | 'cherry-pick' | 'revert';
   files: DesktopGitFile[];
 }
 
@@ -1652,15 +1668,8 @@ export interface DesktopApi {
   } | null>;
   chooseFiles?(defaultPath?: string | null): Promise<DesktopLocalPathEntry[] | null>;
   chooseWorkspace?(): Promise<DesktopWorkspace | null>;
-  saveWorkspace?(
-    workspaceFile: string | null,
-    folders: DesktopWorkspaceFolder[],
-  ): Promise<DesktopWorkspace | null>;
-  readEditorSettings?(
-    projectPath: string,
-    relPath: string,
-    workspaceFile?: string,
-  ): Promise<DesktopEditorSettings>;
+  saveWorkspace?(workspaceFile: string | null, folders: DesktopWorkspaceFolder[]): Promise<DesktopWorkspace | null>;
+  readEditorSettings?(projectPath: string, relPath: string, workspaceFile?: string): Promise<DesktopEditorSettings>;
   startProject(projectPath: string): Promise<SessionSnapshot>;
   startProjectTask(projectPath: string): Promise<SessionSnapshot>;
   startTask(): Promise<SessionSnapshot>;
@@ -1696,10 +1705,7 @@ export interface DesktopApi {
   githubCliAccount?(): Promise<DesktopGithubCliAccount>;
   /** Settings → Git: global git identity/defaults (`git config --global`). */
   gitGlobalConfig?(): Promise<DesktopGitGlobalConfig>;
-  setGitGlobalConfig?(
-    key: DesktopGitGlobalConfigKey,
-    value: string,
-  ): Promise<DesktopGitGlobalConfig>;
+  setGitGlobalConfig?(key: DesktopGitGlobalConfigKey, value: string): Promise<DesktopGitGlobalConfig>;
   renameProject(projectPath: string, alias: string): Promise<void>;
   removeProject(projectPath: string): Promise<void>;
   /** Instructions editor (Projects page). `projectPath: null` targets the
@@ -1712,14 +1718,22 @@ export interface DesktopApi {
   /** Dock Files tab: lazy per-directory listing. */
   listProjectDir?(projectPath: string, relDir: string): Promise<DesktopDirEntry[]>;
   /** Editor tab: project file IO (traversal-guarded in main). */
-  readProjectFile?(projectPath: string, relPath: string, accessToken?: string): Promise<{
+  readProjectFile?(
+    projectPath: string,
+    relPath: string,
+    accessToken?: string
+  ): Promise<{
     content: string;
     mtimeMs: number;
     binary: boolean;
     tooLarge: boolean;
     encoding: DesktopTextFileEncoding;
   }>;
-  previewProjectFile?(projectPath: string, relPath: string, accessToken?: string): Promise<{
+  previewProjectFile?(
+    projectPath: string,
+    relPath: string,
+    accessToken?: string
+  ): Promise<{
     url: string;
     kind: 'image' | 'pdf' | 'audio' | 'video';
     mime: string;
@@ -1729,7 +1743,11 @@ export interface DesktopApi {
   /** Office document shown through the in-app PDF viewer, converting it once
    *  per revision. Electron only: the URL is a local protocol URL, which is
    *  exactly why a paired phone gets pages instead. */
-  previewDocumentFile?(projectPath: string, relPath: string, accessToken?: string): Promise<{
+  previewDocumentFile?(
+    projectPath: string,
+    relPath: string,
+    accessToken?: string
+  ): Promise<{
     url: string;
     kind: 'pdf';
     mime: string;
@@ -1744,7 +1762,7 @@ export interface DesktopApi {
     projectPath: string,
     relPath: string,
     accessToken?: string,
-    options?: { pages?: number[]; maxWidth?: number },
+    options?: { pages?: number[]; maxWidth?: number }
   ): Promise<DesktopDocumentPreviewPages>;
   writeProjectFile?(
     projectPath: string,
@@ -1752,7 +1770,7 @@ export interface DesktopApi {
     content: string,
     expectedContent: string,
     accessToken?: string,
-    encoding?: DesktopTextFileEncoding,
+    encoding?: DesktopTextFileEncoding
   ): Promise<{ mtimeMs: number }>;
   readEditorBackup?(projectPath: string, relPath: string, accessToken?: string): Promise<DesktopEditorBackup | null>;
   writeEditorBackup?(
@@ -1760,10 +1778,14 @@ export interface DesktopApi {
     relPath: string,
     content: string,
     expectedContent: string,
-    accessToken?: string,
+    accessToken?: string
   ): Promise<DesktopEditorBackup>;
   deleteEditorBackup?(projectPath: string, relPath: string, accessToken?: string): Promise<void>;
-  statProjectFile?(projectPath: string, relPath: string, accessToken?: string): Promise<{ mtimeMs: number; size: number }>;
+  statProjectFile?(
+    projectPath: string,
+    relPath: string,
+    accessToken?: string
+  ): Promise<{ mtimeMs: number; size: number }>;
   createProjectEntry?(projectPath: string, relDir: string, name: string, dir: boolean): Promise<void>;
   renameProjectEntry?(projectPath: string, relPath: string, newName: string): Promise<void>;
   trashProjectEntry?(projectPath: string, relPath: string): Promise<void>;
@@ -1787,25 +1809,16 @@ export interface DesktopApi {
    *  return unavailable so Monaco/code_graph remain the fallback. */
   lspDocument?(input: DesktopLspDocumentInput): Promise<DesktopLspServerState>;
   lspRequest?(input: DesktopLspRequestInput): Promise<DesktopLspRequestResult>;
-  lspApplyWorkspaceEdit?(
-    projectPath: string,
-    writes: DesktopWorkspaceTextWrite[],
-  ): Promise<void>;
+  lspApplyWorkspaceEdit?(projectPath: string, writes: DesktopWorkspaceTextWrite[]): Promise<void>;
   subscribeLspDiagnostics?(listener: (event: DesktopLspDiagnosticEvent) => void): () => void;
   subscribeLspStatus?(listener: (event: DesktopLspStatusEvent) => void): () => void;
   /** The relay refused an oversize frame this desktop sent and named no
    *  client. Surfaced to the user; it blames no call and reaches no phone. */
-  subscribeRelayPayloadRefused?(
-    listener: (detail: { bytes: number | null; limit: number | null }) => void,
-  ): () => void;
+  subscribeRelayPayloadRefused?(listener: (detail: { bytes: number | null; limit: number | null }) => void): () => void;
   listSessions(): Promise<DesktopSessionSummary[]>;
   /** Persist and fan out a read cursor. `consumedUnread` covers a completion
    *  marker whose message count did not advance. */
-  markSessionRead?(
-    sessionId: string,
-    messageCount: number,
-    consumedUnread?: boolean,
-  ): Promise<boolean>;
+  markSessionRead?(sessionId: string, messageCount: number, consumedUnread?: boolean): Promise<boolean>;
   /** Push channel: fires with a fresh catalog whenever the on-disk session
    *  store changes (any mixdog process). Renderers fall back to their
    *  safety-net poll when the host does not provide it (remote shim). */
@@ -1821,7 +1834,7 @@ export interface DesktopApi {
    *  so both transcripts continue from the same point. */
   inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null,
+    route?: DesktopModelSelection | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }>;
   /** Settings → Connection: pairing QRs + URLs for the phone remote. Only
    *  the in-process desktop implements it (null while the bridge is off);
@@ -1837,17 +1850,11 @@ export interface DesktopApi {
    *  the taskbar/dock signal instead, and its absence is what hides the
    *  notification toggle outside the web app. */
   pushPublicKey?(): Promise<string>;
-  registerPushSubscription?(input: {
-    endpoint: string;
-    p256dh: string;
-    auth: string;
-  }): Promise<boolean>;
+  registerPushSubscription?(input: { endpoint: string; p256dh: string; auth: string }): Promise<boolean>;
   removePushSubscription?(endpoint: string): Promise<boolean>;
   /** A web app with no credential is asking to connect. Only the in-process
    *  desktop implements these: the approval has to happen where the user is. */
-  subscribeRemoteClientClaim?(
-    listener: (claim: DesktopRemoteClientClaim) => void,
-  ): () => void;
+  subscribeRemoteClientClaim?(listener: (claim: DesktopRemoteClientClaim) => void): () => void;
   listRemoteClientClaims?(): Promise<DesktopRemoteClientClaim[]>;
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
   prefetchSession?(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
@@ -1858,13 +1865,13 @@ export interface DesktopApi {
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   searchWorkspaceText?(
     projectPath: string,
-    options: DesktopWorkspaceTextSearchOptions,
+    options: DesktopWorkspaceTextSearchOptions
   ): Promise<DesktopWorkspaceTextSearchResult>;
   replaceWorkspaceText?(
     projectPath: string,
     options: DesktopWorkspaceTextSearchOptions,
     replacement: string,
-    relPaths?: string[],
+    relPaths?: string[]
   ): Promise<DesktopWorkspaceTextReplaceResult>;
   getSnapshot(): Promise<SessionSnapshot>;
   subscribeState(listener: (snapshot: SessionSnapshot) => void): () => void;
@@ -1875,8 +1882,7 @@ export interface DesktopApi {
   /** First React commit signal — main defers window.show until it lands. */
   rendererReady?(): void;
   /** Dock terminal: create or reattach the shared PTY (main-process owned). */
-  termEnsure?(id: string | null, cwd?: string | null, shell?: string | null):
-    Promise<{ id: string; replay: string }>;
+  termEnsure?(id: string | null, cwd?: string | null, shell?: string | null): Promise<{ id: string; replay: string }>;
   termWrite?(id: string, data: string): void;
   termResize?(id: string, cols: number, rows: number): void;
   termAcknowledge?(id: string, charCount: number): void;
@@ -1952,7 +1958,7 @@ export interface DesktopApi {
     cwd: string,
     hash: string,
     mode: 'soft' | 'mixed' | 'hard',
-    confirmedDirty?: boolean,
+    confirmedDirty?: boolean
   ): Promise<string>;
   gitRevertCommit?(cwd: string, hash: string): Promise<string>;
   gitCherryPickCommit?(cwd: string, hash: string): Promise<string>;
@@ -1962,7 +1968,17 @@ export interface DesktopApi {
   gitCheckoutCommit?(cwd: string, hash: string): Promise<string>;
   gitCreateBranchAtCommit?(cwd: string, branch: string, hash: string): Promise<string>;
   /** Review pane: cumulative diff of the working tree vs merge-base(origin default branch, HEAD). */
-  gitReview?(cwd: string): Promise<{ base: string; files: Array<{ path: string; status: string; additions: number; deletions: number; untracked: boolean; uncommitted: boolean }> }>;
+  gitReview?(cwd: string): Promise<{
+    base: string;
+    files: Array<{
+      path: string;
+      status: string;
+      additions: number;
+      deletions: number;
+      untracked: boolean;
+      uncommitted: boolean;
+    }>;
+  }>;
   gitReviewDiff?(cwd: string, path: string, untracked?: boolean): Promise<string>;
   /** Review file context menu: OS-level reveal/open for a project-relative file. */
   revealFile?(cwd: string, path: string, accessToken?: string): Promise<void>;
@@ -1979,21 +1995,13 @@ export interface DesktopApi {
   submitNewTask(
     prompt: DesktopPromptContent,
     options?: DesktopSubmitOptions,
-    draft?: DesktopNewTaskDraft,
+    draft?: DesktopNewTaskDraft
   ): Promise<DesktopNewTaskSubmitResult>;
   /** Split panes: prompt/abort/approvals addressed to any pooled live
    *  session (active or parked), keyed by sessionId. */
-  submitToSession(
-    sessionId: string,
-    prompt: DesktopPromptContent,
-    options?: DesktopSubmitOptions,
-  ): Promise<boolean>;
+  submitToSession(sessionId: string, prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   abortSession(sessionId: string, options?: DesktopAbortOptions): Promise<unknown>;
-  resolveToolApprovalForSession(
-    sessionId: string,
-    id: string,
-    decision: ToolApprovalDecision,
-  ): Promise<boolean>;
+  resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean>;
   /** Per-session live snapshot lane covering every pooled session runtime. */
   subscribeSessionState(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
@@ -2008,75 +2016,42 @@ export interface DesktopApi {
   onZoomFactorChanged(listener: (factor: number) => void): () => void;
   /** Agent browser bridge (desktop host only): retain the owning session's
    *  Browser surface and optionally reveal its dock for a foreground call. */
-  onBrowserOpenRequested?(
-    listener: (request: DesktopBrowserOpenRequest) => void,
-  ): () => void;
+  onBrowserOpenRequested?(listener: (request: DesktopBrowserOpenRequest) => void): () => void;
   /** Runtime unload frees pixels but retains the session's dock selection. */
-  onBrowserSessionReleased?(
-    listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void,
-  ): () => void;
+  onBrowserSessionReleased?(listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void): () => void;
   /** Bind one persistent guest to its owning conversation session. */
-  browserSetActiveGuest?(
-    sessionId: string,
-    webContentsId: number,
-    active: boolean,
-  ): Promise<void>;
-  browserPageFrame?(
-    sessionId: string,
-    previousFrameId?: string,
-  ): Promise<DesktopBrowserPageFrame>;
+  browserSetActiveGuest?(sessionId: string, webContentsId: number, active: boolean): Promise<void>;
+  browserPageFrame?(sessionId: string, previousFrameId?: string): Promise<DesktopBrowserPageFrame>;
   browserPresentTexture?(sessionId: string, textureId: string, canvasId: string): void;
   browserDiscardTexture?(sessionId: string): void;
-  browserPageControl?(
-    sessionId: string,
-    input: DesktopBrowserPageControl,
-  ): Promise<void>;
+  browserPageControl?(sessionId: string, input: DesktopBrowserPageControl): Promise<void>;
   /** Apply pane-owned device emulation to the exact visible Browser guest. */
   browserConfigureGuestViewport?(
     sessionId: string,
     webContentsId: number,
-    config: DesktopBrowserViewportConfig,
+    config: DesktopBrowserViewportConfig
   ): Promise<void>;
   /** The visible guest's device metrics changed — by the pane's own picker or
    *  by the agent's emulate command. `viewport` is null when metrics were
    *  cleared. The pane draws a centered device frame at this size. */
-  onBrowserGuestViewportChanged?(
-    listener: (change: DesktopBrowserGuestViewportChange) => void,
-  ): () => void;
+  onBrowserGuestViewportChanged?(listener: (change: DesktopBrowserGuestViewportChange) => void): () => void;
   /** A phone started or stopped viewing a session's guest through the relay.
    *  A guest parked off-window produces no frames, so its capture hangs; the
    *  renderer keeps a remotely viewed guest inside the window while active. */
-  onBrowserRemoteViewerChanged?(
-    listener: (change: DesktopBrowserRemoteViewerChange) => void,
-  ): () => void;
+  onBrowserRemoteViewerChanged?(listener: (change: DesktopBrowserRemoteViewerChange) => void): () => void;
   /** Local Chrome profile import into the isolated Browser Use partition.
    *  Secrets stay in main/native processes; renderer receives metadata/counts. */
   browserProfileImportSources?(): Promise<DesktopBrowserImportSource[]>;
-  browserProfileImportStart?(
-    request: DesktopBrowserImportRequest,
-  ): Promise<DesktopBrowserImportResult>;
-  onBrowserProfileImportProgress?(
-    listener: (progress: DesktopBrowserImportProgress) => void,
-  ): () => void;
+  browserProfileImportStart?(request: DesktopBrowserImportRequest): Promise<DesktopBrowserImportResult>;
+  onBrowserProfileImportProgress?(listener: (progress: DesktopBrowserImportProgress) => void): () => void;
   browserHistorySearch?(query: string): Promise<DesktopBrowserHistoryEntry[]>;
   /** Current session's Browser Use page only. Passwords never cross this API. */
-  browserCredentialSuggestions?(
-    sessionId: string,
-  ): Promise<DesktopBrowserCredentialSuggestion[]>;
-  browserCredentialFill?(
-    sessionId: string,
-    credentialId: string,
-  ): Promise<DesktopBrowserCredentialFillResult>;
+  browserCredentialSuggestions?(sessionId: string): Promise<DesktopBrowserCredentialSuggestion[]>;
+  browserCredentialFill?(sessionId: string, credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
   /** Paired web app: pixels and bounded human input target the desktop's
    * current Browser Use guest, preserving its cookies and agent-visible page. */
-  remoteBrowserFrame?(
-    sessionId: string,
-    previousFrameId?: string,
-  ): Promise<DesktopRemoteBrowserFrame>;
-  remoteBrowserControl?(
-    sessionId: string,
-    input: DesktopRemoteBrowserControl,
-  ): Promise<void>;
+  remoteBrowserFrame?(sessionId: string, previousFrameId?: string): Promise<DesktopRemoteBrowserFrame>;
+  remoteBrowserControl?(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;

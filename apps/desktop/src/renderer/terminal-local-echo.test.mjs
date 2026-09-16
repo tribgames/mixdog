@@ -112,8 +112,8 @@ test('remote reconnect re-ensures mounted terminals without duplicate attempts',
     readFile(new URL('./remote-shim.ts', import.meta.url), 'utf8'),
     readFile(new URL('./TerminalPane.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(shim, /dispatchEvent\(new Event\('mixdog:remote-reconnected'\)\)/);
-  assert.match(pane, /if \(disposed \|\| ensureInFlight\) return;/);
-  assert.match(pane, /addEventListener\('mixdog:remote-reconnected', onRemoteReconnected\)/);
-  assert.match(pane, /removeEventListener\('mixdog:remote-reconnected', onRemoteReconnected\)/);
+  assert.match(shim, /dispatchEvent\(\s*new\s+Event\(\s*['"]mixdog:remote-reconnected['"]\s*\)\s*\)/);
+  assert.match(pane, /if\s*\(\s*disposed\s*\|\|\s*ensureInFlight\s*\)\s*return;/);
+  assert.match(pane, /addEventListener\(\s*['"]mixdog:remote-reconnected['"],\s*onRemoteReconnected\s*\)/);
+  assert.match(pane, /removeEventListener\(\s*['"]mixdog:remote-reconnected['"],\s*onRemoteReconnected\s*\)/);
 });

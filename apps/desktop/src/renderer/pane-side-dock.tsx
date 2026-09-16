@@ -38,7 +38,7 @@ import { getSidePanelMode, sidePanelLayout, subscribeSidePanelMode } from './sid
 import { t } from './i18n';
 
 export type PaneSideDockDiff = Extract<WorkspaceSelection, { kind: 'diff' }>;
-export type PaneSideDiffRequest = {
+type PaneSideDiffRequest = {
   source: 'staged' | 'unstaged' | 'commit' | 'session';
   hash?: string;
   untracked?: boolean;

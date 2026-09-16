@@ -22,7 +22,7 @@ import * as workspaceSearch from './workspace-search';
 import { createDocumentPreviewOperations } from './document-preview';
 import type { DocumentPreviewModule } from './document-preview';
 
-export interface DesktopOperationEvent {
+interface DesktopOperationEvent {
   name: 'folder-changed' | 'lsp-diagnostics' | 'lsp-status' | 'terminal-data';
   value: unknown;
 }

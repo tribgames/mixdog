@@ -14,7 +14,7 @@ import { touchPrimaryPointer } from './surface-input-focus';
  *  expires keeps the card open. Geometry no longer decides. */
 export const HOVER_POPOVER_CLOSE_DELAY_MS = 220;
 
-export type HoverPopover = {
+type HoverPopover = {
   /** True while the card should paint. */
   open: boolean;
   /** True once a click pinned the card open; hover alone never pins. */

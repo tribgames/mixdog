@@ -3,7 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import { t } from './i18n';
 import { safeErrorDetails } from './ErrorNotice';
 
-export type SourceControlErrorKind =
+type SourceControlErrorKind =
   | 'authentication'
   | 'conflict'
   | 'network'
@@ -11,7 +11,7 @@ export type SourceControlErrorKind =
   | 'protected-branch'
   | 'generic';
 
-export type SourceControlErrorPresentation = {
+type SourceControlErrorPresentation = {
   kind: SourceControlErrorKind;
   summary: string;
   details: string;

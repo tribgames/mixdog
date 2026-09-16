@@ -27,7 +27,7 @@ export type UsageRecord = Record<string, unknown>;
  *   loading     — a request or its bounded retry is outstanding, no live result
  *   ready       — a valid live dashboard was accepted
  *   unavailable — the request path settled without a usable dashboard */
-export type UsageDashboardStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
+type UsageDashboardStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 
 export type UsageDashboardSnapshot = {
   dashboard: UsageRecord;

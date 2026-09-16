@@ -64,7 +64,7 @@ export function run(cwd: string, args: string[], indexFile?: string, protectHook
  * config it could not read — and a caller that only sees "it failed" has to
  * guess between the two. `code: -1` is a process that never ran.
  */
-export interface GitOutcome {
+interface GitOutcome {
   code: number;
   stdout: string;
   stderr: string;

@@ -126,7 +126,7 @@ export interface RemoteMethodDependencies {
   browserRemote?: (method: 'frame' | 'control' | 'release', args: unknown[]) => Promise<unknown>;
 }
 
-export type RemoteMethod = (params: unknown[]) => unknown;
+type RemoteMethod = (params: unknown[]) => unknown;
 
 export function createRemoteMethods({
   host,

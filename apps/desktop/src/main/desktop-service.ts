@@ -1,28 +1,14 @@
-import type {
-  DesktopRemoteClientInfo,
-  DesktopSessionStateUpdate,
-  SessionSnapshot,
-} from '../shared/contract';
+import type { DesktopRemoteClientInfo, DesktopSessionStateUpdate, SessionSnapshot } from '../shared/contract';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
-import type {
-  MixdogProjectsModule,
-  MixdogSessionStoreModule,
-  StatuslineSegmentsModule,
-} from './desktop-support';
-import {
-  SessionHost,
-  type SessionClient,
-} from './session-host';
+import type { MixdogProjectsModule, MixdogSessionStoreModule, StatuslineSegmentsModule } from './desktop-support';
+import { SessionHost, type SessionClient } from './session-host';
 import {
   DESKTOP_SERVICE_METHODS,
   type DesktopService,
   type DesktopServiceMethod,
   type SerializableDesktopServiceOptions,
 } from './desktop-service-contract';
-import {
-  type DesktopServiceInbound,
-  type DesktopServiceOutbound,
-} from './desktop-service-protocol';
+import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import { createSnapshotStateMailbox } from './snapshot-state-mailbox';
 import {
   createSnapshotDeltaEncoder,
@@ -42,10 +28,7 @@ import {
 } from './remote-relay';
 import { rotateRelayE2EEIdentity } from './remote-e2ee';
 import { synchronizeViewSnapshot } from './view-synchronizer';
-import {
-  filterSessionIds,
-  requiredVisibleSessionVersion,
-} from './desktop-state';
+import { filterSessionIds, requiredVisibleSessionVersion } from './desktop-state';
 
 // Slightly under the relay's own claim TTL: a dialog left open must never
 // outlive the request it answers.
@@ -70,14 +53,10 @@ interface DesktopServiceRuntime {
   /** Office document conversion and page rasterization. Optional: an older
    *  daemon simply has no document preview, and the editor says so. */
   loadDocumentPreview?(): Promise<import('./document-preview').DocumentPreviewModule>;
-  executeCodeGraphTool(
-    name: string,
-    args: Record<string, unknown>,
-    cwd: string,
-  ): Promise<unknown>;
+  executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
 }
 
-export interface DesktopServiceAdapter {
+interface DesktopServiceAdapter {
   readonly clientCount: number;
   invoke(method: string, args: unknown[]): Promise<unknown>;
   control(message: unknown): Promise<void>;
@@ -90,16 +69,17 @@ export interface DesktopServiceAdapter {
  * adapter itself never follows a desktop view's lifetime; this object's
  * dispose runs only when the daemon exits.
  */
-export async function createDesktopService(
-  { options, runtime, emit, onClientCountChanged }: DesktopServiceFactoryInput,
-): Promise<DesktopServiceAdapter> {
+export async function createDesktopService({
+  options,
+  runtime,
+  emit,
+  onClientCountChanged,
+}: DesktopServiceFactoryInput): Promise<DesktopServiceAdapter> {
   if (!runtime || typeof runtime.attachSessionClient !== 'function') {
     throw new TypeError('Mixdog service session bridge is unavailable.');
   }
   const host = await SessionHost.create(options, runtime);
-  const desktopEventListeners = new Set<
-    (event: { name: string; value: unknown }) => void
-  >();
+  const desktopEventListeners = new Set<(event: { name: string; value: unknown }) => void>();
   const publishDesktopEvent = (name: string, value: unknown): void => {
     emit({ kind: 'desktop-event', name, value });
     for (const listener of desktopEventListeners) listener({ name, value });
@@ -110,9 +90,7 @@ export async function createDesktopService(
     resourcesPath: options.resourcesPath,
     appPath: options.appPath,
     loadConfig: runtime.loadConfig,
-    loadDocumentPreview: runtime.loadDocumentPreview
-      ? () => runtime.loadDocumentPreview!()
-      : undefined,
+    loadDocumentPreview: runtime.loadDocumentPreview ? () => runtime.loadDocumentPreview!() : undefined,
     emit: (event) => publishDesktopEvent(event.name, event.value),
   });
   const settingsStore = operations.settingsStore;
@@ -140,22 +118,25 @@ export async function createDesktopService(
   let relayRetryMs = 0;
   // claimId -> settle(approved). One entry lives only as long as the approval
   // dialog it belongs to.
-  const pendingClaims = new Map<string, {
-    clientId: string;
-    claim: RemoteClientClaim;
-    promise: Promise<boolean>;
-    settle(approved: boolean): void;
-  }>();
+  const pendingClaims = new Map<
+    string,
+    {
+      clientId: string;
+      claim: RemoteClientClaim;
+      promise: Promise<boolean>;
+      settle(approved: boolean): void;
+    }
+  >();
   let nextBrowserRemoteRequestId = 0;
-  const pendingBrowserRemoteRequests = new Map<string, {
-    resolve(value: unknown): void;
-    reject(error: Error): void;
-    timer: NodeJS.Timeout;
-  }>();
-  const requestBrowserRemote = (
-    method: 'frame' | 'control' | 'release',
-    args: unknown[],
-  ): Promise<unknown> => {
+  const pendingBrowserRemoteRequests = new Map<
+    string,
+    {
+      resolve(value: unknown): void;
+      reject(error: Error): void;
+      timer: NodeJS.Timeout;
+    }
+  >();
+  const requestBrowserRemote = (method: 'frame' | 'control' | 'release', args: unknown[]): Promise<unknown> => {
     const id = `browser_remote_${++nextBrowserRemoteRequestId}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -170,7 +151,11 @@ export async function createDesktopService(
   const remoteDescriptor = async () => {
     if (!remoteRelay) return null;
     let clients: DesktopRemoteClientInfo[] = [];
-    try { clients = await remoteRelay.listClients(); } catch { /* relay may still be connecting */ }
+    try {
+      clients = await remoteRelay.listClients();
+    } catch {
+      /* relay may still be connecting */
+    }
     return {
       relay: {
         clientUrl: remoteRelay.clientUrl,
@@ -212,12 +197,13 @@ export async function createDesktopService(
       }
 
       const now = Date.now();
-      const relayExpiresAt = Number.isFinite(claim.expiresAt) && claim.expiresAt > now
-        ? claim.expiresAt
-        : now + REMOTE_CLAIM_TIMEOUT_MS;
+      const relayExpiresAt =
+        Number.isFinite(claim.expiresAt) && claim.expiresAt > now ? claim.expiresAt : now + REMOTE_CLAIM_TIMEOUT_MS;
       const expiresAt = Math.min(relayExpiresAt, now + REMOTE_CLAIM_TIMEOUT_MS);
       let resolveClaim!: (approved: boolean) => void;
-      const promise = new Promise<boolean>((resolve) => { resolveClaim = resolve; });
+      const promise = new Promise<boolean>((resolve) => {
+        resolveClaim = resolve;
+      });
       let timer: NodeJS.Timeout | null = null;
       const settle = (approved: boolean): void => {
         if (!pendingClaims.delete(claim.claimId)) return;
@@ -242,9 +228,7 @@ export async function createDesktopService(
    *  handle owns its own reconnect loop from that point on. */
   const scheduleRelayRetry = (): void => {
     if (relayRetryTimer || remoteRelay) return;
-    relayRetryMs = relayRetryMs > 0
-      ? Math.min(RELAY_RETRY_MAX_MS, relayRetryMs * 2)
-      : RELAY_RETRY_BASE_MS;
+    relayRetryMs = relayRetryMs > 0 ? Math.min(RELAY_RETRY_MAX_MS, relayRetryMs * 2) : RELAY_RETRY_BASE_MS;
     relayRetryTimer = setTimeout(() => {
       relayRetryTimer = null;
       void startRemoteServices();
@@ -296,7 +280,9 @@ export async function createDesktopService(
       rotateRelayE2EEIdentity(options.userDataPath),
     ]);
     remoteRelay = null;
-    try { await relay?.close(); } catch {}
+    try {
+      await relay?.close();
+    } catch {}
     await startRemoteServices();
     return remoteDescriptor();
   };
@@ -309,17 +295,18 @@ export async function createDesktopService(
   const visibleSessionIds = new Set<string>();
   const sessionStateEncoders = new Map<string, SnapshotDeltaEncoder>();
   const latestSessionStates = new Map<string, SessionSnapshot>();
-  const latestSessionProvenance = new Map<string, {
-    frameSource: 'live' | 'replay';
-    contentRevision?: number;
-  }>();
+  const latestSessionProvenance = new Map<
+    string,
+    {
+      frameSource: 'live' | 'replay';
+      contentRevision?: number;
+    }
+  >();
 
   const stateMailbox = createSnapshotStateMailbox<SessionSnapshot>((sequence, wire) => {
     emit({ kind: 'state', sequence, wire });
   });
-  const postSessionState = (
-    update: DesktopSessionStateUpdate,
-  ): void => {
+  const postSessionState = (update: DesktopSessionStateUpdate): void => {
     const { sessionId, snapshot } = update;
     let encoder = sessionStateEncoders.get(sessionId);
     if (!encoder) encoder = createSnapshotDeltaEncoder();
@@ -330,9 +317,7 @@ export async function createDesktopService(
         wire: encoder.encode(null),
         frameSource: update.frameSource,
         ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
-        ...(typeof update.contentRevision === 'number'
-          ? { contentRevision: update.contentRevision }
-          : {}),
+        ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
       });
       sessionStateEncoders.delete(sessionId);
       latestSessionStates.delete(sessionId);
@@ -343,8 +328,7 @@ export async function createDesktopService(
     latestSessionStates.set(sessionId, snapshot);
     latestSessionProvenance.set(sessionId, update);
     const wire = encoder.encode(snapshot);
-    reportTranscriptRead(sessionId, update.readTraceId,
-      isNoDelta(wire) ? 'service-unchanged' : 'service-send');
+    reportTranscriptRead(sessionId, update.readTraceId, isNoDelta(wire) ? 'service-unchanged' : 'service-send');
     if (isNoDelta(wire)) return;
     emit({
       kind: 'session-state',
@@ -352,9 +336,7 @@ export async function createDesktopService(
       wire,
       ...(update.readTraceId ? { readTraceId: update.readTraceId } : {}),
       frameSource: update.frameSource,
-      ...(typeof update.contentRevision === 'number'
-        ? { contentRevision: update.contentRevision }
-        : {}),
+      ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
     });
   };
 
@@ -380,34 +362,35 @@ export async function createDesktopService(
   });
   stateMailbox.publish(host.getSnapshot());
   const synchronizeViews = (): Promise<void> => {
-    const run = viewSyncQueue.catch(() => undefined).then(async () => {
-      let version: number;
-      do {
-        if (serviceClosed) return;
-        version = viewVersion;
-        viewsSyncing = true;
-        try {
-          await host.setVisibleSessions([...visibleSessionIds]);
-          await synchronizeViewSnapshot(host, [...visibleSessionIds], (snapshot) => {
-            if (serviceClosed) return;
-            stateMailbox.reset(snapshot.snapshot);
-            sessionStateEncoders.clear();
-            for (const update of snapshot.sessionStates) postSessionState(update);
-            emit({ kind: 'sessions', sessions: snapshot.sessions });
-            emit({ kind: 'agent-pool', agents: snapshot.agents });
+    const run = viewSyncQueue
+      .catch(() => undefined)
+      .then(async () => {
+        let version: number;
+        do {
+          if (serviceClosed) return;
+          version = viewVersion;
+          viewsSyncing = true;
+          try {
+            await host.setVisibleSessions([...visibleSessionIds]);
+            await synchronizeViewSnapshot(host, [...visibleSessionIds], (snapshot) => {
+              if (serviceClosed) return;
+              stateMailbox.reset(snapshot.snapshot);
+              sessionStateEncoders.clear();
+              for (const update of snapshot.sessionStates) postSessionState(update);
+              emit({ kind: 'sessions', sessions: snapshot.sessions });
+              emit({ kind: 'agent-pool', agents: snapshot.agents });
+              viewsSyncing = false;
+              if (version === viewVersion) emit({ kind: 'view-sync-complete' });
+            });
+          } finally {
             viewsSyncing = false;
-            if (version === viewVersion) emit({ kind: 'view-sync-complete' });
-          });
-        } finally { viewsSyncing = false; }
-      } while (version !== viewVersion);
-    });
+          }
+        } while (version !== viewVersion);
+      });
     viewSyncQueue = run;
     return run;
   };
-  const invokeServiceOperation = async (
-    operation: string,
-    operationArgs: unknown[],
-  ): Promise<unknown> => {
+  const invokeServiceOperation = async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
     switch (operation) {
       case 'remoteAccessStart':
       case 'remoteAccessInfo':
@@ -417,9 +400,7 @@ export async function createDesktopService(
         return rotateRemoteAccess();
       case 'remoteAccessListClaims': {
         const now = Date.now();
-        return [...pendingClaims.values()]
-          .map((pending) => pending.claim)
-          .filter((claim) => claim.expiresAt > now);
+        return [...pendingClaims.values()].map((pending) => pending.claim).filter((claim) => claim.expiresAt > now);
       }
       case 'remoteAccessResolveClaim': {
         const pending = pendingClaims.get(String(operationArgs[0] || ''));
@@ -468,7 +449,7 @@ export async function createDesktopService(
     releaseHiddenSessionStateEntries(
       visibleSessionIds,
       [sessionStateEncoders, latestSessionStates, latestSessionProvenance],
-      (sessionId) => sessionStateEncoders.get(sessionId)?.reset(),
+      (sessionId) => sessionStateEncoders.get(sessionId)?.reset()
     );
     return host.setVisibleSessions(args[0] as string[]);
   };
@@ -482,18 +463,14 @@ export async function createDesktopService(
         throw new TypeError('Mixdog desktop service method is unavailable.');
       }
       if (method === 'invokeDesktopOperation') {
-        return invokeServiceOperation(
-          String(args[0] || ''),
-          Array.isArray(args[1]) ? args[1] : [],
-        );
+        return invokeServiceOperation(String(args[0] || ''), Array.isArray(args[1]) ? args[1] : []);
       }
       if (method === 'setVisibleSessions') {
         return setDeliveryFilter(args);
       }
-      const target = (host as unknown as Record<
-        DesktopServiceMethod,
-        (...values: unknown[]) => unknown
-      >)[method as DesktopServiceMethod];
+      const target = (host as unknown as Record<DesktopServiceMethod, (...values: unknown[]) => unknown>)[
+        method as DesktopServiceMethod
+      ];
       return await target.apply(host, args);
     },
     async control(value): Promise<void> {
@@ -550,7 +527,9 @@ export async function createDesktopService(
         clearTimeout(relayRetryTimer);
         relayRetryTimer = null;
       }
-      try { await remoteRelay?.close(); } catch {}
+      try {
+        await remoteRelay?.close();
+      } catch {}
       remoteRelay = null;
       await operations.dispose();
       await host.dispose();

@@ -78,7 +78,7 @@ export interface SessionClient {
   close(reason?: string): Promise<void>;
 }
 
-export interface SessionHostRuntime {
+interface SessionHostRuntime {
   attachSessionClient(options: {
     onFrame(frame: Record<string, unknown>): void;
     onFatal?(reason: string): void;

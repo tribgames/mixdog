@@ -9,7 +9,7 @@ import type {
 import { isSessionId } from './desktop-state';
 import { reconcileSessionProjection } from './state-delta';
 
-export type SessionProjection = {
+type SessionProjection = {
   revision: number;
   snapshot: SessionSnapshot;
   /** Stored views refresh until a live publication takes ownership. */
@@ -19,7 +19,7 @@ export type SessionProjection = {
   projectionStamp?: string;
 };
 
-export interface SessionHostPublicationOwner {
+interface SessionHostPublicationOwner {
   isDisposed(): boolean;
   controlSessionId(): string;
   setControlSessionId(sessionId: string): void;

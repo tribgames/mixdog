@@ -10,12 +10,12 @@ export interface EditorFileLoad {
   encoding: DesktopTextFileEncoding;
 }
 
-export interface EditorFileHydration {
+interface EditorFileHydration {
   file: EditorFileLoad;
   backup: DesktopEditorBackup | null;
 }
 
-export interface EditorBackupResolution {
+interface EditorBackupResolution {
   content: string;
   savedContent: string;
   recovery:

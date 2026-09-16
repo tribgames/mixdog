@@ -1,43 +1,23 @@
-import {
-  ChevronRight,
-  Layers3,
-  Plus,
-} from 'lucide-react';
+import { ChevronRight, Layers3, Plus } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 
-import type {
-  DesktopApi,
-  DesktopCapability,
-  DesktopModelOption,
-} from '../shared/contract';
+import type { DesktopApi, DesktopCapability, DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
 import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
 import { preferredModelEffort, routeOption } from './model-route-utils';
 import { showDesktopToast } from './notifications';
-import {
-  ModelRouteLabel,
-  modelDisplayName,
-  normalizeModelOptions,
-} from './provider-display';
+import { ModelRouteLabel, modelDisplayName, normalizeModelOptions } from './provider-display';
 import { record } from './record-utils';
 import { SidebarLoadingDialog } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { SidebarResourceTitle } from './sidebar-resource-row';
-import {
-  useSidebarReferences,
-  type SidebarReferenceKey,
-} from './sidebar-reference-cache';
+import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
-import {
-  AgentEditorDialog,
-  RouteEditorDialog,
-  WorkflowEditorDialog,
-  type RouteEditorTarget,
-} from './workflow-dialogs';
+import { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog, type RouteEditorTarget } from './workflow-dialogs';
 
 type RecordValue = Record<string, unknown>;
-export type WorkflowsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
+type WorkflowsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
 
 type AgentRouteSummary = {
   model: string;
@@ -50,9 +30,7 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   const provider = String(route.provider || '');
   const model = String(route.model || '');
   const selected = models.find((entry) => entry.provider === provider && entry.model === model);
-  const modelLabel = model
-    ? modelDisplayName(model, provider, selected?.display || '')
-    : 'Default · follows Main';
+  const modelLabel = model ? modelDisplayName(model, provider, selected?.display || '') : 'Default · follows Main';
   const effortValue = String(route.effort || preferredModelEffort(selected) || '');
   const effortOption = selected?.effortOptions.find((entry) => entry.value === effortValue);
   const rawEffortLabel = effortOption?.label || effortValue;
@@ -66,13 +44,17 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   };
 }
 
-function AgentRouteSummaryView({ summary }: {
-  summary: AgentRouteSummary;
-}) {
-  return <small className="agent-route-summary route-trigger-copy">
-    <ModelRouteLabel model={summary.model} effort={summary.effort}
-      fast={summary.fast} effortLabel={summary.effortLabel} />
-  </small>;
+function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
+  return (
+    <small className="agent-route-summary route-trigger-copy">
+      <ModelRouteLabel
+        model={summary.model}
+        effort={summary.effort}
+        fast={summary.fast}
+        effortLabel={summary.effortLabel}
+      />
+    </small>
+  );
 }
 
 // Agents have exactly two states: a pinned model, or off. "Follows Main" is
@@ -104,37 +86,28 @@ const WORKFLOW_REFERENCE_KEYS = [
 // Workflow and agent configuration (Projects panel → Workflow tab). The
 // hosting ProjectsPane owns the surface wrapper and the section toolbar; this
 // section renders its lists and popup editors.
-export function WorkflowsPane({
-  api = window.mixdogDesktop,
-  active = true,
-}: {
-  api?: WorkflowsApi;
-  active?: boolean;
-}) {
+export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { api?: WorkflowsApi; active?: boolean }) {
   // App pre-mounts rail destinations while idle, and boot prewarms these keys,
   // so a normal first click is already a warm, atomic reveal.
-  const { values, loading, completeMutation } =
-    useSidebarReferences(api, WORKFLOW_REFERENCE_KEYS, active);
+  const { values, loading, completeMutation } = useSidebarReferences(api, WORKFLOW_REFERENCE_KEYS, active);
   const workflows = values.workflows;
   const agents = values.agents;
   const webSearchRoute = values.webSearchRoute;
   const providerSetup = values.providerSetup;
-  const models = useMemo(() => filterConfiguredModels(
-    normalizeModelOptions(values.quickProviderModels),
-    providerSetup,
-  ), [values.quickProviderModels, providerSetup]);
-  const webSearchModels = useMemo(() => filterConfiguredModels(
-    normalizeModelOptions(values.webSearchModels.map(routeOption)),
-    providerSetup,
-  ), [values.webSearchModels, providerSetup]);
+  const models = useMemo(
+    () => filterConfiguredModels(normalizeModelOptions(values.quickProviderModels), providerSetup),
+    [values.quickProviderModels, providerSetup]
+  );
+  const webSearchModels = useMemo(
+    () => filterConfiguredModels(normalizeModelOptions(values.webSearchModels.map(routeOption)), providerSetup),
+    [values.webSearchModels, providerSetup]
+  );
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [editor, setEditor] = useState<{ pack: RecordValue | null; deletable: boolean } | null>(null);
-  const [agentEditor, setAgentEditor] =
-    useState<{ agent: RecordValue | null; deletable: boolean } | null>(null);
+  const [agentEditor, setAgentEditor] = useState<{ agent: RecordValue | null; deletable: boolean } | null>(null);
   const [routeEditor, setRouteEditor] = useState<RouteEditorTarget | null>(null);
-  const [loadingEditor, setLoadingEditor] =
-    useState<{ kind: 'workflow' | 'agent'; title: string } | null>(null);
+  const [loadingEditor, setLoadingEditor] = useState<{ kind: 'workflow' | 'agent'; title: string } | null>(null);
   const detailRequestRef = useRef(0);
   // Both editors portal to document.body, outside the sidebar's inert box:
   // deactivating the panel closes them and disarms pending deletions, while
@@ -150,7 +123,7 @@ export function WorkflowsPane({
   const run = async (
     capability: DesktopCapability,
     args: unknown[] = [],
-    errorMode: 'inline' | 'toast' = 'inline',
+    errorMode: 'inline' | 'toast' = 'inline'
   ): Promise<unknown> => {
     if (!api?.invokeCapability || pending) return undefined;
     setPending(capability);
@@ -182,7 +155,9 @@ export function WorkflowsPane({
       setEditor({ pack: record(result?.value), deletable });
     } catch (reason) {
       if (detailRequestRef.current !== requestId) return;
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', { scope: `workflow:open:${id}` });
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+        scope: `workflow:open:${id}`,
+      });
     } finally {
       if (detailRequestRef.current === requestId) setLoadingEditor(null);
     }
@@ -198,18 +173,25 @@ export function WorkflowsPane({
     const result = await run('deleteWorkflow', [id]);
     if (result !== undefined) {
       setEditor(null);
-      showDesktopToast(record(result).revertedToBuiltIn === true
-        ? `"${id}" reverted to the built-in pack.`
-        : `Deleted "${id}".`, 'success');
+      showDesktopToast(
+        record(result).revertedToBuiltIn === true ? `"${id}" reverted to the built-in pack.` : `Deleted "${id}".`,
+        'success'
+      );
     }
   };
-  const agentRoster = useMemo<AgentSummary[]>(() => agents.map((agent) => ({
-    id: String(agent.id || ''),
-    label: String(agent.label || record(agent.definition).name || agent.id || ''),
-    description: String(record(agent.definition).description || agent.description || ''),
-    custom: agent.custom === true,
-    userOverride: agent.userOverride === true,
-  })).filter((agent) => agent.id), [agents]);
+  const agentRoster = useMemo<AgentSummary[]>(
+    () =>
+      agents
+        .map((agent) => ({
+          id: String(agent.id || ''),
+          label: String(agent.label || record(agent.definition).name || agent.id || ''),
+          description: String(record(agent.definition).description || agent.description || ''),
+          custom: agent.custom === true,
+          userOverride: agent.userOverride === true,
+        }))
+        .filter((agent) => agent.id),
+    [agents]
+  );
   const maintainerAgent = agentRoster.find((agent) => agent.id === 'maintainer');
   const maintainerRow = agents.find((agent) => String(agent.id || '') === 'maintainer');
   const exploreAgent = agentRoster.find((agent) => agent.id === 'explore');
@@ -217,7 +199,7 @@ export function WorkflowsPane({
   const editableAgents = agentRoster.filter((agent) => !DEFAULT_AGENT_IDS.has(agent.id));
   const workflowOrder = usePersistedListOrder(
     'mixdog.sidebar-order.workflows.v1',
-    workflows.map((workflow) => String(workflow.id || '')),
+    workflows.map((workflow) => String(workflow.id || ''))
   );
   const orderedWorkflows = workflowOrder.orderedIds
     .map((id) => workflows.find((workflow) => String(workflow.id || '') === id))
@@ -227,13 +209,10 @@ export function WorkflowsPane({
     ...(exploreAgent ? [exploreAgent.id] : []),
     ...(maintainerAgent ? [maintainerAgent.id] : []),
   ];
-  const defaultAgentOrder = usePersistedListOrder(
-    'mixdog.sidebar-order.default-agents.v1',
-    defaultAgentIds,
-  );
+  const defaultAgentOrder = usePersistedListOrder('mixdog.sidebar-order.default-agents.v1', defaultAgentIds);
   const agentOrder = usePersistedListOrder(
     'mixdog.sidebar-order.agents.v1',
-    editableAgents.map((agent) => agent.id),
+    editableAgents.map((agent) => agent.id)
   );
   const orderedEditableAgents = agentOrder.orderedIds
     .map((id) => editableAgents.find((agent) => agent.id === id))
@@ -249,7 +228,9 @@ export function WorkflowsPane({
       setAgentEditor({ agent: record(result?.value), deletable });
     } catch (reason) {
       if (detailRequestRef.current !== requestId) return;
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', { scope: `agent:open:${id}` });
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+        scope: `agent:open:${id}`,
+      });
     } finally {
       if (detailRequestRef.current === requestId) setLoadingEditor(null);
     }
@@ -270,9 +251,7 @@ export function WorkflowsPane({
   };
   const saveRoute = async (route: RecordValue) => {
     if (!routeEditor) return;
-    const args = routeEditor.capability === 'setWebSearchRoute'
-      ? [route]
-      : [routeEditor.id, route];
+    const args = routeEditor.capability === 'setWebSearchRoute' ? [route] : [routeEditor.id, route];
     const result = await run(routeEditor.capability, args);
     if (result !== undefined) {
       setRouteEditor(null);
@@ -286,183 +265,265 @@ export function WorkflowsPane({
     const row = agents.find((entry) => String(entry.id) === agent.id);
     const route = record(row?.route);
     const disabled = row?.disabled === true;
-    return <button type="button" key={agent.id}
-      className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row"
-      data-enabled={disabled ? 'false' : 'true'}
-      title={agent.description || agent.label} disabled={busy}
-      aria-label={t('Edit {{name}}', { name: agent.label })}
-      onClick={() => void openAgentEditor(agent.id, agent.label, agent.custom)}
-      {...agentOrder.getReorderProps(agent.id)}>
-      <span className="schedules-row-copy utilities-row-copy">
-        <SidebarResourceTitle label={agent.label} tag={disabled ? { label: t('Disabled'), tone: 'muted' } : null} />
-        <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
-      </span>
-      <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-    </button>;
+    return (
+      <button
+        type="button"
+        key={agent.id}
+        className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row"
+        data-enabled={disabled ? 'false' : 'true'}
+        title={agent.description || agent.label}
+        disabled={busy}
+        aria-label={t('Edit {{name}}', { name: agent.label })}
+        onClick={() => void openAgentEditor(agent.id, agent.label, agent.custom)}
+        {...agentOrder.getReorderProps(agent.id)}
+      >
+        <span className="schedules-row-copy utilities-row-copy">
+          <SidebarResourceTitle label={agent.label} tag={disabled ? { label: t('Disabled'), tone: 'muted' } : null} />
+          <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
+        </span>
+        <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+      </button>
+    );
   };
 
-  return <>
-      {active && loadingEditor && <SidebarLoadingDialog title={loadingEditor.title}
-        dataAttributes={{ 'data-sidebar-loading': loadingEditor.kind }}
-        onClose={() => {
-          detailRequestRef.current += 1;
-          setLoadingEditor(null);
-        }} />}
-      {active && editor && <WorkflowEditorDialog key={String(record(editor.pack).id || '(new)')}
-        pack={editor.pack} deletable={editor.deletable} busy={busy} error={error}
-        onCancel={() => {
-          setError('');
-          setEditor(null);
-        }} onSave={(payload) => void saveWorkflow(payload)}
-        onDelete={() => void deleteWorkflowPack(String(record(editor.pack).id || ''))} />}
-      {active && agentEditor && <AgentEditorDialog key={String(record(agentEditor.agent).id || '(new-agent)')}
-        agent={agentEditor.agent} deletable={agentEditor.deletable}
-        models={models} busy={busy} error={error}
-        onCancel={() => {
-          setError('');
-          setAgentEditor(null);
-        }} onSave={(payload) => void saveAgent(payload)}
-        onToggle={(enabled, route) => setAgentEnabled(
-          String(record(agentEditor.agent).id || ''), enabled, route)}
-        onDelete={() => void deleteAgent(String(record(agentEditor.agent).id || ''))} />}
-      {active && routeEditor && <RouteEditorDialog key={`${routeEditor.capability}:${routeEditor.id}`}
-        target={routeEditor}
-        models={routeEditor.modelKind === 'webSearch' ? webSearchModels : models}
-        busy={busy} error={error}
-        onCancel={() => {
-          setError('');
-          setRouteEditor(null);
-        }}
-        onToggle={(enabled, route) => setAgentEnabled(routeEditor.id, enabled, route)}
-        onSave={(route) => void saveRoute(route)} />}
-      {loading ? <InitialSurface /> : <>
-      <section className="workflows-models workflows-packs" aria-label={t("Workflows")}>
-      <div className="workflows-section-head">
-        <h2>{t('Workflows')}</h2>
-        <button type="button" className="session-panel-action schedules-new" disabled={busy}
-          aria-label={t("New workflow")} data-tooltip={t("New workflow")}
-          onClick={() => {
+  return (
+    <>
+      {active && loadingEditor && (
+        <SidebarLoadingDialog
+          title={loadingEditor.title}
+          dataAttributes={{ 'data-sidebar-loading': loadingEditor.kind }}
+          onClose={() => {
+            detailRequestRef.current += 1;
+            setLoadingEditor(null);
+          }}
+        />
+      )}
+      {active && editor && (
+        <WorkflowEditorDialog
+          key={String(record(editor.pack).id || '(new)')}
+          pack={editor.pack}
+          deletable={editor.deletable}
+          busy={busy}
+          error={error}
+          onCancel={() => {
             setError('');
-            setEditor({ pack: null, deletable: false });
-          }}>
-          <Plus size={16} aria-hidden="true" />
-        </button>
-      </div>
-      {workflows.length ? <div className="schedules-list">{orderedWorkflows.map((workflow) => {
-          const id = String(workflow.id || '');
-          const name = String(workflow.name || id);
-          const custom = String(workflow.source || '') === 'user';
-          return <button type="button" key={id}
-            className="schedules-row utilities-row sidebar-resource-row"
-            disabled={busy} aria-label={t("Edit workflow {{name}}", { name })}
-            onClick={() => void openEditor(id, name, custom)} {...workflowOrder.getReorderProps(id)}>
-            <span className="schedules-row-copy utilities-row-copy">
-              <b>{name}</b>
-              <small>{[workflow.description ? t(String(workflow.description)) : '', custom ? t('Custom') : '']
-                .filter(Boolean).join(' · ')}</small>
-            </span>
-            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-          </button>;
-        })}</div>
-        : <div className="schedules-empty">
-          <Layers3 size={40} strokeWidth={1.5} aria-hidden="true" />
-          <p>{t('No workflow packs found.')}</p>
-        </div>}
-      </section>
-      <section className="workflows-models" aria-label={t("Default agents")}>
-        <h2>{t('Default agents')}</h2>
-        <p>{t('Shared models without editable agent definitions.')}</p>
-        <div className="schedules-list">
-          <button type="button"
-            className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
-            style={{ order: defaultAgentOrder.orderedIds.indexOf('web-search') }}
-            title={t('Use when Mixdog runs the web_search tool.')} disabled={busy}
-            aria-label={t('Edit Web Search')}
-            onClick={() => setRouteEditor({
-                id: 'web-search',
-                label: 'Web Search',
-                route: webSearchRoute,
-                capability: 'setWebSearchRoute',
-                modelKind: 'webSearch',
-                description: t('Use when Mixdog runs the web_search tool.'),
-                readOnlyDefinition: true,
-              })}
-            {...defaultAgentOrder.getReorderProps('web-search')}>
-            <span className="schedules-row-copy utilities-row-copy">
-              <b>{t('Web Search')}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(webSearchRoute, webSearchModels)} />
-            </span>
-            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-          </button>
-          {exploreAgent && <button type="button"
-            className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
-            data-enabled={exploreRow?.disabled === true ? 'false' : 'true'}
-            style={{ order: defaultAgentOrder.orderedIds.indexOf(exploreAgent.id) }}
-            title={exploreAgent.description || exploreAgent.label} disabled={busy}
-            aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
-            onClick={() => setRouteEditor({
-                id: exploreAgent.id,
-                label: exploreAgent.label,
-                route: record(exploreRow?.route),
-                disabled: exploreRow?.disabled === true,
-                capability: 'setAgentRoute',
-                modelKind: 'agent',
-                description: exploreAgent.description,
-                readOnlyDefinition: true,
-              })}
-            {...defaultAgentOrder.getReorderProps(exploreAgent.id)}>
-            <span className="schedules-row-copy utilities-row-copy">
-              <SidebarResourceTitle label={exploreAgent.label}
-                tag={exploreRow?.disabled === true ? { label: t('Disabled'), tone: 'muted' } : null} />
-              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
-            </span>
-            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-          </button>}
-          {maintainerAgent && <button type="button"
-            className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
-            data-enabled={maintainerRow?.disabled === true ? 'false' : 'true'}
-            style={{ order: defaultAgentOrder.orderedIds.indexOf(maintainerAgent.id) }}
-            title={maintainerAgent.description || maintainerAgent.label} disabled={busy}
-            aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
-            onClick={() => setRouteEditor({
-                id: maintainerAgent.id,
-                label: maintainerAgent.label,
-                route: record(maintainerRow?.route),
-                disabled: maintainerRow?.disabled === true,
-                capability: 'setAgentRoute',
-                modelKind: 'agent',
-                description: maintainerAgent.description,
-                readOnlyDefinition: true,
-              })}
-            {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}>
-            <span className="schedules-row-copy utilities-row-copy">
-              <SidebarResourceTitle label={maintainerAgent.label}
-                tag={maintainerRow?.disabled === true ? { label: t('Disabled'), tone: 'muted' } : null} />
-              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
-            </span>
-            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-          </button>}
-        </div>
-      </section>
-      <section className="workflows-models" aria-label={t("Agents")}>
-        <div className="workflows-section-head">
-          <h2>{t('Agents')}</h2>
-          {/* Section action mirrors the panel-header "+" grammar (icon-only,
+            setEditor(null);
+          }}
+          onSave={(payload) => void saveWorkflow(payload)}
+          onDelete={() => void deleteWorkflowPack(String(record(editor.pack).id || ''))}
+        />
+      )}
+      {active && agentEditor && (
+        <AgentEditorDialog
+          key={String(record(agentEditor.agent).id || '(new-agent)')}
+          agent={agentEditor.agent}
+          deletable={agentEditor.deletable}
+          models={models}
+          busy={busy}
+          error={error}
+          onCancel={() => {
+            setError('');
+            setAgentEditor(null);
+          }}
+          onSave={(payload) => void saveAgent(payload)}
+          onToggle={(enabled, route) => setAgentEnabled(String(record(agentEditor.agent).id || ''), enabled, route)}
+          onDelete={() => void deleteAgent(String(record(agentEditor.agent).id || ''))}
+        />
+      )}
+      {active && routeEditor && (
+        <RouteEditorDialog
+          key={`${routeEditor.capability}:${routeEditor.id}`}
+          target={routeEditor}
+          models={routeEditor.modelKind === 'webSearch' ? webSearchModels : models}
+          busy={busy}
+          error={error}
+          onCancel={() => {
+            setError('');
+            setRouteEditor(null);
+          }}
+          onToggle={(enabled, route) => setAgentEnabled(routeEditor.id, enabled, route)}
+          onSave={(route) => void saveRoute(route)}
+        />
+      )}
+      {loading ? (
+        <InitialSurface />
+      ) : (
+        <>
+          <section className="workflows-models workflows-packs" aria-label={t('Workflows')}>
+            <div className="workflows-section-head">
+              <h2>{t('Workflows')}</h2>
+              <button
+                type="button"
+                className="session-panel-action schedules-new"
+                disabled={busy}
+                aria-label={t('New workflow')}
+                data-tooltip={t('New workflow')}
+                onClick={() => {
+                  setError('');
+                  setEditor({ pack: null, deletable: false });
+                }}
+              >
+                <Plus size={16} aria-hidden="true" />
+              </button>
+            </div>
+            {workflows.length ? (
+              <div className="schedules-list">
+                {orderedWorkflows.map((workflow) => {
+                  const id = String(workflow.id || '');
+                  const name = String(workflow.name || id);
+                  const custom = String(workflow.source || '') === 'user';
+                  return (
+                    <button
+                      type="button"
+                      key={id}
+                      className="schedules-row utilities-row sidebar-resource-row"
+                      disabled={busy}
+                      aria-label={t('Edit workflow {{name}}', { name })}
+                      onClick={() => void openEditor(id, name, custom)}
+                      {...workflowOrder.getReorderProps(id)}
+                    >
+                      <span className="schedules-row-copy utilities-row-copy">
+                        <b>{name}</b>
+                        <small>
+                          {[workflow.description ? t(String(workflow.description)) : '', custom ? t('Custom') : '']
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </small>
+                      </span>
+                      <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="schedules-empty">
+                <Layers3 size={40} strokeWidth={1.5} aria-hidden="true" />
+                <p>{t('No workflow packs found.')}</p>
+              </div>
+            )}
+          </section>
+          <section className="workflows-models" aria-label={t('Default agents')}>
+            <h2>{t('Default agents')}</h2>
+            <p>{t('Shared models without editable agent definitions.')}</p>
+            <div className="schedules-list">
+              <button
+                type="button"
+                className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
+                style={{ order: defaultAgentOrder.orderedIds.indexOf('web-search') }}
+                title={t('Use when Mixdog runs the web_search tool.')}
+                disabled={busy}
+                aria-label={t('Edit Web Search')}
+                onClick={() =>
+                  setRouteEditor({
+                    id: 'web-search',
+                    label: 'Web Search',
+                    route: webSearchRoute,
+                    capability: 'setWebSearchRoute',
+                    modelKind: 'webSearch',
+                    description: t('Use when Mixdog runs the web_search tool.'),
+                    readOnlyDefinition: true,
+                  })
+                }
+                {...defaultAgentOrder.getReorderProps('web-search')}
+              >
+                <span className="schedules-row-copy utilities-row-copy">
+                  <b>{t('Web Search')}</b>
+                  <AgentRouteSummaryView summary={agentRouteSummary(webSearchRoute, webSearchModels)} />
+                </span>
+                <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+              </button>
+              {exploreAgent && (
+                <button
+                  type="button"
+                  className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
+                  data-enabled={exploreRow?.disabled === true ? 'false' : 'true'}
+                  style={{ order: defaultAgentOrder.orderedIds.indexOf(exploreAgent.id) }}
+                  title={exploreAgent.description || exploreAgent.label}
+                  disabled={busy}
+                  aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
+                  onClick={() =>
+                    setRouteEditor({
+                      id: exploreAgent.id,
+                      label: exploreAgent.label,
+                      route: record(exploreRow?.route),
+                      disabled: exploreRow?.disabled === true,
+                      capability: 'setAgentRoute',
+                      modelKind: 'agent',
+                      description: exploreAgent.description,
+                      readOnlyDefinition: true,
+                    })
+                  }
+                  {...defaultAgentOrder.getReorderProps(exploreAgent.id)}
+                >
+                  <span className="schedules-row-copy utilities-row-copy">
+                    <SidebarResourceTitle
+                      label={exploreAgent.label}
+                      tag={exploreRow?.disabled === true ? { label: t('Disabled'), tone: 'muted' } : null}
+                    />
+                    <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
+                  </span>
+                  <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+                </button>
+              )}
+              {maintainerAgent && (
+                <button
+                  type="button"
+                  className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
+                  data-enabled={maintainerRow?.disabled === true ? 'false' : 'true'}
+                  style={{ order: defaultAgentOrder.orderedIds.indexOf(maintainerAgent.id) }}
+                  title={maintainerAgent.description || maintainerAgent.label}
+                  disabled={busy}
+                  aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
+                  onClick={() =>
+                    setRouteEditor({
+                      id: maintainerAgent.id,
+                      label: maintainerAgent.label,
+                      route: record(maintainerRow?.route),
+                      disabled: maintainerRow?.disabled === true,
+                      capability: 'setAgentRoute',
+                      modelKind: 'agent',
+                      description: maintainerAgent.description,
+                      readOnlyDefinition: true,
+                    })
+                  }
+                  {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}
+                >
+                  <span className="schedules-row-copy utilities-row-copy">
+                    <SidebarResourceTitle
+                      label={maintainerAgent.label}
+                      tag={maintainerRow?.disabled === true ? { label: t('Disabled'), tone: 'muted' } : null}
+                    />
+                    <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
+                  </span>
+                  <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </section>
+          <section className="workflows-models" aria-label={t('Agents')}>
+            <div className="workflows-section-head">
+              <h2>{t('Agents')}</h2>
+              {/* Section action mirrors the panel-header "+" grammar (icon-only,
               24px) instead of a one-off text pill inside the list. */}
-          <button type="button" className="session-panel-action schedules-new" disabled={busy}
-            aria-label={t("New agent")} data-tooltip={t("New agent")}
-            onClick={() => {
-              setError('');
-              setAgentEditor({ agent: null, deletable: false });
-            }}>
-            <Plus size={16} aria-hidden="true" />
-          </button>
-        </div>
+              <button
+                type="button"
+                className="session-panel-action schedules-new"
+                disabled={busy}
+                aria-label={t('New agent')}
+                data-tooltip={t('New agent')}
+                onClick={() => {
+                  setError('');
+                  setAgentEditor({ agent: null, deletable: false });
+                }}
+              >
+                <Plus size={16} aria-hidden="true" />
+              </button>
+            </div>
             <p>{t('Starter and custom roles with editable definitions and models.')}</p>
-        <div className="schedules-list">
-          {orderedEditableAgents.map(renderAgentRow)}
-        </div>
-      </section>
-      </>}
-  </>;
+            <div className="schedules-list">{orderedEditableAgents.map(renderAgentRow)}</div>
+          </section>
+        </>
+      )}
+    </>
+  );
 }

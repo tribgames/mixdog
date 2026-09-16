@@ -1,4 +1,4 @@
-export const EXTENSION_SECTIONS = ['plugins', 'skills'] as const;
+const EXTENSION_SECTIONS = ['plugins', 'skills'] as const;
 
 export type ExtensionsSection = (typeof EXTENSION_SECTIONS)[number];
 

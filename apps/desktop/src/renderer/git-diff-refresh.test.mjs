@@ -9,7 +9,7 @@ const appShellSource = readFileSync(new URL('./app-shell-components.tsx', import
 
 test('diff exposes its own loading shell without a second full-pane gate', () => {
   const readyDiffPaneSource = appShellSource.slice(appShellSource.indexOf('export function ReadyGitDiffPane'));
-  assert.match(readyDiffPaneSource, /return <GitDiffPane/u);
+  assert.match(readyDiffPaneSource, /return\s*(?:\(|)\s*<GitDiffPane/u);
   assert.doesNotMatch(readyDiffPaneSource, /<PaneSurfaceGate/u);
 });
 

@@ -16,7 +16,7 @@ const FRAME_MAX_FILES = 40;
 const FRAME_MAX_BYTES = 100 * 1024 * 1024;
 const FRAME_MAX_TOTAL_BYTES = 500 * 1024 * 1024;
 
-export interface PersistedFrame {
+interface PersistedFrame {
   path: string;
   bytes: number;
 }

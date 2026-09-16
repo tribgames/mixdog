@@ -1,11 +1,11 @@
-export type TerminalGrid = {
+type TerminalGrid = {
   cols: number;
   rows: number;
 };
 
 type FrameCallback = (time: number) => void;
 
-export type StableTerminalFitOptions<RestoreState> = {
+type StableTerminalFitOptions<RestoreState> = {
   isActive(): boolean;
   isMeasurable(): boolean;
   currentGrid(): TerminalGrid;

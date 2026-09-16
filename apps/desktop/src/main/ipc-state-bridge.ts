@@ -1,10 +1,4 @@
-import type {
-  BrowserWindow,
-  IpcMain,
-  IpcMainEvent,
-  IpcMainInvokeEvent,
-  PowerMonitor,
-} from 'electron';
+import type { BrowserWindow, IpcMain, IpcMainEvent, IpcMainInvokeEvent, PowerMonitor } from 'electron';
 import {
   DESKTOP_IPC,
   type DesktopSessionStateUpdate,
@@ -22,10 +16,7 @@ import {
   type SnapshotDeltaEncoder,
 } from './state-delta';
 
-type Handle = (
-  channel: string,
-  listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
-) => void;
+type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 export interface DesktopUpdater {
   getState(): DesktopUpdaterState;
@@ -43,10 +34,7 @@ interface DesktopStateBridgeOptions {
   updater?: DesktopUpdater;
 }
 
-type SessionProvenance = Pick<
-  DesktopSessionStateUpdate,
-  'frameSource' | 'contentRevision'
->;
+type SessionProvenance = Pick<DesktopSessionStateUpdate, 'frameSource' | 'contentRevision'>;
 
 export class DesktopStateBridge {
   private readonly stateEncoder = createSnapshotDeltaEncoder();
@@ -64,35 +52,38 @@ export class DesktopStateBridge {
 
   constructor(private readonly options: DesktopStateBridgeOptions) {
     const { handle, host, updater } = options;
-    handle(DESKTOP_IPC.setVisibleSessions, (_event, sessionIds) =>
-      this.setVisibleSessions(sessionIds));
+    handle(DESKTOP_IPC.setVisibleSessions, (_event, sessionIds) => this.setVisibleSessions(sessionIds));
     handle(DESKTOP_IPC.getSnapshot, () => host.getSnapshot());
     handle(DESKTOP_IPC.getUpdaterState, () => updater?.getState() ?? { status: 'disabled' });
-    handle(DESKTOP_IPC.checkForDesktopUpdate, () =>
-      updater?.check() ?? Promise.resolve({ status: 'disabled' } as const));
+    handle(
+      DESKTOP_IPC.checkForDesktopUpdate,
+      () => updater?.check() ?? Promise.resolve({ status: 'disabled' } as const)
+    );
     handle(DESKTOP_IPC.showDesktopUpdate, () => this.installDesktopUpdate());
 
     this.unsubscribeState = host.subscribe(this.sendEngineState);
-    this.unsubscribeSessions = typeof host.subscribeSessions === 'function'
-      ? host.subscribeSessions((sessions) => this.send(DESKTOP_IPC.sessionsChanged, sessions))
-      : () => {};
-    this.unsubscribeAgentPool = typeof host.subscribeAgentPool === 'function'
-      ? host.subscribeAgentPool((agents) => this.send(DESKTOP_IPC.agentPoolChanged, agents))
-      : () => {};
+    this.unsubscribeSessions =
+      typeof host.subscribeSessions === 'function'
+        ? host.subscribeSessions((sessions) => this.send(DESKTOP_IPC.sessionsChanged, sessions))
+        : () => {};
+    this.unsubscribeAgentPool =
+      typeof host.subscribeAgentPool === 'function'
+        ? host.subscribeAgentPool((agents) => this.send(DESKTOP_IPC.agentPoolChanged, agents))
+        : () => {};
     this.unsubscribeSessionStates = host.subscribeSessionStates(this.sendSessionState);
-    this.unsubscribeUpdater = updater?.subscribe((state) =>
-      this.send(DESKTOP_IPC.updaterState, state)) ?? (() => {});
-    this.unsubscribeDesktopEvents = host.subscribeDesktopEvents?.(({ name, value }) => {
-      if (name === 'folder-changed') this.send(DESKTOP_IPC.folderChanged, value);
-      else if (name === 'lsp-diagnostics') this.send(DESKTOP_IPC.lspDiagnostics, value);
-      else if (name === 'lsp-status') this.send(DESKTOP_IPC.lspStatus, value);
-      else if (name === 'relay-payload-refused') {
-        this.send(DESKTOP_IPC.relayPayloadRefused, value);
-      } else if (name === 'remote-client-claim') {
-        // Delivery stays global, but only Settings → Connection renders it.
-        this.send(DESKTOP_IPC.remoteClientClaim, value);
-      }
-    }) ?? (() => {});
+    this.unsubscribeUpdater = updater?.subscribe((state) => this.send(DESKTOP_IPC.updaterState, state)) ?? (() => {});
+    this.unsubscribeDesktopEvents =
+      host.subscribeDesktopEvents?.(({ name, value }) => {
+        if (name === 'folder-changed') this.send(DESKTOP_IPC.folderChanged, value);
+        else if (name === 'lsp-diagnostics') this.send(DESKTOP_IPC.lspDiagnostics, value);
+        else if (name === 'lsp-status') this.send(DESKTOP_IPC.lspStatus, value);
+        else if (name === 'relay-payload-refused') {
+          this.send(DESKTOP_IPC.relayPayloadRefused, value);
+        } else if (name === 'remote-client-claim') {
+          // Delivery stays global, but only Settings → Connection renders it.
+          this.send(DESKTOP_IPC.remoteClientClaim, value);
+        }
+      }) ?? (() => {});
 
     options.ipcMain.on(DESKTOP_IPC.stateResync, this.onStateResync);
     options.ipcMain.on(DESKTOP_IPC.sessionStateResync, this.onSessionStateResync);
@@ -115,8 +106,7 @@ export class DesktopStateBridge {
 
   private readonly sendSessionState = (update: DesktopSessionStateUpdate): void => {
     const sessionId = String(update.sessionId || '');
-    if (!sessionId
-      || !shouldPublishSessionState(sessionId, update.snapshot, this.visibleSessionIds)) {
+    if (!sessionId || !shouldPublishSessionState(sessionId, update.snapshot, this.visibleSessionIds)) {
       reportTranscriptRead(sessionId, update.readTraceId, 'ipc-hidden');
       return;
     }
@@ -128,9 +118,7 @@ export class DesktopStateBridge {
         wire: encoder.encode(null),
         frameSource: update.frameSource,
         ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
-        ...(typeof update.contentRevision === 'number'
-          ? { contentRevision: update.contentRevision }
-          : {}),
+        ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
       });
       this.sessionEncoders.delete(sessionId);
       this.latestSessionStates.delete(sessionId);
@@ -142,22 +130,17 @@ export class DesktopStateBridge {
     this.latestSessionStates.set(sessionId, update.snapshot);
     this.latestSessionProvenance.set(sessionId, {
       frameSource: update.frameSource,
-      ...(typeof update.contentRevision === 'number'
-        ? { contentRevision: update.contentRevision }
-        : {}),
+      ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
     });
     const wire = encoder.encode(update.snapshot);
-    reportTranscriptRead(sessionId, update.readTraceId,
-      isNoDelta(wire) ? 'ipc-unchanged' : 'ipc-send');
+    reportTranscriptRead(sessionId, update.readTraceId, isNoDelta(wire) ? 'ipc-unchanged' : 'ipc-send');
     if (isNoDelta(wire)) return;
     this.send(DESKTOP_IPC.sessionState, {
       sessionId,
       wire,
       ...(update.readTraceId ? { readTraceId: update.readTraceId } : {}),
       frameSource: update.frameSource,
-      ...(typeof update.contentRevision === 'number'
-        ? { contentRevision: update.contentRevision }
-        : {}),
+      ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
     });
   };
 
@@ -174,19 +157,24 @@ export class DesktopStateBridge {
           sessionId,
           wire: encoder ? encoder.encode(null) : null,
         });
-      },
+      }
     );
     if (released.length > 0) {
-      console.error('[mixdog-lane] baseline released'
-        + ` count=${released.length} visible=${normalized.length}`
-        + ` ids=${released.slice(0, 6).map((sessionId) => sessionId.slice(-8)).join(',')}`);
+      console.error(
+        '[mixdog-lane] baseline released' +
+          ` count=${released.length} visible=${normalized.length}` +
+          ` ids=${released
+            .slice(0, 6)
+            .map((sessionId) => sessionId.slice(-8))
+            .join(',')}`
+      );
     }
     return (await this.options.host.setVisibleSessions?.(normalized)) === true;
   }
 
   private async installDesktopUpdate(): Promise<DesktopUpdaterState> {
     const { updater } = this.options;
-    const current = updater?.getState() ?? { status: 'disabled' } as const;
+    const current = updater?.getState() ?? ({ status: 'disabled' } as const);
     if (current.status !== 'ready' || !updater) return current;
     await updater.install();
     return updater.getState();

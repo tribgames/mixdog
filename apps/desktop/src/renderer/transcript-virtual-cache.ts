@@ -21,7 +21,7 @@ export const TRANSCRIPT_VIRTUAL_OVERSCAN = 10;
 export const TRANSCRIPT_BOTTOM_SPACER = 24;
 export const TRANSCRIPT_VIRTUAL_CACHE_LIMIT = 16;
 
-export interface TranscriptVirtualSnapshot {
+interface TranscriptVirtualSnapshot {
   measurements?: VirtualItem[];
 }
 

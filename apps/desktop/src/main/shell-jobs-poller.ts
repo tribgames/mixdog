@@ -5,7 +5,7 @@ import { shellJobsStatusEqual } from '../shared/shell-jobs-status';
 import type { StatuslineSegmentsModule } from './desktop-support';
 import { shellJobsPollDelay } from './desktop-support';
 
-export interface ShellJobsStatus {
+interface ShellJobsStatus {
   count: number;
   elapsedLabel: string;
   jobs: readonly DesktopShellJobRow[];
@@ -18,7 +18,7 @@ const EMPTY_STATUS: ShellJobsStatus = Object.freeze({
   jobs: Object.freeze([]),
 });
 
-export interface ShellJobsPollerOptions {
+interface ShellJobsPollerOptions {
   /** Live engine state, or null once the engine is gone (polling stops). */
   getEngineState(): Record<string, unknown> | null;
   /** Resolved statusline module URL — imported lazily on the first poll. */

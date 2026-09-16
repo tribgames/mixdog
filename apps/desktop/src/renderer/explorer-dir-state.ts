@@ -25,7 +25,7 @@ import {
 // through this slow safety pass.
 const SAFETY_REFRESH_MS = 30_000;
 
-export interface ExplorerDirTree {
+interface ExplorerDirTree {
   dirs: ExplorerDirs;
   /** Every visible row, error rows included (render order). */
   rows: ExplorerRow[];

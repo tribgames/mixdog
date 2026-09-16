@@ -12,7 +12,7 @@ export type DesktopServiceInbound =
   | { kind: 'session-state-resync'; sessionId: string }
   | { kind: 'state-resync' };
 
-export interface DesktopServiceError {
+interface DesktopServiceError {
   name: string;
   message: string;
   code?: string;

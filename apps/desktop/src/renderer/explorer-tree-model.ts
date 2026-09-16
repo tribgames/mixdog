@@ -138,7 +138,7 @@ export function explorerVisibleRows(dirs: ExplorerDirs): ExplorerRow[] {
  *  - `pending`: an ancestor listing is already in flight, so nothing to do.
  *  - `blocked`: an ancestor failed to list, so the reveal is abandoned.
  *  - `ready`: every ancestor is open and the row itself can be revealed. */
-export type ExplorerRevealStep = { kind: 'load' | 'expand'; rel: string } | { kind: 'pending' | 'blocked' | 'ready' };
+type ExplorerRevealStep = { kind: 'load' | 'expand'; rel: string } | { kind: 'pending' | 'blocked' | 'ready' };
 
 export function explorerRevealStep(dirs: ExplorerDirs, rel: string): ExplorerRevealStep {
   const segments = rel.split('/');

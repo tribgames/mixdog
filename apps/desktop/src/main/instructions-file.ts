@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
 /** `~/.mixdog/data` unless MIXDOG_DATA_DIR / MIXDOG_HOME redirect it. */
-export function commonDataDir(): string {
+function commonDataDir(): string {
   return process.env.MIXDOG_DATA_DIR || resolve(process.env.MIXDOG_HOME || resolve(homedir(), '.mixdog'), 'data');
 }
 

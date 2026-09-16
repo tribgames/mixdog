@@ -7,7 +7,7 @@
  *  select menu (OpenSelect.tsx:73-126), extracted so the SCM overlays and the
  *  DOM tests can share one pure rule set. */
 
-export interface AnchorRect {
+interface AnchorRect {
   left: number;
   top: number;
   right: number;
@@ -16,7 +16,7 @@ export interface AnchorRect {
   height: number;
 }
 
-export interface AnchoredPanelInput {
+interface AnchoredPanelInput {
   /** Trigger box in viewport coordinates. */
   trigger: AnchorRect;
   /** Allowed area in viewport coordinates (window, or a containing panel). */
@@ -37,7 +37,7 @@ export interface AnchoredPanelInput {
   edge?: number;
 }
 
-export interface AnchoredPanelGeometry {
+interface AnchoredPanelGeometry {
   left: number;
   top: number;
   width: number;

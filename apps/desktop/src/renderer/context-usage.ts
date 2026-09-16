@@ -1,7 +1,7 @@
 // @ts-expect-error Shared presentation contract has no separate declaration file.
 import { measuredContextUsage, contextPercent } from '../../../../src/ui/context-measurement.mjs';
 
-export interface ContextUsageInput {
+interface ContextUsageInput {
   usedTokens?: unknown;
   autoCompactTokenLimit?: unknown;
   displayContextWindow?: unknown;
@@ -9,7 +9,7 @@ export interface ContextUsageInput {
   rawContextWindow?: unknown;
 }
 
-export interface ContextDisplayUsageInput extends ContextUsageInput {
+interface ContextDisplayUsageInput extends ContextUsageInput {
   sessionId?: unknown;
   stats?: unknown;
   fallbackUsedTokens?: unknown;

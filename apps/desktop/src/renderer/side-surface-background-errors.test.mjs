@@ -30,10 +30,10 @@ test('side panel background reads do not escalate into red notifications', async
     assert.doesNotMatch(panel, /dismissDesktopToast/);
   }
   assert.doesNotMatch(app, /void invoke\(refreshProjects\)/);
-  assert.match(app, /refreshSessions\(\)\.catch\(\(\) => undefined\)/);
+  assert.match(app, /refreshSessions\(\)\s*\.catch\(\(\)\s*=>\s*undefined\)/);
   assert.match(
     projectCatalog,
-    /refreshProjects\(\{[\s\S]*?acceptEmpty:\s*!isMobileRemoteSurface\(\),[\s\S]*?\}\)\.catch\(\(\) => \[\]\)/
+    /refreshProjects\(\{[\s\S]*?acceptEmpty:\s*!isMobileRemoteSurface\(\),[\s\S]*?\}\)\s*\.catch\(\(\)\s*=>\s*\[\]\)/
   );
 });
 

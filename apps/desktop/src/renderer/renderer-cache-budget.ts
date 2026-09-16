@@ -15,7 +15,7 @@
 // UTF-16, so the real cost is roughly twice the number below.
 export const RENDERER_CACHE_BUDGET_CHARS = 24 * 1024 * 1024;
 
-export interface BudgetedCache {
+interface BudgetedCache {
   /** Stable identity; re-registering the same name replaces the entry. */
   name: string;
   /** Currently retained characters. */

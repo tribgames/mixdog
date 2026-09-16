@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron';
 
-export type SashGeometry = {
+type SashGeometry = {
   x: number;
   y: number;
   minX: number;

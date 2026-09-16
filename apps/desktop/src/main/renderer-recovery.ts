@@ -2,7 +2,7 @@ const RECOVERY_WINDOW_MS = 60_000;
 const AUTO_RELOAD_LIMIT = 2;
 const RECOVERABLE_REASONS = new Set(['abnormal-exit', 'crashed', 'oom', 'launch-failed', 'integrity-failure']);
 
-export interface RendererRecoveryDecision {
+interface RendererRecoveryDecision {
   failures: number[];
   action: 'none' | 'reload' | 'prompt';
 }

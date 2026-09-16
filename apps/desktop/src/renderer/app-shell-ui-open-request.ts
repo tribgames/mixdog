@@ -8,7 +8,7 @@ import {
 
 const UI_OPEN_REQUEST_TTL_MS = 15_000;
 
-export interface UiOpenRequestProps {
+interface UiOpenRequestProps {
   uiOpenRequest: Snapshot['uiOpenRequest'];
   sessionId: Snapshot['sessionId'];
   openConversationCommandSurface: (surface: CommandSurfaceName, sessionId?: string) => void;

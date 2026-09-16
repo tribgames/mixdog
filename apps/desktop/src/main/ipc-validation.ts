@@ -222,7 +222,7 @@ export function requiredGitGlobalConfigKey(value: unknown): DesktopGitGlobalConf
   throw new TypeError('key must be user.name, user.email, or init.defaultBranch.');
 }
 
-export function requireAllowedKeys(input: Record<string, unknown>, allowed: ReadonlySet<string>, name: string): void {
+function requireAllowedKeys(input: Record<string, unknown>, allowed: ReadonlySet<string>, name: string): void {
   if (Object.keys(input).some((key) => !allowed.has(key))) {
     throw new TypeError(`${name} contains an unsupported field.`);
   }
@@ -269,7 +269,7 @@ export function requiredSessionMessageCount(value: unknown): number {
   return value as number;
 }
 
-export function requiredWorkspaceSearchLimit(value: unknown): number {
+function requiredWorkspaceSearchLimit(value: unknown): number {
   if (value === undefined) return 2_000;
   if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 5_000) {
     throw new TypeError('maxResults is invalid.');
@@ -277,7 +277,7 @@ export function requiredWorkspaceSearchLimit(value: unknown): number {
   return value as number;
 }
 
-export function validateStructuredValue(value: unknown, state = { strings: 0, nodes: 0 }, depth = 0): void {
+function validateStructuredValue(value: unknown, state = { strings: 0, nodes: 0 }, depth = 0): void {
   state.nodes += 1;
   if (state.nodes > 20_000 || depth > 12) throw new TypeError('structured input is too large.');
   if (value === null || typeof value === 'boolean') return;
@@ -753,7 +753,7 @@ const ATTACHMENT_IMAGE_EXTENSIONS = new Map<string, string>([
   ['image/bmp', 'bmp'],
 ]);
 const ATTACHMENT_IMAGE_DATA_URL_RE = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
-export const MAX_ATTACHMENT_IMAGE_BYTES = 64 * 1024 * 1024;
+const MAX_ATTACHMENT_IMAGE_BYTES = 64 * 1024 * 1024;
 
 /**
  * Transcript attachment chip → OS viewer. Only a base64 data URL carrying a
@@ -820,7 +820,7 @@ const WORKSPACE_WRITE_KEYS = new Set(['relPath', 'content', 'expectedContent']);
 const WORKSPACE_SEARCH_KEYS = new Set(['query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults']);
 const MAX_TEXT_FILE_LENGTH = 4_194_304;
 
-export interface DesktopWorkspaceSearchOptionsInput {
+interface DesktopWorkspaceSearchOptionsInput {
   query: string;
   include?: string;
   exclude?: string;

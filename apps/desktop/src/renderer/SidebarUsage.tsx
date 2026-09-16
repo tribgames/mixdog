@@ -111,7 +111,7 @@ function usedPercent(window: UsageRecord): number | null {
  *  its icon plus the final quota window's usage, picked by longest period:
  *  monthly (M) → weekly (7D/W) → daily/hourly. Unknown windows fall back to
  *  the provider's final entry. */
-export interface UsagePinEntry {
+interface UsagePinEntry {
   key: string;
   label: string;
   provider: string;

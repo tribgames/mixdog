@@ -1,6 +1,6 @@
 import type { PaneDropZone } from './pane-workspace-state';
 
-export type PaneDropRect = Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'>;
+type PaneDropRect = Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'>;
 export type PaneHierarchyCandidate = {
   path: string;
   rect: PaneDropRect;

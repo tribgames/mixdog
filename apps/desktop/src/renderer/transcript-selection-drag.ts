@@ -74,7 +74,7 @@ function isTextFieldElement(element: Element | null): boolean {
   return element.tagName === 'TEXTAREA' || element.tagName === 'INPUT' || element.isContentEditable;
 }
 
-export interface TranscriptSelectionDragOptions {
+interface TranscriptSelectionDragOptions {
   /** The scrolling viewport that contains the virtual rows. */
   root: HTMLElement;
   /** Row key at a live index; undefined when the index is out of range. */

@@ -5,7 +5,7 @@ export type SessionBrowserPaneOwner = {
   sessionId: string | null;
 };
 
-export type SessionBrowserRevealPlan = {
+type SessionBrowserRevealPlan = {
   leafId: string | null;
 };
 

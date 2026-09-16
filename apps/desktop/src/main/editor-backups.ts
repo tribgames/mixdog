@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { createKeyedSerialQueue } from '../../../../src/runtime/shared/keyed-serial-queue.mjs';
 
-export interface EditorBackup {
+interface EditorBackup {
   content: string;
   expectedContent: string;
   updatedAt: number;

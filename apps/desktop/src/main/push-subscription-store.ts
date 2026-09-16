@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { readSecretFile, writeSecretFile } from './secret-file';
 import { generateWebPushKeys, type WebPushKeys, type WebPushSubscription } from './web-push';
 
-export interface StoredPushSubscription extends WebPushSubscription {
+interface StoredPushSubscription extends WebPushSubscription {
   /** The paired browser that registered this endpoint. While that browser is
    *  connected it is watching the app live and needs no notification. */
   clientId: string;

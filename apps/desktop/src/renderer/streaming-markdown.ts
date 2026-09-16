@@ -4,7 +4,7 @@ import { unified } from 'unified';
 import { healStreamingMarkdownTail } from '../../../../src/ui/streaming-markdown-heal.mjs';
 export { healStreamingMarkdownTail };
 
-export interface StreamingMarkdownCache {
+interface StreamingMarkdownCache {
   stableText: string;
   stableChunks: string[];
   stableChunkKeys: string[];
@@ -16,7 +16,7 @@ export interface StreamingMarkdownCache {
   scannedCharacters: number;
 }
 
-export interface StreamingMarkdownParts {
+interface StreamingMarkdownParts {
   stableChunks: readonly string[];
   stableChunkKeys: readonly string[];
   unstableText: string;

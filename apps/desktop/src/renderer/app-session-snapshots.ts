@@ -50,7 +50,7 @@ export function estimateSessionSnapshotBytes(snapshot: Snapshot): number {
 
 let snapshotCacheSequence = 0;
 
-export interface SessionSnapshotCache {
+interface SessionSnapshotCache {
   remember(snapshot: SessionSnapshot | Snapshot | null | undefined): void;
   get(sessionId: string): Snapshot | null;
   forget(sessionId: string): void;

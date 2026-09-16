@@ -1,7 +1,7 @@
 import type { Snapshot } from './desktop-types';
 import { estimateRetainedChars } from './renderer-value-weight';
 
-export interface SessionLaneEntry {
+interface SessionLaneEntry {
   snapshot: Snapshot;
   bytes: number;
   estimatedAt: number;

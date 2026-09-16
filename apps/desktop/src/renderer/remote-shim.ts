@@ -60,10 +60,7 @@ import { createRemoteSessionInbox } from './remote-session-inbox';
 import { createRemoteViewSync } from './remote-view-sync';
 import { createRemoteViewBaselineCache, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import { recoverableCreation } from './recoverable-creation';
-import {
-  isInstalledMobileWebAppSurface,
-  isMobileRemoteSurface,
-} from './mobile-surface';
+import { isInstalledMobileWebAppSurface, isMobileRemoteSurface } from './mobile-surface';
 import {
   REMOTE_WAKE_EVENT,
   clearRemoteConnectionState,
@@ -108,10 +105,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (storedServer && !normalizeRemoteRelayOrigin(storedServer)) {
       clearStoredRemotePairing(localStorage);
     }
-    deviceId = readRemoteDeviceId(location.pathname, document.cookie)
-      || localStorage.getItem(DEVICE_STORAGE_KEY) || '';
+    deviceId = readRemoteDeviceId(location.pathname, document.cookie) || localStorage.getItem(DEVICE_STORAGE_KEY) || '';
     if (deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
-  } catch { /* entry screen */ }
+  } catch {
+    /* entry screen */
+  }
 
   // ?token= wins and is persisted for reconnects. Relay E2EE material rides
   // the fragment so it never reaches relay HTTP logs; strip both after use.
@@ -125,13 +123,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     token = localStorage.getItem(TOKEN_STORAGE_KEY) || '';
     e2eePublicKey = localStorage.getItem(E2EE_PUBLIC_KEY_STORAGE_KEY) || '';
     e2eeSecret = localStorage.getItem(E2EE_SECRET_STORAGE_KEY) || '';
-  } catch { /* token stays empty; the entry screen asks for approval */ }
+  } catch {
+    /* token stays empty; the entry screen asks for approval */
+  }
   let e2eePairing: RelayE2EEPairingMaterial | null =
-    e2eePublicKey && e2eeSecret
-      ? { version: 1, serverPublicKey: e2eePublicKey, pairingSecret: e2eeSecret }
-      : null;
+    e2eePublicKey && e2eeSecret ? { version: 1, serverPublicKey: e2eePublicKey, pairingSecret: e2eeSecret } : null;
   const newBrowserId = (): string => {
-    try { return crypto.randomUUID(); } catch {
+    try {
+      return crypto.randomUUID();
+    } catch {
       const bytes = new Uint8Array(16);
       crypto.getRandomValues(bytes);
       return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
@@ -179,10 +179,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
    *  published ones, bounded by any smaller ceiling a refusal notice has since
    *  proved. A desktop that publishes none (an older build) falls back to the
    *  conservative derivation, which is never the more permissive of the two. */
-  const relayUplinkLimits = (): RelayUplinkCeilings => relayUplinkContract(
-    publishedCeilings,
-    { policy: relayFrameLimit(), capacity: learnedRoutedLimit, textFrames: relayTextEnvelope },
-  );
+  const relayUplinkLimits = (): RelayUplinkCeilings =>
+    relayUplinkContract(publishedCeilings, {
+      policy: relayFrameLimit(),
+      capacity: learnedRoutedLimit,
+      textFrames: relayTextEnvelope,
+    });
   const learnFrameLimit = (candidate: unknown): void => {
     if (typeof candidate !== 'number') return;
     learnedFrameLimit = resolveRelayFrameLimit(candidate, learnedFrameLimit);
@@ -236,7 +238,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     let restored: unknown = [];
     try {
       restored = JSON.parse(localStorage.getItem(VISIBLE_SESSIONS_STORAGE_KEY) || '[]');
-    } catch { /* fall through to the established last-session key */ }
+    } catch {
+      /* fall through to the established last-session key */
+    }
     if (Array.isArray(restored)) {
       const sessionIds = restored
         .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -249,7 +253,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     try {
       const lastSessionId = localStorage.getItem(LAST_SESSION_STORAGE_KEY) || '';
       return /^[A-Za-z0-9_-]+$/u.test(lastSessionId) ? [lastSessionId] : [];
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   })();
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
@@ -279,7 +285,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   };
   let everConnected = false;
   let everPaired = false;
-  try { everPaired = localStorage.getItem(PAIRED_STORAGE_KEY) === '1'; } catch { /* no storage */ }
+  try {
+    everPaired = localStorage.getItem(PAIRED_STORAGE_KEY) === '1';
+  } catch {
+    /* no storage */
+  }
   clientRegistered = canReuseStoredRemoteClientRegistration({
     everPaired,
     token,
@@ -298,7 +308,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const retained = viewBaselines.begin();
       try {
         return await invoke('synchronizeViews', [lastVisibleSessionIds, retained.offer]);
-      } finally { retained.finish(); }
+      } finally {
+        retained.finish();
+      }
     },
     state: (state) => {
       setRemoteConnectionState(state);
@@ -324,7 +336,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     try {
       const stored = localStorage.getItem(TOKEN_STORAGE_KEY) || '';
       if (stored && /^[0-9a-f]{32,128}$/u.test(stored)) token = stored;
-    } catch { /* keep the in-memory token */ }
+    } catch {
+      /* keep the in-memory token */
+    }
     return token;
   };
 
@@ -357,26 +371,33 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const browserProfile = async (): Promise<{ name: string; platform: string; browser: string }> => {
     const userAgent = navigator.userAgent || '';
     let platform = (
-      (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
-      || navigator.platform
-      || 'Unknown device'
+      (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ||
+      navigator.platform ||
+      'Unknown device'
     ).slice(0, 80);
-    const browser = /Edg\//u.test(userAgent) ? 'Edge'
-      : /Firefox\//u.test(userAgent) ? 'Firefox'
-        : /CriOS\//u.test(userAgent) ? 'Chrome'
-          : /Chrome\//u.test(userAgent) ? 'Chrome'
-            : /Safari\//u.test(userAgent) ? 'Safari'
+    const browser = /Edg\//u.test(userAgent)
+      ? 'Edge'
+      : /Firefox\//u.test(userAgent)
+        ? 'Firefox'
+        : /CriOS\//u.test(userAgent)
+          ? 'Chrome'
+          : /Chrome\//u.test(userAgent)
+            ? 'Chrome'
+            : /Safari\//u.test(userAgent)
+              ? 'Safari'
               : 'Browser';
     // Device identity (user: 무슨 기기인지도 나와야): Android Chromium exposes
     // the hardware model via UA-Client Hints (e.g. "Pixel 8", "SM-S928N");
     // Apple never does, so iPhone/iPad fall back to the UA family.
     let model = '';
     try {
-      const uaData = (navigator as Navigator & {
-        userAgentData?: {
-          getHighEntropyValues?(hints: string[]): Promise<Record<string, unknown>>;
-        };
-      }).userAgentData;
+      const uaData = (
+        navigator as Navigator & {
+          userAgentData?: {
+            getHighEntropyValues?(hints: string[]): Promise<Record<string, unknown>>;
+          };
+        }
+      ).userAgentData;
       if (uaData?.getHighEntropyValues) {
         const high = await uaData.getHighEntropyValues(['model', 'platform']);
         if (typeof high.model === 'string' && high.model.trim()) {
@@ -386,7 +407,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           platform = String(high.platform).slice(0, 80);
         }
       }
-    } catch { /* UA-CH unavailable; the platform label stands */ }
+    } catch {
+      /* UA-CH unavailable; the platform label stands */
+    }
     if (!model) {
       if (/iPhone/u.test(userAgent)) model = 'iPhone';
       else if (/iPad|Macintosh.+Mobile/u.test(userAgent)) model = 'iPad';
@@ -414,26 +437,36 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           // registration working when the pairing cookie is gone.
           ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
         },
-        body: JSON.stringify({ clientId: browserId, ...await browserProfile() }),
+        body: JSON.stringify({ clientId: browserId, ...(await browserProfile()) }),
       });
       if (!response.ok) {
         const failure: Error & { status?: number } = new Error(
-          `Remote browser registration failed (${response.status}).`,
+          `Remote browser registration failed (${response.status}).`
         );
         failure.status = response.status;
         throw failure;
       }
-      const result = await response.json() as { clientId?: unknown; token?: unknown };
+      const result = (await response.json()) as { clientId?: unknown; token?: unknown };
       if (typeof result.clientId === 'string' && result.clientId) {
         browserId = result.clientId;
-        try { localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId); } catch { /* session only */ }
+        try {
+          localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId);
+        } catch {
+          /* session only */
+        }
       }
       if (typeof result.token === 'string' && /^[0-9a-f]{32,128}$/u.test(result.token)) {
         token = result.token;
-        try { localStorage.setItem(TOKEN_STORAGE_KEY, token); } catch { /* session only */ }
+        try {
+          localStorage.setItem(TOKEN_STORAGE_KEY, token);
+        } catch {
+          /* session only */
+        }
       }
       clientRegistered = true;
-    })().finally(() => { registrationInFlight = null; });
+    })().finally(() => {
+      registrationInFlight = null;
+    });
     return registrationInFlight;
   };
 
@@ -447,16 +480,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     installPrompt = event as Event & { prompt(): Promise<void> };
-    document.querySelector('#mixdog-remote-pairing [data-role="install"]')
-      ?.removeAttribute('hidden');
+    document.querySelector('#mixdog-remote-pairing [data-role="install"]')?.removeAttribute('hidden');
   });
 
   /** What an approval hands back: a credential minted for THIS container, plus
    *  E2EE material that travelled sealed to a key only this container holds. */
-  const persistApproval = (
-    credential: string,
-    material: RelayE2EEPairingMaterial,
-  ): boolean => {
+  const persistApproval = (credential: string, material: RelayE2EEPairingMaterial): boolean => {
     try {
       localStorage.setItem(SERVER_STORAGE_KEY, serverBase || location.origin);
       localStorage.setItem(TOKEN_STORAGE_KEY, credential);
@@ -465,22 +494,26 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId);
       if (deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
       return true;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   };
 
   // The request already waiting on the desktop, kept across reloads: a phone OS
   // discards a backgrounded web app freely, and a forgotten request would mean
   // asking again — one more prompt on the desktop for the same connection.
-  const savePendingClaim = async (
-    claimId: string,
-    keyPair: RelayClaimKeyPair,
-  ): Promise<void> => {
+  const savePendingClaim = async (claimId: string, keyPair: RelayClaimKeyPair): Promise<void> => {
     try {
-      localStorage.setItem(CLAIM_STORAGE_KEY, JSON.stringify({
-        claimId,
-        keyPair: await exportRelayClaimKeyPair(keyPair),
-      }));
-    } catch { /* the approval still completes while this page lives */ }
+      localStorage.setItem(
+        CLAIM_STORAGE_KEY,
+        JSON.stringify({
+          claimId,
+          keyPair: await exportRelayClaimKeyPair(keyPair),
+        })
+      );
+    } catch {
+      /* the approval still completes while this page lives */
+    }
   };
 
   const loadPendingClaim = async (): Promise<{
@@ -494,11 +527,17 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const keyPair = await importRelayClaimKeyPair(parsed.keyPair);
       if (!keyPair || typeof parsed.claimId !== 'string' || !parsed.claimId) return null;
       return { claimId: parsed.claimId, keyPair };
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   };
 
   const clearPendingClaim = (): void => {
-    try { localStorage.removeItem(CLAIM_STORAGE_KEY); } catch { /* private storage */ }
+    try {
+      localStorage.removeItem(CLAIM_STORAGE_KEY);
+    } catch {
+      /* private storage */
+    }
   };
 
   const waitForApprovedConnection = (): Promise<void> => {
@@ -514,9 +553,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       };
       const invalid = (event: Event) => {
         cleanup();
-        const message = event instanceof CustomEvent && typeof event.detail === 'string'
-          ? event.detail
-          : earlyUiT('This device could not complete secure pairing.');
+        const message =
+          event instanceof CustomEvent && typeof event.detail === 'string'
+            ? event.detail
+            : earlyUiT('This device could not complete secure pairing.');
         reject(new Error(message));
       };
       window.addEventListener(REMOTE_CONNECTION_READY_EVENT, ready, { once: true });
@@ -530,7 +570,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // the request and can open none of it.
   const requestApproval = async (
     layer: HTMLElement,
-    onStatus: (text: string, failed?: boolean) => void,
+    onStatus: (text: string, failed?: boolean) => void
   ): Promise<void> => {
     if (!deviceId) {
       onStatus(earlyUiT('Open the link from your desktop QR code once to install this app.'), true);
@@ -540,11 +580,13 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // Resuming beats asking: the desktop may already be showing the prompt for
     // the request this app opened before it was discarded.
     const resumed = await loadPendingClaim();
-    const keyPair = resumed?.keyPair ?? await generateRelayClaimKeyPair();
+    const keyPair = resumed?.keyPair ?? (await generateRelayClaimKeyPair());
     let claimId = resumed?.claimId ?? '';
     const profile = await browserProfile();
     const wait = (ms: number): Promise<void> =>
-      new Promise((done) => { window.setTimeout(done, ms); });
+      new Promise((done) => {
+        window.setTimeout(done, ms);
+      });
     const open = async (): Promise<string> => {
       const response = await fetch(new URL('/claim', base).toString(), {
         method: 'POST',
@@ -559,7 +601,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       // 503 is the desktop being asleep or offline, which resolves itself.
       if (response.status === 503) return '';
       if (!response.ok) throw new Error(`claim refused (${response.status})`);
-      const body = await response.json() as { claimId?: unknown };
+      const body = (await response.json()) as { claimId?: unknown };
       return typeof body.claimId === 'string' ? body.claimId : '';
     };
     for (;;) {
@@ -584,12 +626,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         await wait(2_000);
         let payload: { status?: unknown; token?: unknown; sealed?: unknown };
         try {
-          const response = await fetch(
-            new URL(`/claim/${encodeURIComponent(claimId)}`, base).toString(),
-            { headers: { Accept: 'application/json' } },
-          );
+          const response = await fetch(new URL(`/claim/${encodeURIComponent(claimId)}`, base).toString(), {
+            headers: { Accept: 'application/json' },
+          });
           if (!response.ok) continue;
-          payload = await response.json() as typeof payload;
+          payload = (await response.json()) as typeof payload;
         } catch {
           continue;
         }
@@ -602,9 +643,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         const material = await openSealedRelayE2EEPairingMaterial(payload.sealed, keyPair);
         const credential = String(payload.token || '');
         // A box that does not open is a refused approval, never a half pairing.
-        if (!material
-          || !/^[0-9a-f]{32,128}$/u.test(credential)
-          || !persistApproval(credential, material)) {
+        if (!material || !/^[0-9a-f]{32,128}$/u.test(credential) || !persistApproval(credential, material)) {
           clearPendingClaim();
           onStatus(earlyUiT('That approval could not be verified.'), true);
           return;
@@ -634,14 +673,19 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         const waitTitle = layer.querySelector<HTMLElement>('[data-role="wait-title"]');
         if (waitTitle) waitTitle.textContent = earlyUiT('Success');
         onStatus(earlyUiT('Securely connected. Opening Mixdog…'));
-        try { navigator.vibrate?.([30, 60, 30]); } catch { /* no haptics */ }
+        try {
+          navigator.vibrate?.([30, 60, 30]);
+        } catch {
+          /* no haptics */
+        }
         window.setTimeout(() => layer.remove(), 900);
         return;
       }
       clearPendingClaim();
-      onStatus(outcome === 'denied'
-        ? earlyUiT('The request was declined on your desktop.')
-        : earlyUiT('The request expired.'), true);
+      onStatus(
+        outcome === 'denied' ? earlyUiT('The request was declined on your desktop.') : earlyUiT('The request expired.'),
+        true
+      );
       return;
     }
   };
@@ -654,77 +698,89 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (document.getElementById('mixdog-remote-pairing')) return;
     const mobile = isMobileRemoteSurface();
     const standalone = isInstalledMobileWebAppSurface();
-    const ios = /iPad|iPhone|iPod/iu.test(navigator.userAgent)
-      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const ios =
+      /iPad|iPhone|iPod/iu.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const mount = () => {
       const layer = document.createElement('div');
       layer.id = 'mixdog-remote-pairing';
-      layer.innerHTML = '<style>'
-        + '#mixdog-remote-pairing{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;'
-        + 'padding:24px;background:#0e0e0e;color:#e9e9e9;font:400 15px/22px system-ui,sans-serif;}'
-        + '#mixdog-remote-pairing *{box-sizing:border-box;margin:0;}'
-        + '#mixdog-remote-pairing [hidden]{display:none!important;}'
-        + '@keyframes mrp-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}'
-        + '#mixdog-remote-pairing .mrp-card{display:grid;gap:14px;justify-items:center;width:100%;'
-        + 'max-width:344px;padding:28px 22px calc(28px + env(safe-area-inset-bottom));'
-        + 'border-radius:22px;background:#17171a;text-align:center;'
-        + 'animation:mrp-rise 280ms ease-out both;}'
-        + '#mixdog-remote-pairing img{width:54px;height:54px;}'
-        + '#mixdog-remote-pairing b{font-size:18px;line-height:24px;}'
-        + '#mixdog-remote-pairing p{color:#a8a8a8;font-size:13.5px;line-height:19px;}'
-        + '#mixdog-remote-pairing ol{display:grid;gap:7px;width:100%;padding:0;list-style:none;'
-        + 'text-align:left;}'
-        + '#mixdog-remote-pairing li{display:flex;align-items:center;gap:10px;padding:10px 12px;'
-        + 'border-radius:12px;background:rgba(255,255,255,.07);font-size:13px;line-height:18px;}'
-        + '#mixdog-remote-pairing li i{flex:none;display:grid;place-items:center;width:20px;height:20px;'
-        + 'border-radius:50%;background:rgba(255,255,255,.14);font-size:11.5px;font-style:normal;'
-        + 'font-weight:700;}'
-        + '@keyframes mrp-spin{to{transform:rotate(360deg)}}'
-        + '#mixdog-remote-pairing .mrp-wait{display:grid;gap:12px;justify-items:center;width:100%;'
-        + 'padding:20px 12px;border-radius:16px;background:rgba(255,255,255,.07);}'
-        + '#mixdog-remote-pairing .mrp-wait i{width:26px;height:26px;border-radius:50%;'
-        + 'border:2.5px solid rgba(255,255,255,.18);border-top-color:#e9e9e9;'
-        + 'animation:mrp-spin 900ms linear infinite;}'
-        + '#mixdog-remote-pairing.mrp-ok .mrp-wait i{border-color:#4ac885;animation:none;}'
-        + '#mixdog-remote-pairing .mrp-wait b{font-size:15px;line-height:20px;}'
-        + '#mixdog-remote-pairing .mrp-status{min-height:19px;color:#a8a8a8;font-size:13px;line-height:19px;}'
-        + '#mixdog-remote-pairing .mrp-status.mrp-bad{color:#e5484d;}'
-        + '#mixdog-remote-pairing button{width:100%;padding:13px;border:0;border-radius:12px;'
-        + 'background:#e9e9e9;color:#111114;font:600 15px/20px system-ui,sans-serif;cursor:pointer;}'
-        + '</style>'
-        + '<main class="mrp-card">'
-        + '<img src="/mixdog.svg" alt="" draggable="false"/>'
-        + '<b data-role="heading"></b>'
-        + '<p data-role="note"></p>'
-        + (standalone
-          ? '<div class="mrp-wait"><i aria-hidden="true"></i>'
-            + '<b data-role="wait-title"></b></div>'
-            + '<p class="mrp-status" data-role="status"></p>'
-            + '<button type="button" data-role="ask" hidden></button>'
-          : (!mobile
-            ? '<ol><li><i>1</i><span data-role="step-one"></span></li>'
-              + '<li><i>2</i><span data-role="step-two"></span></li>'
-              + '<li><i>3</i><span data-role="step-three"></span></li></ol>'
+      layer.innerHTML =
+        '<style>' +
+        '#mixdog-remote-pairing{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;' +
+        'padding:24px;background:#0e0e0e;color:#e9e9e9;font:400 15px/22px system-ui,sans-serif;}' +
+        '#mixdog-remote-pairing *{box-sizing:border-box;margin:0;}' +
+        '#mixdog-remote-pairing [hidden]{display:none!important;}' +
+        '@keyframes mrp-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}' +
+        '#mixdog-remote-pairing .mrp-card{display:grid;gap:14px;justify-items:center;width:100%;' +
+        'max-width:344px;padding:28px 22px calc(28px + env(safe-area-inset-bottom));' +
+        'border-radius:22px;background:#17171a;text-align:center;' +
+        'animation:mrp-rise 280ms ease-out both;}' +
+        '#mixdog-remote-pairing img{width:54px;height:54px;}' +
+        '#mixdog-remote-pairing b{font-size:18px;line-height:24px;}' +
+        '#mixdog-remote-pairing p{color:#a8a8a8;font-size:13.5px;line-height:19px;}' +
+        '#mixdog-remote-pairing ol{display:grid;gap:7px;width:100%;padding:0;list-style:none;' +
+        'text-align:left;}' +
+        '#mixdog-remote-pairing li{display:flex;align-items:center;gap:10px;padding:10px 12px;' +
+        'border-radius:12px;background:rgba(255,255,255,.07);font-size:13px;line-height:18px;}' +
+        '#mixdog-remote-pairing li i{flex:none;display:grid;place-items:center;width:20px;height:20px;' +
+        'border-radius:50%;background:rgba(255,255,255,.14);font-size:11.5px;font-style:normal;' +
+        'font-weight:700;}' +
+        '@keyframes mrp-spin{to{transform:rotate(360deg)}}' +
+        '#mixdog-remote-pairing .mrp-wait{display:grid;gap:12px;justify-items:center;width:100%;' +
+        'padding:20px 12px;border-radius:16px;background:rgba(255,255,255,.07);}' +
+        '#mixdog-remote-pairing .mrp-wait i{width:26px;height:26px;border-radius:50%;' +
+        'border:2.5px solid rgba(255,255,255,.18);border-top-color:#e9e9e9;' +
+        'animation:mrp-spin 900ms linear infinite;}' +
+        '#mixdog-remote-pairing.mrp-ok .mrp-wait i{border-color:#4ac885;animation:none;}' +
+        '#mixdog-remote-pairing .mrp-wait b{font-size:15px;line-height:20px;}' +
+        '#mixdog-remote-pairing .mrp-status{min-height:19px;color:#a8a8a8;font-size:13px;line-height:19px;}' +
+        '#mixdog-remote-pairing .mrp-status.mrp-bad{color:#e5484d;}' +
+        '#mixdog-remote-pairing button{width:100%;padding:13px;border:0;border-radius:12px;' +
+        'background:#e9e9e9;color:#111114;font:600 15px/20px system-ui,sans-serif;cursor:pointer;}' +
+        '</style>' +
+        '<main class="mrp-card">' +
+        '<img src="/mixdog.svg" alt="" draggable="false"/>' +
+        '<b data-role="heading"></b>' +
+        '<p data-role="note"></p>' +
+        (standalone
+          ? '<div class="mrp-wait"><i aria-hidden="true"></i>' +
+            '<b data-role="wait-title"></b></div>' +
+            '<p class="mrp-status" data-role="status"></p>' +
+            '<button type="button" data-role="ask" hidden></button>'
+          : !mobile
+            ? '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
+              '<li><i>2</i><span data-role="step-two"></span></li>' +
+              '<li><i>3</i><span data-role="step-three"></span></li></ol>'
             : (ios
-              ? '<ol><li><i>1</i><span data-role="step-one"></span></li>'
-                + '<li><i>2</i><span data-role="step-two"></span></li>'
-                + '<li><i>3</i><span data-role="step-three"></span></li></ol>'
-              : '<ol><li><i>1</i><span data-role="step-one"></span></li>'
-                + '<li><i>2</i><span data-role="step-two"></span></li></ol>')
-              + '<button type="button" data-role="install" hidden></button>'))
-        + '</main>';
+                ? '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
+                  '<li><i>2</i><span data-role="step-two"></span></li>' +
+                  '<li><i>3</i><span data-role="step-three"></span></li></ol>'
+                : '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
+                  '<li><i>2</i><span data-role="step-two"></span></li></ol>') +
+              '<button type="button" data-role="install" hidden></button>') +
+        '</main>';
       // Catalog text enters only textContent, never HTML.
       const labels: Record<string, string> = {
-        heading: standalone ? earlyUiT('Approve this device')
-          : mobile ? earlyUiT('Install Mixdog') : earlyUiT('Install Mixdog on your phone'),
+        heading: standalone
+          ? earlyUiT('Approve this device')
+          : mobile
+            ? earlyUiT('Install Mixdog')
+            : earlyUiT('Install Mixdog on your phone'),
         'wait-title': earlyUiT('Waiting for approval'),
         ask: earlyUiT('Ask again'),
         install: earlyUiT('Install'),
-        'step-one': !mobile ? earlyUiT('Open this page on your phone or tablet')
-          : ios ? earlyUiT('Tap the Share button') : earlyUiT('Install Mixdog from your browser menu'),
-        'step-two': !mobile ? earlyUiT('Install Mixdog from the mobile browser')
-          : ios ? earlyUiT('Choose Add to Home Screen') : earlyUiT('Open it and approve it on your desktop'),
-        'step-three': !mobile ? earlyUiT('Open the installed app and approve it on your desktop')
+        'step-one': !mobile
+          ? earlyUiT('Open this page on your phone or tablet')
+          : ios
+            ? earlyUiT('Tap the Share button')
+            : earlyUiT('Install Mixdog from your browser menu'),
+        'step-two': !mobile
+          ? earlyUiT('Install Mixdog from the mobile browser')
+          : ios
+            ? earlyUiT('Choose Add to Home Screen')
+            : earlyUiT('Open it and approve it on your desktop'),
+        'step-three': !mobile
+          ? earlyUiT('Open the installed app and approve it on your desktop')
           : earlyUiT('Open Mixdog and approve it on your desktop'),
       };
       for (const [role, label] of Object.entries(labels)) {
@@ -734,15 +790,17 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const note = layer.querySelector<HTMLElement>('[data-role="note"]');
       if (note) {
         note.textContent = standalone
-          ? (message || earlyUiT('Mixdog needs a one-time approval from the desktop it belongs to.'))
-          : (mobile
+          ? message || earlyUiT('Mixdog needs a one-time approval from the desktop it belongs to.')
+          : mobile
             ? earlyUiT('Mixdog runs as an installed mobile app. Install it, then approve it once on your desktop.')
-            : earlyUiT('The Mixdog web app works only when installed on a mobile device.'));
+            : earlyUiT('The Mixdog web app works only when installed on a mobile device.');
       }
       const install = layer.querySelector<HTMLButtonElement>('[data-role="install"]');
       if (install && installPrompt) install.removeAttribute('hidden');
       install?.addEventListener('click', () => {
-        void installPrompt?.prompt().catch(() => { /* the browser menu still works */ });
+        void installPrompt?.prompt().catch(() => {
+          /* the browser menu still works */
+        });
       });
       document.body.appendChild(layer);
       if (!standalone) return;
@@ -775,7 +833,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
 
   const dispatchState = (snapshot: SessionSnapshot): void => {
     for (const listener of [...stateListeners]) {
-      try { listener(snapshot); } catch { /* renderer listener fault */ }
+      try {
+        listener(snapshot);
+      } catch {
+        /* renderer listener fault */
+      }
     }
   };
 
@@ -784,10 +846,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // desktop for a resync when a patch does not match our base revision
   // (mid-stream join through the relay, missed frame).
   const stateDecoder = createSnapshotDeltaDecoder();
-  const sessionStateDecoders = new Map<
-    string,
-    ReturnType<typeof createSnapshotDeltaDecoder>
-  >();
+  const sessionStateDecoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
   const resetDeltaState = (): void => {
     stateDecoder.reset();
     for (const decoder of sessionStateDecoders.values()) decoder.reset();
@@ -864,14 +923,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // event/payload/sessionId trio around ~30 bytes of new text. Expanding it
   // here keeps ONE downstream code path for both shapes.
   const compactSessionNames = new Map<number, string>();
-  const expandCompactFrame = (
-    frame: Record<string, unknown>,
-  ): Record<string, unknown> | null => {
+  const expandCompactFrame = (frame: Record<string, unknown>): Record<string, unknown> | null => {
     const handle = Number(frame.s);
     if (!Number.isSafeInteger(handle)) return null;
-    const name = typeof frame.n === 'string' && frame.n
-      ? frame.n
-      : compactSessionNames.get(handle);
+    const name = typeof frame.n === 'string' && frame.n ? frame.n : compactSessionNames.get(handle);
     if (!name) return null;
     compactSessionNames.set(handle, name);
     const wire = frame.w;
@@ -899,10 +954,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // React app exists, so it must not pull a component module in.
   const showRemoteToast = (text: string): void => {
     try {
-      window.dispatchEvent(new CustomEvent('mixdog:desktop-toast', {
-        detail: { id: `relay-payload:${Date.now()}`, text, tone: 'error' },
-      }));
-    } catch { /* container without a toast surface */ }
+      window.dispatchEvent(
+        new CustomEvent('mixdog:desktop-toast', {
+          detail: { id: `relay-payload:${Date.now()}`, text, tone: 'error' },
+        })
+      );
+    } catch {
+      /* container without a toast surface */
+    }
   };
   /** A refusal fails EXACTLY the call it names and never guesses one. An id is
    *  only ever present when the desktop itself declined to send that call's
@@ -929,9 +988,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const entry = pending.get(refusal.callId);
       if (!entry) continue;
       pending.delete(refusal.callId);
-      const failure: Error & { code?: string } = new Error(
-        relayPayloadTooLargeMessage(refusal),
-      );
+      const failure: Error & { code?: string } = new Error(relayPayloadTooLargeMessage(refusal));
       failure.code = RELAY_PAYLOAD_TOO_LARGE_CODE;
       entry.reject(failure);
     }
@@ -965,7 +1022,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
      *  every call site states it: on a non-E2EE connection clear relay data
      *  reaches this same handler and must not be trusted with victim
      *  selection. */
-    authenticated: boolean,
+    authenticated: boolean
   ): void => {
     // Any inbound frame proves the socket is alive; pong frames carry
     // nothing else.
@@ -997,7 +1054,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       if (!expanded) {
         // This browser's handle map disagrees with the desktop's. Only a fresh
         // handshake rebuilds both sides, and the reconnect loop performs one.
-        try { socket?.close(); } catch { /* reconnect loop takes over */ }
+        try {
+          socket?.close();
+        } catch {
+          /* reconnect loop takes over */
+        }
         return;
       }
       message = expanded;
@@ -1016,7 +1077,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       if (message.ok === true) entry.resolve(message.value);
       else {
         const failure: Error & { code?: string } = new Error(
-          typeof message.error === 'string' && message.error ? message.error : 'remote call failed.',
+          typeof message.error === 'string' && message.error ? message.error : 'remote call failed.'
         );
         // Transport pass-through: the main side puts an errored call's `code`
         // on the frame (remote-methods.ts `RemoteFrameResponse.errorCode`)
@@ -1094,47 +1155,62 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           snapshot: decoded.snapshot as SessionSnapshot,
           frameSource: payload.frameSource,
           ...(payload.laneEnd ? { laneEnd: payload.laneEnd } : {}),
-          ...(typeof payload.contentRevision === 'number'
-            ? { contentRevision: payload.contentRevision }
-            : {}),
+          ...(typeof payload.contentRevision === 'number' ? { contentRevision: payload.contentRevision } : {}),
         };
         if (update.snapshot === null) sessionStateDecoders.delete(payload.sessionId);
       }
       sessionInbox.publish(update);
       if (isRemotePaintProbe(payload.perfProbe)) {
         const probe = payload.perfProbe;
-        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-          const receiveToPaintMs = performance.now() - receivedAt;
-          console.info(
-            `[mixdog-remote-perf] session=${payload.sessionId}`
-            + ` receive-to-paint=${receiveToPaintMs.toFixed(1)}ms`,
-          );
-          fire('remotePerfPaint', [probe.id, receiveToPaintMs]);
-        }));
+        window.requestAnimationFrame(() =>
+          window.requestAnimationFrame(() => {
+            const receiveToPaintMs = performance.now() - receivedAt;
+            console.info(
+              `[mixdog-remote-perf] session=${payload.sessionId}` + ` receive-to-paint=${receiveToPaintMs.toFixed(1)}ms`
+            );
+            fire('remotePerfPaint', [probe.id, receiveToPaintMs]);
+          })
+        );
       }
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };
       const event = { id: String(payload.id || ''), data: String(payload.data ?? '') };
       for (const listener of [...termListeners]) {
-        try { listener(event); } catch { /* renderer listener fault */ }
+        try {
+          listener(event);
+        } catch {
+          /* renderer listener fault */
+        }
       }
     } else if (message.event === 'folderChanged') {
       const dir = String(message.payload || '');
       if (!dir) return;
       for (const listener of [...folderChangeListeners]) {
-        try { listener(dir); } catch { /* renderer listener fault */ }
+        try {
+          listener(dir);
+        } catch {
+          /* renderer listener fault */
+        }
       }
     } else if (message.event === 'lspDiagnostics') {
       const payload = message.payload as DesktopLspDiagnosticEvent;
       if (!payload || typeof payload !== 'object') return;
       for (const listener of [...lspDiagnosticsListeners]) {
-        try { listener(payload); } catch { /* renderer listener fault */ }
+        try {
+          listener(payload);
+        } catch {
+          /* renderer listener fault */
+        }
       }
     } else if (message.event === 'lspStatus') {
       const payload = message.payload as DesktopLspStatusEvent;
       if (!payload || typeof payload !== 'object') return;
       for (const listener of [...lspStatusListeners]) {
-        try { listener(payload); } catch { /* renderer listener fault */ }
+        try {
+          listener(payload);
+        } catch {
+          /* renderer listener fault */
+        }
       }
     }
   };
@@ -1161,7 +1237,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const quietRecycledSockets = new WeakSet<WebSocket>();
   const recycleIdleSocket = (ws: WebSocket): void => {
     if (pending.size === 0) quietRecycledSockets.add(ws);
-    try { ws.close(); } catch { /* reconnect loop takes over */ }
+    try {
+      ws.close();
+    } catch {
+      /* reconnect loop takes over */
+    }
   };
   window.setInterval(() => {
     if (backgroundSuspended || !shouldRunRemoteHeartbeat(document.visibilityState)) {
@@ -1185,7 +1265,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (Date.now() - Math.max(lastTrafficAt, heartbeatSentAt) >= 25_000) {
       heartbeatSentAt = Date.now();
       awaitingPong = true;
-      try { ws.send('{"ping":1}'); } catch { /* surfaces as close */ }
+      try {
+        ws.send('{"ping":1}');
+      } catch {
+        /* surfaces as close */
+      }
     }
   }, 5_000);
   let backgroundSuspended = document.visibilityState === 'hidden';
@@ -1206,7 +1290,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     const closeForBackground = (target: WebSocket | null): void => {
       if (!target || target.readyState === WebSocket.CLOSED) return;
       backgroundClosedSockets.add(target);
-      try { target.close(1000, 'background'); } catch { /* page suspension owns cleanup */ }
+      try {
+        target.close(1000, 'background');
+      } catch {
+        /* page suspension owns cleanup */
+      }
     };
     closeForBackground(socket);
     if (openingSocket !== socket) closeForBackground(openingSocket);
@@ -1225,11 +1313,16 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       // A browser can leave a failed VPS handshake in CONNECTING for minutes.
       // Once the app is foregrounded, retire an old attempt so connect() does
       // not keep returning its permanently pending promise.
-      if (openingSocket?.readyState === WebSocket.CONNECTING
-        && Date.now() - openingStartedAt >= 1_500) {
-        try { openingSocket.close(); } catch { /* close handler retries */ }
+      if (openingSocket?.readyState === WebSocket.CONNECTING && Date.now() - openingStartedAt >= 1_500) {
+        try {
+          openingSocket.close();
+        } catch {
+          /* close handler retries */
+        }
       }
-      void connect().catch(() => { /* the retry loop keeps running */ });
+      void connect().catch(() => {
+        /* the retry loop keeps running */
+      });
       return;
     }
     // A wake must never inherit a grown backoff: if this probe fails, the
@@ -1237,7 +1330,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     retryMs = 500;
     heartbeatSentAt = Date.now();
     awaitingPong = true;
-    try { ws.send('{"ping":1}'); } catch { /* surfaces as close */ }
+    try {
+      ws.send('{"ping":1}');
+    } catch {
+      /* surfaces as close */
+    }
     // Foreground recovery should not inherit the normal 10s background
     // heartbeat budget. If this exact probe gets no response, recycle the
     // half-open socket promptly and let the reconnect loop re-register lanes.
@@ -1275,7 +1372,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     try {
       clearStoredRemotePairing(localStorage);
       if (deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
-    } catch { /* private storage */ }
+    } catch {
+      /* private storage */
+    }
     serverBase = location.origin;
     token = '';
     e2eePairing = null;
@@ -1332,7 +1431,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       let handshakeTimer: number | null = null;
       const openingTimer = window.setTimeout(() => {
         if (opened || ws.readyState !== WebSocket.CONNECTING) return;
-        try { ws.close(); } catch { /* close handler retries */ }
+        try {
+          ws.close();
+        } catch {
+          /* close handler retries */
+        }
       }, 12_000);
       const finishOpen = () => {
         // The relay can preserve this browser socket while the desktop leg
@@ -1359,14 +1462,20 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         }
         if (!everPaired) {
           everPaired = true;
-          try { localStorage.setItem(PAIRED_STORAGE_KEY, '1'); } catch { /* no storage */ }
+          try {
+            localStorage.setItem(PAIRED_STORAGE_KEY, '1');
+          } catch {
+            /* no storage */
+          }
         }
         if (!peerViewSync) window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
         if (everConnected && !peerViewSync) {
           // E2EE relay handshakes already trigger an authoritative full state
           // push from the desktop. Only legacy direct sockets need the RPC.
           if (!e2eePairing) {
-            void call<SessionSnapshot>('getSnapshot').then(dispatchState).catch(() => {});
+            void call<SessionSnapshot>('getSnapshot')
+              .then(dispatchState)
+              .catch(() => {});
           }
           // The renderer only announces visible sessions when its pane set
           // CHANGES, so nothing re-registered this browser with the relay's
@@ -1401,8 +1510,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           // projection to a NEW browser, while a cold projection is filled by
           // that same subscription. One call therefore owns both registration
           // and transcript delivery; a second prefetch only added another RTT.
-          void call<boolean>('setVisibleSessions', [lastVisibleSessionIds])
-            .catch(() => false);
+          void call<boolean>('setVisibleSessions', [lastVisibleSessionIds]).catch(() => false);
         }
         resyncOnWake = false;
         everConnected = true;
@@ -1429,7 +1537,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           return;
         }
         handshakeTimer = window.setTimeout(() => {
-          try { ws.close(); } catch { /* reconnect loop handles it */ }
+          try {
+            ws.close();
+          } catch {
+            /* reconnect loop handles it */
+          }
         }, 10_000);
       };
       ws.onmessage = (event) => {
@@ -1456,7 +1568,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             return;
           }
           let parsed: unknown;
-          try { parsed = JSON.parse(String(event.data)); } catch { return; }
+          try {
+            parsed = JSON.parse(String(event.data));
+          } catch {
+            return;
+          }
           if (!parsed || typeof parsed !== 'object') return;
           const clear = parsed as Record<string, unknown>;
           awaitingPong = false;
@@ -1504,7 +1620,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             compactSessionNames.clear();
             if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
             handshakeTimer = window.setTimeout(() => {
-              try { ws.close(); } catch { /* reconnect loop handles it */ }
+              try {
+                ws.close();
+              } catch {
+                /* reconnect loop handles it */
+              }
             }, 10_000);
             const handshake = await createRelayE2EEClientHandshake(e2eePairing, clear);
             secureChannel = handshake.channel;
@@ -1524,7 +1644,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
           handleMessage(message, true);
         })().catch(() => {
-          try { ws.close(); } catch { /* reconnect loop handles it */ }
+          try {
+            ws.close();
+          } catch {
+            /* reconnect loop handles it */
+          }
         });
       };
       ws.onclose = (event) => {
@@ -1557,7 +1681,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           setRemoteConnectionState('connecting');
           if (!backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
             retryMs = 500;
-            void connect().catch(() => { /* foreground retry loop takes over */ });
+            void connect().catch(() => {
+              /* foreground retry loop takes over */
+            });
           }
           return;
         }
@@ -1567,7 +1693,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           setRemoteConnectionState('connecting');
           if (!backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
             retryMs = 500;
-            void connect().catch(() => { /* the retry loop takes over */ });
+            void connect().catch(() => {
+              /* the retry loop takes over */
+            });
             return;
           }
         }
@@ -1577,10 +1705,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     return openPromise;
   };
 
-  const sendApplicationFrame = async (
-    ws: WebSocket,
-    payload: Record<string, unknown>,
-  ): Promise<void> => {
+  const sendApplicationFrame = async (ws: WebSocket, payload: Record<string, unknown>): Promise<void> => {
     // Refuse an oversize frame HERE, while holding the very frame that would
     // fail and knowing the call it carries. What must fit is the frame AS THE
     // RELAY WILL ROUTE IT — wrapped for the desktop leg and charged again
@@ -1591,15 +1716,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // correlated afterwards and no call waits out its 20-second deadline for an
     // answer that was never going to come.
     const refuseOversize = (frame: string | Uint8Array): void => {
-      const refusal = relayFrameCapRefusal(
-        frame,
-        relayUplinkLimits(),
-        relayFrameCallId(payload),
-      );
+      const refusal = relayFrameCapRefusal(frame, relayUplinkLimits(), relayFrameCallId(payload));
       if (!refusal) return;
-      const failure: Error & { code?: string } = new Error(
-        relayPayloadTooLargeMessage(refusal),
-      );
+      const failure: Error & { code?: string } = new Error(relayPayloadTooLargeMessage(refusal));
       failure.code = RELAY_PAYLOAD_TOO_LARGE_CODE;
       // A fire-and-forget publish has no caller to reject: say it once,
       // visibly, instead of dropping it in silence.
@@ -1655,7 +1774,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         // A payload this leg refused to send is a bad request, not a broken
         // socket: every other call on it stays alive.
         if ((failure as { code?: string }).code === RELAY_PAYLOAD_TOO_LARGE_CODE) return;
-        try { ws.close(); } catch { /* reconnect loop handles it */ }
+        try {
+          ws.close();
+        } catch {
+          /* reconnect loop handles it */
+        }
       });
     });
   };
@@ -1676,7 +1799,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
 
   const api: DesktopApi = {
     // Desktop-only OS integrations become inert or degrade to browser
-// equivalents; everything else forwards over the relay socket.
+    // equivalents; everything else forwards over the relay socket.
     chooseProject: () => Promise.resolve(null),
     chooseFile: () => Promise.resolve(null),
     chooseFiles: () => Promise.resolve(null),
@@ -1686,11 +1809,13 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     pushPublicKey: () => call<string>('pushPublicKey'),
     registerPushSubscription: async (input) => {
       const profile = await browserProfile();
-      return await call<boolean>('registerPushSubscription', [{
-        ...input,
-        clientId: browserId,
-        label: [profile.browser, profile.platform].filter(Boolean).join(' · '),
-      }]);
+      return await call<boolean>('registerPushSubscription', [
+        {
+          ...input,
+          clientId: browserId,
+          label: [profile.browser, profile.platform].filter(Boolean).join(' · '),
+        },
+      ]);
     },
     removePushSubscription: (endpoint) => call<boolean>('removePushSubscription', [endpoint]),
     startProject: (projectPath) => call('startProject', [projectPath]),
@@ -1702,13 +1827,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     openExternal: (url) => {
       const target = normalizeRemoteExternalUrl(url);
       if (!target) return Promise.reject(new TypeError('url protocol is unsupported.'));
-      try { window.open(target, '_blank', 'noopener'); } catch { /* popup blocked */ }
+      try {
+        window.open(target, '_blank', 'noopener');
+      } catch {
+        /* popup blocked */
+      }
       return Promise.resolve();
     },
-    remoteBrowserFrame: (sessionId, previousFrameId) =>
-      call('browserRemoteFrame', [sessionId, previousFrameId ?? '']),
-    remoteBrowserControl: (sessionId, input) =>
-      call('browserRemoteControl', [sessionId, input]),
+    remoteBrowserFrame: (sessionId, previousFrameId) => call('browserRemoteFrame', [sessionId, previousFrameId ?? '']),
+    remoteBrowserControl: (sessionId, input) => call('browserRemoteControl', [sessionId, input]),
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
     removeProject: (projectPath) => call('removeProject', [projectPath]),
     listProjectDir: (projectPath, relDir) => call('listProjectDir', [projectPath, relDir]),
@@ -1720,17 +1847,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // protocol URL, which resolves to nothing in a browser. Pages are what a
     // phone can actually display, and they ride the encrypted lane.
     previewDocumentPages: (projectPath, relPath, accessToken, options) =>
-      call('previewDocumentPages', [
-        projectPath, relPath, accessToken ?? null, options ?? null,
-      ]),
+      call('previewDocumentPages', [projectPath, relPath, accessToken ?? null, options ?? null]),
     writeProjectFile: (projectPath, relPath, content, expectedContent, accessToken, encoding) =>
-      call('writeProjectFile', [
-        projectPath, relPath, content, expectedContent, accessToken ?? null, encoding ?? null,
-      ]),
+      call('writeProjectFile', [projectPath, relPath, content, expectedContent, accessToken ?? null, encoding ?? null]),
     createProjectEntry: (projectPath, relDir, name, dir) =>
       call('createProjectEntry', [projectPath, relDir, name, dir === true]),
-    renameProjectEntry: (projectPath, relPath, newName) =>
-      call('renameProjectEntry', [projectPath, relPath, newName]),
+    renameProjectEntry: (projectPath, relPath, newName) => call('renameProjectEntry', [projectPath, relPath, newName]),
     moveProjectEntry: (projectPath, relPath, targetDirRel) =>
       call('moveProjectEntry', [projectPath, relPath, targetDirRel]),
     copyProjectEntry: (projectPath, relPath, targetDirRel) =>
@@ -1741,38 +1863,28 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     readEditorBackup: (projectPath, relPath, accessToken) =>
       call('readEditorBackup', [projectPath, relPath, accessToken ?? null]),
     writeEditorBackup: (projectPath, relPath, content, expectedContent, accessToken) =>
-      call('writeEditorBackup', [
-        projectPath, relPath, content, expectedContent, accessToken ?? null,
-      ]),
+      call('writeEditorBackup', [projectPath, relPath, content, expectedContent, accessToken ?? null]),
     deleteEditorBackup: (projectPath, relPath, accessToken) =>
       call('deleteEditorBackup', [projectPath, relPath, accessToken ?? null]),
     readInstructions: (projectPath) => call('readInstructions', [projectPath ?? null]),
-    writeInstructions: (projectPath, content) =>
-      call('writeInstructions', [projectPath ?? null, content]),
-    codeGraphQuery: (projectPath, mode, query) =>
-      call('codeGraphQuery', [projectPath, mode, query]),
-    searchWorkspaceText: (projectPath, options) =>
-      call('searchWorkspaceText', [projectPath, options]),
+    writeInstructions: (projectPath, content) => call('writeInstructions', [projectPath ?? null, content]),
+    codeGraphQuery: (projectPath, mode, query) => call('codeGraphQuery', [projectPath, mode, query]),
+    searchWorkspaceText: (projectPath, options) => call('searchWorkspaceText', [projectPath, options]),
     replaceWorkspaceText: (projectPath, options, replacement, relPaths) =>
       call('replaceWorkspaceText', [projectPath, options, replacement, relPaths ?? null]),
     lspDocument: (input) => call('lspDocument', [input]),
     lspRequest: (input) => call('lspRequest', [input]),
-    lspApplyWorkspaceEdit: (projectPath, writes) =>
-      call('lspApplyWorkspaceEdit', [projectPath, writes]),
-    subscribeLspDiagnostics: (listener) =>
-      laneSubscription('editor', lspDiagnosticsListeners, listener),
-    subscribeLspStatus: (listener) =>
-      laneSubscription('editor', lspStatusListeners, listener),
+    lspApplyWorkspaceEdit: (projectPath, writes) => call('lspApplyWorkspaceEdit', [projectPath, writes]),
+    subscribeLspDiagnostics: (listener) => laneSubscription('editor', lspDiagnosticsListeners, listener),
+    subscribeLspStatus: (listener) => laneSubscription('editor', lspStatusListeners, listener),
     chooseWorkspace: () => Promise.resolve(null),
-    saveWorkspace: (workspaceFile, folders) =>
-      call('saveWorkspace', [workspaceFile ?? null, folders]),
+    saveWorkspace: (workspaceFile, folders) => call('saveWorkspace', [workspaceFile ?? null, folders]),
     // Only Electron's webUtils can name an OS-dropped file. A browser drop
     // carries the File itself, which the composer reads without a path.
     folderPathForFile: () => '',
     folderWatch: (dir, recursive) => call('folderWatch', [dir, recursive === true]),
     folderUnwatch: (dir, recursive) => call('folderUnwatch', [dir, recursive === true]),
-    subscribeFolderChanges: (listener) =>
-      laneSubscription('files', folderChangeListeners, listener),
+    subscribeFolderChanges: (listener) => laneSubscription('files', folderChangeListeners, listener),
     resolveLocalPaths: (paths) => call('resolveLocalPaths', [paths]),
     readLocalFile: (path) => call('readLocalFile', [path]),
     listSessions: () => call('listSessions'),
@@ -1782,32 +1894,32 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     listAgentPool: () => call('listAgentPool'),
     subscribeAgentPool: (listener) => agentsCatalog.subscribe(listener),
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
-    setSessionArchived: (sessionId: string, archived: boolean) =>
-      call('setSessionArchived', [sessionId, archived]),
+    setSessionArchived: (sessionId: string, archived: boolean) => call('setSessionArchived', [sessionId, archived]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
     // Cold session lanes fill through a host-side read; the replay frame
     // arrives on the broadcast sessionState event like any live push.
     prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
-      call<boolean>('prefetchSession', [
-        sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : []),
-      ]),
+      call<boolean>('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]),
     setVisibleSessions: (sessionIds) => {
       const requested = [...sessionIds];
       lastVisibleSessionIds = requested;
       try {
         localStorage.setItem(
           VISIBLE_SESSIONS_STORAGE_KEY,
-          JSON.stringify(lastVisibleSessionIds.slice(0, MAX_RESTORED_VISIBLE_SESSIONS)),
+          JSON.stringify(lastVisibleSessionIds.slice(0, MAX_RESTORED_VISIBLE_SESSIONS))
         );
-      } catch { /* the next launch simply waits for React, as before */ }
+      } catch {
+        /* the next launch simply waits for React, as before */
+      }
       return connect().then(async () => {
         if (!peerViewSync) {
           // Legacy encrypted peers have no registration version. Keep their
           // old ordering guarantee here, not in every desktop pane.
-          const run = legacyVisibleSessionsQueue.catch(() => undefined).then(() =>
-            lastVisibleSessionIds === requested
-              ? call<boolean>('setVisibleSessions', [requested])
-              : true);
+          const run = legacyVisibleSessionsQueue
+            .catch(() => undefined)
+            .then(() =>
+              lastVisibleSessionIds === requested ? call<boolean>('setVisibleSessions', [requested]) : true
+            );
           legacyVisibleSessionsQueue = run;
           return run;
         }
@@ -1820,7 +1932,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     getSnapshot: () => call('getSnapshot'),
     subscribeState: (listener) => {
       stateListeners.add(listener);
-      return () => { stateListeners.delete(listener); };
+      return () => {
+        stateListeners.delete(listener);
+      };
     },
     // No perfLog: the Composer's keystroke paint sampler keys on its presence,
     // and a phone should not pay a double-rAF per keystroke to feed a no-op.
@@ -1833,17 +1947,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     subscribeTermData: (listener) => laneSubscription('terminal', termListeners, listener),
     gitStatus: (cwd, options) => call('gitStatus', [cwd, options]),
     gitBranches: (cwd) => call('gitBranches', [cwd]),
-    gitCheckoutBranch: (cwd, branch, remote) =>
-      call('gitCheckoutBranch', [cwd, branch, remote === true]),
+    gitCheckoutBranch: (cwd, branch, remote) => call('gitCheckoutBranch', [cwd, branch, remote === true]),
     gitCreateBranch: (cwd, branch) => call('gitCreateBranch', [cwd, branch]),
-    gitRenameBranch: (cwd, branch, nextBranch) =>
-      call('gitRenameBranch', [cwd, branch, nextBranch]),
+    gitRenameBranch: (cwd, branch, nextBranch) => call('gitRenameBranch', [cwd, branch, nextBranch]),
     gitDeleteBranch: (cwd, branch) => call('gitDeleteBranch', [cwd, branch]),
     gitMergeBranch: (cwd, branch) => call('gitMergeBranch', [cwd, branch]),
     gitDiff: (cwd, path, staged, worktreeOnly, untracked) =>
       call('gitDiff', [cwd, path, staged === true, worktreeOnly === true, untracked === true]),
-    gitApplyPatch: (cwd, path, patch, reverse) =>
-      call('gitApplyPatch', [cwd, path, patch, reverse === true]),
+    gitApplyPatch: (cwd, path, patch, reverse) => call('gitApplyPatch', [cwd, path, patch, reverse === true]),
     gitStage: (cwd, paths) => call('gitStage', [cwd, paths]),
     gitUnstage: (cwd, paths) => call('gitUnstage', [cwd, paths]),
     gitIgnore: (cwd, path, scope) => call('gitIgnore', [cwd, path, scope]),
@@ -1859,8 +1970,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     gitSync: (cwd) => call('gitSync', [cwd]),
     gitContinue: (cwd) => call('gitContinue', [cwd]),
     gitAbortOperation: (cwd) => call('gitAbortOperation', [cwd]),
-    gitRevert: (cwd, path, untracked, mode) =>
-      call('gitRevert', [cwd, path, untracked === true, mode]),
+    gitRevert: (cwd, path, untracked, mode) => call('gitRevert', [cwd, path, untracked === true, mode]),
     gitLog: (cwd, query, skip, limit) => call('gitLog', [cwd, query, skip, limit]),
     gitShow: (cwd, hash) => call('gitShow', [cwd, hash]),
     gitShowDiff: (cwd, hash, path) => call('gitShowDiff', [cwd, hash, path]),
@@ -1873,8 +1983,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     gitCreateTag: (cwd, tag, hash) => call('gitCreateTag', [cwd, tag, hash]),
     gitDeleteTag: (cwd, tag) => call('gitDeleteTag', [cwd, tag]),
     gitCheckoutCommit: (cwd, hash) => call('gitCheckoutCommit', [cwd, hash]),
-    gitCreateBranchAtCommit: (cwd, branch, hash) =>
-      call('gitCreateBranchAtCommit', [cwd, branch, hash]),
+    gitCreateBranchAtCommit: (cwd, branch, hash) => call('gitCreateBranchAtCommit', [cwd, branch, hash]),
     gitReview: (cwd) => call('gitReview', [cwd]),
     gitReviewDiff: (cwd, path, untracked) => call('gitReviewDiff', [cwd, path, untracked === true]),
     gitStashList: (cwd) => call('gitStashList', [cwd]),
@@ -1917,7 +2026,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         const url = URL.createObjectURL(new Blob([bytes], { type }));
         window.open(url, '_blank', 'noopener');
         window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      } catch { /* popup blocked or a malformed preview */ }
+      } catch {
+        /* popup blocked or a malformed preview */
+      }
       return Promise.resolve();
     },
     getUpdaterState: () => Promise.resolve(DISABLED_UPDATER),
@@ -1941,17 +2052,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           }
           await connect();
           if (peerViewSync) await viewSync.request();
-        },
+        }
       );
     },
-    submitToSession: (sessionId, prompt, options) =>
-      call('submitToSession', [sessionId, prompt, options ?? {}]),
+    submitToSession: (sessionId, prompt, options) => call('submitToSession', [sessionId, prompt, options ?? {}]),
     abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
     resolveToolApprovalForSession: (sessionId, id, decision) =>
       call('resolveToolApprovalForSession', [sessionId, id, decision]),
     subscribeSessionState: (listener) => sessionInbox.subscribe(listener),
-    inheritSession: (sourceSessionId, selection) =>
-      call('inheritSession', [sourceSessionId, selection ?? null]),
+    inheritSession: (sourceSessionId, selection) => call('inheritSession', [sourceSessionId, selection ?? null]),
     listProviderModels: (options) => call('listProviderModels', [options]),
     setModelRoute: (selection, sessionId) => call('setModelRoute', [selection, sessionId]),
     setFast: (enabled, sessionId) => call('setFast', [enabled, sessionId]),
@@ -1960,7 +2069,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     getZoomFactor: () => Promise.resolve(1),
     setZoomFactor: () => {
       document.documentElement.style.removeProperty('zoom');
-      try { window.localStorage.removeItem('mixdog.web-zoom'); } catch { /* private storage */ }
+      try {
+        window.localStorage.removeItem('mixdog.web-zoom');
+      } catch {
+        /* private storage */
+      }
       return Promise.resolve(1);
     },
     onZoomFactorChanged: () => () => {},
@@ -1975,8 +2088,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     mediaUrl: (assetId, variant) => {
       const base = serverBase || location.origin;
       const auth = currentToken();
-      const query = `variant=${encodeURIComponent(variant || 'original')}`
-        + (auth ? `&token=${encodeURIComponent(auth)}` : '');
+      const query =
+        `variant=${encodeURIComponent(variant || 'original')}` + (auth ? `&token=${encodeURIComponent(auth)}` : '');
       return `${base}/media/${encodeURIComponent(assetId)}?${query}`;
     },
     quit: () => Promise.resolve(),
@@ -1985,8 +2098,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   w.mixdogDesktop = Object.freeze(api);
   // Settings → Connection on a remote surface: expose where this session is
   // connected so the panel shows live status instead of desktop-only pairing.
-  (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer =
-    serverBase || location.origin;
+  (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer = serverBase || location.origin;
   // A browser tab always gets the install guide. A desktop-installed PWA is
   // also guide-only: only an installed phone/tablet app may hold a credential
   // and dial the relay.
@@ -2000,6 +2112,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   }
   setRemoteConnectionState('connecting');
   if (!backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
-    void connect().catch(() => { /* the retry loop keeps running */ });
+    void connect().catch(() => {
+      /* the retry loop keeps running */
+    });
   }
 })();

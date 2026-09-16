@@ -1,6 +1,6 @@
-export type SettingsItemKind = 'toggle' | 'cycle' | 'open' | 'static';
+type SettingsItemKind = 'toggle' | 'cycle' | 'open' | 'static';
 
-export interface SettingsItem {
+interface SettingsItem {
   value: string;
   label: string;
   description: string;
@@ -54,7 +54,7 @@ export const SETTINGS_ITEMS = [
   { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
-export type SettingsItemValue = (typeof SETTINGS_ITEMS)[number]['value'];
+type SettingsItemValue = (typeof SETTINGS_ITEMS)[number]['value'];
 
 export type SettingsCategory =
   | 'general'
@@ -70,7 +70,7 @@ export type SettingsCategory =
   | 'shortcuts'
   | 'about';
 
-export interface SettingsCategoryItem {
+interface SettingsCategoryItem {
   value: SettingsCategory;
   label: string;
   group: 'Mixdog' | 'Integrations' | 'Support';

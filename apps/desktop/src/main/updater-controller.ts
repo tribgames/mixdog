@@ -1,10 +1,10 @@
 import type { DesktopUpdaterState } from '../shared/contract';
 
-export type UpdaterState = DesktopUpdaterState;
+type UpdaterState = DesktopUpdaterState;
 
 export type UpdaterReadyRecord = { version: string };
 
-export type UpdaterService = {
+type UpdaterService = {
   checkForUpdates(): Promise<{ isUpdateAvailable?: boolean; updateInfo?: { version?: string } } | null | undefined>;
   downloadUpdate(): Promise<unknown>;
   quitAndInstall(): void;

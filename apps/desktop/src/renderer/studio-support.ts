@@ -16,7 +16,7 @@ export type StudioApi = Partial<
 >;
 export type RecordValue = Record<string, unknown>;
 
-export interface MediaModel {
+interface MediaModel {
   id: string;
   label: string;
   description?: string;
@@ -25,7 +25,7 @@ export interface MediaModel {
   controls?: MediaControls;
 }
 
-export interface MediaControls {
+interface MediaControls {
   aspectRatio?: string[];
   resolution?: string[];
   size?: string[];
@@ -36,7 +36,7 @@ export interface MediaControls {
   maxReferences?: number;
 }
 
-export interface MediaKindSpec {
+interface MediaKindSpec {
   models: MediaModel[];
   defaultModel: string;
   controls: MediaControls;
@@ -353,7 +353,7 @@ export function justifiedRows(
  * on Windows that stack blacked the window out whenever another layer
  * repainted (slider drags). A one-shot canvas grab leaves only images behind.
  */
-export interface VideoPoster {
+interface VideoPoster {
   url: string;
   /** Clip length in seconds, read off the decoded metadata. */
   duration: number;

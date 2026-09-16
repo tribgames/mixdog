@@ -44,7 +44,7 @@ export function preloadSettings(api: SettingsApi): Promise<unknown> {
 
 export { preloadConnectionInfo };
 
-export interface SettingsViewProps {
+interface SettingsViewProps {
   api?: SettingsApi;
   /** The parent mounts this dialog only while open. */
   open?: boolean;

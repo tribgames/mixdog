@@ -18,7 +18,7 @@ export { SHELL_UPDATE_MESSAGE } from './shell-update-state';
  *  screen. Off screen there is nothing to interrupt. */
 export const SHELL_RELOAD_IDLE_MS = 2000;
 
-export interface ShellReloadState {
+interface ShellReloadState {
   /** A changed document is waiting to be adopted. */
   pending: boolean;
   /** A turn is running somewhere in the app. */

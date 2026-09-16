@@ -41,7 +41,7 @@ export interface BottomPanelState {
   tab: string;
 }
 
-export type BottomPanelMotion = 'animated' | 'instant';
+type BottomPanelMotion = 'animated' | 'instant';
 
 interface StoredBottomPanelState {
   openPaneIds: ReadonlySet<string>;

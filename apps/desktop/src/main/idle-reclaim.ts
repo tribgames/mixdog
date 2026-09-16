@@ -13,9 +13,9 @@ import type { SessionSnapshot } from '../shared/contract';
 import { turnInProgress } from './turn-attention';
 
 export const IDLE_RECLAIM_EVENT = 'mixdog:idle-reclaim';
-export const IDLE_RECLAIM_DELAY_MS = 5 * 60_000;
+const IDLE_RECLAIM_DELAY_MS = 5 * 60_000;
 
-export interface IdleReclaimHooks {
+interface IdleReclaimHooks {
   isFocused(): boolean;
   reclaim(): void | Promise<void>;
   delayMs?: number;
@@ -91,7 +91,7 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
 }
 
 /** The subset of Electron's WebContents this module drives. */
-export interface IdleReclaimTarget {
+interface IdleReclaimTarget {
   isDestroyed(): boolean;
   executeJavaScript(code: string): Promise<unknown>;
 }

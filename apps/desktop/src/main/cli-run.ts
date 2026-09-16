@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 
 import { childEnvironment } from './child-environment';
 
-export interface RunResult {
+interface RunResult {
   code: number;
   stdout: string;
   stderr: string;

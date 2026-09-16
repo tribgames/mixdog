@@ -3,7 +3,7 @@ export interface KeyedListDeltaEncoder<T> {
   reset(): void;
 }
 
-export interface KeyedListDeltaDecoder<T> {
+interface KeyedListDeltaDecoder<T> {
   decode(wire: unknown): { ok: boolean; items?: T[] };
   reset(): void;
 }

@@ -9,7 +9,7 @@ import type { NavigationSelection } from './navigation';
 import type { Project, Snapshot } from './desktop-types';
 import { displayProject } from './text-format';
 
-export interface ProjectActionDeps {
+interface ProjectActionDeps {
   projects: DesktopProjectSummary[];
   /** Runs an action with the shared error/toast plumbing. */
   invoke: (action: () => unknown) => Promise<void>;

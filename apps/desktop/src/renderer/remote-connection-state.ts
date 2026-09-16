@@ -1,4 +1,4 @@
-export type RemoteConnectionState = 'connecting' | 'syncing' | 'connected' | 'reconnecting';
+type RemoteConnectionState = 'connecting' | 'syncing' | 'connected' | 'reconnecting';
 
 export const REMOTE_CONNECTION_STATE_EVENT = 'mixdog:remote-connection-state';
 export const REMOTE_CONNECTION_INTERRUPTED_CODE = 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED';

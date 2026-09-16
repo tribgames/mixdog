@@ -6,7 +6,7 @@ import { registerMobileBack } from './mobile-back';
 import { MxIcon } from './MxIcon';
 import { useSurfaceActive } from './surface-activity';
 
-export interface OpenSelectOption {
+interface OpenSelectOption {
   value: string;
   label: string;
   disabled?: boolean;

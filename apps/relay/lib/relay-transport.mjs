@@ -1,5 +1,5 @@
 // Frame admission, ingress metering, uplink capacity, and oversize signalling.
-// Extracted from server.mjs (behavior-preserving). Process-wide inflight and
+// Process-wide inflight and
 // ingress counters live here; per-socket flow flags stay on the socket.
 import { decodeRelayBinaryFrame, RELAY_BINARY_HEADER_BYTES } from './relay-binary-frame.mjs';
 import { isRoutingId } from './ids.mjs';

@@ -20,7 +20,7 @@ export function desktopBootCoverTimeoutAllowed(restorePending: boolean): boolean
   return !restorePending;
 }
 
-export interface BootMetricEntry {
+interface BootMetricEntry {
   bootId: string;
   scenario?: string;
   category: 'boot' | 'surface';
@@ -32,13 +32,13 @@ export interface BootMetricEntry {
   details?: string;
 }
 
-export interface BootSurfaceBarrierSnapshot {
+interface BootSurfaceBarrierSnapshot {
   revision: number;
   pending: number;
   pendingKeys: readonly string[];
 }
 
-export interface BootSurfaceBarrier {
+interface BootSurfaceBarrier {
   subscribe(listener: () => void): () => void;
   getSnapshot(): BootSurfaceBarrierSnapshot;
   seal(): void;

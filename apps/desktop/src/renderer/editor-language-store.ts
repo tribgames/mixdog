@@ -35,14 +35,14 @@ export interface EditorOutlineItem {
   level: number;
 }
 
-export interface ActiveEditorDocument {
+interface ActiveEditorDocument {
   projectPath: string;
   relPath: string;
   uri: string;
   languageId: string;
 }
 
-export interface EditorLanguageSnapshot {
+interface EditorLanguageSnapshot {
   revision: number;
   active: ActiveEditorDocument | null;
   activeLine: number;
@@ -52,7 +52,7 @@ export interface EditorLanguageSnapshot {
   statuses: readonly DesktopLspStatusEvent[];
 }
 
-export interface EditorCommandCapabilities {
+interface EditorCommandCapabilities {
   declaration: boolean;
   definition: boolean;
   typeDefinition: boolean;

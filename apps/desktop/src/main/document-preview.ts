@@ -10,7 +10,7 @@
 // for.
 import { projectEntryPathIn } from './project-files';
 
-export interface DocumentPreviewPdf {
+interface DocumentPreviewPdf {
   path: string;
   format: string;
   mtimeMs: number;
@@ -18,7 +18,7 @@ export interface DocumentPreviewPdf {
   cached: boolean;
 }
 
-export interface DocumentPreviewPage {
+interface DocumentPreviewPage {
   page: number;
   width: number;
   height: number;
@@ -26,7 +26,7 @@ export interface DocumentPreviewPage {
   base64: string;
 }
 
-export interface DocumentPreviewPages {
+interface DocumentPreviewPages {
   pageCount: number;
   pages: DocumentPreviewPage[];
 }

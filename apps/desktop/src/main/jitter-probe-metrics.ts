@@ -25,7 +25,7 @@ export interface RowSample {
   rows: Array<{ i: number; top: number }>;
 }
 
-export interface ContentMotion {
+interface ContentMotion {
   frames: number;
   maxRowShift: number;
   totalTravel: number;

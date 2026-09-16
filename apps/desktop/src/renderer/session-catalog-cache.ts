@@ -4,7 +4,7 @@ import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope'
 export const SESSION_CATALOG_STORAGE_KEY = 'mixdog.desktop-session-catalog.v1';
 const SESSION_CATALOG_LIMIT = 500;
 
-export interface CachedSessionCatalog {
+interface CachedSessionCatalog {
   version: 1;
   updatedAt: number;
   rows: DesktopSessionSummary[];

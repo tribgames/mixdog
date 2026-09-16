@@ -7,7 +7,7 @@ import { OpenSelect } from './OpenSelect';
 import { t } from './i18n';
 import type { GoalSnapshot } from './desktop-types';
 
-export type GoalEditorValue = { objective: string; timeLimitMs: number; timeMode: 'max' | 'duration' };
+type GoalEditorValue = { objective: string; timeLimitMs: number; timeMode: 'max' | 'duration' };
 
 export function ComposerGoalDialog({
   anchor,

@@ -45,7 +45,7 @@ export * from './transcript-tool-core';
 export * from './transcript-tool-format';
 export * from './transcript-tool-result';
 
-export interface DesktopToolActivityItemPresentation {
+interface DesktopToolActivityItemPresentation {
   category: string;
   title: string;
   subject: string;

@@ -3,7 +3,7 @@ import type { BrowserWindow, NativeImage } from 'electron';
 export const schemaVersion = 1;
 export const captureTitle = `Mixdog Capture ${process.pid}`;
 export const targetSize = { width: 1_113, height: 687 };
-export const captureStepTimeoutMs = 5_000;
+const captureStepTimeoutMs = 5_000;
 
 export async function withCaptureTimeout<T>(
   promise: Promise<T>,
@@ -43,13 +43,13 @@ export async function waitForRenderer(
   throw new Error(`Capture renderer did not expose ${label} within ${timeoutMs}ms.`);
 }
 
-export interface RendererValidation {
+interface RendererValidation {
   bridgePresent: boolean;
   inlineErrorCount: number;
   consoleErrorCount: number;
 }
 
-export interface RectMeasurement {
+interface RectMeasurement {
   left: number;
   top: number;
   right: number;
@@ -58,7 +58,7 @@ export interface RectMeasurement {
   height: number;
 }
 
-export interface ImageMeasuredSidebar {
+interface ImageMeasuredSidebar {
   method: string;
   scanlineY: number;
   left: number;
@@ -76,7 +76,7 @@ export interface ImageMeasuredSidebar {
   };
 }
 
-export interface ShellTopEdgeSample {
+interface ShellTopEdgeSample {
   theme: 'dark' | 'light';
   x: number;
   yStart: number;
@@ -150,7 +150,7 @@ export interface LiveCaptureAssertions {
   modalStack: ModalStackAssertions;
 }
 
-export interface SettingsPlacementAssertions {
+interface SettingsPlacementAssertions {
   viewport: { width: number; height: number };
   layer: RectMeasurement;
   dialog: RectMeasurement;
@@ -171,7 +171,7 @@ export interface SettingsPlacementAssertions {
   contentClearsWindowControls: boolean;
 }
 
-export interface SettingsPhoneCategoryAssertions {
+interface SettingsPhoneCategoryAssertions {
   label: string;
   rowCount: number;
   overflowFree: boolean;
@@ -180,7 +180,7 @@ export interface SettingsPhoneCategoryAssertions {
   labelsSeparated: boolean;
 }
 
-export interface SettingsPhoneAssertions {
+interface SettingsPhoneAssertions {
   viewport: { width: number; height: number };
   layer: RectMeasurement;
   dialog: RectMeasurement;
@@ -202,7 +202,7 @@ export interface SettingsPhoneAssertions {
   categories: SettingsPhoneCategoryAssertions[];
 }
 
-export interface LightThemeAssertions {
+interface LightThemeAssertions {
   theme: string;
   colorScheme: string;
   titlebarIconColor: string;
@@ -213,7 +213,7 @@ export interface LightThemeAssertions {
   activeTabMatchesToken: boolean;
 }
 
-export interface ModalStackAssertions {
+interface ModalStackAssertions {
   toastParentIsBody: boolean;
   toastVisible: boolean;
   toastOutsideInertTree: boolean;

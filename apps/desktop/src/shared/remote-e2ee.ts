@@ -33,7 +33,7 @@ export interface RelayE2EEChallenge {
   compactWire?: 1;
 }
 
-export interface RelayE2EEHello {
+interface RelayE2EEHello {
   type: 'e2ee-hello';
   version: typeof E2EE_VERSION;
   challenge: string;
@@ -411,7 +411,7 @@ export function relayE2EEPairingMaterial(identity: RelayE2EEServerIdentity): Rel
  *  relay that must never learn the secret. It generates a throwaway key pair
  *  instead, and the desktop seals the pairing material to that public key once
  *  the user approves on the PC. The relay only ever forwards this box. */
-export interface SealedRelayE2EEPairing {
+interface SealedRelayE2EEPairing {
   version: typeof E2EE_VERSION;
   ephemeralPublicKey: string;
   nonce: string;
@@ -469,7 +469,7 @@ export async function generateRelayClaimKeyPair(): Promise<RelayClaimKeyPair> {
  *  OS discards a backgrounded web app freely, and losing the key would mean
  *  asking the user to approve all over again. The private key is exported for
  *  that container's own storage and never leaves it. */
-export interface StoredRelayClaimKeyPair {
+interface StoredRelayClaimKeyPair {
   publicKey: string;
   privateKeyJwk: JsonWebKey;
 }

@@ -10,7 +10,7 @@ const REPLAY_BUFFER_LIMIT = 200_000;
 
 /** Retain only the newest terminal output without copying the whole replay
  * window on every PTY chunk. Materialize one string only when a view reattaches. */
-export class TerminalReplayBuffer {
+class TerminalReplayBuffer {
   private chunks: string[] = [];
   private head = 0;
   private headOffset = 0;

@@ -116,9 +116,9 @@ export function attemptApproval(
 export function normalizeApplyPatch(value: unknown): string;
 export function diffFileStatus(section: unknown): string;
 export function parseUnifiedDiff(patch: string): DiffData[];
-export type ToolInputRow = { key: string; value: string; block: boolean };
+type ToolInputRow = { key: string; value: string; block: boolean };
 export function toolInputRows(name: string, args: unknown): ToolInputRow[];
-export interface SessionScopedSnapshotGate<T> {
+interface SessionScopedSnapshotGate<T> {
   select(live: T | null | undefined): {
     snapshot: T | null;
     suppressedSessionId: string;

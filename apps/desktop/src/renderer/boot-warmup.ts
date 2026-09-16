@@ -5,7 +5,7 @@
 // main thread: a keystroke typed right after boot painted 150–170ms late.
 // The lane runs ONE task per idle slice, lowest priority number first, and
 // yields back to the browser between tasks so live input always wins.
-export interface BootWarmupTask {
+interface BootWarmupTask {
   /** Stable id: re-scheduling the same id replaces the pending task. */
   id: string;
   /** Lower runs first. */

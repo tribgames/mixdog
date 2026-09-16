@@ -32,7 +32,7 @@ export const CAPABILITY_ARTWORK = {
   tidy: '#2ec4b6',
 } as const;
 
-export type CapabilityArtwork = keyof typeof CAPABILITY_ARTWORK;
+type CapabilityArtwork = keyof typeof CAPABILITY_ARTWORK;
 
 const BUILT_IN_ARTWORK: Record<string, CapabilityArtwork> = {
   git: 'git',

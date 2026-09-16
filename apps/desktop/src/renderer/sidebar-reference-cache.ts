@@ -17,9 +17,9 @@ import { record, rows } from './record-utils';
 
 type RecordValue = Record<string, unknown>;
 
-export type SidebarReferenceApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
+type SidebarReferenceApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
-export interface SidebarReferenceValues {
+interface SidebarReferenceValues {
   channelSetup: RecordValue;
   quickProviderModels: DesktopModelOption[];
   projects: DesktopProjectSummary[];
@@ -366,7 +366,7 @@ function ensureSidebarReference(api: SidebarReferenceApi, key: SidebarReferenceK
   return request;
 }
 
-export interface SidebarReferenceLoadOutcome {
+interface SidebarReferenceLoadOutcome {
   error: string;
   /** The cache rebound to another host before this load could run; the caller
    *  must not apply the result. */
@@ -446,7 +446,7 @@ export function publishSidebarProjects(projects: readonly DesktopProjectSummary[
   return true;
 }
 
-export interface SidebarReferenceState<K extends SidebarReferenceKey> {
+interface SidebarReferenceState<K extends SidebarReferenceKey> {
   values: Pick<SidebarReferenceValues, K>;
   /** True only before the first snapshot for the panel's primary key exists —
    *  a warm cache paints rows immediately, with no loading cover. */

@@ -3,7 +3,7 @@
 // or bounce the dock (macOS). Focusing the window clears the signal.
 import type { SessionSnapshot } from '../shared/contract';
 
-export interface TurnAttentionHooks {
+interface TurnAttentionHooks {
   isFocused(): boolean;
   flashFrame(flag: boolean): void;
   bounceDock?(): void;

@@ -1,6 +1,6 @@
 // The canonical registry is JavaScript shared with the TUI and bundled by Vite.
 // @ts-expect-error -- the source .mjs intentionally has no separate declaration file.
-import { DEFAULT_THEME_ID, THEME_ALIASES, THEME_ORDER, THEME_REGISTRY } from '../../../../src/tui/themes/index.mjs';
+import { DEFAULT_THEME_ID, THEME_ALIASES, THEME_REGISTRY } from '../../../../src/tui/themes/index.mjs';
 
 import { refreshTitleBarDim } from './titlebar-dim';
 

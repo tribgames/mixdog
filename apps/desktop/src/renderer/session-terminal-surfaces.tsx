@@ -23,7 +23,7 @@ type TerminalSurface = {
   slots: Map<HTMLDivElement, TerminalSurfaceSlot>;
 };
 
-export type SessionTerminalSurfaceRenderProps = {
+type SessionTerminalSurfaceRenderProps = {
   sessionId: string;
   cwd: string | null;
   active: boolean;
@@ -31,7 +31,7 @@ export type SessionTerminalSurfaceRenderProps = {
   parked: boolean;
 };
 
-export type SessionTerminalSurfaceRenderer = (props: SessionTerminalSurfaceRenderProps) => ReactNode;
+type SessionTerminalSurfaceRenderer = (props: SessionTerminalSurfaceRenderProps) => ReactNode;
 
 export const sessionTerminalId = (sessionId: string): string => `session-terminal:${sessionId}`;
 
@@ -41,7 +41,7 @@ const disposeDefaultTerminalSurface: SessionTerminalSurfaceDisposer = (terminalI
   void disposeTerminalPane(terminalId);
 };
 
-export interface SessionTerminalSurfaceController {
+interface SessionTerminalSurfaceController {
   registerSlot(sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean, cwd: string | null): void;
   unregisterSlot(sessionId: string, node: HTMLDivElement): void;
   refresh(sessionId: string): void;

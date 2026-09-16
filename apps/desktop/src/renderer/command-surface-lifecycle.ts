@@ -34,7 +34,7 @@ async function readSurfaceCapability(
   return api.invokeCapability(request);
 }
 
-export interface UseCommandSurfaceLifecycleOptions {
+interface UseCommandSurfaceLifecycleOptions {
   surface: CommandSurfaceName;
   open?: boolean;
   api: SurfaceApi;
@@ -42,7 +42,7 @@ export interface UseCommandSurfaceLifecycleOptions {
   sessionId?: string;
 }
 
-export interface UseCommandSurfaceLifecycleResult {
+interface UseCommandSurfaceLifecycleResult {
   data: Record<string, unknown>;
   loading: boolean;
   refreshing: boolean;

@@ -11,15 +11,15 @@ export type SidebarResourceTag = {
  *  Webhooks, Extensions). Places a small framed status tag immediately next
  *  to the title, vertically centered on the line box. The title ellipsizes
  *  first; the tag never wraps or pushes the layout. */
-export function SidebarResourceTitle({
-  label,
-  tag,
-}: {
-  label: ReactNode;
-  tag?: SidebarResourceTag | null;
-}) {
-  return <span className="sidebar-resource-title">
-    <b>{label}</b>
-    {tag?.label ? <span className="sidebar-resource-tag" data-tone={tag.tone || 'muted'}>{tag.label}</span> : null}
-  </span>;
+export function SidebarResourceTitle({ label, tag }: { label: ReactNode; tag?: SidebarResourceTag | null }) {
+  return (
+    <span className="sidebar-resource-title">
+      <b>{label}</b>
+      {tag?.label ? (
+        <span className="sidebar-resource-tag" data-tone={tag.tone || 'muted'}>
+          {tag.label}
+        </span>
+      ) : null}
+    </span>
+  );
 }

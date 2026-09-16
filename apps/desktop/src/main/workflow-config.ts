@@ -88,12 +88,12 @@ export function objectRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-export interface WorkspaceVariableContext {
+interface WorkspaceVariableContext {
   workspaceFolder: string;
   file?: string;
 }
 
-export function resolveWorkspaceString(value: string, context: WorkspaceVariableContext): string {
+function resolveWorkspaceString(value: string, context: WorkspaceVariableContext): string {
   const file = context.file ? resolve(context.workspaceFolder, context.file) : '';
   return value
     .replace(/\$\{workspaceFolder\}/g, context.workspaceFolder)

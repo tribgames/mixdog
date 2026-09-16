@@ -27,7 +27,7 @@ import { alignedRow, findTranscriptAlignment, hasOwnId, sameRowId } from './tran
 // reintroduce cross-source id flapping for that pane.
 const IDENTITY_SESSION_LIMIT = 12;
 
-export interface SessionTranscriptIdentity {
+interface SessionTranscriptIdentity {
   items: readonly TranscriptItem[];
   tail: TranscriptItem | null;
 }
@@ -104,7 +104,7 @@ export function adoptTranscriptIdentity(
   return { items: adoptedItems, tail: adoptedTail, offset: alignedOffset };
 }
 
-export interface TranscriptIdentityReconciler {
+interface TranscriptIdentityReconciler {
   reconcile(snapshot: Snapshot): Snapshot;
 }
 

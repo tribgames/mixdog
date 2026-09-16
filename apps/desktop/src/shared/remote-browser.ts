@@ -105,7 +105,7 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
   throw new TypeError(`unknown remote browser control "${type || '(none)'}".`);
 }
 
-export interface RemoteBrowserImageBounds {
+interface RemoteBrowserImageBounds {
   left: number;
   top: number;
   width: number;

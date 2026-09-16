@@ -57,7 +57,7 @@ function rebalancePaneAxes(layout: PaneNode, ...directions: ReadonlyArray<PaneDi
 /** Drop zone of a drag-to-split gesture over one pane. */
 export type PaneDropZone = 'left' | 'right' | 'top' | 'bottom';
 
-export interface PaneWorkspaceState {
+interface PaneWorkspaceState {
   layout: PaneNode;
   focusedLeafId: string;
 }

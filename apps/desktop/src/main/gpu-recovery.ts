@@ -13,7 +13,7 @@ export interface GpuFallbackEnvironment {
   platform: NodeJS.Platform;
 }
 
-export interface GpuFallbackMarker {
+interface GpuFallbackMarker {
   schemaVersion: number;
   engagedAt: number;
   crashesInWindow: number;
@@ -22,7 +22,7 @@ export interface GpuFallbackMarker {
   platform: 'win32';
 }
 
-export interface GpuFallbackDecision {
+interface GpuFallbackDecision {
   crashes: number[];
   action: 'none' | 'engage';
 }

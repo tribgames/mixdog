@@ -1,7 +1,7 @@
 // ANSI output handling for editable log files. The text model keeps every
 // source byte; this parser only describes which CSI sequences Monaco hides and
 // which styles it paints over the remaining text.
-export interface EditorAnsiStyle {
+interface EditorAnsiStyle {
   foreground?: string;
   background?: string;
   underlineColor?: string;
@@ -15,26 +15,26 @@ export interface EditorAnsiStyle {
   overline: boolean;
 }
 
-export interface EditorAnsiRange {
+interface EditorAnsiRange {
   start: number;
   end: number;
 }
 
-export interface EditorAnsiSpan extends EditorAnsiRange {
+interface EditorAnsiSpan extends EditorAnsiRange {
   style: EditorAnsiStyle;
 }
 
-export interface EditorAnsiParseResult {
+interface EditorAnsiParseResult {
   controls: EditorAnsiRange[];
   spans: EditorAnsiSpan[];
   visibleText: string;
 }
 
-export interface EditorAnsiDecoration extends EditorAnsiRange {
+interface EditorAnsiDecoration extends EditorAnsiRange {
   className: string;
 }
 
-export interface EditorAnsiDecorationPlan extends EditorAnsiParseResult {
+interface EditorAnsiDecorationPlan extends EditorAnsiParseResult {
   decorations: EditorAnsiDecoration[];
   cssText: string;
 }

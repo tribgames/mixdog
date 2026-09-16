@@ -2,7 +2,7 @@ import type { Toast } from './desktop-types';
 // @ts-expect-error Shared runtime module is plain ESM.
 import { describeError, safeErrorDetails } from '../../../../src/runtime/shared/error-presentation.mjs';
 
-export type ToastRecord = {
+type ToastRecord = {
   id: string;
   group: string;
   tone: string;
@@ -13,7 +13,7 @@ export type ToastRecord = {
   stateful: boolean;
   dismissed: boolean;
 };
-export type ToastGroup = {
+type ToastGroup = {
   key: string;
   tone: string;
   text: string;
@@ -21,7 +21,7 @@ export type ToastGroup = {
   count: number;
   ids: string[];
 };
-export type ToastAction =
+type ToastAction =
   | { type: 'host'; toasts: readonly Toast[] }
   | { type: 'receive'; toast: Toast }
   | { type: 'dismiss'; ids: readonly string[] };

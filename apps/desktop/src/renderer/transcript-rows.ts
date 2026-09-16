@@ -135,7 +135,7 @@ function pushToolActivity(
   builder.previousRowWasUser = false;
 }
 
-export interface SettledTranscriptProjection {
+interface SettledTranscriptProjection {
   rows: readonly TranscriptRowModel[];
   currentTurnKey: string;
   previousRowWasUser: boolean;

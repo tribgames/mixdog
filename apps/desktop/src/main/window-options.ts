@@ -15,7 +15,7 @@ type DesktopTitleBarWindow = Pick<BrowserWindow, 'setBackgroundColor' | 'setTitl
 const titleBarThemes = new WeakMap<object, boolean>();
 const titleBarZoomFactors = new WeakMap<object, number>();
 /** Scrim-composited caption colors while a fullscreen modal dims the app. */
-export type DesktopTitleBarDim = { color: string; symbolColor: string };
+type DesktopTitleBarDim = { color: string; symbolColor: string };
 const titleBarDims = new WeakMap<object, DesktopTitleBarDim>();
 
 // DWM paints the frame pixels exposed while the user enlarges the window

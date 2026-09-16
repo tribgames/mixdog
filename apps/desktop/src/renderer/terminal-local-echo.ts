@@ -17,7 +17,7 @@ interface PendingPrediction {
   at: number;
 }
 
-export interface TerminalLocalEchoHooks {
+interface TerminalLocalEchoHooks {
   /** Ordered write into the SAME pump that writes server output. */
   write(data: string): void;
   /** Cursor column when a fresh prediction may render (primary buffer, cursor

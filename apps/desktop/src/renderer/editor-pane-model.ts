@@ -54,7 +54,7 @@ export function parseEditorQuickDiffStripes(diffText: string) {
   return stripes;
 }
 
-export interface CallHierarchyLayout {
+interface CallHierarchyLayout {
   ratio: number;
   height: number;
 }

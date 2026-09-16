@@ -23,7 +23,7 @@ type BrowserSurface = {
   slots: Map<HTMLDivElement, BrowserSurfaceSlot>;
 };
 
-export type SessionBrowserSurfaceRenderProps = {
+type SessionBrowserSurfaceRenderProps = {
   sessionId: string;
   active: boolean;
   foreground: boolean;
@@ -32,9 +32,9 @@ export type SessionBrowserSurfaceRenderProps = {
   onToggleExpanded(): void;
 };
 
-export type SessionBrowserSurfaceRenderer = (props: SessionBrowserSurfaceRenderProps) => ReactNode;
+type SessionBrowserSurfaceRenderer = (props: SessionBrowserSurfaceRenderProps) => ReactNode;
 
-export interface SessionBrowserSurfaceController {
+interface SessionBrowserSurfaceController {
   ensure(sessionId: string): void;
   registerSlot(sessionId: string, node: HTMLDivElement, active: boolean, foreground: boolean): void;
   unregisterSlot(sessionId: string, node: HTMLDivElement): void;

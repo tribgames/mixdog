@@ -18,7 +18,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 
-import * as gitCli from './git-cli.ts';
 import { buildGhPrCreateArgs } from './gh-cli.ts';
 import {
   GIT_RESET_DIRTY_CODE,
@@ -80,7 +79,6 @@ import {
   missingHookRunner,
   modeGrantsMoreThan,
   POSIX_ONLY,
-  seam,
   sharedRepositoryMode,
   writeHook,
   writeIndexBytes,

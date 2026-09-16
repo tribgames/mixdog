@@ -6,15 +6,15 @@ import type { SessionSnapshot } from '../shared/contract';
 
 // A crashed engine can freeze the last snapshot on "working". Never hold the
 // machine awake on a signal older than this window (staleness guard).
-export const AWAKE_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
+const AWAKE_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
-export interface PowerSaveBlockerLike {
+interface PowerSaveBlockerLike {
   start(type: 'prevent-app-suspension' | 'prevent-display-sleep'): number;
   stop(id: number): void;
   isStarted(id: number): boolean;
 }
 
-export function snapshotHasActiveWork(snapshot: SessionSnapshot): boolean {
+function snapshotHasActiveWork(snapshot: SessionSnapshot): boolean {
   if (!snapshot || typeof snapshot !== 'object') return false;
   const state = snapshot as Record<string, unknown>;
   // Mirrors the renderer's hasActiveSnapshotWork, plus background shell jobs:

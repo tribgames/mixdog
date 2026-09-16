@@ -39,7 +39,7 @@ function uniqueFolders(folders: readonly DesktopWorkspaceFolder[]): DesktopWorks
   return result;
 }
 
-export function parseWorkspaceFile(source: string, workspaceFile: string): DesktopWorkspace {
+function parseWorkspaceFile(source: string, workspaceFile: string): DesktopWorkspace {
   const file = resolve(workspaceFile);
   const config = objectRecord(parseJsonc(source));
   if (!config) throw new TypeError('Workspace configuration must be an object.');
@@ -134,7 +134,7 @@ function booleanSetting(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-export function editorSettingsFromScopes(scopes: readonly unknown[], languageId = 'plaintext'): DesktopEditorSettings {
+function editorSettingsFromScopes(scopes: readonly unknown[], languageId = 'plaintext'): DesktopEditorSettings {
   const merged = scopes.reduce<Record<string, unknown>>((current, scope) => {
     const record = objectRecord(scope);
     return record ? { ...current, ...languageSettings(record, languageId) } : current;

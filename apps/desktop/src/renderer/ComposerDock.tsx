@@ -23,7 +23,7 @@ import { TurnReviewBar } from './TurnReview';
  * The reservation rules themselves live in composer-dock-reservation.ts.
  */
 
-export type ComposerContextBarPhase = 'open' | 'collapsing' | 'closed';
+type ComposerContextBarPhase = 'open' | 'collapsing' | 'closed';
 
 /** Draft-only composer context bar: when the surface promotes to a session
  *  the bar collapses over ~140ms (CSS) before unmounting, instead of

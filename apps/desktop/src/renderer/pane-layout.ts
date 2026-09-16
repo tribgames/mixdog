@@ -20,7 +20,7 @@ export interface PaneLeaf {
   readonly previewKey?: string;
 }
 
-export interface PaneSplit {
+interface PaneSplit {
   readonly type: 'split';
   readonly direction: PaneDirection;
   /** First child's share of the split axis, clamped to the ratio bounds. */
@@ -68,7 +68,7 @@ export function clampPaneRatio(value: number): number {
   return Math.min(PANE_MAX_RATIO, Math.max(PANE_MIN_RATIO, value));
 }
 
-export type PaneMinimumSize = {
+type PaneMinimumSize = {
   width: number;
   height: number;
 };
@@ -555,7 +555,7 @@ export function paneLeafParentDirection(root: PaneNode, leafId: string): PaneDir
   return paneLeafParentDirection(root.first, leafId) ?? paneLeafParentDirection(root.second, leafId);
 }
 
-export type PaneRelativeRect = {
+type PaneRelativeRect = {
   left: number;
   top: number;
   width: number;

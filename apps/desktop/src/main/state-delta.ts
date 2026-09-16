@@ -7,12 +7,12 @@ export interface SnapshotDeltaEncoder {
   reset(): void;
 }
 
-export interface SnapshotDeltaDecodeResult {
+interface SnapshotDeltaDecodeResult {
   ok: boolean;
   snapshot?: unknown;
 }
 
-export interface SnapshotDeltaDecoder {
+interface SnapshotDeltaDecoder {
   decode(wire: unknown): SnapshotDeltaDecodeResult;
   reset(): void;
 }
@@ -187,13 +187,13 @@ const COMPACT_WIRE_VERSION = 2;
  *  a whole E2EE envelope — box, nonce and base64 — to deliver what the
  *  receiver already holds. The encoder keeps its revision, so the next real
  *  patch still chains onto the baseline the receiver has. */
-export const REMOTE_NO_DELTA = Symbol.for('mixdog.remote-no-delta');
+const REMOTE_NO_DELTA = Symbol.for('mixdog.remote-no-delta');
 
 export function isNoDelta(wire: unknown): boolean {
   return wire === REMOTE_NO_DELTA;
 }
 
-export interface SnapshotDeltaEncoderOptions {
+interface SnapshotDeltaEncoderOptions {
   /** Only for a peer that announced it understands the compact shape. */
   compact?: boolean;
 }

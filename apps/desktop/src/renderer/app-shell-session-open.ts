@@ -4,7 +4,7 @@ import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { defaultSessionLaneStore } from './session-lane-store';
 import { requestSessionRead } from './app-snapshot-views';
 
-export interface SessionOpenProps {
+interface SessionOpenProps {
   navigationEpoch: React.MutableRefObject<number>;
   closeSidebarForNavigation: () => void;
   setRequestedSessionId: (id: string) => void;

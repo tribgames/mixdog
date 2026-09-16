@@ -7,14 +7,14 @@ import type { PushSubscriptionStore } from './push-subscription-store';
 import { sendWebPush } from './web-push';
 import type { DesktopSessionSummary } from '../shared/contract';
 
-export interface PushNotifier {
+interface PushNotifier {
   onSessions(sessions: readonly DesktopSessionSummary[]): void;
   /** A browser lost its access: drop its endpoint with the credential. */
   forgetClient(clientId: string): void;
   dispose(): void;
 }
 
-export interface PushNotifierOptions {
+interface PushNotifierOptions {
   store: PushSubscriptionStore;
   /** Off by default; the user opts in per browser from Settings. */
   isEnabled(): boolean;

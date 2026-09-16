@@ -2,11 +2,7 @@ import { CapabilityIcon } from '../CapabilityIcon';
 import { skillDisplayDescription } from '../skill-presentation';
 import { useEffect, useMemo, useState } from 'react';
 
-import type {
-  DesktopGitCliStatus,
-  DesktopLibreOfficeStatus,
-  DesktopSettings,
-} from '../../shared/contract';
+import type { DesktopGitCliStatus, DesktopLibreOfficeStatus, DesktopSettings } from '../../shared/contract';
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
@@ -22,11 +18,7 @@ import {
   ExtensionRow,
   ExtensionSection,
 } from './extension-detail';
-import {
-  BUILT_IN_FEATURES,
-  type BuiltInFeatureDefinition,
-  type BuiltInFeatureId,
-} from './built-in-feature-registry';
+import { BUILT_IN_FEATURES, type BuiltInFeatureDefinition, type BuiltInFeatureId } from './built-in-feature-registry';
 import { SlotProgress } from './built-in-install-progress';
 import { LocalProviderModels } from './local-provider-models';
 import { BuiltInFeatureInfo, featureRequirement } from './built-in-feature-info';
@@ -77,7 +69,14 @@ type FeatureState = {
 };
 
 /** Short list tag for noteworthy states (not installed, installing, failed, disabled). */
-function featureStatus({ ready, installed, available, action, progressPercent, enabled }: FeatureState): SidebarResourceTag | null {
+function featureStatus({
+  ready,
+  installed,
+  available,
+  action,
+  progressPercent,
+  enabled,
+}: FeatureState): SidebarResourceTag | null {
   if (!available || !ready) return null;
   if (action?.status === 'installing') {
     const label = progressPercent === null ? t('Installing…') : `${t('Installing…')} ${progressPercent}%`;
@@ -91,7 +90,11 @@ function featureStatus({ ready, installed, available, action, progressPercent, e
 
 /** Header slot of the detail dialog: placeholder → progress → Install/Retry →
  *  switch, in the order the feature's own status source allows. */
-function FeatureControl({ state, onInstall, onToggle }: {
+function FeatureControl({
+  state,
+  onInstall,
+  onToggle,
+}: {
   state: FeatureState;
   onInstall(): void;
   onToggle(enabled: boolean): void;
@@ -99,25 +102,48 @@ function FeatureControl({ state, onInstall, onToggle }: {
   const { feature, installed, enabled, ready, available, busy, action, progressPercent } = state;
   const installing = action?.status === 'installing';
   const failed = action?.status === 'failed';
-  return <span className="built-in-feature-control">
-    {!ready
-      ? <span className="built-in-feature-control-placeholder" aria-hidden="true" />
-      : installing
-      ? <SlotProgress percent={progressPercent} label={t('Installing {{name}}…', { name: t(feature.title) })} />
-      : !installed && feature.id === 'localProvider'
-      ? <span>{t('Install through chat')}</span>
-      : !installed
-      ? <button type="button" className="extensions-action" disabled={!available || busy}
-          aria-label={t('Install {{name}}', { name: t(feature.title) })} onClick={onInstall}>
+  return (
+    <span className="built-in-feature-control">
+      {!ready ? (
+        <span className="built-in-feature-control-placeholder" aria-hidden="true" />
+      ) : installing ? (
+        <SlotProgress percent={progressPercent} label={t('Installing {{name}}…', { name: t(feature.title) })} />
+      ) : !installed && feature.id === 'localProvider' ? (
+        <span>{t('Install through chat')}</span>
+      ) : !installed ? (
+        <button
+          type="button"
+          className="extensions-action"
+          disabled={!available || busy}
+          aria-label={t('Install {{name}}', { name: t(feature.title) })}
+          onClick={onInstall}
+        >
           {t(failed ? 'Retry' : 'Install')}
         </button>
-      : <CompactSwitch label={t(feature.title)} checked={enabled} optimistic={false}
-          disabled={!available || busy} onChange={onToggle} />}
-  </span>;
+      ) : (
+        <CompactSwitch
+          label={t(feature.title)}
+          checked={enabled}
+          optimistic={false}
+          disabled={!available || busy}
+          onChange={onToggle}
+        />
+      )}
+    </span>
+  );
 }
 
 /** The parent feature owns activation; bundled skills are read-only children. */
-function FeatureDetailDialog({ state, onInstall, onToggle, onClose, localActions, api, gitStatus, officeDependency }: {
+function FeatureDetailDialog({
+  state,
+  onInstall,
+  onToggle,
+  onClose,
+  localActions,
+  api,
+  gitStatus,
+  officeDependency,
+}: {
   api: PanelContext['api'];
   state: FeatureState;
   gitStatus: DesktopGitCliStatus | null;
@@ -130,44 +156,65 @@ function FeatureDetailDialog({ state, onInstall, onToggle, onClose, localActions
   const { feature, bundledSkills, action, ready, installed } = state;
   const title = t(feature.title);
   const requirement = featureRequirement(feature.id);
-  return <ExtensionDetailDialog title={title} onClose={onClose}
-    icon={<CapabilityIcon kind="builtin" name={feature.id} />}
-    tagline={t(feature.description)}
-    dataAttributes={{ 'data-feature-id': feature.id }}
-    headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}>
-    {ready && !installed && requirement
-      ? <ExtensionNote>{t('Requires {{name}}', { name: requirement })}</ExtensionNote>
-      : null}
-    <ErrorNotice errors={[
-      action?.status === 'failed' ? action.message : '',
-      feature.id === 'localProvider' && !state.localProvider.running ? state.localProvider.lastError : '',
-      feature.id === 'localProvider' ? record(state.localProvider.hardware).error : '',
-    ]} />
-    {feature.id === 'git' && <GitPanel api={api} />}
-    {feature.id === 'localProvider' && <LocalProviderModels status={state.localProvider} actions={localActions} />}
-    {bundledSkills.length > 0 && <ExtensionSection title={t('Skills')} count={bundledSkills.length}>
-      <ExtensionItemList>
-        {bundledSkills.map((skill) => {
-          const name = String(skill.name);
-          const off = !ready || !installed || !state.enabled || !state.available;
-          return <ExtensionItemRow key={name} icon={<CapabilityIcon name={name} size={15} />}
-            title={name} description={skillDisplayDescription(skill).trim()}
-            tone={off ? 'off' : 'ok'}
-            control={<ExtensionAction disabled>
-              {t('Required tools')}</ExtensionAction>} />;
-        })}
-      </ExtensionItemList>
-    </ExtensionSection>}
-    <BuiltInFeatureInfo state={state} gitStatus={gitStatus} officeDependency={officeDependency} />
-  </ExtensionDetailDialog>;
+  return (
+    <ExtensionDetailDialog
+      title={title}
+      onClose={onClose}
+      icon={<CapabilityIcon kind="builtin" name={feature.id} />}
+      tagline={t(feature.description)}
+      dataAttributes={{ 'data-feature-id': feature.id }}
+      headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}
+    >
+      {ready && !installed && requirement ? (
+        <ExtensionNote>{t('Requires {{name}}', { name: requirement })}</ExtensionNote>
+      ) : null}
+      <ErrorNotice
+        errors={[
+          action?.status === 'failed' ? action.message : '',
+          feature.id === 'localProvider' && !state.localProvider.running ? state.localProvider.lastError : '',
+          feature.id === 'localProvider' ? record(state.localProvider.hardware).error : '',
+        ]}
+      />
+      {feature.id === 'git' && <GitPanel api={api} />}
+      {feature.id === 'localProvider' && <LocalProviderModels status={state.localProvider} actions={localActions} />}
+      {bundledSkills.length > 0 && (
+        <ExtensionSection title={t('Skills')} count={bundledSkills.length}>
+          <ExtensionItemList>
+            {bundledSkills.map((skill) => {
+              const name = String(skill.name);
+              const off = !ready || !installed || !state.enabled || !state.available;
+              return (
+                <ExtensionItemRow
+                  key={name}
+                  icon={<CapabilityIcon name={name} size={15} />}
+                  title={name}
+                  description={skillDisplayDescription(skill).trim()}
+                  tone={off ? 'off' : 'ok'}
+                  control={<ExtensionAction disabled>{t('Required tools')}</ExtensionAction>}
+                />
+              );
+            })}
+          </ExtensionItemList>
+        </ExtensionSection>
+      )}
+      <BuiltInFeatureInfo state={state} gitStatus={gitStatus} officeDependency={officeDependency} />
+    </ExtensionDetailDialog>
+  );
 }
 
-export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initialFeature = null }: PanelContext & {
+export function BuiltInFeaturesPanel({
+  data,
+  snapshot,
+  pending,
+  run,
+  api,
+  initialFeature = null,
+}: PanelContext & {
   initialFeature?: BuiltInFeatureId | null;
 }) {
   const localActions = useLocalProviderActions(run, pending);
   const [settings, setSettings] = useState<DesktopSettings | null>(
-    () => desktopSettingsCache.get(api as object) ?? null,
+    () => desktopSettingsCache.get(api as object) ?? null
   );
   const [gitStatus, setGitStatus] = useState<DesktopGitCliStatus | null>(null);
   const [officeDependency, setOfficeDependency] = useState<DesktopLibreOfficeStatus | null>(null);
@@ -178,8 +225,11 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
   const [voiceInstalled, setVoiceInstalled] = useState(false);
   const [openId, setOpenId] = useState<BuiltInFeatureId | null>(initialFeature);
   const toolModules = record(data.toolModules);
-  const localProvider = useLocalProviderStatus(api, toolModules.localProvider,
-    openId === 'localProvider' || action?.id === 'localProvider');
+  const localProvider = useLocalProviderStatus(
+    api,
+    toolModules.localProvider,
+    openId === 'localProvider' || action?.id === 'localProvider'
+  );
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
   const windows = navigator.userAgent.includes('Windows');
@@ -201,47 +251,66 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
   }, [voice.installed]);
   useEffect(() => {
     let live = true;
-    void api.readSettings?.().then((next) => {
-      desktopSettingsCache.set(api as object, next);
-      if (live) setSettings(next);
-    }).catch(() => {});
-    return () => { live = false; };
+    void api
+      .readSettings?.()
+      .then((next) => {
+        desktopSettingsCache.set(api as object, next);
+        if (live) setSettings(next);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
   }, [api]);
   useEffect(() => {
     let live = true;
-    void api.gitCliStatus?.().then((next) => {
-      if (live) setGitStatus(next);
-    }).catch(() => {});
-    void api.libreOfficeStatus?.().then((next) => {
-      if (live) setOfficeDependency(next);
-    }).catch(() => {});
-    return () => { live = false; };
+    void api
+      .gitCliStatus?.()
+      .then((next) => {
+        if (live) setGitStatus(next);
+      })
+      .catch(() => {});
+    void api
+      .libreOfficeStatus?.()
+      .then((next) => {
+        if (live) setOfficeDependency(next);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
   }, [api]);
 
-  const installed = useMemo<Record<BuiltInFeatureId, boolean>>(() => ({
-    git: gitStatus?.installed === true && record(toolModules.git).installed === true,
-    memory: record(toolModules.memory).installed === true,
-    browser: settings?.browserInstalled === true,
-    computer: settings?.computerInstalled === true,
-    office: record(toolModules.office).installed === true,
-    tidy: record(toolModules.tidy).installed === true,
-    localProvider: localProvider.installed === true,
-    voice: voiceInstalled || voice.installed === true,
-  }), [gitStatus?.installed, settings, toolModules, localProvider, voice.installed, voiceInstalled]);
-  const enabled = useMemo<Record<BuiltInFeatureId, boolean>>(() => ({
-    git: record(toolModules.git).enabled !== false,
-    memory: record(toolModules.memory).enabled !== false,
-    browser: settings?.browserControl === true,
-    computer: settings?.computerControl === true,
-    office: record(toolModules.office).enabled !== false,
-    tidy: record(toolModules.tidy).enabled !== false,
-    localProvider: localProvider.enabled === true,
-    voice: voice.enabled === true && installed.voice,
-  }), [installed.voice, settings, toolModules, localProvider, voice.enabled]);
+  const installed = useMemo<Record<BuiltInFeatureId, boolean>>(
+    () => ({
+      git: gitStatus?.installed === true && record(toolModules.git).installed === true,
+      memory: record(toolModules.memory).installed === true,
+      browser: settings?.browserInstalled === true,
+      computer: settings?.computerInstalled === true,
+      office: record(toolModules.office).installed === true,
+      tidy: record(toolModules.tidy).installed === true,
+      localProvider: localProvider.installed === true,
+      voice: voiceInstalled || voice.installed === true,
+    }),
+    [gitStatus?.installed, settings, toolModules, localProvider, voice.installed, voiceInstalled]
+  );
+  const enabled = useMemo<Record<BuiltInFeatureId, boolean>>(
+    () => ({
+      git: record(toolModules.git).enabled !== false,
+      memory: record(toolModules.memory).enabled !== false,
+      browser: settings?.browserControl === true,
+      computer: settings?.computerControl === true,
+      office: record(toolModules.office).enabled !== false,
+      tidy: record(toolModules.tidy).enabled !== false,
+      localProvider: localProvider.enabled === true,
+      voice: voice.enabled === true && installed.voice,
+    }),
+    [installed.voice, settings, toolModules, localProvider, voice.enabled]
+  );
 
   const updateDesktopSetting = async (
     key: 'browserControl' | 'computerControl' | 'browserInstalled' | 'computerInstalled',
-    next: boolean,
+    next: boolean
   ): Promise<boolean> => {
     if (!api.updateSetting) return false;
     const saved = await api.updateSetting(key, next);
@@ -318,8 +387,8 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
       } else {
         // Browser Use / Computer Use ship bundled: install marks the feature
         // activated, then turns its control on.
-        const marker = id === 'browser' ? 'browserInstalled' as const : 'computerInstalled' as const;
-        const control = id === 'browser' ? 'browserControl' as const : 'computerControl' as const;
+        const marker = id === 'browser' ? ('browserInstalled' as const) : ('computerInstalled' as const);
+        const control = id === 'browser' ? ('browserControl' as const) : ('computerControl' as const);
         if (!(await updateDesktopSetting(marker, true)) || !(await updateDesktopSetting(control, true))) {
           throw new Error(t('The setting could not be saved.'));
         }
@@ -327,20 +396,25 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
       setAction(null);
     })().catch((error: unknown) => setAction({ id, status: 'failed', message: reason(error) }));
   };
-  const localInstalling = Array.isArray(localProvider.installations)
-    && localProvider.installations.some((entry) => ['running', 'cancelling'].includes(String(record(entry).state)));
+  const localInstalling =
+    Array.isArray(localProvider.installations) &&
+    localProvider.installations.some((entry) => ['running', 'cancelling'].includes(String(record(entry).state)));
   const busy = Boolean(pending) || (action !== null && action.status !== 'failed') || localInstalling;
   const stateOf = (feature: BuiltInFeatureDefinition): FeatureState => {
-    const available = feature.id === 'localProvider'
-      ? windows && localProvider.available !== false
-      : feature.platform !== 'windows' || windows;
+    const available =
+      feature.id === 'localProvider'
+        ? windows && localProvider.available !== false
+        : feature.platform !== 'windows' || windows;
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
-    const ready = feature.id === 'git'
-      ? gitStatus !== null && sectionLoaded(data, 'toolModules')
-      : feature.id === 'browser' || feature.id === 'computer' ? settings !== null
-      : feature.id === 'voice' ? sectionLoaded(data, 'voice')
-      : sectionLoaded(data, 'toolModules');
+    const ready =
+      feature.id === 'git'
+        ? gitStatus !== null && sectionLoaded(data, 'toolModules')
+        : feature.id === 'browser' || feature.id === 'computer'
+          ? settings !== null
+          : feature.id === 'voice'
+            ? sectionLoaded(data, 'voice')
+            : sectionLoaded(data, 'toolModules');
     return {
       feature,
       bundledSkills: bundledSkills[feature.id] || [],
@@ -350,31 +424,48 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
       available,
       busy,
       action: action?.id === feature.id ? action : null,
-      progressPercent: feature.id === 'localProvider'
-        ? installationPercent(localProviderInstallation(localProvider, 'runtime'))
-        : feature.id === 'voice' || feature.id === 'memory' ? progress.percent : null,
+      progressPercent:
+        feature.id === 'localProvider'
+          ? installationPercent(localProviderInstallation(localProvider, 'runtime'))
+          : feature.id === 'voice' || feature.id === 'memory'
+            ? progress.percent
+            : null,
       localProvider,
       info: record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),
     };
   };
   const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
-  return <Group title="Built-in">
-    {BUILT_IN_FEATURES.map((feature) => {
-      const state = stateOf(feature);
-      return <ExtensionRow key={feature.id} icon={<CapabilityIcon kind="builtin" name={feature.id} />}
-        title={t(feature.title)} description={t(feature.description)}
-        status={featureStatus(state)}
-        enabled={state.installed && state.enabled}
-        busy={false} onOpen={() => setOpenId(feature.id)}
-        dataAttributes={{ 'data-built-in-feature': feature.id }} />;
-    })}
-    {open && <FeatureDetailDialog key={open.id} state={stateOf(open)}
-      api={api}
-      localActions={localActions}
-      gitStatus={gitStatus}
-      officeDependency={officeDependency}
-      onInstall={() => install(open.id)}
-      onToggle={(next) => toggle(open.id, next)}
-      onClose={() => setOpenId(null)} />}
-  </Group>;
+  return (
+    <Group title="Built-in">
+      {BUILT_IN_FEATURES.map((feature) => {
+        const state = stateOf(feature);
+        return (
+          <ExtensionRow
+            key={feature.id}
+            icon={<CapabilityIcon kind="builtin" name={feature.id} />}
+            title={t(feature.title)}
+            description={t(feature.description)}
+            status={featureStatus(state)}
+            enabled={state.installed && state.enabled}
+            busy={false}
+            onOpen={() => setOpenId(feature.id)}
+            dataAttributes={{ 'data-built-in-feature': feature.id }}
+          />
+        );
+      })}
+      {open && (
+        <FeatureDetailDialog
+          key={open.id}
+          state={stateOf(open)}
+          api={api}
+          localActions={localActions}
+          gitStatus={gitStatus}
+          officeDependency={officeDependency}
+          onInstall={() => install(open.id)}
+          onToggle={(next) => toggle(open.id, next)}
+          onClose={() => setOpenId(null)}
+        />
+      )}
+    </Group>
+  );
 }

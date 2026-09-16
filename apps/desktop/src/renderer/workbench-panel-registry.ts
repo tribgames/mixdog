@@ -1,4 +1,4 @@
-export type WorkbenchPanelId = 'problems';
+type WorkbenchPanelId = 'problems';
 
 export const WORKBENCH_PANEL_REGISTRY: ReadonlyArray<{
   id: WorkbenchPanelId;

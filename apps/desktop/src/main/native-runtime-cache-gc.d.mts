@@ -1,9 +1,9 @@
-export interface NativeRuntimeCacheGcFailure {
+interface NativeRuntimeCacheGcFailure {
   kind: string;
   error: unknown;
 }
 
-export interface NativeRuntimeCacheGcResult {
+interface NativeRuntimeCacheGcResult {
   removed: string[];
   failed: NativeRuntimeCacheGcFailure[];
 }

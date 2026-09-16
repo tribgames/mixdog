@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { childEnvironment } from './child-environment';
 import type { TerminalSpawnProfile } from './terminal-contract';
 
-export interface DesktopShellProfileInfo {
+interface DesktopShellProfileInfo {
   id: string;
   label: string;
   path: string;
@@ -143,13 +143,13 @@ async function detectWindowsProfiles(): Promise<DetectedShellProfile[]> {
 }
 
 /** Utility-VM distributions are not user shells. */
-export function hiddenWslDistribution(name: string): boolean {
+function hiddenWslDistribution(name: string): boolean {
   return /^(?:docker-desktop(?:-data)?|rancher-desktop(?:-data)?|podman-machine.*)$/i.test(String(name || '').trim());
 }
 
 /** OS-default profile id: Windows prefers PowerShell 7
  *  (pwsh) over Windows PowerShell over cmd; elsewhere $SHELL wins. */
-export function defaultShellProfileId(
+function defaultShellProfileId(
   profiles: readonly Pick<DesktopShellProfileInfo, 'id' | 'path'>[],
   platform: NodeJS.Platform = process.platform,
   envShell: string = process.env.SHELL || ''

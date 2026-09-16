@@ -31,11 +31,9 @@ window.mixdogDesktop = {
 
 const { extensionSectionForSettings } = await import('../extension-sections.ts');
 const { WorkflowsPane } = await import('../WorkflowsView.tsx');
-const {
-  adoptSidebarReferenceHost,
-  resetSidebarReferenceCache,
-  updateSidebarReference,
-} = await import('../sidebar-reference-cache.ts');
+const { adoptSidebarReferenceHost, resetSidebarReferenceCache, updateSidebarReference } = await import(
+  '../sidebar-reference-cache.ts'
+);
 const { CategoryPanel } = await import('./capability-panels.tsx');
 
 function panelContext(overrides = {}) {
@@ -56,26 +54,32 @@ function panelContext(overrides = {}) {
       },
       voice: { enabled: false, installed: false },
       plugins: {
-        plugins: [{
-          id: 'example-plugin',
-          name: 'Example plugin',
-          enabled: true,
-          description: 'Installed package',
-        }],
+        plugins: [
+          {
+            id: 'example-plugin',
+            name: 'Example plugin',
+            enabled: true,
+            description: 'Installed package',
+          },
+        ],
       },
       skills: {
-        skills: [{
-          name: 'example-skill',
-          description: 'Reusable instructions',
-        }],
+        skills: [
+          {
+            name: 'example-skill',
+            description: 'Reusable instructions',
+          },
+        ],
       },
       disabledSkills: { disabled: [] },
       mcp: {
-        servers: [{
-          name: 'example-mcp',
-          enabled: true,
-          config: { type: 'stdio', command: 'example' },
-        }],
+        servers: [
+          {
+            name: 'example-mcp',
+            enabled: true,
+            config: { type: 'stdio', command: 'example' },
+          },
+        ],
       },
     },
     snapshot: null,
@@ -94,7 +98,9 @@ function panelContext(overrides = {}) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((next) => { resolve = next; });
+  const promise = new Promise((next) => {
+    resolve = next;
+  });
   return { promise, resolve };
 }
 
@@ -103,10 +109,12 @@ async function renderPanel(category, overrides = {}) {
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(React.createElement(CategoryPanel, {
-      category,
-      context: panelContext(overrides),
-    }));
+    root.render(
+      React.createElement(CategoryPanel, {
+        category,
+        context: panelContext(overrides),
+      })
+    );
   });
   return {
     host,
@@ -141,7 +149,7 @@ test('Plugin combines built-in features and installed plugins', async () => {
     assert.equal(document.querySelector('[data-built-in-feature] input'), null);
     assert.deepEqual(
       [...document.querySelectorAll('.settings-group > header h3')].map((heading) => heading.textContent),
-      ['Built-in', 'Plugins'],
+      ['Built-in', 'Plugins']
     );
     assert.doesNotMatch(document.body.textContent, /Agent tools|Input features/);
     assert.match(document.body.textContent, /Example plugin/);
@@ -180,16 +188,24 @@ test('built-in details show their engines and supplied model metadata instead of
   context.api.gitCliStatus = async () => ({ installed: true, version: 'git 2.50.1' });
   context.api.libreOfficeStatus = async () => ({ installed: true, version: '25.2.1' });
   context.data.voice.info = {
-    engine: 'whisper.cpp', runtimeVersion: '1.9.2', acceleration: 'vulkan',
-    model: 'ggml-large-v3-turbo-q8_0.bin', modelBytes: 874188075, ffmpegVersion: '6.1.1',
+    engine: 'whisper.cpp',
+    runtimeVersion: '1.9.2',
+    acceleration: 'vulkan',
+    model: 'ggml-large-v3-turbo-q8_0.bin',
+    modelBytes: 874188075,
+    ffmpegVersion: '6.1.1',
   };
   context.data.toolModules.memory.info = {
-    model: 'custom/embedding', dtype: 'q4', dimensions: 1024,
-    device: 'cuda', engine: 'Transformers.js · ONNX Runtime',
+    model: 'custom/embedding',
+    dtype: 'q4',
+    dimensions: 1024,
+    device: 'cuda',
+    engine: 'Transformers.js · ONNX Runtime',
   };
   context.data.toolModules.localProvider = {
     runtime: { installed: true, version: 'b-test', backend: 'CUDA 12.4' },
-    activeModel: 'custom', running: true,
+    activeModel: 'custom',
+    running: true,
     models: [{ id: 'custom', name: 'Custom Q4_K_M', contextWindow: 8192 }],
   };
   const expected = {
@@ -203,8 +219,9 @@ test('built-in details show their engines and supplied model metadata instead of
   };
   const rendered = await renderPanel('plugins', context);
   try {
-    const ids = [...document.querySelectorAll('[data-built-in-feature]')]
-      .map((row) => row.getAttribute('data-built-in-feature'));
+    const ids = [...document.querySelectorAll('[data-built-in-feature]')].map((row) =>
+      row.getAttribute('data-built-in-feature')
+    );
     for (const id of ids) {
       await act(async () => document.querySelector(`[data-built-in-feature="${id}"]`).click());
       const dialog = document.querySelector(`[data-feature-id="${id}"]`);
@@ -224,16 +241,20 @@ test('built-in details show their engines and supplied model metadata instead of
 
 test('bundled skills have inert required-tool buttons and inherit parent activation', async () => {
   const context = panelContext();
-  context.data.skills.skills = [{
-    name: 'office-guide',
-    description: 'Document instructions',
-    owner: { kind: 'builtin', feature: 'office' },
-  }];
+  context.data.skills.skills = [
+    {
+      name: 'office-guide',
+      description: 'Document instructions',
+      owner: { kind: 'builtin', feature: 'office' },
+    },
+  ];
   context.data.disabledSkills.disabled = ['office-guide'];
   const calls = [];
   const rendered = await renderPanel('plugins', {
     ...context,
-    async run(...args) { calls.push(args); },
+    async run(...args) {
+      calls.push(args);
+    },
   });
   try {
     await act(async () => document.querySelector('[data-built-in-feature="office"]').click());
@@ -246,11 +267,19 @@ test('bundled skills have inert required-tool buttons and inherit parent activat
     assert.equal(dialog.querySelector('input[type="checkbox"]').checked, true);
     // Persisted parent changes, including removal, update the child without a
     // separate setDisabledSkills mutation.
-    for (const entry of [{ installed: true, enabled: false }, { installed: false, enabled: true }]) {
+    for (const entry of [
+      { installed: true, enabled: false },
+      { installed: false, enabled: true },
+    ]) {
       context.data = { ...context.data, toolModules: { ...context.data.toolModules, office: entry } };
-      await act(async () => rendered.root.render(React.createElement(CategoryPanel, {
-        category: 'plugins', context,
-      })));
+      await act(async () =>
+        rendered.root.render(
+          React.createElement(CategoryPanel, {
+            category: 'plugins',
+            context,
+          })
+        )
+      );
       dialog = document.querySelector('[data-feature-id="office"]');
       if (entry.installed) assert.equal(dialog.querySelector('input[type="checkbox"]').checked, false);
       assert.equal(dialog.querySelectorAll('input').length, entry.installed ? 1 : 0);
@@ -266,22 +295,26 @@ test('plugin detail shows all supplied metadata and existing installation facts 
   const rendered = await renderPanel('plugins', {
     data: {
       ...panelContext().data,
-      plugins: { plugins: [{
-        id: 'info-plugin',
-        name: 'Info plugin',
-        version: '1.2.3',
-        author: '<script>Author</script> <author@example.test>',
-        homepage: 'https://example.test',
-        repository: 'https://example.test/plugin.git',
-        license: 'MIT',
-        keywords: ['tools', 'mcp'],
-        sourceType: 'git',
-        sourceUrl: 'https://example.test/source.git',
-        root: 'C:\\plugins\\info',
-        mcpServerName: 'plugin-info',
-        installedAt,
-        updatedAt,
-      }] },
+      plugins: {
+        plugins: [
+          {
+            id: 'info-plugin',
+            name: 'Info plugin',
+            version: '1.2.3',
+            author: '<script>Author</script> <author@example.test>',
+            homepage: 'https://example.test',
+            repository: 'https://example.test/plugin.git',
+            license: 'MIT',
+            keywords: ['tools', 'mcp'],
+            sourceType: 'git',
+            sourceUrl: 'https://example.test/source.git',
+            root: 'C:\\plugins\\info',
+            mcpServerName: 'plugin-info',
+            installedAt,
+            updatedAt,
+          },
+        ],
+      },
     },
   });
   try {
@@ -289,21 +322,24 @@ test('plugin detail shows all supplied metadata and existing installation facts 
       document.querySelector('[data-extension-row="Info plugin"]').click();
     });
     const facts = document.querySelector('.extensions-dialog dl');
-    assert.deepEqual(Object.fromEntries([...facts.children].map((row) => [
-      row.querySelector('dt').textContent, row.querySelector('dd').textContent,
-    ])), {
-      Version: '1.2.3',
-      Author: '<script>Author</script> <author@example.test>',
-      Homepage: 'https://example.test',
-      Repository: 'https://example.test/plugin.git',
-      License: 'MIT',
-      Keywords: 'tools, mcp',
-      Source: 'git · https://example.test/source.git',
-      Root: 'C:\\plugins\\info',
-      'MCP server': 'plugin-info',
-      Installed: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(installedAt)),
-      Updated: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(updatedAt)),
-    });
+    assert.deepEqual(
+      Object.fromEntries(
+        [...facts.children].map((row) => [row.querySelector('dt').textContent, row.querySelector('dd').textContent])
+      ),
+      {
+        Version: '1.2.3',
+        Author: '<script>Author</script> <author@example.test>',
+        Homepage: 'https://example.test',
+        Repository: 'https://example.test/plugin.git',
+        License: 'MIT',
+        Keywords: 'tools, mcp',
+        Source: 'git · https://example.test/source.git',
+        Root: 'C:\\plugins\\info',
+        'MCP server': 'plugin-info',
+        Installed: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(installedAt)),
+        Updated: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(updatedAt)),
+      }
+    );
     assert.equal(facts.querySelector('script'), null);
   } finally {
     await rendered.cleanup();
@@ -314,15 +350,19 @@ test('plugin detail keeps every unavailable fact visible with a placeholder', as
   const rendered = await renderPanel('plugins', {
     data: {
       ...panelContext().data,
-      plugins: { plugins: [{
-        id: 'empty-plugin',
-        name: 'Empty plugin',
-        version: '  ',
-        author: {},
-        keywords: [' ', null],
-        installedAt: 'invalid-date',
-        updatedAt: Number.POSITIVE_INFINITY,
-      }] },
+      plugins: {
+        plugins: [
+          {
+            id: 'empty-plugin',
+            name: 'Empty plugin',
+            version: '  ',
+            author: {},
+            keywords: [' ', null],
+            installedAt: 'invalid-date',
+            updatedAt: Number.POSITIVE_INFINITY,
+          },
+        ],
+      },
     },
   });
   try {
@@ -447,10 +487,7 @@ test('project scope stays in the plugin detail and saves from its scope selector
     },
   });
   try {
-    assert.equal(
-      document.querySelector('[data-extension-row="Scoped plugin"] .sidebar-resource-tag'),
-      null,
-    );
+    assert.equal(document.querySelector('[data-extension-row="Scoped plugin"] .sidebar-resource-tag'), null);
     assert.equal(document.querySelector('[data-extension-row="Open plugin"] .sidebar-resource-tag'), null);
 
     await act(async () => {
@@ -489,7 +526,16 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
       },
       voice: { enabled: false, installed: false },
       plugins: {
-        plugins: [{ id: 'bundle', name: 'Bundle', enabled: true, mcpServerName: 'plugin-bundle', mcpScript: 'mcp.mjs', mcpEnabled: true }],
+        plugins: [
+          {
+            id: 'bundle',
+            name: 'Bundle',
+            enabled: true,
+            mcpServerName: 'plugin-bundle',
+            mcpScript: 'mcp.mjs',
+            mcpEnabled: true,
+          },
+        ],
       },
       skills: {
         skills: [
@@ -498,7 +544,9 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
         ],
       },
       disabledSkills: { disabled: ['loose-skill'] },
-      mcp: { servers: [{ name: 'plugin-bundle', enabled: true, source: 'plugin', config: { type: 'stdio', command: 'x' } }] },
+      mcp: {
+        servers: [{ name: 'plugin-bundle', enabled: true, source: 'plugin', config: { type: 'stdio', command: 'x' } }],
+      },
     },
     async run(capability, args) {
       calls.push([capability, args]);
@@ -526,7 +574,9 @@ test('Skill combines skills and MCP and lets the add action choose either kind',
   const calls = [];
   const rendered = await renderPanel('skills', {
     createOpen: true,
-    closeCreate() { closed += 1; },
+    closeCreate() {
+      closed += 1;
+    },
     async run(capability, args) {
       calls.push([capability, args]);
       if (capability === 'skillContent') return { content: '# Example' };
@@ -535,7 +585,7 @@ test('Skill combines skills and MCP and lets the add action choose either kind',
   try {
     assert.deepEqual(
       [...document.querySelectorAll('.settings-group > header h3')].map((heading) => heading.textContent),
-      ['Skills', 'MCP'],
+      ['Skills', 'MCP']
     );
     assert.match(document.body.textContent, /example-skill/);
     assert.match(document.body.textContent, /example-mcp/);
@@ -679,16 +729,20 @@ test('Workflow card surface opens an immediate loading popup before editor data 
       if (capability === 'getWorkflowPack') return workflowPack.promise;
       return { value: undefined };
     },
-    async listProviderModels() { return []; },
+    async listProviderModels() {
+      return [];
+    },
   };
   resetSidebarReferenceCache();
   adoptSidebarReferenceHost(api);
-  updateSidebarReference('workflows', [{
-    id: 'alpha',
-    name: 'Alpha',
-    description: 'Example workflow',
-    source: 'user',
-  }]);
+  updateSidebarReference('workflows', [
+    {
+      id: 'alpha',
+      name: 'Alpha',
+      description: 'Example workflow',
+      source: 'user',
+    },
+  ]);
   updateSidebarReference('agents', []);
   updateSidebarReference('webSearchRoute', {});
   updateSidebarReference('webSearchModels', []);

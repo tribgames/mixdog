@@ -1,15 +1,15 @@
-export interface RemotePaintProbe {
+interface RemotePaintProbe {
   id: string;
 }
 
-export interface RemotePaintMeasurement {
+interface RemotePaintMeasurement {
   id: string;
   sessionId: string;
   roundTripMs: number;
   receiveToPaintMs: number;
 }
 
-export interface RemotePaintProbeTracker {
+interface RemotePaintProbeTracker {
   issue(sessionId: string): RemotePaintProbe | null;
   acknowledgeFrame(frame: unknown): RemotePaintMeasurement | null;
   clear(): void;
@@ -74,7 +74,7 @@ export function createRemotePaintProbeTracker({
   };
 }
 
-export interface RemoteByteLaneTotal {
+interface RemoteByteLaneTotal {
   lane: string;
   bytes: number;
   frames: number;
@@ -87,7 +87,7 @@ export interface RemoteByteReport {
   lanes: RemoteByteLaneTotal[];
 }
 
-export interface RemoteByteMeter {
+interface RemoteByteMeter {
   /** Returns a report only on the call that closes a window. */
   record(payload: unknown, bytes: number): RemoteByteReport | null;
   clear(): void;

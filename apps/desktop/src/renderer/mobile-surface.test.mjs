@@ -347,10 +347,13 @@ test('rail trailing controls resolve to one 20px centerline', () => {
 });
 
 test('PC and phone usage flyouts share one widened width', () => {
-  assert.match(activityRailSource, /import \{ DESKTOP_SIDEBAR_DEFAULT_WIDTH \} from "\.\.\/shared\/window-layout";/u);
   assert.match(
     activityRailSource,
-    /className="rail-usage-popup"[\s\S]*?width:\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH \+ 88,/u
+    /import\s*\{\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH\s*\}\s*from\s*['"]\.\.\/shared\/window-layout['"]\s*;/u
+  );
+  assert.match(
+    activityRailSource,
+    /className="rail-usage-popup"[\s\S]*?width:\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH\s*\+\s*88,/u
   );
   assert.doesNotMatch(sidebarUsageSource, /\.rail-usage-popup\s*\{[^}]*width:/su);
   assert.doesNotMatch(sidebarUsageSource, /html\[data-mixdog-mobile-tabs\] \.rail-usage-popup/u);

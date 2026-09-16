@@ -70,8 +70,8 @@ export const DESKTOP_TRANSCRIPT_ITEM_LIMIT = 512;
 // shellJobsStatus itself is cache-only and refreshes its disk-backed cache
 // asynchronously. Polling at the cache's 1s cadence keeps disk work out of the
 // engine's 50ms publication path.
-export const SHELL_JOBS_ACTIVE_POLL_INTERVAL_MS = 1_000;
-export const SHELL_JOBS_IDLE_POLL_INTERVAL_MS = 5_000;
+const SHELL_JOBS_ACTIVE_POLL_INTERVAL_MS = 1_000;
+const SHELL_JOBS_IDLE_POLL_INTERVAL_MS = 5_000;
 
 export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
   if (!Array.isArray(value)) return [];
@@ -186,7 +186,7 @@ export function sessionClientModuleUrl(
   return pathToFileURL(modulePath).href;
 }
 
-export function requiredApplicationPath(appPath: string | undefined): string {
+function requiredApplicationPath(appPath: string | undefined): string {
   if (typeof appPath !== 'string' || !appPath.trim() || !isAbsolute(appPath)) {
     throw new TypeError('Electron application path must be an absolute path.');
   }

@@ -33,7 +33,7 @@ export function bridgeDiscoveryDirectory(): string {
   );
 }
 
-export interface DiscoveryHost {
+interface DiscoveryHost {
   /** Discovery file name inside the directory, e.g. `computer-bridge.json`. */
   fileName: string;
   /** Where the discovery file belongs, resolved at write time. */

@@ -26,7 +26,7 @@ function openingSelectionEnd(edit: ExplorerEdit): number {
 }
 
 /** F2 inside a rename cycles basename → whole name → extension. */
-export function nextExplorerRenameSelection(
+function nextExplorerRenameSelection(
   phase: ExplorerRenamePhase,
   value: string,
   dotIndex: number

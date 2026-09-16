@@ -240,7 +240,7 @@ function reattachBand(element: HTMLElement): number {
   return Math.max(REATTACH_THRESHOLD_PX, Math.round(element.clientHeight * 0.12));
 }
 
-export interface TranscriptFollow {
+interface TranscriptFollow {
   following: boolean;
   followingRef: RefObject<boolean>;
   showJump: boolean;

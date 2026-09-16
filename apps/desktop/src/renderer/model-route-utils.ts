@@ -1,7 +1,7 @@
 import type { DesktopModelOption } from '../shared/contract';
 import { record, rows, type UnknownRecord } from './record-utils';
 
-export type ParsedModelRef = {
+type ParsedModelRef = {
   route: string;
   effort: string;
   fast: boolean;

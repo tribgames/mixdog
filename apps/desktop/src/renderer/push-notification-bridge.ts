@@ -17,7 +17,7 @@ export const NOTIFICATION_CLICK_ENTRY = '/__mixdog-app__/notification-click';
 /** A tap the app never came back for stops meaning anything. */
 export const NOTIFICATION_CLICK_TTL_MS = 10 * 60 * 1000;
 
-export interface AppStateEnvironment {
+interface AppStateEnvironment {
   caches?: CacheStorage;
   now?: number;
 }

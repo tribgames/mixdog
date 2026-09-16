@@ -8,7 +8,7 @@ import { UsageStatsBody } from './UsageStatsSurface';
 import { UsageBody } from './command-surface-usage';
 import { InheritBody } from './command-surface-inherit';
 
-export type SurfaceRun = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
+type SurfaceRun = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
 
 export function pretty(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);

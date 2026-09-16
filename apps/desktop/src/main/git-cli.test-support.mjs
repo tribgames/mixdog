@@ -50,7 +50,7 @@ export const writeIndexBytes = (...args) => seam('writeIndexBytes')(...args);
 
 // The mutable seams are objects, so a missing one has to fail on USE as well —
 // never as an undefined that a test silently writes a property onto.
-export function seamState(name) {
+function seamState(name) {
   const value = gitCli[name];
   if (value && typeof value === 'object') return value;
   const missing = () => {

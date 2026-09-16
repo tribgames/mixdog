@@ -3,7 +3,7 @@ import type { ComposerAttachment } from './composer-support';
 let submissionSequence = 0;
 let recoverySequence = 0;
 
-export type ComposerSubmissionRecovery = {
+type ComposerSubmissionRecovery = {
   id: string;
   scope: string;
   text: string;

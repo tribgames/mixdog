@@ -5,7 +5,7 @@
  */
 import { request } from 'node:http';
 
-export const BRIDGE_DISCOVERY_VERSION = 1;
+const BRIDGE_DISCOVERY_VERSION = 1;
 const HEALTH_PROBE_TIMEOUT_MS = 750;
 const MAX_HEALTH_RESPONSE_BYTES = 16 * 1024;
 const DEAD_ENDPOINT_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOENT']);

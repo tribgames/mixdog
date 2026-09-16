@@ -12,9 +12,9 @@ import { reportSessionReadFrame } from './session-read-diagnostics';
 import { sharedTranscriptSnapshotDecorator, type TranscriptSnapshotDecorator } from './snapshot-transcript-decoration';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 
-export type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
+type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
 
-export interface SessionLaneStore {
+interface SessionLaneStore {
   get(sessionId: string): Snapshot | null;
   subscribe(sessionId: string, listener: () => void): () => void;
   /** Wire the preload lane once; returns a stop function. Idempotent — a
@@ -304,12 +304,12 @@ export function laneFrameRetainingSettledRows(prior: Snapshot | null, next: Snap
 }
 
 /** Host metadata travelling with one keyed lane frame. */
-export interface SessionLaneFrameProvenance {
+interface SessionLaneFrameProvenance {
   frameSource: 'live' | 'replay';
   contentRevision?: number;
 }
 
-export type SessionLaneFrameDecision =
+type SessionLaneFrameDecision =
   | {
       accept: false;
       reason: 'stale-replay' | 'stale-live' | 'duplicate-replay';

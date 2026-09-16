@@ -42,7 +42,7 @@ export type WorkbenchSideTitleDragProps = {
 };
 
 export type WorkbenchSideViewPlacement = 'before' | 'after' | 'inside' | 'inside-before' | 'inside-after';
-export type WorkbenchSideViewLayout = Readonly<Record<WorkbenchSide, readonly WorkbenchSideViewGroup[]>>;
+type WorkbenchSideViewLayout = Readonly<Record<WorkbenchSide, readonly WorkbenchSideViewGroup[]>>;
 
 export const WORKBENCH_SIDE_VIEW_MIME = 'application/x-mixdog-side-view';
 export const WORKBENCH_SIDE_GROUP_MIME = 'application/x-mixdog-side-group';

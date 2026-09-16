@@ -9,7 +9,7 @@ export interface EditorGraphLocation {
   column: number;
 }
 
-export interface EditorGraphSymbol {
+interface EditorGraphSymbol {
   kind: string;
   name: string;
   line: number;
@@ -141,12 +141,12 @@ export function parseCodeGraphSymbols(text: string): EditorGraphSymbol[] {
   return out;
 }
 
-export interface EditorGraphOutlineModel {
+interface EditorGraphOutlineModel {
   uri: { toString(): string };
   getLineCount(): number;
 }
 
-export interface EditorGraphOutlineContext {
+interface EditorGraphOutlineContext {
   projectPath: string;
   relPath: string;
 }
@@ -184,26 +184,26 @@ export function codeGraphOutlineItems(
   });
 }
 
-export interface EditorGraphSymbolModel extends EditorGraphOutlineModel {
+interface EditorGraphSymbolModel extends EditorGraphOutlineModel {
   getLineContent(lineNumber: number): string;
   getLineMaxColumn?(lineNumber: number): number;
 }
 
-export interface EditorGraphRange {
+interface EditorGraphRange {
   startLineNumber: number;
   startColumn: number;
   endLineNumber: number;
   endColumn: number;
 }
 
-export type EditorGraphRangeFactory<TRange> = (
+type EditorGraphRangeFactory<TRange> = (
   startLine: number,
   startColumn: number,
   endLine: number,
   endColumn: number
 ) => TRange;
 
-export interface EditorGraphDocumentSymbol<TRange = EditorGraphRange> {
+interface EditorGraphDocumentSymbol<TRange = EditorGraphRange> {
   name: string;
   detail: string;
   kind: number;

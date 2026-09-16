@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 
-export type SidePanelFlipKind = 'sidebar' | 'dock';
+type SidePanelFlipKind = 'sidebar' | 'dock';
 
 // A side-panel toggle still commits its FINAL geometry synchronously — the
 // old View Transition composited old/new text snapshots (ghosting, removed

@@ -21,7 +21,7 @@ import { ProviderIcon } from './provider-display';
 import './provider-accounts.css';
 
 export const PROVIDER_ACCOUNTS_CHANGED = 'mixdog:provider-accounts-changed';
-export type ProviderAccount = {
+type ProviderAccount = {
   id: string;
   label: string;
   authenticated: boolean;

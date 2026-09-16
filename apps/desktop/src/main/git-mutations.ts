@@ -149,7 +149,7 @@ export function gitStashPop(cwd: string): Promise<string> {
   return run(cwd, ['stash', 'pop']);
 }
 
-export interface GitStashEntry {
+interface GitStashEntry {
   ref: string;
   message: string;
   when: string;

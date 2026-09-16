@@ -1,4 +1,4 @@
-export type VisibleRefreshReason = 'interval' | 'visible';
+type VisibleRefreshReason = 'interval' | 'visible';
 
 /** Presentation-only polling. A hidden document owns no interval; returning
  * refreshes once and resumes the cadence. Explicit user calls are unaffected. */

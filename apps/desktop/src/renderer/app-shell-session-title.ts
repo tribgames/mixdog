@@ -6,7 +6,7 @@ import { agentActivitySessionIds } from './desktop-types';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import { navigationKey } from './text-format';
 
-export interface AppSessionTitleProps {
+interface AppSessionTitleProps {
   navigationSelection: NavigationSelection;
   sessions: DesktopSessionSummary[];
   tabs: WorkspaceTab[];

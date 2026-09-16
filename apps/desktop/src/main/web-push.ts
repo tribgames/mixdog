@@ -38,7 +38,7 @@ export interface WebPushSubscription {
   auth: string;
 }
 
-export interface WebPushSendResult {
+interface WebPushSendResult {
   statusCode: number;
   /** 404/410: the browser dropped this subscription for good — the caller must
    *  forget it instead of retrying forever. */

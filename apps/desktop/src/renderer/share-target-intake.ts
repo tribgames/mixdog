@@ -14,12 +14,12 @@ export const SHARE_INDEX_NAME = 'index.json';
 export const SHARE_CLAIM_PARAM = 'shared';
 export const MAX_SHARED_FILES = 8;
 
-export type SharedIntake = { files: File[]; text: string };
+type SharedIntake = { files: File[]; text: string };
 
 type SharedIndexEntry = { url?: unknown; name?: unknown; type?: unknown };
 type SharedIndex = { text?: unknown; files?: unknown };
 
-export type SharedIntakeEnvironment = {
+type SharedIntakeEnvironment = {
   caches?: CacheStorage;
   href?: string;
   replaceUrl?: (next: string) => void;

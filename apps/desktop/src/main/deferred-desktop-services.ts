@@ -2,7 +2,7 @@ import type { BrowserWindow } from 'electron';
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
-export interface DeferredDesktopServiceScheduleOptions {
+interface DeferredDesktopServiceScheduleOptions {
   awaitServiceReady(): Promise<void>;
   start(): void | Promise<void>;
   quietMs?: number;

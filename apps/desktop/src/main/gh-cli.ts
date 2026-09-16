@@ -4,14 +4,14 @@
 import { childEnvironment } from './child-environment';
 import { runGithubProcess } from '../../../../src/runtime/github/client.mjs';
 
-export interface GhPrChecks {
+interface GhPrChecks {
   total: number;
   passing: number;
   failing: number;
   pending: number;
 }
 
-export interface GhPrEntry {
+interface GhPrEntry {
   number: number;
   title: string;
   author: string;
@@ -33,19 +33,19 @@ export interface GhPrCreateInput {
   draft?: boolean;
 }
 
-export interface GhPrCategory {
+interface GhPrCategory {
   key: string;
   label: string;
   prs: GhPrEntry[];
 }
 
-export interface GhPrFile {
+interface GhPrFile {
   path: string;
   additions: number;
   deletions: number;
 }
 
-export interface GhPrTimelineItem {
+interface GhPrTimelineItem {
   kind: 'comment' | 'review';
   author: string;
   body: string;
@@ -54,13 +54,13 @@ export interface GhPrTimelineItem {
   createdAt: string;
 }
 
-export interface GhPrReviewer {
+interface GhPrReviewer {
   login: string;
   /** Latest review state, or PENDING for an unanswered review request. */
   state: string;
 }
 
-export interface GhPrDetail extends GhPrEntry {
+interface GhPrDetail extends GhPrEntry {
   body: string;
   additions: number;
   deletions: number;
@@ -80,7 +80,7 @@ const DETAIL_FIELDS = `${LIST_FIELDS},body,additions,deletions,changedFiles,file
 
 // The default PR tree categories. "Local Pull Request
 // Branches" is assembled renderer-side from All Open.
-export const PR_CATEGORIES: ReadonlyArray<{ key: string; label: string; search: string }> = [
+const PR_CATEGORIES: ReadonlyArray<{ key: string; label: string; search: string }> = [
   { key: 'copilot', label: 'Copilot on My Behalf', search: 'is:open author:copilot assignee:@me' },
   { key: 'review-requested', label: 'Waiting For My Review', search: 'is:open review-requested:@me' },
   { key: 'created', label: 'Created By Me', search: 'is:open author:@me' },
@@ -97,7 +97,7 @@ function run(cwd: string, args: string[]): Promise<string> {
   );
 }
 
-export function requiredPrNumber(value: unknown): number {
+function requiredPrNumber(value: unknown): number {
   const numberValue = Number(value);
   if (!Number.isInteger(numberValue) || numberValue <= 0 || numberValue > 10_000_000) {
     throw new TypeError('A pull request number is required.');

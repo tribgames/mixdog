@@ -1,3 +1,4 @@
+// biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error Shared runtime modules are plain ESM without declarations.
 import { scrubProviderSecrets, scrubRuntimeRootVars } from '../../../../src/runtime/agent/orchestrator/tools/env-scrub.mjs';
 
@@ -6,7 +7,7 @@ import { scrubProviderSecrets, scrubRuntimeRootVars } from '../../../../src/runt
  * terminals, Git hooks, GitHub CLI, WSL probes, or language servers. */
 export function childEnvironment(
   overrides: NodeJS.ProcessEnv = {},
-  source: NodeJS.ProcessEnv = process.env,
+  source: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const env = { ...source, ...overrides };
   scrubRuntimeRootVars(env);
@@ -18,7 +19,7 @@ export function childEnvironment(
  * daemon process. Ordinary Git commands keep their authentication environment. */
 export function hookEnvironment(
   overrides: NodeJS.ProcessEnv = {},
-  source: NodeJS.ProcessEnv = process.env,
+  source: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const env = childEnvironment(overrides, source);
   scrubProviderSecrets(env);

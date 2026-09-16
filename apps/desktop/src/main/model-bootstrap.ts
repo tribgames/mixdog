@@ -22,7 +22,7 @@ function selectedPreset(agent: Record<string, unknown>): Record<string, unknown>
   return presets.find((preset) => String(preset.id || preset.name || '') === String(key)) || null;
 }
 
-export function desktopModelBootstrapFromConfig(value: unknown): SessionSnapshot {
+function desktopModelBootstrapFromConfig(value: unknown): SessionSnapshot {
   const root = record(value);
   let agent = record(root?.agent);
   if (record(agent?.agent)?.providers) agent = record(agent?.agent);

@@ -3,29 +3,27 @@
 // swap the adjacent panel; creation actions live in the Sessions panel header.
 // Usage and Settings live at the rail foot; the updater badge moved to the
 // window bar beside the sidebar toggle (user: 다운로드 아이콘 위치).
-import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type React from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { DESKTOP_SIDEBAR_DEFAULT_WIDTH } from "../shared/window-layout";
-import {
-  desktopFeatureEnabled,
-  desktopSidebarDestinationEnabled,
-} from "./desktop-feature-config";
-import { t } from "./i18n";
-import { useMobileBack } from "./mobile-back";
-import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
-import { ProviderIcon } from "./provider-display";
-import { SidebarUsage } from "./SidebarUsage";
-import { InitialSurface } from "./InitialSurface";
-import { useUsageRailPin } from "./use-usage-rail-pin";
+import { DESKTOP_SIDEBAR_DEFAULT_WIDTH } from '../shared/window-layout';
+import { desktopFeatureEnabled, desktopSidebarDestinationEnabled } from './desktop-feature-config';
+import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
+import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
+import { ProviderIcon } from './provider-display';
+import { SidebarUsage } from './SidebarUsage';
+import { InitialSurface } from './InitialSurface';
+import { useUsageRailPin } from './use-usage-rail-pin';
 import {
   getUsageDashboardSnapshot,
   holdUsageDashboardCadence,
   refreshUsageDashboard,
   subscribeUsageDashboard,
   type UsageApi,
-} from "./usage-dashboard-store";
-import { displayUsagePercent } from "./usage-percent";
-import type { SidebarPanelKey } from "./app-shell-components";
+} from './usage-dashboard-store';
+import { displayUsagePercent } from './usage-percent';
+import type { SidebarPanelKey } from './app-shell-components';
 import {
   SIDEBAR_GROUP_MIME,
   SIDEBAR_VIEW_MIME,
@@ -33,12 +31,11 @@ import {
   sidebarViewDragId,
   type SidebarViewGroup,
   type SidebarViewPlacement,
-} from "./sidebar-view-layout";
-import { viewGroupContainerDropProps } from "./view-group-layout";
-import { useDockVisibilityMenu, type DockIconEntry } from "./dock-icon-visibility";
+} from './sidebar-view-layout';
+import { viewGroupContainerDropProps } from './view-group-layout';
+import { useDockVisibilityMenu, type DockIconEntry } from './dock-icon-visibility';
 
-export type ActivityRailSurface =
-  "projects" | "schedules" | "webhooks" | "settings";
+type ActivityRailSurface = 'projects' | 'schedules' | 'webhooks' | 'settings';
 export function ActivityRail({
   activeSurface,
   sidebarOpen,
@@ -79,16 +76,8 @@ export function ActivityRail({
   /** Overridable only for tests; the rail warms usage through the host API. */
   usageApi?: UsageApi;
   viewGroups?: readonly SidebarViewGroup[];
-  onMoveViewGroup?(
-    sourceRoot: SidebarPanelKey,
-    targetRoot: SidebarPanelKey,
-    placement: "before" | "after",
-  ): void;
-  onMoveView?(
-    sourceId: SidebarPanelKey,
-    targetId: SidebarPanelKey,
-    placement: SidebarViewPlacement,
-  ): void;
+  onMoveViewGroup?(sourceRoot: SidebarPanelKey, targetRoot: SidebarPanelKey, placement: 'before' | 'after'): void;
+  onMoveView?(sourceId: SidebarPanelKey, targetId: SidebarPanelKey, placement: SidebarViewPlacement): void;
   primaryNavigation?: React.ReactNode;
   navigationItems?: readonly DockIconEntry[];
 }) {
@@ -102,25 +91,49 @@ export function ActivityRail({
     icon: string;
     onOpen(): void;
     onPrefetch?(): void;
-  }> = ([
-    { id: "projects", label: "Open projects", tooltip: "Projects", icon: "folder",
-      onOpen: onOpenProjects, onPrefetch: onPrefetchProjects },
-    { id: "schedules", label: "Open schedules", tooltip: "Schedules", icon: "calendar",
-      onOpen: onOpenSchedules, onPrefetch: onPrefetchSchedules },
-    { id: "webhooks", label: "Open webhooks", tooltip: "Webhooks", icon: "plug",
-      onOpen: onOpenWebhooks, onPrefetch: onPrefetchWebhooks },
-  ] as const).filter((surface) => desktopSidebarDestinationEnabled(surface.id));
-  const orderedSurfaceGroups = (viewGroups?.length
-    ? viewGroups
-    : surfaces.map((surface) => [surface.id] as SidebarViewGroup))
+  }> = (
+    [
+      {
+        id: 'projects',
+        label: 'Open projects',
+        tooltip: 'Projects',
+        icon: 'folder',
+        onOpen: onOpenProjects,
+        onPrefetch: onPrefetchProjects,
+      },
+      {
+        id: 'schedules',
+        label: 'Open schedules',
+        tooltip: 'Schedules',
+        icon: 'calendar',
+        onOpen: onOpenSchedules,
+        onPrefetch: onPrefetchSchedules,
+      },
+      {
+        id: 'webhooks',
+        label: 'Open webhooks',
+        tooltip: 'Webhooks',
+        icon: 'plug',
+        onOpen: onOpenWebhooks,
+        onPrefetch: onPrefetchWebhooks,
+      },
+    ] as const
+  ).filter((surface) => desktopSidebarDestinationEnabled(surface.id));
+  const orderedSurfaceGroups = (
+    viewGroups?.length ? viewGroups : surfaces.map((surface) => [surface.id] as SidebarViewGroup)
+  )
     .map((group) => ({
       group,
       surface: surfaces.find((candidate) => candidate.id === group[0]),
     }))
-    .filter((entry): entry is {
-      group: SidebarViewGroup;
-      surface: (typeof surfaces)[number];
-    } => Boolean(entry.surface));
+    .filter(
+      (
+        entry
+      ): entry is {
+        group: SidebarViewGroup;
+        surface: (typeof surfaces)[number];
+      } => Boolean(entry.surface)
+    );
   const [railDrop, setRailDrop] = useState<{
     target: SidebarPanelKey;
     placement: SidebarViewPlacement;
@@ -131,7 +144,7 @@ export function ActivityRail({
   const railGapDropProps = viewGroupContainerDropProps<SidebarPanelKey>({
     viewMime: SIDEBAR_VIEW_MIME,
     groupMime: SIDEBAR_GROUP_MIME,
-    axis: "y",
+    axis: 'y',
     viewDragId: sidebarViewDragId,
     groupDragId: sidebarGroupDragId,
     setDrop: setRailDrop,
@@ -143,25 +156,35 @@ export function ActivityRail({
   // list. Only the dashboard MARKUP is flyout-scoped; its data lives in the
   // shared store below so the first open never starts from nothing.
   const [usageOpen, setUsageOpen] = useState(false);
-  const { isVisible, menuProps, menu } = useDockVisibilityMenu([
-    ...(navigationItems ?? [
-      ...(desktopFeatureEnabled("sessions") ? [{ id: "sessions", label: "Sessions" }] : []),
-      ...orderedSurfaceGroups.map(({ surface }) => ({ id: surface.id, label: surface.tooltip })),
-    ]),
-    ...(desktopFeatureEnabled("usage") ? [{ id: "usage", label: "Usage" }] : []),
-    ...(desktopFeatureEnabled("settings") ? [{ id: "settings", label: "Settings" }] : []),
-  ], "Activity Bar");
+  const { isVisible, menuProps, menu } = useDockVisibilityMenu(
+    [
+      ...(navigationItems ?? [
+        ...(desktopFeatureEnabled('sessions') ? [{ id: 'sessions', label: 'Sessions' }] : []),
+        ...orderedSurfaceGroups.map(({ surface }) => ({ id: surface.id, label: surface.tooltip })),
+      ]),
+      ...(desktopFeatureEnabled('usage') ? [{ id: 'usage', label: 'Usage' }] : []),
+      ...(desktopFeatureEnabled('settings') ? [{ id: 'settings', label: 'Settings' }] : []),
+    ],
+    'Activity Bar'
+  );
   useEffect(() => {
-    if (!isVisible("usage")) setUsageOpen(false);
-  }, [isVisible("usage")]);
+    if (!isVisible('usage')) setUsageOpen(false);
+  }, [isVisible('usage')]);
   // ABB: the usage flyout closes on hardware back.
   useMobileBack(usageOpen, () => setUsageOpen(false));
   const usageSnapshot = useSyncExternalStore(subscribeUsageDashboard, getUsageDashboardSnapshot);
   const railRef = useRef<HTMLElement | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
   const settingsRef = useRef<HTMLButtonElement | null>(null);
-  const { usagePinned, toggleUsagePin, usagePinRows, loading: usagePinLoading } = useUsageRailPin(
-    usageSnapshot, { rail: railRef, nav: navRef, settings: settingsRef }, desktopFeatureEnabled("usage"),
+  const {
+    usagePinned,
+    toggleUsagePin,
+    usagePinRows,
+    loading: usagePinLoading,
+  } = useUsageRailPin(
+    usageSnapshot,
+    { rail: railRef, nav: navRef, settings: settingsRef },
+    desktopFeatureEnabled('usage')
   );
   // Anchor the flyout's bottom edge to the Usage button itself, measured at
   // open time (static offsets drifted a few px from the real rail layout).
@@ -185,7 +208,7 @@ export function ActivityRail({
   // one deduped refresh immediately. This lets pinned usage paint on first entry
   // instead of waiting for the post-boot idle queue.
   useEffect(() => {
-    if (!desktopFeatureEnabled("usage")) return undefined;
+    if (!desktopFeatureEnabled('usage')) return undefined;
     const api = usageApi ?? window.mixdogDesktop;
     const release = holdUsageDashboardCadence(api);
     void refreshUsageDashboard(api);
@@ -200,170 +223,226 @@ export function ActivityRail({
     }
     const dismiss = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest(".rail-usage-popup, .sidebar-usage-toggle, [data-provider-account-overlay]")) return;
+      if (target?.closest('.rail-usage-popup, .sidebar-usage-toggle, [data-provider-account-overlay]')) return;
       setUsageOpen(false);
     };
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setUsageOpen(false);
+      if (event.key === 'Escape') setUsageOpen(false);
     };
-    document.addEventListener("pointerdown", dismiss, true);
-    document.addEventListener("keydown", keydown);
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', keydown);
     return () => {
-      document.removeEventListener("pointerdown", dismiss, true);
-      document.removeEventListener("keydown", keydown);
+      document.removeEventListener('pointerdown', dismiss, true);
+      document.removeEventListener('keydown', keydown);
     };
   }, [usageOpen]);
   return (
-    <aside className="activity-rail" aria-label={t("Activity Bar")} ref={railRef}
-      {...menuProps}
-      {...railGapDropProps}>
-      <nav className="sidebar-primary-nav" aria-label={t("Sidebar")} ref={navRef}>
-        {primaryNavigation ?? <>
-        {/* The Sessions toggle behaves like an Explorer button: pressing it
+    <aside className="activity-rail" aria-label={t('Activity Bar')} ref={railRef} {...menuProps} {...railGapDropProps}>
+      <nav className="sidebar-primary-nav" aria-label={t('Sidebar')} ref={navRef}>
+        {primaryNavigation ?? (
+          <>
+            {/* The Sessions toggle behaves like an Explorer button: pressing it
             expands/collapses the session panel. is-active (not selected)
             tracks the OPEN panel so surface selection stays separate. */}
-        {desktopFeatureEnabled("sessions") && isVisible("sessions") && <button type="button" className={`sessions-link ${sidebarOpen ? "is-active" : ""}`}
-          aria-label={t("Sessions")} aria-expanded={sidebarOpen} aria-controls="session-sidebar"
-          data-tooltip={t("Sessions")} onClick={onToggleSessions}>
-          <span className="codicon codicon-comment-discussion" aria-hidden="true" />
-        </button>}
-        {/* Workbench tools (Explorer/Search/SCM/Debug/Tests) live ONLY on the
+            {desktopFeatureEnabled('sessions') && isVisible('sessions') && (
+              <button
+                type="button"
+                className={`sessions-link ${sidebarOpen ? 'is-active' : ''}`}
+                aria-label={t('Sessions')}
+                aria-expanded={sidebarOpen}
+                aria-controls="session-sidebar"
+                data-tooltip={t('Sessions')}
+                onClick={onToggleSessions}
+              >
+                <span className="codicon codicon-comment-discussion" aria-hidden="true" />
+              </button>
+            )}
+            {/* Workbench tools (Explorer/Search/SCM/Debug/Tests) live ONLY on the
             right utility dock (user: 원래 의도 — 좌측은 앱 목적지, 우측은
             코드 도구). Duplicating them here split one destination across
             both rails. */}
-        {orderedSurfaceGroups.filter(({ surface }) => isVisible(surface.id)).map(({ group, surface }) => {
-          const { id, label, tooltip, icon, onOpen, onPrefetch } = surface;
-          const rootId = group[0];
-          const selected = activeSurface !== null
-            && group.includes(activeSurface as SidebarPanelKey);
-          return (
-            <button key={id} type="button"
-              className={`projects-link ${selected ? "selected" : ""}`}
-              aria-label={t(label)} aria-current={selected ? "page" : undefined}
-              data-tooltip={t(tooltip)}
-              data-view-group={rootId}
-              data-drop-position={railDrop?.target === rootId ? railDrop.placement : undefined}
-              draggable
-              onDragStart={(event) => {
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData(SIDEBAR_GROUP_MIME, rootId);
-                event.dataTransfer.setData("text/plain", rootId);
-              }}
-              onDragOver={(event) => {
-                const types = Array.from(event.dataTransfer.types);
-                const groupDrag = types.includes(SIDEBAR_GROUP_MIME);
-                const viewDrag = types.includes(SIDEBAR_VIEW_MIME);
-                if (!groupDrag && !viewDrag) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                const bounds = event.currentTarget.getBoundingClientRect();
-                const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
-                const placement: SidebarViewPlacement = groupDrag
-                  ? ratio < .5 ? "before" : "after"
-                  : ratio < .25 ? "before" : ratio > .75 ? "after" : "inside";
-                setRailDrop({ target: rootId, placement });
-              }}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                  setRailDrop((current) => current?.target === rootId ? null : current);
-                }
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const placement = railDrop?.target === rootId ? railDrop.placement : "inside";
-                const groupSource = sidebarGroupDragId(event.nativeEvent);
-                const viewSource = sidebarViewDragId(event.nativeEvent);
-                if (groupSource && placement !== "inside") {
-                  onMoveViewGroup?.(groupSource, rootId, placement);
-                } else if (viewSource) {
-                  onMoveView?.(viewSource, rootId, placement);
-                  if (placement === "inside" && !selected) onOpen();
-                }
-                setRailDrop(null);
-              }}
-              onDragEnd={() => setRailDrop(null)}
-              onPointerEnter={onPrefetch}
-              onFocus={onPrefetch}
-              onPointerDown={(event) => {
-                if (event.button === 0) onPrefetch?.();
-              }}
-              onClick={selected ? onCloseActiveSurface : onOpen}>
-              <span className={`codicon codicon-${icon}`} aria-hidden="true" />
-            </button>
-          );
-        })}
-        </>}
+            {orderedSurfaceGroups
+              .filter(({ surface }) => isVisible(surface.id))
+              .map(({ group, surface }) => {
+                const { id, label, tooltip, icon, onOpen, onPrefetch } = surface;
+                const rootId = group[0];
+                const selected = activeSurface !== null && group.includes(activeSurface as SidebarPanelKey);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`projects-link ${selected ? 'selected' : ''}`}
+                    aria-label={t(label)}
+                    aria-current={selected ? 'page' : undefined}
+                    data-tooltip={t(tooltip)}
+                    data-view-group={rootId}
+                    data-drop-position={railDrop?.target === rootId ? railDrop.placement : undefined}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData(SIDEBAR_GROUP_MIME, rootId);
+                      event.dataTransfer.setData('text/plain', rootId);
+                    }}
+                    onDragOver={(event) => {
+                      const types = Array.from(event.dataTransfer.types);
+                      const groupDrag = types.includes(SIDEBAR_GROUP_MIME);
+                      const viewDrag = types.includes(SIDEBAR_VIEW_MIME);
+                      if (!groupDrag && !viewDrag) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
+                      const placement: SidebarViewPlacement = groupDrag
+                        ? ratio < 0.5
+                          ? 'before'
+                          : 'after'
+                        : ratio < 0.25
+                          ? 'before'
+                          : ratio > 0.75
+                            ? 'after'
+                            : 'inside';
+                      setRailDrop({ target: rootId, placement });
+                    }}
+                    onDragLeave={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                        setRailDrop((current) => (current?.target === rootId ? null : current));
+                      }
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const placement = railDrop?.target === rootId ? railDrop.placement : 'inside';
+                      const groupSource = sidebarGroupDragId(event.nativeEvent);
+                      const viewSource = sidebarViewDragId(event.nativeEvent);
+                      if (groupSource && placement !== 'inside') {
+                        onMoveViewGroup?.(groupSource, rootId, placement);
+                      } else if (viewSource) {
+                        onMoveView?.(viewSource, rootId, placement);
+                        if (placement === 'inside' && !selected) onOpen();
+                      }
+                      setRailDrop(null);
+                    }}
+                    onDragEnd={() => setRailDrop(null)}
+                    onPointerEnter={onPrefetch}
+                    onFocus={onPrefetch}
+                    onPointerDown={(event) => {
+                      if (event.button === 0) onPrefetch?.();
+                    }}
+                    onClick={selected ? onCloseActiveSurface : onOpen}
+                  >
+                    <span className={`codicon codicon-${icon}`} aria-hidden="true" />
+                  </button>
+                );
+              })}
+          </>
+        )}
       </nav>
       <div className="activity-rail-spacer" />
-      {desktopFeatureEnabled("usage") && isVisible("usage") && <button type="button"
-        className={`sidebar-usage-toggle ${usageOpen ? "is-active" : ""}${
-          usagePinRows.length ? " is-pinned" : ""}`}
-        aria-label={t("Usage")} aria-expanded={usageOpen} aria-haspopup="dialog"
-        data-tooltip={t("Usage")}
-        onPointerEnter={(event) => rememberUsageAnchor(event.currentTarget)}
-        onFocus={(event) => rememberUsageAnchor(event.currentTarget)}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          usageClickGuard.markPointerActivation();
-          toggleUsage(event.currentTarget);
-        }}
-        onClick={(event) => {
-          if (usageClickGuard.consumePointerClick()) return;
-          if (event.detail !== 0) return;
-          toggleUsage(event.currentTarget);
-        }}
-        onPointerCancel={usageClickGuard.clearPointerActivation}>
-        {/* Pie-slice glyph: the classic usage/quota mark — gauge, columns and
+      {desktopFeatureEnabled('usage') && isVisible('usage') && (
+        <button
+          type="button"
+          className={`sidebar-usage-toggle ${usageOpen ? 'is-active' : ''}${usagePinRows.length ? ' is-pinned' : ''}`}
+          aria-label={t('Usage')}
+          aria-expanded={usageOpen}
+          aria-haspopup="dialog"
+          data-tooltip={t('Usage')}
+          onPointerEnter={(event) => rememberUsageAnchor(event.currentTarget)}
+          onFocus={(event) => rememberUsageAnchor(event.currentTarget)}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            usageClickGuard.markPointerActivation();
+            toggleUsage(event.currentTarget);
+          }}
+          onClick={(event) => {
+            if (usageClickGuard.consumePointerClick()) return;
+            if (event.detail !== 0) return;
+            toggleUsage(event.currentTarget);
+          }}
+          onPointerCancel={usageClickGuard.clearPointerActivation}
+        >
+          {/* Pie-slice glyph: the classic usage/quota mark — gauge, columns and
             gantt bars all read clipped or generic at 20px (user feedback).
             Pinned, the same button becomes the brand stack. */}
-        {usagePinRows.length
-          ? <span className="rail-usage-pin-stack" aria-hidden="true">
-            {usagePinRows.map((entry) => {
-              const percent = displayUsagePercent(entry.percent) ?? 0;
-              // Glanceable readout (user: 프로그래스 중간에): icon, then the
-              // flyout's meter grammar in miniature, then the number — bar
-              // and number reflect the provider's final quota window.
-              const tone = entry.percent >= 90 ? " tone-danger"
-                : entry.percent >= 70 ? " tone-warning" : "";
-              return <span className={`rail-usage-pin-brand${tone}`}
-                key={entry.key} data-usage-pin={entry.key}>
-                <ProviderIcon provider={entry.provider} />
-                <i><i style={{ width: `${percent}%` }} /></i>
-                <small>{percent}%</small>
-              </span>;
-            })}
-          </span>
-          : usagePinLoading ? <InitialSurface variant="icon" />
-            : <span className="codicon codicon-pie-chart" aria-hidden="true" />}
-      </button>}
-      {desktopFeatureEnabled("settings") && isVisible("settings") && <button type="button" ref={settingsRef}
-        className={`sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}
-        aria-label={t("Open settings")} aria-current={activeSurface === "settings" ? "page" : undefined}
-        data-tooltip={t("Settings")} onPointerEnter={onPrefetchSettings}
-        onFocus={onPrefetchSettings}
-        onPointerDown={(event) => {
-          if (event.button === 0) onPrefetchSettings?.();
-        }}
-        onClick={onOpenSettings}>
-        <span className="codicon codicon-settings-gear" aria-hidden="true" />
-      </button>}
+          {usagePinRows.length ? (
+            <span className="rail-usage-pin-stack" aria-hidden="true">
+              {usagePinRows.map((entry) => {
+                const percent = displayUsagePercent(entry.percent) ?? 0;
+                // Glanceable readout (user: 프로그래스 중간에): icon, then the
+                // flyout's meter grammar in miniature, then the number — bar
+                // and number reflect the provider's final quota window.
+                const tone = entry.percent >= 90 ? ' tone-danger' : entry.percent >= 70 ? ' tone-warning' : '';
+                return (
+                  <span className={`rail-usage-pin-brand${tone}`} key={entry.key} data-usage-pin={entry.key}>
+                    <ProviderIcon provider={entry.provider} />
+                    <i>
+                      <i style={{ width: `${percent}%` }} />
+                    </i>
+                    <small>{percent}%</small>
+                  </span>
+                );
+              })}
+            </span>
+          ) : usagePinLoading ? (
+            <InitialSurface variant="icon" />
+          ) : (
+            <span className="codicon codicon-pie-chart" aria-hidden="true" />
+          )}
+        </button>
+      )}
+      {desktopFeatureEnabled('settings') && isVisible('settings') && (
+        <button
+          type="button"
+          ref={settingsRef}
+          className={`sidebar-settings-button ${activeSurface === 'settings' ? 'selected' : ''}`}
+          aria-label={t('Open settings')}
+          aria-current={activeSurface === 'settings' ? 'page' : undefined}
+          data-tooltip={t('Settings')}
+          onPointerEnter={onPrefetchSettings}
+          onFocus={onPrefetchSettings}
+          onPointerDown={(event) => {
+            if (event.button === 0) onPrefetchSettings?.();
+          }}
+          onClick={onOpenSettings}
+        >
+          <span className="codicon codicon-settings-gear" aria-hidden="true" />
+        </button>
+      )}
       {/* The flyout's bottom edge tracks the Usage button itself (user). */}
-      {desktopFeatureEnabled("usage") && usageOpen && <div className="rail-usage-popup" role="dialog" aria-label={t("Subscription usage")}
-        style={{
-          "--rail-usage-popup-bottom": `${usageAnchorBottom}px`,
-          width: DESKTOP_SIDEBAR_DEFAULT_WIDTH + 88,
-          maxWidth: "calc(100vw - 116px)",
-        } as React.CSSProperties}
-        data-state="open">
-        {/* The popup shares the rail's host API so its open-time revalidation
+      {desktopFeatureEnabled('usage') && usageOpen && (
+        <div
+          className="rail-usage-popup"
+          role="dialog"
+          aria-label={t('Subscription usage')}
+          style={
+            {
+              '--rail-usage-popup-bottom': `${usageAnchorBottom}px`,
+              width: DESKTOP_SIDEBAR_DEFAULT_WIDTH + 88,
+              maxWidth: 'calc(100vw - 116px)',
+            } as React.CSSProperties
+          }
+          data-state="open"
+        >
+          {/* The popup shares the rail's host API so its open-time revalidation
             hits the same store entry the rail already prewarmed. */}
-        <SidebarUsage sidebarOpen api={usageApi}
-          onAddProviders={() => { setUsageOpen(false); (onOpenProviders || onOpenSettings)(); }}
-          onOpenStats={onOpenUsageStats
-            ? () => { setUsageOpen(false); onOpenUsageStats(); }
-            : undefined}
-          pinned={usagePinned} onTogglePin={toggleUsagePin} />
-      </div>}
+          <SidebarUsage
+            sidebarOpen
+            api={usageApi}
+            onAddProviders={() => {
+              setUsageOpen(false);
+              (onOpenProviders || onOpenSettings)();
+            }}
+            onOpenStats={
+              onOpenUsageStats
+                ? () => {
+                    setUsageOpen(false);
+                    onOpenUsageStats();
+                  }
+                : undefined
+            }
+            pinned={usagePinned}
+            onTogglePin={toggleUsagePin}
+          />
+        </div>
+      )}
       {menu}
     </aside>
   );

@@ -5,9 +5,9 @@
 // refreshes it in the background.
 import type { DesktopApi, DesktopGithubCliAccount, DesktopGithubCliStatus } from '../../shared/contract';
 
-export type GitPanelApi = Partial<Pick<DesktopApi, 'githubCliStatus' | 'githubCliAccount'>>;
+type GitPanelApi = Partial<Pick<DesktopApi, 'githubCliStatus' | 'githubCliAccount'>>;
 
-export interface GitPanelInfo {
+interface GitPanelInfo {
   status: DesktopGithubCliStatus | null;
   account: DesktopGithubCliAccount | null;
 }

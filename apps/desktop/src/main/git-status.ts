@@ -10,7 +10,7 @@ import {
 } from './git-read-utils';
 import { publicGitRemoteUrl, run, streamNulRecords } from './git-runner';
 
-export type GitOperation = '' | 'merge' | 'rebase' | 'cherry-pick' | 'revert';
+type GitOperation = '' | 'merge' | 'rebase' | 'cherry-pick' | 'revert';
 
 export interface GitFileEntry {
   path: string;
@@ -42,7 +42,7 @@ export interface GitStatusResult {
   files: GitFileEntry[];
 }
 
-export interface GitStatusOptions {
+interface GitStatusOptions {
   reuseLineStats?: boolean;
   skipLineStats?: boolean;
 }

@@ -11,7 +11,7 @@ import { readCachedSessionCatalog, scheduleCachedSessionCatalogWrite } from './s
  *  (the remote browser shim). */
 const FALLBACK_POLL_INTERVAL_MS = 15_000;
 
-export interface SessionCatalog {
+interface SessionCatalog {
   sessions: DesktopSessionSummary[];
   setSessions: Dispatch<SetStateAction<DesktopSessionSummary[]>>;
   /** Publish a newly accepted draft in the same React commit as its pane

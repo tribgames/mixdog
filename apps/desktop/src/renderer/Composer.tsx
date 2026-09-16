@@ -1,27 +1,45 @@
-import { ArrowUp, Mic, X } from "lucide-react";
-import { ErrorNotice, errorSummary } from "./ErrorNotice";
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
-import { type RecordValue } from "./desktop-types";
-import { t } from "./i18n";
-import { useMobileBack } from "./mobile-back";
-import { ModelSelector } from "./model-controls";
-import { MxIcon } from "./MxIcon";
-import { ProgressSpinner } from "./ProgressSpinner";
-import { shouldStopComposerGeneration } from "./renderer-logic.mjs";
+import { ArrowUp, Mic, X } from 'lucide-react';
+import { ErrorNotice, errorSummary } from './ErrorNotice';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type MutableRefObject,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
+import type {
+  DesktopAbortOptions,
+  DesktopCapability,
+  DesktopModelSelection,
+  DesktopPromptContent,
+  DesktopSubmitOptions,
+  SessionSnapshot,
+} from '../shared/contract';
+import type { RecordValue } from './desktop-types';
+import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
+import { ModelSelector } from './model-controls';
+import { MxIcon } from './MxIcon';
+import { ProgressSpinner } from './ProgressSpinner';
+import { shouldStopComposerGeneration } from './renderer-logic.mjs';
 import {
   desktopComposerSlashCommands,
   desktopSlashCommandDescription,
   resolveDesktopSlashCommand,
   type CommandSurface as CommandSurfaceName,
   type SettingsSection,
-} from "./slash-commands";
-import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
-import { touchPrimaryPointer } from "./surface-input-focus";
+} from './slash-commands';
+import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from './text-format';
+import { touchPrimaryPointer } from './surface-input-focus';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { pastedTextLineCount, shouldFoldPastedText } from "../../../../src/tui/paste-text-policy.mjs";
-
+import { pastedTextLineCount, shouldFoldPastedText } from '../../../../src/tui/paste-text-policy.mjs';
 
 // Project-context pill, attachment budget, prompt history and the queued
 // follow-up list live in composer-support.tsx.
@@ -37,21 +55,21 @@ import {
   type ComposerAttachment,
   type ComposerHistoryEntry,
   writePromptHistory,
-} from "./composer-support";
+} from './composer-support';
 import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
   stashComposerDraft,
   stashedComposerDraft,
-} from "./composer-draft";
-import { useComposerDictation } from "./use-composer-dictation";
-import { useComposerAttachments } from "./use-composer-attachments";
-import { useComposerShareIntake } from "./use-composer-share-intake";
-import { useComposerQueue } from "./use-composer-queue";
-import { useComposerSubmission } from "./use-composer-submission";
-import { useComposerKeyboard } from "./use-composer-keyboard";
-import { useComposerFocus } from "./use-composer-focus";
-import { ComposerPalette } from "./ComposerPalette";
+} from './composer-draft';
+import { useComposerDictation } from './use-composer-dictation';
+import { useComposerAttachments } from './use-composer-attachments';
+import { useComposerShareIntake } from './use-composer-share-intake';
+import { useComposerQueue } from './use-composer-queue';
+import { useComposerSubmission } from './use-composer-submission';
+import { useComposerKeyboard } from './use-composer-keyboard';
+import { useComposerFocus } from './use-composer-focus';
+import { ComposerPalette } from './ComposerPalette';
 import { ComposerAddMenu } from './ComposerAddMenu';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import { CapabilityIcon } from './CapabilityIcon';
@@ -61,7 +79,7 @@ export {
   ProjectContextSelector,
   promptHistoryStorageKey,
   queuedFollowupPreview,
-  readPromptHistory
+  readPromptHistory,
 };
 
 // The recording overlay renders m:ss over the typing surface. The placeholder
@@ -99,7 +117,9 @@ function DictationMeter({ levelRef }: { levelRef: MutableRefObject<number> }) {
 function DictationProgress() {
   return (
     <span className="composer-dictation-progress" aria-hidden="true">
-      {DICTATION_BAR_GAINS.map((_, index) => <span key={index} />)}
+      {DICTATION_BAR_GAINS.map((_, index) => (
+        <span key={index} />
+      ))}
     </span>
   );
 }
@@ -200,7 +220,7 @@ export const Composer = memo(function Composer({
    *  outside (share sheet) may only land in a composer the user can see. */
   paneActive?: boolean;
 }) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submissionRecoveryVersion, setSubmissionRecoveryVersion] = useState(0);
   const submittingRef = useRef(false);
@@ -279,7 +299,9 @@ export const Composer = memo(function Composer({
     invokeResult,
     showNotice: showComposerNotice,
     requestVoiceInstall: useCallback(() => onOpenSettings('voice'), [onOpenSettings]),
-    onTranscriptSubmit: useCallback(() => { voiceSubmitPending.current = true; }, []),
+    onTranscriptSubmit: useCallback(() => {
+      voiceSubmitPending.current = true;
+    }, []),
   });
   const historyNavigation = useRef({ index: -1, seed: '' });
   const historySeedAttachments = useRef<ComposerAttachment[]>([]);
@@ -314,14 +336,19 @@ export const Composer = memo(function Composer({
   });
   // A shared link or note arrives as text: it JOINS the draft instead of
   // replacing whatever the user already typed.
-  const appendSharedText = useCallback((text: string) => {
-    setDraft((current) => {
-      const next = current.trim() ? `${current.replace(/\s+$/, '')}\n${text}` : text;
-      draftRef.current = next;
-      return next;
-    });
-    window.setTimeout(() => { textarea.current?.focus(); }, 0);
-  }, [draftRef, setDraft, textarea]);
+  const appendSharedText = useCallback(
+    (text: string) => {
+      setDraft((current) => {
+        const next = current.trim() ? `${current.replace(/\s+$/, '')}\n${text}` : text;
+        draftRef.current = next;
+        return next;
+      });
+      window.setTimeout(() => {
+        textarea.current?.focus();
+      }, 0);
+    },
+    [draftRef, setDraft, textarea]
+  );
   useComposerShareIntake({
     active: paneActive && !transitioning,
     attachFiles,
@@ -342,14 +369,14 @@ export const Composer = memo(function Composer({
       composingRef.current = false;
       const committed = element.value;
       draftRef.current = committed;
-      setDraft((current) => current === committed ? current : committed);
+      setDraft((current) => (current === committed ? current : committed));
       setCaretOffset(element.selectionStart);
       window.cancelAnimationFrame(reconcileFrame);
       reconcileFrame = window.requestAnimationFrame(() => {
         if (composingRef.current || textarea.current !== element) return;
         const value = element.value;
         draftRef.current = value;
-        setDraft((current) => current === value ? current : value);
+        setDraft((current) => (current === value ? current : value));
         setCaretOffset(element.selectionStart);
       });
     };
@@ -358,8 +385,7 @@ export const Composer = memo(function Composer({
       // line break. Electron can deliver the follow-up newline after
       // compositionend and a later task, using either browser input type.
       const newline = event.inputType === 'insertLineBreak' || event.inputType === 'insertParagraph';
-      if (newline &&
-        (composingRef.current || event.isComposing || suppressImeLineBreakRef.current)) {
+      if (newline && (composingRef.current || event.isComposing || suppressImeLineBreakRef.current)) {
         event.preventDefault();
         suppressImeLineBreakRef.current = false;
       }
@@ -383,9 +409,7 @@ export const Composer = memo(function Composer({
     const leavingElement = textarea.current;
     stashComposerDraft(
       previousScope,
-      document.activeElement === leavingElement && leavingElement
-        ? leavingElement.value
-        : draftRef.current,
+      document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
     );
     resetAttachments();
     composingRef.current = false;
@@ -437,50 +461,68 @@ export const Composer = memo(function Composer({
   }, [historyScope]);
   const history = useMemo<ComposerHistoryEntry[]>(() => {
     const engineHistory: ComposerHistoryEntry[] = Array.isArray(promptHistoryList)
-      ? promptHistoryList.map((entry) => typeof entry === 'string'
-        ? { text: entry } : { text: String(asRecord(entry)?.text || asRecord(entry)?.displayText || '') })
-        .filter((entry) => entry.text.trim())
+      ? promptHistoryList
+          .map((entry) =>
+            typeof entry === 'string'
+              ? { text: entry }
+              : { text: String(asRecord(entry)?.text || asRecord(entry)?.displayText || '') }
+          )
+          .filter((entry) => entry.text.trim())
       : [];
     const seen = new Set<string>();
-    return [...persistedHistory, ...engineHistory].filter((entry) => {
-      const key = entry.text.trim();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, MAX_PERSISTED_PROMPT_HISTORY);
+    return [...persistedHistory, ...engineHistory]
+      .filter((entry) => {
+        const key = entry.text.trim();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, MAX_PERSISTED_PROMPT_HISTORY);
   }, [persistedHistory, promptHistoryList]);
-  const rememberPrompt = useCallback((value: string, submittedAttachments: ComposerAttachment[] = []) => {
-    const prompt = value.trim();
-    if (!prompt) return;
-    const retained = submittedAttachments
-      .filter((attachment) => attachment.kind === 'text' && attachment.token && prompt.includes(attachment.token))
-      .map((attachment) => ({ ...attachment }));
-    const entry: ComposerHistoryEntry = {
-      text: prompt,
-      ...(retained.length ? { attachments: retained } : {}),
-    };
-    setPersistedHistory((current) => {
-      const next = [entry, ...current.filter((item) => item.text !== prompt)]
-        .slice(0, MAX_PERSISTED_PROMPT_HISTORY);
-      try {
-        writePromptHistory(historyScope, next);
-      } catch {
-        // The engine-provided history remains available when browser storage is unavailable.
-      }
-      return next;
-    });
-  }, [historyScope]);
+  const rememberPrompt = useCallback(
+    (value: string, submittedAttachments: ComposerAttachment[] = []) => {
+      const prompt = value.trim();
+      if (!prompt) return;
+      const retained = submittedAttachments
+        .filter((attachment) => attachment.kind === 'text' && attachment.token && prompt.includes(attachment.token))
+        .map((attachment) => ({ ...attachment }));
+      const entry: ComposerHistoryEntry = {
+        text: prompt,
+        ...(retained.length ? { attachments: retained } : {}),
+      };
+      setPersistedHistory((current) => {
+        const next = [entry, ...current.filter((item) => item.text !== prompt)].slice(0, MAX_PERSISTED_PROMPT_HISTORY);
+        try {
+          writePromptHistory(historyScope, next);
+        } catch {
+          // The engine-provided history remains available when browser storage is unavailable.
+        }
+        return next;
+      });
+    },
+    [historyScope]
+  );
   // User request: one stable placeholder — no rotating variants.
   // User request: once a session has content, the composer shows NO hint copy
   // at all — instructional placeholders belong to the empty new-task state.
-  const placeholder = hasConversation ? ''
-    : turnBusy ? t('Steer the active turn or queue a follow-up…')
-      : commandBusy ? t('Queue a message after the current command…')
+  const placeholder = hasConversation
+    ? ''
+    : turnBusy
+      ? t('Steer the active turn or queue a follow-up…')
+      : commandBusy
+        ? t('Queue a message after the current command…')
         : t(COMPOSER_PLACEHOLDERS[0]);
   // Only frequent commands appear here; direct input still uses the full registry.
   const slashCommands = useMemo(() => desktopComposerSlashCommands(draft), [draft]);
-  const slashOpen = Boolean(composerFocused && paneActive && !selectorOpen && !transitioning
-    && caretOffset === draft.length && slashDismissed !== draft && slashCommands.length);
+  const slashOpen = Boolean(
+    composerFocused &&
+      paneActive &&
+      !selectorOpen &&
+      !transitioning &&
+      caretOffset === draft.length &&
+      slashDismissed !== draft &&
+      slashCommands.length
+  );
   const mentionMatch = useMemo(() => {
     const beforeCaret = draft.slice(0, Math.max(0, Math.min(caretOffset, draft.length)));
     const match = /(^|[\s([{"'])@([^\s@]*)$/.exec(beforeCaret);
@@ -488,11 +530,10 @@ export const Composer = memo(function Composer({
     const start = match.index + match[1].length;
     return { start, end: beforeCaret.length, query: match[2] || '' };
   }, [caretOffset, draft]);
-  const mentionSignature = mentionMatch
-    ? `${mentionMatch.start}:${mentionMatch.end}:${mentionMatch.query}`
-    : '';
-  const mentionOpen = Boolean(composerFocused && projectScope && mentionMatch && !transitioning &&
-    mentionDismissed !== mentionSignature);
+  const mentionSignature = mentionMatch ? `${mentionMatch.start}:${mentionMatch.end}:${mentionMatch.query}` : '';
+  const mentionOpen = Boolean(
+    composerFocused && projectScope && mentionMatch && !transitioning && mentionDismissed !== mentionSignature
+  );
   // ABB: each open composer palette answers hardware back with the same
   // dismissal its own Escape performs.
   useMobileBack(slashOpen, () => setSlashDismissed(draft));
@@ -521,7 +562,8 @@ export const Composer = memo(function Composer({
     setMentionResults([]);
     setMentionLoading(true);
     const timer = window.setTimeout(() => {
-      void window.mixdogDesktop.searchProjectFiles(projectScope, mentionMatch.query, 20)
+      void window.mixdogDesktop
+        .searchProjectFiles(projectScope, mentionMatch.query, 20)
         .then((paths) => {
           if (mentionSearchGeneration.current !== generation) return;
           setMentionResults(paths);
@@ -540,17 +582,20 @@ export const Composer = memo(function Composer({
   }, [mentionMatch?.end, mentionMatch?.query, mentionMatch?.start, mentionOpen, projectScope]);
   useEffect(() => {
     if (!selectorOpen) return;
-    messagePalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+    messagePalette.current
+      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [selectorIndex, selectorOpen]);
   useEffect(() => {
     if (!slashOpen) return;
-    slashPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+    slashPalette.current
+      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [slashIndex, slashOpen, slashCommands]);
   useEffect(() => {
     if (!mentionOpen) return;
-    mentionPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+    mentionPalette.current
+      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [mentionIndex, mentionOpen, mentionResults]);
   useEffect(() => {
@@ -569,22 +614,30 @@ export const Composer = memo(function Composer({
     return () => window.removeEventListener('mixdog:composer-draft', receiveDraft);
   }, []);
 
-  const invokeCapabilityResult = useCallback(async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
-    // Every command this composer issues belongs to the session IT paints —
-    // the queue ×/Edit, /clear, /compact. Focus decides nothing.
-    const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<T>({
-      capability,
-      args,
-      ...(sessionId ? { sessionId } : {}),
-    }));
-    // Session commands already publish through the ordered session lane.
-    // Their unversioned reply snapshot can arrive after a newer live frame;
-    // replaying it here resurrected /compact's finished command spinner.
-    if (!sessionId && result?.snapshot !== undefined) applySnapshot(result.snapshot);
-    return result;
-  }, [applySnapshot, invokeResult, sessionId]);
-  const invokeCapability = useCallback(async <T,>(capability: DesktopCapability, args: unknown[] = []) =>
-    (await invokeCapabilityResult<T>(capability, args))?.value, [invokeCapabilityResult]);
+  const invokeCapabilityResult = useCallback(
+    async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
+      // Every command this composer issues belongs to the session IT paints —
+      // the queue ×/Edit, /clear, /compact. Focus decides nothing.
+      const result = await invokeResult(() =>
+        window.mixdogDesktop.invokeCapability<T>({
+          capability,
+          args,
+          ...(sessionId ? { sessionId } : {}),
+        })
+      );
+      // Session commands already publish through the ordered session lane.
+      // Their unversioned reply snapshot can arrive after a newer live frame;
+      // replaying it here resurrected /compact's finished command spinner.
+      if (!sessionId && result?.snapshot !== undefined) applySnapshot(result.snapshot);
+      return result;
+    },
+    [applySnapshot, invokeResult, sessionId]
+  );
+  const invokeCapability = useCallback(
+    async <T,>(capability: DesktopCapability, args: unknown[] = []) =>
+      (await invokeCapabilityResult<T>(capability, args))?.value,
+    [invokeCapabilityResult]
+  );
   const {
     restoring,
     setRestoring,
@@ -618,7 +671,7 @@ export const Composer = memo(function Composer({
   const selectableMessages = Array.isArray(userMessages) ? userMessages : [];
   const openMessageSelector = () => {
     if (selectableMessages.length === 0) {
-      showComposerNotice(t("No message to jump back to."));
+      showComposerNotice(t('No message to jump back to.'));
       return;
     }
     setSelectorIndex(selectableMessages.length - 1);
@@ -635,7 +688,7 @@ export const Composer = memo(function Composer({
       const value = asRecord(await invokeCapability<RecordValue>('rewindToItem', [messageId]));
       const text = String(value?.text || '');
       if (!text) {
-        showComposerNotice(t("Could not restore that message."));
+        showComposerNotice(t('Could not restore that message.'));
         return;
       }
       historyNavigation.current = { index: -1, seed: '' };
@@ -698,8 +751,7 @@ export const Composer = memo(function Composer({
       if (!draftMode && sessionId && onClearToNewTask) onClearToNewTask();
       else if (rawName === 'new') onNewTask();
       else await commandCapability('clear');
-    }
-    else if (name === 'project') onOpenProjects();
+    } else if (name === 'project') onOpenProjects();
     else if (name === 'resume') argument ? onResumeSession(argument) : onOpenSessions();
     else if (name === 'compact') await commandCapability('compact');
     else if (name === 'goal') {
@@ -717,47 +769,56 @@ export const Composer = memo(function Composer({
         const result = asRecord(await commandCapability<unknown>('goalControl', [{ command: argument }]));
         if (!invocationFailed) showComposerNotice(String(result?.message || 'Goal updated.'));
       }
-    }
-    else if (name === 'doctor') onOpenCommandSurface('doctor');
+    } else if (name === 'doctor') onOpenCommandSurface('doctor');
     else if (name === 'settings') onOpenSettings();
     // Desktop /quit leaves THIS task, not the app (user): it rides the same
     // close path as Ctrl+W, so unsaved-close guards and group collapse apply.
     // Explicit app quit stays in the File menu.
     else if (command.action === 'close-task') {
       window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'));
-    }
-    else if (name === 'autoclear' && argument) {
+    } else if (name === 'autoclear' && argument) {
       const value = argument.toLowerCase();
       const next = await commandCapability<unknown>(
         value === 'status' || value === 'current' || value === 'show' ? 'getAutoClear' : 'setAutoClear',
         value === 'status' || value === 'current' || value === 'show'
           ? []
-          : [{ ...(value === 'on' || value === 'enable' || value === 'enabled'
-            ? { enabled: true }
-            : value === 'off' || value === 'disable' || value === 'disabled'
-              ? { enabled: false }
-              : { duration: value }) }],
+          : [
+              {
+                ...(value === 'on' || value === 'enable' || value === 'enabled'
+                  ? { enabled: true }
+                  : value === 'off' || value === 'disable' || value === 'disabled'
+                    ? { enabled: false }
+                    : { duration: value }),
+              },
+            ]
       );
       const status = asRecord(next);
       if (!invocationFailed) {
-        showComposerNotice(`Auto-clear ${status?.enabled ? 'on' : 'off'}${status?.idleMs
-          ? ` · idle ${status.idleMs}ms`
-          : ''}`);
+        showComposerNotice(
+          `Auto-clear ${status?.enabled ? 'on' : 'off'}${status?.idleMs ? ` · idle ${status.idleMs}ms` : ''}`
+        );
       }
     } else if (name === 'outputstyle' && argument) {
       const statusOnly = ['status', 'current', 'show'].includes(argument.toLowerCase());
-      const value = await commandCapability<unknown>(statusOnly ? 'getOutputStyle' : 'setOutputStyle',
-        statusOnly ? [] : [argument]);
+      const value = await commandCapability<unknown>(
+        statusOnly ? 'getOutputStyle' : 'setOutputStyle',
+        statusOnly ? [] : [argument]
+      );
       if (!invocationFailed) {
         const result = asRecord(value);
         const current = asRecord(result?.current);
-        showComposerNotice(`Output style: ${String(current?.label || current?.id ||
-          result?.configured || result?.label || result?.id || argument)}`);
+        showComposerNotice(
+          `Output style: ${String(
+            current?.label || current?.id || result?.configured || result?.label || result?.id || argument
+          )}`
+        );
       }
     } else if (name === 'theme' && argument) {
       const statusOnly = ['status', 'current', 'show'].includes(argument.toLowerCase());
-      const value = await commandCapability<unknown>(statusOnly ? 'getTheme' : 'setTheme',
-        statusOnly ? [] : [argument, { persist: true }]);
+      const value = await commandCapability<unknown>(
+        statusOnly ? 'getTheme' : 'setTheme',
+        statusOnly ? [] : [argument, { persist: true }]
+      );
       if (!invocationFailed) {
         const result = asRecord(value);
         showComposerNotice(`Theme: ${String(result?.label || result?.id || value || argument)}`);
@@ -780,7 +841,10 @@ export const Composer = memo(function Composer({
       }
       if (draftMode && onDraftModelSelection && provider && model) {
         onDraftModelSelection({
-          provider, model, effort, fast: nextFast,
+          provider,
+          model,
+          effort,
+          fast: nextFast,
           ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
         });
       } else {
@@ -789,7 +853,10 @@ export const Composer = memo(function Composer({
         applySnapshot(next);
         if (provider && model) {
           onRoutePreferenceApplied?.({
-            provider, model, effort, fast: nextFast,
+            provider,
+            model,
+            effort,
+            fast: nextFast,
             ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
           });
         }
@@ -805,19 +872,30 @@ export const Composer = memo(function Composer({
       const presetValue = await commandCapability<unknown>('listPresets');
       const presetSource = Array.isArray(presetValue)
         ? presetValue
-        : (Array.isArray(asRecord(presetValue)?.presets) ? asRecord(presetValue)?.presets as unknown[] : []);
-      const preset = presetSource.map(asRecord).find((entry) => entry && (
-        String(entry.id || '').toLowerCase() === argument.toLowerCase() ||
-        String(entry.name || '').toLowerCase() === argument.toLowerCase()));
+        : Array.isArray(asRecord(presetValue)?.presets)
+          ? (asRecord(presetValue)?.presets as unknown[])
+          : [];
+      const preset = presetSource
+        .map(asRecord)
+        .find(
+          (entry) =>
+            entry &&
+            (String(entry.id || '').toLowerCase() === argument.toLowerCase() ||
+              String(entry.name || '').toLowerCase() === argument.toLowerCase())
+        );
       if (preset) {
         await commandCapability('setModel', [preset.id || preset.name]);
         if (invocationFailed) return false;
         return true;
       }
-      const models = await invokeResult(() => window.mixdogDesktop.listProviderModels({ quick: false })) || [];
+      const models = (await invokeResult(() => window.mixdogDesktop.listProviderModels({ quick: false }))) || [];
       const normalized = argument.toLowerCase();
-      const model = models.find((entry) => `${entry.provider}:${entry.model}`.toLowerCase() === normalized ||
-        entry.model.toLowerCase() === normalized || entry.display.toLowerCase() === normalized);
+      const model = models.find(
+        (entry) =>
+          `${entry.provider}:${entry.model}`.toLowerCase() === normalized ||
+          entry.model.toLowerCase() === normalized ||
+          entry.display.toLowerCase() === normalized
+      );
       if (!model) {
         setAttachmentError(`Model not found: ${argument}`);
         return false;
@@ -879,7 +957,10 @@ export const Composer = memo(function Composer({
     selectedSkill: skillSelection.name,
     onSkillSubmitted: skillSelection.submitted,
   });
-  const onSubmit = (event: FormEvent) => { event.preventDefault(); void send('', 'form-submit'); };
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    void send('', 'form-submit');
+  };
   const { selectMention, onKeyDown, onKeyUp } = useComposerKeyboard({
     draft: {
       value: draft,
@@ -924,7 +1005,9 @@ export const Composer = memo(function Composer({
     queue: {
       pendingSubmissionId,
       hasRestorableMessages: hasRestorableQueuedMessages,
-      restore: (source) => { void restoreQueue('', source); },
+      restore: (source) => {
+        void restoreQueue('', source);
+      },
     },
     runtime: {
       turnBusy,
@@ -959,292 +1042,492 @@ export const Composer = memo(function Composer({
   }, [dictationState, draft, send]);
   return (
     <>
-      <QueueList queued={visibleQueued} restoring={restoring}
+      <QueueList
+        queued={visibleQueued}
+        restoring={restoring}
         onEdit={(id) => void restoreQueue(id, 'queue-row')}
         onSteer={(id) => void steerQueuedNow(id)}
-        onRemove={(id) => void discardQueued(id)} />
+        onRemove={(id) => void discardQueued(id)}
+      />
       {/* Error/notice banners float ABOVE the input card (user-flagged: they
           previously rendered inside the pill and read as composer content). */}
       {attachmentError && <ErrorNotice error={attachmentError} onDismiss={() => setAttachmentError('')} />}
-      {composerNotice && <p className="composer-notice" role="status">
-        <span>{errorSummary(composerNotice)}</span>
-        <button type="button" className="composer-banner-close" aria-label={t("Dismiss notice")}
-          onClick={() => showComposerNotice('')}><X size={14} /></button>
-      </p>}
-      {draggingFiles && !transitioning && dropTargetRef.current && createPortal(
-        <div className="task-drop-overlay" role="status">
-          <MxIcon name="photo" size={16} /><span>{t("Drop files or paths")}</span>
-        </div>,
-        dropTargetRef.current,
+      {composerNotice && (
+        <p className="composer-notice" role="status">
+          <span>{errorSummary(composerNotice)}</span>
+          <button
+            type="button"
+            className="composer-banner-close"
+            aria-label={t('Dismiss notice')}
+            onClick={() => showComposerNotice('')}
+          >
+            <X size={14} />
+          </button>
+        </p>
       )}
-      <form ref={paletteAnchor} className="composer" onSubmit={onSubmit}
-        data-composer-palette-open={selectorOpen || slashOpen || mentionOpen ? "true" : undefined}
-        aria-busy={transitioning} onMouseDown={(event) => {
+      {draggingFiles &&
+        !transitioning &&
+        dropTargetRef.current &&
+        createPortal(
+          <div className="task-drop-overlay" role="status">
+            <MxIcon name="photo" size={16} />
+            <span>{t('Drop files or paths')}</span>
+          </div>,
+          dropTargetRef.current
+        )}
+      <form
+        ref={paletteAnchor}
+        className="composer"
+        onSubmit={onSubmit}
+        data-composer-palette-open={selectorOpen || slashOpen || mentionOpen ? 'true' : undefined}
+        aria-busy={transitioning}
+        onMouseDown={(event) => {
           if (touchPrimaryPointer()) return;
           const target = event.target as HTMLElement;
           if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
-        }}>
-      {selectorOpen && (
-        <ComposerPalette anchor={paletteAnchor} panel={messagePalette} id="composer-message-selector"
-          className="message-selector" label={t("Previous messages")}>
-          <header><span>{t("Jump back to a message")}</span></header>
-          {selectableMessages.map((message, index) => (
-            <button type="button" role="option" aria-selected={index === selectorIndex} key={message.id}
-              id={`composer-message-option-${index}`} title={message.text}
-              onMouseDown={(event) => event.preventDefault()}
-              onMouseEnter={() => setSelectorIndex(index)}
-              onClick={() => { void rewindToMessage(message.id); }}>
-              <span>{oneLine(queuedFollowupPreview(message.text), 90)}</span>
-            </button>
-          ))}
-        </ComposerPalette>
-      )}
-      {slashOpen && (
-        <ComposerPalette anchor={paletteAnchor} panel={slashPalette} id="composer-slash-palette"
-          label={t("Slash commands")}>
-          <header><span>{t("Commands")}</span></header>
-          {slashCommands.map((command, index) => (
-            <button type="button" role="option" aria-selected={index === slashIndex} key={command.name}
-              id={`composer-slash-option-${index}`}
-              onMouseDown={(event) => event.preventDefault()}
-              onMouseEnter={() => setSlashIndex(index)}
-              onClick={() => { void send(command.usage); }}>
-              <code>{command.usage}</code><span>{desktopSlashCommandDescription(command)}</span>
-            </button>
-          ))}
-        </ComposerPalette>
-      )}
-      {mentionOpen && (
-        <ComposerPalette anchor={paletteAnchor} panel={mentionPalette} id="composer-mention-palette"
-          className="mention-palette" label={t("Project files")}>
-          <header><MxIcon name="open-file" size={14} /><span>{t("Files")}</span></header>
-          {mentionResults.length ? mentionResults.map((path, index) => {
-            const separator = path.lastIndexOf('/');
-            const directory = separator >= 0 ? path.slice(0, separator + 1) : '';
-            const filename = separator >= 0 ? path.slice(separator + 1) : path;
-            return (
-              <button type="button" role="option" aria-selected={index === mentionIndex} key={path}
-                id={`composer-mention-option-${index}`} title={path}
+        }}
+      >
+        {selectorOpen && (
+          <ComposerPalette
+            anchor={paletteAnchor}
+            panel={messagePalette}
+            id="composer-message-selector"
+            className="message-selector"
+            label={t('Previous messages')}
+          >
+            <header>
+              <span>{t('Jump back to a message')}</span>
+            </header>
+            {selectableMessages.map((message, index) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === selectorIndex}
+                key={message.id}
+                id={`composer-message-option-${index}`}
+                title={message.text}
                 onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setMentionIndex(index)}
-                onClick={() => selectMention(path)}>
-                <MxIcon name="open-file" size={14} />
-                <span className="mention-path"><span>{directory}</span><strong>{filename}</strong></span>
+                onMouseEnter={() => setSelectorIndex(index)}
+                onClick={() => {
+                  void rewindToMessage(message.id);
+                }}
+              >
+                <span>{oneLine(queuedFollowupPreview(message.text), 90)}</span>
               </button>
-            );
-          }) : <p role="status">{mentionLoading ? t('Searching project files…') : t('No matching files.')}</p>}
-        </ComposerPalette>
-      )}
-      {attachments.length > 0 && <div className="composer-attachments" aria-label={t("Attachments")}>
-        {attachments.map((attachment) => <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
-          {attachment.kind === 'image'
-            ? <button type="button" className="attachment-open"
-              aria-label={t("Open image")} title={attachment.name}
-              onClick={async () => {
-                setAttachmentError('');
-                try {
-                  const api = window.mixdogDesktop;
-                  if (!api?.openAttachmentImage) throw new Error('Unable to open image: image viewer is unavailable.');
-                  await api.openAttachmentImage(
-                    `data:${attachment.mimeType};base64,${attachment.data}`, attachment.name,
-                  );
-                } catch (error) {
-                  setAttachmentError(error instanceof Error ? error.message : String(error));
-                }
-              }}>
-              <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
-            </button>
-            : <span><MxIcon name="open-file" size={16} /></span>}
-          <span data-tooltip={attachment.name}>{attachment.name}</span>
-          <button type="button" aria-label={t("Remove {{name}}", { name: attachment.name })}
-            onClick={() => removeAttachment(attachment)}
-            className="attachment-remove" data-tooltip={t("Remove")}>
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>)}
-      </div>}
-      {/* Recording takes over the typing surface, never the footer: the stop
+            ))}
+          </ComposerPalette>
+        )}
+        {slashOpen && (
+          <ComposerPalette
+            anchor={paletteAnchor}
+            panel={slashPalette}
+            id="composer-slash-palette"
+            label={t('Slash commands')}
+          >
+            <header>
+              <span>{t('Commands')}</span>
+            </header>
+            {slashCommands.map((command, index) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === slashIndex}
+                key={command.name}
+                id={`composer-slash-option-${index}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setSlashIndex(index)}
+                onClick={() => {
+                  void send(command.usage);
+                }}
+              >
+                <code>{command.usage}</code>
+                <span>{desktopSlashCommandDescription(command)}</span>
+              </button>
+            ))}
+          </ComposerPalette>
+        )}
+        {mentionOpen && (
+          <ComposerPalette
+            anchor={paletteAnchor}
+            panel={mentionPalette}
+            id="composer-mention-palette"
+            className="mention-palette"
+            label={t('Project files')}
+          >
+            <header>
+              <MxIcon name="open-file" size={14} />
+              <span>{t('Files')}</span>
+            </header>
+            {mentionResults.length ? (
+              mentionResults.map((path, index) => {
+                const separator = path.lastIndexOf('/');
+                const directory = separator >= 0 ? path.slice(0, separator + 1) : '';
+                const filename = separator >= 0 ? path.slice(separator + 1) : path;
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === mentionIndex}
+                    key={path}
+                    id={`composer-mention-option-${index}`}
+                    title={path}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setMentionIndex(index)}
+                    onClick={() => selectMention(path)}
+                  >
+                    <MxIcon name="open-file" size={14} />
+                    <span className="mention-path">
+                      <span>{directory}</span>
+                      <strong>{filename}</strong>
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <p role="status">{mentionLoading ? t('Searching project files…') : t('No matching files.')}</p>
+            )}
+          </ComposerPalette>
+        )}
+        {attachments.length > 0 && (
+          <div className="composer-attachments" aria-label={t('Attachments')}>
+            {attachments.map((attachment) => (
+              <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
+                {attachment.kind === 'image' ? (
+                  <button
+                    type="button"
+                    className="attachment-open"
+                    aria-label={t('Open image')}
+                    title={attachment.name}
+                    onClick={async () => {
+                      setAttachmentError('');
+                      try {
+                        const api = window.mixdogDesktop;
+                        if (!api?.openAttachmentImage)
+                          throw new Error('Unable to open image: image viewer is unavailable.');
+                        await api.openAttachmentImage(
+                          `data:${attachment.mimeType};base64,${attachment.data}`,
+                          attachment.name
+                        );
+                      } catch (error) {
+                        setAttachmentError(error instanceof Error ? error.message : String(error));
+                      }
+                    }}
+                  >
+                    <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+                  </button>
+                ) : (
+                  <span>
+                    <MxIcon name="open-file" size={16} />
+                  </span>
+                )}
+                <span data-tooltip={attachment.name}>{attachment.name}</span>
+                <button
+                  type="button"
+                  aria-label={t('Remove {{name}}', { name: attachment.name })}
+                  onClick={() => removeAttachment(attachment)}
+                  className="attachment-remove"
+                  data-tooltip={t('Remove')}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Recording takes over the typing surface, never the footer: the stop
           and send discs below stay reachable, and the draft underneath is
           untouched until the transcript is appended to it. */}
-      {dictationState !== 'idle' && <div className="composer-dictation-overlay" data-state={dictationState}>
-        <div className="composer-dictation-status" data-state={dictationState}>
-          {dictationState === 'recording' ? <>
-            <DictationMeter levelRef={dictationLevelRef} />
-            {/* No live region on the timer: a polite announcement twice a second
+        {dictationState !== 'idle' && (
+          <div className="composer-dictation-overlay" data-state={dictationState}>
+            <div className="composer-dictation-status" data-state={dictationState}>
+              {dictationState === 'recording' ? (
+                <>
+                  <DictationMeter levelRef={dictationLevelRef} />
+                  {/* No live region on the timer: a polite announcement twice a second
                 would talk over everything else. The mic button's label carries
                 the state instead. */}
-            <span className="composer-dictation-elapsed">{formatDictationElapsed(recordingElapsedMs)}</span>
-            <button type="button" className="composer-dictation-cancel"
-              aria-label={t("Discard recording")} data-tooltip={t("Discard · Esc")} data-tooltip-side="top"
-              onClick={() => cancelDictation()}>
-              <X size={14} aria-hidden="true" />
-            </button>
-          </> : <>
-            <DictationProgress />
-            <span className="composer-dictation-elapsed" role="status">{t("Transcribing…")}</span>
-          </>}
+                  <span className="composer-dictation-elapsed">{formatDictationElapsed(recordingElapsedMs)}</span>
+                  <button
+                    type="button"
+                    className="composer-dictation-cancel"
+                    aria-label={t('Discard recording')}
+                    data-tooltip={t('Discard · Esc')}
+                    data-tooltip-side="top"
+                    onClick={() => cancelDictation()}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <DictationProgress />
+                  <span className="composer-dictation-elapsed" role="status">
+                    {t('Transcribing…')}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="composer-input-row">
+          {skillSelection.name && (
+            <span className="composer-selected-skill">
+              <button type="button" onClick={() => textarea.current?.focus()} title={skillSelection.name}>
+                <CapabilityIcon name={skillSelection.name} />
+                <span>{skillTitle(skillSelection.name)}</span>
+              </button>
+            </span>
+          )}
+          <textarea
+            ref={textarea}
+            value={draft}
+            onChange={(event) => {
+              // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,
+              // logged only when a frame is actually slow.
+              if (window.mixdogDesktop?.perfLog && !composerPaintSamplePending.current) {
+                composerPaintSamplePending.current = true;
+                const inputAt = performance.now();
+                window.requestAnimationFrame(() =>
+                  window.requestAnimationFrame(() => {
+                    composerPaintSamplePending.current = false;
+                    const ms = performance.now() - inputAt;
+                    if (ms >= 25) window.mixdogDesktop?.perfLog?.(`composer-keystroke paint=${ms.toFixed(0)}ms`);
+                  })
+                );
+              }
+              const value = event.currentTarget.value;
+              draftRef.current = value;
+              setDraft(value);
+              escapeClearAtRef.current = 0;
+              if (attachmentError) setAttachmentError('');
+              if (composerNotice) setComposerNotice('');
+              setCaretOffset(event.currentTarget.selectionStart);
+              if (slashDismissed) setSlashDismissed('');
+              if (mentionDismissed) setMentionDismissed('');
+              historyNavigation.current = { index: -1, seed: '' };
+            }}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => {
+              composingRef.current = false;
+              suppressImeLineBreakRef.current = false;
+              shiftLatchRef.current = false;
+              setComposerFocused(false);
+            }}
+            onPointerDown={() => {
+              escapeClearAtRef.current = 0;
+            }}
+            onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)}
+            onKeyDown={(event) => {
+              if (
+                shouldRemoveSelectedSkill({
+                  selected: skillSelection.name,
+                  key: event.key,
+                  start: event.currentTarget.selectionStart,
+                  end: event.currentTarget.selectionEnd,
+                  composing: composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229,
+                  repeat: event.repeat,
+                  modified: event.ctrlKey || event.metaKey || event.altKey,
+                })
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+                skillSelection.select('');
+                return;
+              }
+              onKeyDown(event);
+            }}
+            onKeyUp={onKeyUp}
+            onPaste={(event) => {
+              const itemFiles = Array.from(event.clipboardData.items || [])
+                .filter((item) => item.kind === 'file')
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => Boolean(file));
+              const files = itemFiles.length ? itemFiles : Array.from(event.clipboardData.files);
+              if (files.length) {
+                event.preventDefault();
+                void attachFiles(files);
+                return;
+              }
+              const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
+              if (shouldFoldPastedText(text)) {
+                const id = attachmentSequence.current++;
+                const lines = pastedTextLineCount(text);
+                const inserted = insertAttachment({
+                  id,
+                  name: `Pasted text · ${lines} lines`,
+                  kind: 'text',
+                  mimeType: 'text/plain',
+                  data: text,
+                  token: `[Pasted text #${id} +${lines} lines]`,
+                  source: 'paste',
+                  chipOnly: true,
+                });
+                if (inserted) event.preventDefault();
+              }
+            }}
+            rows={1}
+            placeholder={placeholder}
+            disabled={transitioning}
+            aria-controls={slashOpen ? 'composer-slash-palette' : mentionOpen ? 'composer-mention-palette' : undefined}
+            aria-expanded={slashOpen || mentionOpen}
+            aria-activedescendant={
+              slashOpen
+                ? `composer-slash-option-${slashIndex}`
+                : mentionOpen && mentionResults.length
+                  ? `composer-mention-option-${mentionIndex}`
+                  : undefined
+            }
+            aria-label={t('Message Mixdog')}
+          />
         </div>
-      </div>}
-      <div className="composer-input-row">
-      {skillSelection.name && <span className="composer-selected-skill">
-        <button type="button" onClick={() => textarea.current?.focus()} title={skillSelection.name}>
-          <CapabilityIcon name={skillSelection.name} /><span>{skillTitle(skillSelection.name)}</span>
-        </button>
-      </span>}
-      <textarea ref={textarea} value={draft} onChange={(event) => {
-        // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,
-        // logged only when a frame is actually slow.
-        if (window.mixdogDesktop?.perfLog && !composerPaintSamplePending.current) {
-          composerPaintSamplePending.current = true;
-          const inputAt = performance.now();
-          window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-            composerPaintSamplePending.current = false;
-            const ms = performance.now() - inputAt;
-            if (ms >= 25) window.mixdogDesktop?.perfLog?.(`composer-keystroke paint=${ms.toFixed(0)}ms`);
-          }));
-        }
-        const value = event.currentTarget.value;
-        draftRef.current = value;
-        setDraft(value);
-        escapeClearAtRef.current = 0;
-        if (attachmentError) setAttachmentError('');
-        if (composerNotice) setComposerNotice('');
-        setCaretOffset(event.currentTarget.selectionStart);
-        if (slashDismissed) setSlashDismissed('');
-        if (mentionDismissed) setMentionDismissed('');
-        historyNavigation.current = { index: -1, seed: '' };
-      }} onFocus={() => setComposerFocused(true)} onBlur={() => {
-        composingRef.current = false;
-        suppressImeLineBreakRef.current = false;
-        shiftLatchRef.current = false;
-        setComposerFocused(false);
-      }}
-        onPointerDown={() => { escapeClearAtRef.current = 0; }}
-        onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)} onKeyDown={event => {
-          if (shouldRemoveSelectedSkill({
-            selected: skillSelection.name, key: event.key,
-            start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd,
-            composing: composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229,
-            repeat: event.repeat, modified: event.ctrlKey || event.metaKey || event.altKey,
-          })) {
-            event.preventDefault();
-            event.stopPropagation();
-            skillSelection.select('');
-            return;
-          }
-          onKeyDown(event);
-        }} onKeyUp={onKeyUp}
-        onPaste={(event) => {
-          const itemFiles = Array.from(event.clipboardData.items || [])
-            .filter((item) => item.kind === 'file')
-            .map((item) => item.getAsFile())
-            .filter((file): file is File => Boolean(file));
-          const files = itemFiles.length ? itemFiles : Array.from(event.clipboardData.files);
-          if (files.length) {
-            event.preventDefault();
-            void attachFiles(files);
-            return;
-          }
-          const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
-          if (shouldFoldPastedText(text)) {
-            const id = attachmentSequence.current++;
-            const lines = pastedTextLineCount(text);
-            const inserted = insertAttachment({
-              id, name: `Pasted text · ${lines} lines`, kind: 'text', mimeType: 'text/plain', data: text,
-              token: `[Pasted text #${id} +${lines} lines]`, source: 'paste', chipOnly: true,
-            });
-            if (inserted) event.preventDefault();
-          }
-        }}
-        rows={1} placeholder={placeholder}
-        disabled={transitioning}
-        aria-controls={slashOpen ? 'composer-slash-palette' : mentionOpen ? 'composer-mention-palette' : undefined}
-        aria-expanded={slashOpen || mentionOpen}
-        aria-activedescendant={slashOpen ? `composer-slash-option-${slashIndex}`
-          : mentionOpen && mentionResults.length ? `composer-mention-option-${mentionIndex}` : undefined}
-        aria-label={t("Message Mixdog")} />
-      </div>
-      <div className="composer-footer">
-        <input ref={fileInput} type="file" hidden multiple
-          accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql"
-          onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
-        {goalDialogOpen && <ComposerGoalDialog anchor={textarea}
-          disabled={turnBusy || commandBusy || submitting} onStart={executeSlash}
-          onClose={() => setGoalDialogOpen(false)} returnFocus={() => textarea.current?.focus()} />}
-        <ComposerAddMenu key={identityScope} anchor={paletteAnchor} sessionId={sessionId}
-          disabled={transitioning || !paneActive} goalDisabled={turnBusy || commandBusy || submitting}
-          onAttach={() => fileInput.current?.click()}
-          onSkill={name => {
-            skillSelection.select(name); setMentionDismissed(mentionSignature);
-            queueMicrotask(() => textarea.current?.focus());
-          }}
-          onGoal={executeSlash} onMore={() => onOpenSettings('skills')} />
-        <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
-          modelParameters={modelParameters}
-          contextPercent={contextPercent}
-          sessionId={sessionId}
-          // Model writes are queued by the session API. A preceding write must
-          // not disable the next selection while its acknowledgement travels.
-          modelDisabled={transitioning}
-          // Effort/Fast stay live during a turn: the running turn already
-          // captured its own effort/fast at turn start, so a change here lands
-          // on the NEXT turn instead of being locked out. Only session-command
-          // churn still disables the controls.
-          tuningDisabled={commandBusy || transitioning}
-          invokeResult={invokeResult} applySnapshot={applySnapshot}
-          onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
-          onRoutePreferenceApplied={onRoutePreferenceApplied} />
-        {modelAside && <span className="composer-model-aside">{modelAside}</span>}
-        <span className="composer-primary-actions">
-        {/* The mic appears only once the voice runtime is installed
+        <div className="composer-footer">
+          <input
+            ref={fileInput}
+            type="file"
+            hidden
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql"
+            onChange={(event) => {
+              if (event.currentTarget.files) void attachFiles(event.currentTarget.files);
+              event.currentTarget.value = '';
+            }}
+          />
+          {goalDialogOpen && (
+            <ComposerGoalDialog
+              anchor={textarea}
+              disabled={turnBusy || commandBusy || submitting}
+              onStart={executeSlash}
+              onClose={() => setGoalDialogOpen(false)}
+              returnFocus={() => textarea.current?.focus()}
+            />
+          )}
+          <ComposerAddMenu
+            key={identityScope}
+            anchor={paletteAnchor}
+            sessionId={sessionId}
+            disabled={transitioning || !paneActive}
+            goalDisabled={turnBusy || commandBusy || submitting}
+            onAttach={() => fileInput.current?.click()}
+            onSkill={(name) => {
+              skillSelection.select(name);
+              setMentionDismissed(mentionSignature);
+              queueMicrotask(() => textarea.current?.focus());
+            }}
+            onGoal={executeSlash}
+            onMore={() => onOpenSettings('skills')}
+          />
+          <ModelSelector
+            provider={provider}
+            model={model}
+            effort={effort}
+            fast={fast}
+            fastCapable={fastCapable}
+            modelParameters={modelParameters}
+            contextPercent={contextPercent}
+            sessionId={sessionId}
+            // Model writes are queued by the session API. A preceding write must
+            // not disable the next selection while its acknowledgement travels.
+            modelDisabled={transitioning}
+            // Effort/Fast stay live during a turn: the running turn already
+            // captured its own effort/fast at turn start, so a change here lands
+            // on the NEXT turn instead of being locked out. Only session-command
+            // churn still disables the controls.
+            tuningDisabled={commandBusy || transitioning}
+            invokeResult={invokeResult}
+            applySnapshot={applySnapshot}
+            onOpenSettings={onOpenSettings}
+            onDraftSelection={onDraftModelSelection}
+            onRoutePreferenceApplied={onRoutePreferenceApplied}
+          />
+          {modelAside && <span className="composer-model-aside">{modelAside}</span>}
+          <span className="composer-primary-actions">
+            {/* The mic appears only once the voice runtime is installed
             (Extensions → Voice transcription): an uninstalled feature never
             advertises itself in the composer. */}
-        {dictationInstalled && <button type="button"
-          className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
-          disabled={transitioning || dictationState === 'transcribing'}
-          aria-label={dictationState === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
-          aria-pressed={dictationState === 'recording'}
-          data-tooltip={dictationState === 'recording' ? t('Stop and transcribe · Enter')
-            : dictationState === 'transcribing' ? t('Transcribing…') : t('Dictate')}
-          data-tooltip-side="top"
-          onClick={() => void toggleDictation()}>
-          {/* Recording swaps the glyph for the stop square: the disc alone
+            {dictationInstalled && (
+              <button
+                type="button"
+                className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
+                disabled={transitioning || dictationState === 'transcribing'}
+                aria-label={dictationState === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
+                aria-pressed={dictationState === 'recording'}
+                data-tooltip={
+                  dictationState === 'recording'
+                    ? t('Stop and transcribe · Enter')
+                    : dictationState === 'transcribing'
+                      ? t('Transcribing…')
+                      : t('Dictate')
+                }
+                data-tooltip-side="top"
+                onClick={() => void toggleDictation()}
+              >
+                {/* Recording swaps the glyph for the stop square: the disc alone
               never said that pressing it ENDS the take. */}
-          {dictationState === 'transcribing' ? <ProgressSpinner className="composer-mic-spinner" size={16} />
-            : dictationState === 'recording' ? <MxIcon name="stop" size={16} />
-              : <Mic size={16} />}
-        </button>}
-        {/* Mid-take the disc ENDS the take and sends what was spoken, instead
+                {dictationState === 'transcribing' ? (
+                  <ProgressSpinner className="composer-mic-spinner" size={16} />
+                ) : dictationState === 'recording' ? (
+                  <MxIcon name="stop" size={16} />
+                ) : (
+                  <Mic size={16} />
+                )}
+              </button>
+            )}
+            {/* Mid-take the disc ENDS the take and sends what was spoken, instead
             of sitting disabled: the transcript still only reaches the draft
             after the recorder stops, so this press chains stop → transcribe →
             submit. Transcribing keeps it disabled — that take is already on
             its way. */}
-        <button type={stopOnly || voiceSend ? "button" : "submit"}
-          className={`send-button${stopOnly ? " stop" : ""}`}
-          onClick={stopOnly ? () => void stop()
-            : voiceSend ? () => stopDictationAndSend()
-              : undefined}
-          disabled={stopOnly || voiceSend ? false
-            : (!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true))
-              || (submitting && Boolean(draftMode)) || transitioning || dictationState !== 'idle'}
-          aria-label={stopOnly ? t("Stop generation")
-            : voiceSend ? t("Stop dictation and send")
-              : submitting ? (hasConversation ? t("Sending message") : t("Starting session"))
-                : turnBusy ? t("Queue or steer active turn")
-                  : commandBusy ? t("Queue after current command") : t("Send message")}
-          data-tooltip={stopOnly ? t("Stop")
-            : voiceSend ? t("Stop and send")
-              : turnBusy ? t("Queue or steer · Enter")
-                : commandBusy ? t("Queue after command · Enter") : t("Send · Enter")}
-          data-tooltip-side="top">
-          {stopOnly
-            ? <MxIcon name="stop" size={16} />
-            : submitting
-              ? <ProgressSpinner className="composer-mic-spinner" size={16} />
-              : <ArrowUp size={16} />}
-        </button>
-        </span>
-      </div>
+            <button
+              type={stopOnly || voiceSend ? 'button' : 'submit'}
+              className={`send-button${stopOnly ? ' stop' : ''}`}
+              onClick={stopOnly ? () => void stop() : voiceSend ? () => stopDictationAndSend() : undefined}
+              disabled={
+                stopOnly || voiceSend
+                  ? false
+                  : (!draft.trim() &&
+                      !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true)) ||
+                    (submitting && Boolean(draftMode)) ||
+                    transitioning ||
+                    dictationState !== 'idle'
+              }
+              aria-label={
+                stopOnly
+                  ? t('Stop generation')
+                  : voiceSend
+                    ? t('Stop dictation and send')
+                    : submitting
+                      ? hasConversation
+                        ? t('Sending message')
+                        : t('Starting session')
+                      : turnBusy
+                        ? t('Queue or steer active turn')
+                        : commandBusy
+                          ? t('Queue after current command')
+                          : t('Send message')
+              }
+              data-tooltip={
+                stopOnly
+                  ? t('Stop')
+                  : voiceSend
+                    ? t('Stop and send')
+                    : turnBusy
+                      ? t('Queue or steer · Enter')
+                      : commandBusy
+                        ? t('Queue after command · Enter')
+                        : t('Send · Enter')
+              }
+              data-tooltip-side="top"
+            >
+              {stopOnly ? (
+                <MxIcon name="stop" size={16} />
+              ) : submitting ? (
+                <ProgressSpinner className="composer-mic-spinner" size={16} />
+              ) : (
+                <ArrowUp size={16} />
+              )}
+            </button>
+          </span>
+        </div>
       </form>
     </>
   );
@@ -1254,6 +1537,11 @@ export const Composer = memo(function Composer({
 // models surface (family grouping/limits, recency ordering). The desktop
 // modal only owns presentation. Shapes differ: desktop uses `model`, the
 // TUI uses `id`.
-// @ts-ignore -- shared TUI source has no declaration file.
 
-export { ModelSelector, WorkflowSelect, providerSetupEntries, providerSetupState, workflowOptionsCache } from "./model-controls";
+export {
+  ModelSelector,
+  WorkflowSelect,
+  providerSetupEntries,
+  providerSetupState,
+  workflowOptionsCache,
+} from './model-controls';

@@ -8,7 +8,7 @@ import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
 import { captureRowMenuAnchor, positionRowMenu } from './row-menu-geometry';
 
-export type RowOverflowMenuItem = {
+type RowOverflowMenuItem = {
   /** Stable semantic action identity; labels may change while the menu stays open. */
   id: string;
   label: string;

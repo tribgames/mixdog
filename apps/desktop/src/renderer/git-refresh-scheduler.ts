@@ -1,6 +1,6 @@
 export type GitRefreshReason = 'activity' | 'safety';
 
-export interface GitRefreshScheduler {
+interface GitRefreshScheduler {
   resume(): void;
   pause(): void;
   signal(): void;

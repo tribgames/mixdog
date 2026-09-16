@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import type { BrowserWindow, Display, Rectangle } from 'electron';
 import { DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
 
-export interface PersistedWindowState {
+interface PersistedWindowState {
   bounds: Rectangle;
   maximized: boolean;
 }
@@ -16,7 +16,7 @@ function finiteInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null;
 }
 
-export function validateWindowState(
+function validateWindowState(
   candidate: unknown,
   displays: readonly Pick<Display, 'workArea'>[]
 ): PersistedWindowState | null {

@@ -1,62 +1,70 @@
-import { Check, FileDiff, FileText, Undo2, X } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { t } from "./i18n";
-import { ErrorNotice } from "./ErrorNotice";
-import { GitDiffBody } from "./ReviewPane";
-import { findPatch, PATCH_CACHE_LIMIT } from "./TranscriptView";
+import { Check, FileDiff, FileText, Undo2, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { t } from './i18n';
+import { ErrorNotice } from './ErrorNotice';
+import { GitDiffBody } from './ReviewPane';
+import { findPatch, PATCH_CACHE_LIMIT } from './TranscriptView';
+import { readDiffStyle, TURN_REVIEW_DIFF_STYLE_KEY, type TranscriptItem, writeDiffStyle } from './desktop-types';
+import { reviewScopePending } from './composer-dock-reservation';
+import { parseUnifiedDiff, turnReviewScope } from './renderer-logic.mjs';
+import { RendererLruCache } from './renderer-lru-cache';
+import { registerIdleReclaim } from './idle-reclaim';
 import {
-  readDiffStyle,
-  TURN_REVIEW_DIFF_STYLE_KEY,
-  type TranscriptItem,
-  writeDiffStyle,
-} from "./desktop-types";
-import { reviewScopePending } from "./composer-dock-reservation";
-import { parseUnifiedDiff, turnReviewScope } from "./renderer-logic.mjs";
-import { RendererLruCache } from "./renderer-lru-cache";
-import { registerIdleReclaim } from "./idle-reclaim";
-import {
-  agentReviewCache, leadReviewCache, leadReviewFilesCache,
-  leadReviewSnapshotKindCache, leadReviewCheckpointIdCache, rememberAgentReviews,
-  type AgentTurnReview, type TurnReviewFile,
-} from "./turn-review-cache";
+  agentReviewCache,
+  leadReviewCache,
+  leadReviewFilesCache,
+  leadReviewSnapshotKindCache,
+  leadReviewCheckpointIdCache,
+  rememberAgentReviews,
+  type AgentTurnReview,
+  type TurnReviewFile,
+} from './turn-review-cache';
+// biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResult } from "../../../../src/runtime/shared/tool-surface.mjs";
-
+import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResult } from '../../../../src/runtime/shared/tool-surface.mjs';
 
 // "Review Changes": the headline is one authoritative turn-start → current
 // worktree diff. Exact worker apply_patch diffs remain attribution metadata and
 // are only added to totals in the non-Git fallback.
 type TurnReviewPatchPart = ReturnType<typeof parseUnifiedDiff>[number];
 type TurnReviewSummary = {
-  files: Map<string, {
-    additions: number;
-    deletions: number;
-    lineStats: boolean;
-    status: string;
-    binary: boolean;
-    parts: ReturnType<typeof parseUnifiedDiff>;
-  }>;
+  files: Map<
+    string,
+    {
+      additions: number;
+      deletions: number;
+      lineStats: boolean;
+      status: string;
+      binary: boolean;
+      parts: ReturnType<typeof parseUnifiedDiff>;
+    }
+  >;
   additions: number;
   deletions: number;
   hasLineStats: boolean;
 };
 const TURN_REVIEW_PATCH_CACHE_MAX_CHARS = 4 * 1024 * 1024;
 const TURN_REVIEW_PATCH_CACHE_ENTRY_MAX_CHARS = 512 * 1024;
-const turnReviewPatchCache = new RendererLruCache<string, Array<{
-  name: string;
-  additions: number;
-  deletions: number;
-  lineStats: boolean;
-  status: string;
-  binary: boolean;
-  part: TurnReviewPatchPart;
-}>>({
-  name: "turn-review-parsed",
+const turnReviewPatchCache = new RendererLruCache<
+  string,
+  Array<{
+    name: string;
+    additions: number;
+    deletions: number;
+    lineStats: boolean;
+    status: string;
+    binary: boolean;
+    part: TurnReviewPatchPart;
+  }>
+>({
+  name: 'turn-review-parsed',
   maxEntries: PATCH_CACHE_LIMIT,
   maxChars: TURN_REVIEW_PATCH_CACHE_MAX_CHARS,
   measure: (value, patch) => patch.length + JSON.stringify(value).length,
 });
-registerIdleReclaim(() => { turnReviewPatchCache.clear(); });
+registerIdleReclaim(() => {
+  turnReviewPatchCache.clear();
+});
 
 function analyzeTurnReviewPatch(patch: string) {
   const cached = turnReviewPatchCache.get(patch);
@@ -64,27 +72,29 @@ function analyzeTurnReviewPatch(patch: string) {
     return cached;
   }
   const analyzed = parseUnifiedDiff(patch).flatMap((part) => {
-    const name = String(part.newFile?.fileName || "");
+    const name = String(part.newFile?.fileName || '');
     if (!name) return [];
     let additions = 0;
     let deletions = 0;
-    for (const line of part.hunks.join("\n").split("\n")) {
-      if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
-      else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+    for (const line of part.hunks.join('\n').split('\n')) {
+      if (line.startsWith('+') && !line.startsWith('+++')) additions += 1;
+      else if (line.startsWith('-') && !line.startsWith('---')) deletions += 1;
     }
-    const status = String(part.status || "");
+    const status = String(part.status || '');
     // A bare `diff --git` header is not a file change. It used to survive as
     // an empty parsed part and rendered the misleading “+0 -0” row.
     if (additions === 0 && deletions === 0 && !status) return [];
-    return [{
-      name,
-      additions,
-      deletions,
-      lineStats: additions + deletions > 0,
-      status,
-      binary: status === "binary",
-      part,
-    }];
+    return [
+      {
+        name,
+        additions,
+        deletions,
+        lineStats: additions + deletions > 0,
+        status,
+        binary: status === 'binary',
+        part,
+      },
+    ];
   });
   if (patch.length <= TURN_REVIEW_PATCH_CACHE_ENTRY_MAX_CHARS) {
     turnReviewPatchCache.set(patch, analyzed);
@@ -93,7 +103,7 @@ function analyzeTurnReviewPatch(patch: string) {
 }
 
 function summarizeTurnReviewPatch(patch: string): TurnReviewSummary {
-  const files: TurnReviewSummary["files"] = new Map();
+  const files: TurnReviewSummary['files'] = new Map();
   if (patch) {
     try {
       for (const analyzed of analyzeTurnReviewPatch(patch)) {
@@ -101,7 +111,7 @@ function summarizeTurnReviewPatch(patch: string): TurnReviewSummary {
           additions: 0,
           deletions: 0,
           lineStats: false,
-          status: "",
+          status: '',
           binary: false,
           parts: [],
         };
@@ -113,7 +123,9 @@ function summarizeTurnReviewPatch(patch: string): TurnReviewSummary {
         entry.parts.push(analyzed.part);
         files.set(analyzed.name, entry);
       }
-    } catch { /* malformed/non-diff payload — skip */ }
+    } catch {
+      /* malformed/non-diff payload — skip */
+    }
   }
   let additions = 0;
   let deletions = 0;
@@ -128,20 +140,18 @@ function summarizeTurnReviewPatch(patch: string): TurnReviewSummary {
 
 function summarizeAuthoritativeTurnReview(filesInput: TurnReviewFile[], patch: string): TurnReviewSummary {
   const parsed = summarizeTurnReviewPatch(patch);
-  const files: TurnReviewSummary["files"] = new Map();
+  const files: TurnReviewSummary['files'] = new Map();
   for (const row of filesInput) {
-    const name = String(row?.path || "");
+    const name = String(row?.path || '');
     if (!name) continue;
-    const parsedEntry = parsed.files.get(name) || (
-      row.oldPath ? parsed.files.get(String(row.oldPath)) : undefined
-    );
-    const additions = typeof row.additions === "number" ? row.additions : 0;
-    const deletions = typeof row.deletions === "number" ? row.deletions : 0;
+    const parsedEntry = parsed.files.get(name) || (row.oldPath ? parsed.files.get(String(row.oldPath)) : undefined);
+    const additions = typeof row.additions === 'number' ? row.additions : 0;
+    const deletions = typeof row.deletions === 'number' ? row.deletions : 0;
     files.set(name, {
       additions,
       deletions,
       lineStats: additions + deletions > 0,
-      status: String(row.status || parsedEntry?.status || "M"),
+      status: String(row.status || parsedEntry?.status || 'M'),
       binary: row.binary === true || parsedEntry?.binary === true,
       parts: parsedEntry?.parts || [],
     });
@@ -158,7 +168,7 @@ function summarizeAuthoritativeTurnReview(filesInput: TurnReviewFile[], patch: s
 }
 
 function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnReviewSummary {
-  const files: TurnReviewSummary["files"] = new Map();
+  const files: TurnReviewSummary['files'] = new Map();
   let additions = 0;
   let deletions = 0;
   for (const summary of summaries) {
@@ -169,7 +179,7 @@ function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnReviewSum
         additions: 0,
         deletions: 0,
         lineStats: false,
-        status: "",
+        status: '',
         binary: false,
         parts: [],
       };
@@ -190,21 +200,21 @@ function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnReviewSum
   };
 }
 
-function statusLabel(entry: TurnReviewSummary["files"] extends Map<string, infer T> ? T : never): string {
-  if (entry.binary) return t("Binary");
-  if (entry.status === "R") return t("Renamed");
-  if (entry.status === "C") return t("Copied");
-  if (entry.status === "A") return t("Added");
-  if (entry.status === "D") return t("Deleted");
-  if (entry.status === "T") return t("Metadata");
-  return t("Changed");
+function statusLabel(entry: TurnReviewSummary['files'] extends Map<string, infer T> ? T : never): string {
+  if (entry.binary) return t('Binary');
+  if (entry.status === 'R') return t('Renamed');
+  if (entry.status === 'C') return t('Copied');
+  if (entry.status === 'A') return t('Added');
+  if (entry.status === 'D') return t('Deleted');
+  if (entry.status === 'T') return t('Metadata');
+  return t('Changed');
 }
 
-function statusCode(entry: TurnReviewSummary["files"] extends Map<string, infer T> ? T : never): string {
-  const status = String(entry.status || "").toUpperCase();
-  if (["A", "D", "M", "R", "C", "T"].includes(status)) return status;
-  if (entry.binary) return "B";
-  return entry.lineStats ? "M" : "";
+function statusCode(entry: TurnReviewSummary['files'] extends Map<string, infer T> ? T : never): string {
+  const status = String(entry.status || '').toUpperCase();
+  if (['A', 'D', 'M', 'R', 'C', 'T'].includes(status)) return status;
+  if (entry.binary) return 'B';
+  return entry.lineStats ? 'M' : '';
 }
 
 // Single-quoted so the capability-inventory source scan counts this surface.
@@ -212,8 +222,8 @@ const TURN_REVIEW_CAPABILITY = 'getTurnReviewDiff';
 
 function toolPublishesPatch(item: TranscriptItem): boolean {
   const categories = item.categories;
-  if (categories && typeof categories === "object" && Object.hasOwn(categories, "Patch")) return true;
-  return classifyToolCategory(String(item.name || ""), item.args) === "Patch";
+  if (categories && typeof categories === 'object' && Object.hasOwn(categories, 'Patch')) return true;
+  return classifyToolCategory(String(item.name || ''), item.args) === 'Patch';
 }
 
 function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: number) {
@@ -221,14 +231,14 @@ function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: numbe
   let deletions = 0;
   for (let index = turnStart + 1; index < items.length; index++) {
     const item = items[index];
-    if (!item || item.kind !== "tool" || !toolPublishesPatch(item)) continue;
+    if (!item || item.kind !== 'tool' || !toolPublishesPatch(item)) continue;
     const count = Math.max(1, Number(item.count || 1));
     if (item.isError === true || Number(item.errorCount || 0) >= count) continue;
     if (parseToolArgs(item.args)?.dry_run === true) continue;
-    const result = item.result ?? item.rawResult ?? "";
+    const result = item.result ?? item.rawResult ?? '';
     const summaryText = item.aggregate
       ? String(result)
-      : (summarizeToolResult(String(item.name || ""), item.args, String(result), false) || "");
+      : summarizeToolResult(String(item.name || ''), item.args, String(result), false) || '';
     const delta = parseLineDelta(summaryText);
     if (delta.seen) {
       additions += delta.added;
@@ -242,7 +252,9 @@ function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: numbe
         additions += analyzed.additions;
         deletions += analyzed.deletions;
       }
-    } catch { /* malformed/non-diff payload — skip */ }
+    } catch {
+      /* malformed/non-diff payload — skip */
+    }
   }
   return {
     additions,
@@ -252,7 +264,13 @@ function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: numbe
 }
 
 export const TurnReviewBar = memo(function TurnReviewBar({
-  items, cwd, sessionId, active = true, busy = false, onPendingChange, onOpenFile,
+  items,
+  cwd,
+  sessionId,
+  active = true,
+  busy = false,
+  onPendingChange,
+  onOpenFile,
 }: {
   items: TranscriptItem[];
   cwd?: string;
@@ -266,16 +284,16 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   onPendingChange?: (pending: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [openFile, setOpenFile] = useState("");
-  const [confirmFile, setConfirmFile] = useState("");
+  const [openFile, setOpenFile] = useState('');
+  const [confirmFile, setConfirmFile] = useState('');
   const [reverted, setReverted] = useState<string[]>([]);
   // A refused revert used to vanish into an empty catch, so a legitimate
   // runtime refusal was indistinguishable from a dead button.
-  const [revertError, setRevertError] = useState("");
+  const [revertError, setRevertError] = useState('');
   // The turn boundary at which the last revert succeeded. Until a new tool
   // completes, the runtime's (now emptier) diff outranks the transcript's
   // per-edit uiDiff, which still describes the mutation that was just undone.
-  const [revertedBoundary, setRevertedBoundary] = useState("");
+  const [revertedBoundary, setRevertedBoundary] = useState('');
   // An expanded review closes on the first pointer press OUTSIDE its own box.
   // Presses inside (rows, revert, diff style) keep it open, so the disclosure
   // never collapses under its own controls.
@@ -287,15 +305,15 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       const target = event.target as Node | null;
       if (!element || (target && element.contains(target))) return;
       setExpanded(false);
-      setOpenFile("");
-      setConfirmFile("");
-      setRevertError("");
+      setOpenFile('');
+      setConfirmFile('');
+      setRevertError('');
     };
-    window.addEventListener("pointerdown", closeOnOutsidePointer, true);
-    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+    window.addEventListener('pointerdown', closeOnOutsidePointer, true);
+    return () => window.removeEventListener('pointerdown', closeOnOutsidePointer, true);
   }, [expanded]);
   const reviewScope = useMemo(() => turnReviewScope(items), [items]);
-  const turnScopeKey = `${String(sessionId || "draft")}:${reviewScope.key}`;
+  const turnScopeKey = `${String(sessionId || 'draft')}:${reviewScope.key}`;
   const activeScope = useRef(turnScopeKey);
   activeScope.current = turnScopeKey;
   const [agentReviewState, setAgentReviewState] = useState<{
@@ -310,49 +328,48 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     reviews: agentReviewCache.get(turnScopeKey) || [],
     leadPatch: leadReviewCache.get(turnScopeKey) ?? null,
     files: leadReviewFilesCache.get(turnScopeKey) || [],
-    snapshotKind: leadReviewSnapshotKindCache.get(turnScopeKey) || "",
-    checkpointId: leadReviewCheckpointIdCache.get(turnScopeKey) || "",
+    snapshotKind: leadReviewSnapshotKindCache.get(turnScopeKey) || '',
+    checkpointId: leadReviewCheckpointIdCache.get(turnScopeKey) || '',
   }));
   // Keying the read as well as the write prevents a one-frame stale bar before
   // effects run when the user switches sessions or opens New task.
-  const agentReviews = agentReviewState.scopeKey === turnScopeKey
-    ? agentReviewState.reviews
-    : (agentReviewCache.get(turnScopeKey) || []);
-  const authoritativeLeadPatch = agentReviewState.scopeKey === turnScopeKey
-    ? agentReviewState.leadPatch
-    : (leadReviewCache.get(turnScopeKey) ?? null);
-  const authoritativeLeadFiles = agentReviewState.scopeKey === turnScopeKey
-    ? agentReviewState.files
-    : (leadReviewFilesCache.get(turnScopeKey) || []);
-  const authoritativeSnapshotKind = agentReviewState.scopeKey === turnScopeKey
-    ? agentReviewState.snapshotKind
-    : (leadReviewSnapshotKindCache.get(turnScopeKey) || "");
-  const authoritativeCheckpointId = agentReviewState.scopeKey === turnScopeKey
-    ? agentReviewState.checkpointId
-    : (leadReviewCheckpointIdCache.get(turnScopeKey) || "");
+  const agentReviews =
+    agentReviewState.scopeKey === turnScopeKey ? agentReviewState.reviews : agentReviewCache.get(turnScopeKey) || [];
+  const authoritativeLeadPatch =
+    agentReviewState.scopeKey === turnScopeKey
+      ? agentReviewState.leadPatch
+      : (leadReviewCache.get(turnScopeKey) ?? null);
+  const authoritativeLeadFiles =
+    agentReviewState.scopeKey === turnScopeKey ? agentReviewState.files : leadReviewFilesCache.get(turnScopeKey) || [];
+  const authoritativeSnapshotKind =
+    agentReviewState.scopeKey === turnScopeKey
+      ? agentReviewState.snapshotKind
+      : leadReviewSnapshotKindCache.get(turnScopeKey) || '';
+  const authoritativeCheckpointId =
+    agentReviewState.scopeKey === turnScopeKey
+      ? agentReviewState.checkpointId
+      : leadReviewCheckpointIdCache.get(turnScopeKey) || '';
   // A recorded ("scoped") review is the same Git diff as a live worktree
   // baseline, only limited to the session's own paths, so its file list is
   // trusted the same way. Otherwise a revert served from the record left the
   // transcript's stale diff on screen and looked like nothing had happened.
-  const authoritativeWorktreeSnapshot = authoritativeSnapshotKind === "worktree"
-    || authoritativeSnapshotKind === "scoped";
+  const authoritativeWorktreeSnapshot =
+    authoritativeSnapshotKind === 'worktree' || authoritativeSnapshotKind === 'scoped';
   const capabilityRequestInFlight = useRef(false);
   const pendingCapabilityRefresh = useRef<{
     scopeKey: string;
     refreshWorktree: boolean;
   } | null>(null);
-  const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean) => Promise<void>>(
-    async () => undefined,
-  );
+  const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean) => Promise<void>>(async () => undefined);
   const lastAgentReviewSignature = useRef<string | null>(null);
   useEffect(() => {
     pendingCapabilityRefresh.current = null;
     lastAgentReviewSignature.current = null;
     setExpanded(false);
-    setOpenFile("");
-    setConfirmFile("");
+    setOpenFile('');
+    setConfirmFile('');
     setReverted([]);
-    setRevertedBoundary("");
+    setRevertedBoundary('');
   }, [turnScopeKey]);
   // Only probe once the transcript shows turn activity: a fresh/empty session
   // has no child review and passive mounts must not fire capability calls.
@@ -360,131 +377,137 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // The scope whose authoritative read has come back (or could not run). A
   // scope already answered in the shared cache is settled from its first
   // render, so revisiting a session never re-reserves the slot.
-  const [settledScope, setSettledScope] = useState("");
-  const refreshAgentReviews = useCallback(async (refreshWorktree = false) => {
-    const api = window.mixdogDesktop as {
-      invokeCapability?: (request: {
-        capability: string;
-        args: unknown[];
-        sessionId?: string;
-      }) => Promise<{ value?: unknown }>;
-    } | undefined;
-    const requestedScope = turnScopeKey;
-    const settle = () => {
-      if (activeScope.current === requestedScope) setSettledScope(requestedScope);
-    };
-    if (!sessionId || !api?.invokeCapability) {
-      settle();
-      return;
-    }
-    if (document.visibilityState === "hidden") {
-      settle();
-      return;
-    }
-    if (capabilityRequestInFlight.current) {
-      const pending = pendingCapabilityRefresh.current;
-      pendingCapabilityRefresh.current = {
-        scopeKey: requestedScope,
-        refreshWorktree: refreshWorktree
-          || (pending?.scopeKey === requestedScope && pending.refreshWorktree),
+  const [settledScope, setSettledScope] = useState('');
+  const refreshAgentReviews = useCallback(
+    async (refreshWorktree = false) => {
+      const api = window.mixdogDesktop as
+        | {
+            invokeCapability?: (request: {
+              capability: string;
+              args: unknown[];
+              sessionId?: string;
+            }) => Promise<{ value?: unknown }>;
+          }
+        | undefined;
+      const requestedScope = turnScopeKey;
+      const settle = () => {
+        if (activeScope.current === requestedScope) setSettledScope(requestedScope);
       };
-      return;
-    }
-    capabilityRequestInFlight.current = true;
-    try {
-      // This bar belongs to the pane's session. During a tab switch the host's
-      // focused view can already point elsewhere, so omitting this address
-      // mixed another turn's diff into the bar and could hit a stale view.
-      const result = await api.invokeCapability({
-        capability: TURN_REVIEW_CAPABILITY,
-        args: [{ refresh: refreshWorktree }],
-        sessionId,
-      });
-      const value = (result?.value ?? null) as {
-        supported?: boolean;
-        authoritative?: boolean;
-        snapshotKind?: unknown;
-        revertMode?: unknown;
-        checkpointId?: unknown;
-        patch?: unknown;
-        files?: Array<{
-          path?: unknown;
-          oldPath?: unknown;
-          status?: unknown;
-          additions?: unknown;
-          deletions?: unknown;
-          binary?: unknown;
-        }>;
-        agents?: Array<{
-          sessionId?: unknown;
-          agent?: unknown;
-          tag?: unknown;
-          patch?: unknown;
-        }>;
-      } | null;
-      if (!value || value.supported === false) {
+      if (!sessionId || !api?.invokeCapability) {
+        settle();
         return;
       }
-      const leadPatch = value.authoritative === true
-        ? (typeof value.patch === "string" ? value.patch : "")
-        : null;
-      const snapshotKind = value.authoritative === true ? String(value.snapshotKind || "") : "";
-      const checkpointId = value.authoritative === true ? String(value.checkpointId || "") : "";
-      const files = (value.authoritative === true && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
-        const path = String(row?.path || "");
-        if (!path) return [];
-        return [{
-          path,
-          oldPath: row?.oldPath ? String(row.oldPath) : null,
-          status: row?.status ? String(row.status) : "M",
-          additions: typeof row?.additions === "number" ? row.additions : null,
-          deletions: typeof row?.deletions === "number" ? row.deletions : null,
-          binary: row?.binary === true,
-        }];
-      });
-      const reviews = (Array.isArray(value.agents) ? value.agents : []).flatMap((review) => {
-        const childSessionId = String(review?.sessionId || "");
-        const patch = typeof review?.patch === "string" ? review.patch : "";
-        if (!childSessionId || !patch) return [];
-        return [{
-          sessionId: childSessionId,
-          agent: review?.agent ? String(review.agent) : null,
-          tag: review?.tag ? String(review.tag) : null,
-          patch,
-        }];
-      });
-      const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews]);
-      rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind, checkpointId);
-      if (lastAgentReviewSignature.current === signature) return;
-      lastAgentReviewSignature.current = signature;
-      if (activeScope.current === requestedScope) {
-        setAgentReviewState({
+      if (document.visibilityState === 'hidden') {
+        settle();
+        return;
+      }
+      if (capabilityRequestInFlight.current) {
+        const pending = pendingCapabilityRefresh.current;
+        pendingCapabilityRefresh.current = {
           scopeKey: requestedScope,
-          reviews,
-          leadPatch,
-          files,
-          snapshotKind,
-          checkpointId,
+          refreshWorktree: refreshWorktree || (pending?.scopeKey === requestedScope && pending.refreshWorktree),
+        };
+        return;
+      }
+      capabilityRequestInFlight.current = true;
+      try {
+        // This bar belongs to the pane's session. During a tab switch the host's
+        // focused view can already point elsewhere, so omitting this address
+        // mixed another turn's diff into the bar and could hit a stale view.
+        const result = await api.invokeCapability({
+          capability: TURN_REVIEW_CAPABILITY,
+          args: [{ refresh: refreshWorktree }],
+          sessionId,
         });
+        const value = (result?.value ?? null) as {
+          supported?: boolean;
+          authoritative?: boolean;
+          snapshotKind?: unknown;
+          revertMode?: unknown;
+          checkpointId?: unknown;
+          patch?: unknown;
+          files?: Array<{
+            path?: unknown;
+            oldPath?: unknown;
+            status?: unknown;
+            additions?: unknown;
+            deletions?: unknown;
+            binary?: unknown;
+          }>;
+          agents?: Array<{
+            sessionId?: unknown;
+            agent?: unknown;
+            tag?: unknown;
+            patch?: unknown;
+          }>;
+        } | null;
+        if (!value || value.supported === false) {
+          return;
+        }
+        const leadPatch = value.authoritative === true ? (typeof value.patch === 'string' ? value.patch : '') : null;
+        const snapshotKind = value.authoritative === true ? String(value.snapshotKind || '') : '';
+        const checkpointId = value.authoritative === true ? String(value.checkpointId || '') : '';
+        const files = (value.authoritative === true && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
+          const path = String(row?.path || '');
+          if (!path) return [];
+          return [
+            {
+              path,
+              oldPath: row?.oldPath ? String(row.oldPath) : null,
+              status: row?.status ? String(row.status) : 'M',
+              additions: typeof row?.additions === 'number' ? row.additions : null,
+              deletions: typeof row?.deletions === 'number' ? row.deletions : null,
+              binary: row?.binary === true,
+            },
+          ];
+        });
+        const reviews = (Array.isArray(value.agents) ? value.agents : []).flatMap((review) => {
+          const childSessionId = String(review?.sessionId || '');
+          const patch = typeof review?.patch === 'string' ? review.patch : '';
+          if (!childSessionId || !patch) return [];
+          return [
+            {
+              sessionId: childSessionId,
+              agent: review?.agent ? String(review.agent) : null,
+              tag: review?.tag ? String(review.tag) : null,
+              patch,
+            },
+          ];
+        });
+        const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews]);
+        rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind, checkpointId);
+        if (lastAgentReviewSignature.current === signature) return;
+        lastAgentReviewSignature.current = signature;
+        if (activeScope.current === requestedScope) {
+          setAgentReviewState({
+            scopeKey: requestedScope,
+            reviews,
+            leadPatch,
+            files,
+            snapshotKind,
+            checkpointId,
+          });
+        }
+      } catch {
+        // The next turn boundary, visibility change, expansion, or bounded idle
+        // refresh retries. A transient read must never permanently lock Revert.
+      } finally {
+        capabilityRequestInFlight.current = false;
+        settle();
+        const pending = pendingCapabilityRefresh.current;
+        pendingCapabilityRefresh.current = null;
+        if (pending && activeScope.current === pending.scopeKey) {
+          void refreshAgentReviewsRef.current(pending.refreshWorktree);
+        }
       }
-    } catch {
-      // The next turn boundary, visibility change, expansion, or bounded idle
-      // refresh retries. A transient read must never permanently lock Revert.
-    } finally {
-      capabilityRequestInFlight.current = false;
-      settle();
-      const pending = pendingCapabilityRefresh.current;
-      pendingCapabilityRefresh.current = null;
-      if (pending && activeScope.current === pending.scopeKey) {
-        void refreshAgentReviewsRef.current(pending.refreshWorktree);
-      }
-    }
-  }, [sessionId, turnScopeKey]);
+    },
+    [sessionId, turnScopeKey]
+  );
   refreshAgentReviewsRef.current = refreshAgentReviews;
   const reviewPending = reviewScopePending({
     active,
     hasTurnActivity,
-    sessionId: String(sessionId || ""),
+    sessionId: String(sessionId || ''),
     scopeKey: turnScopeKey,
     settledScope,
     cached: leadReviewCheckpointIdCache.has(turnScopeKey),
@@ -500,11 +523,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     for (let index = items.length - 1; index >= 0; index--) {
       const item = items[index];
       if (!item) continue;
-      if (item.kind === "turndone" || item.kind === "statusdone" || item.kind === "tool") {
-        return `${String(item.id ?? index)}:${String(item.completedAt ?? item.completedCount ?? "")}`;
+      if (item.kind === 'turndone' || item.kind === 'statusdone' || item.kind === 'tool') {
+        return `${String(item.id ?? index)}:${String(item.completedAt ?? item.completedCount ?? '')}`;
       }
     }
-    return "";
+    return '';
   }, [items]);
   useEffect(() => {
     // A tool/turn boundary is the authoritative point at which the visible
@@ -521,7 +544,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     // without leaving every mounted session on a permanent six-second poll.
     if (busy || expanded) {
       void refreshAgentReviews(true);
-      const timer = window.setInterval(() => { void refreshAgentReviews(true); }, 6_000);
+      const timer = window.setInterval(() => {
+        void refreshAgentReviews(true);
+      }, 6_000);
       return () => window.clearInterval(timer);
     }
     const delays = [6_000, 12_000, 24_000, 48_000];
@@ -540,18 +565,18 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   }, [active, busy, expanded, refreshAgentReviews, hasTurnActivity, agentReviews.length, turnBoundaryKey]);
   // The bar's own persisted Unified/Split choice, separate from the Source
   // Control and Session Diff tabs (user: 3개 분리 저장).
-  const [diffStyle, setDiffStyle] = useState<"unified" | "split">(
-    () => readDiffStyle(TURN_REVIEW_DIFF_STYLE_KEY),
-  );
-  useEffect(() => { writeDiffStyle(TURN_REVIEW_DIFF_STYLE_KEY, diffStyle); }, [diffStyle]);
+  const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>(() => readDiffStyle(TURN_REVIEW_DIFF_STYLE_KEY));
+  useEffect(() => {
+    writeDiffStyle(TURN_REVIEW_DIFF_STYLE_KEY, diffStyle);
+  }, [diffStyle]);
   const transcriptSummary = useMemo(() => {
     const patches: string[] = [];
     let latestUiDiff: string | null = null;
     for (let index = reviewScope.startIndex + 1; index < items.length; index++) {
       const item = items[index];
-      if (!item || item.kind !== "tool") continue;
-      if (Object.hasOwn(item, "uiDiff")) {
-        latestUiDiff = typeof item.uiDiff === "string" ? item.uiDiff : "";
+      if (!item || item.kind !== 'tool') continue;
+      if (Object.hasOwn(item, 'uiDiff')) {
+        latestUiDiff = typeof item.uiDiff === 'string' ? item.uiDiff : '';
         continue;
       }
       const count = Math.max(1, Number(item.count || 1));
@@ -563,7 +588,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       // authoritative worktree snapshot instead.
       if (!toolPublishesPatch(item)) continue;
       const patch = findPatch(item);
-      if (typeof patch !== "string" || !patch) continue;
+      if (typeof patch !== 'string' || !patch) continue;
       patches.push(patch);
     }
     // The completed tool item is published in the same frame as the mutation
@@ -571,20 +596,16 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     // same-card edits. An explicit empty uiDiff is authoritative too: it means
     // the latest apply_patch restored the turn baseline.
     if (authoritativeWorktreeSnapshot) {
-      return summarizeAuthoritativeTurnReview(
-        authoritativeLeadFiles,
-        authoritativeLeadPatch || "",
-      );
+      return summarizeAuthoritativeTurnReview(authoritativeLeadFiles, authoritativeLeadPatch || '');
     }
     // After a revert the transcript's uiDiff is exactly the change that was
     // undone, so the runtime's exact-tracker diff wins until the next tool
     // completes and moves the boundary.
-    const afterRevert = revertedBoundary !== ""
-      && revertedBoundary === turnBoundaryKey
-      && authoritativeLeadPatch !== null;
-    return summarizeTurnReviewPatch(afterRevert
-      ? authoritativeLeadPatch
-      : latestUiDiff ?? authoritativeLeadPatch ?? patches.join("\n"));
+    const afterRevert =
+      revertedBoundary !== '' && revertedBoundary === turnBoundaryKey && authoritativeLeadPatch !== null;
+    return summarizeTurnReviewPatch(
+      afterRevert ? authoritativeLeadPatch : (latestUiDiff ?? authoritativeLeadPatch ?? patches.join('\n'))
+    );
   }, [
     authoritativeLeadFiles,
     authoritativeLeadPatch,
@@ -594,52 +615,60 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     revertedBoundary,
     turnBoundaryKey,
   ]);
-  const agentSources = useMemo(() => agentReviews.flatMap((review, index) => {
-    const reviewSummary = summarizeTurnReviewPatch(review.patch);
-    if (reviewSummary.files.size === 0) return [];
-    const label = review.tag && review.agent && review.tag !== review.agent
-      ? `${review.tag} · ${review.agent}`
-      : (review.tag || review.agent || "Agent");
-    return [{
-      key: `${review.sessionId}:${index}`,
-      label,
-      summary: reviewSummary,
-    }];
-  }), [agentReviews]);
+  const agentSources = useMemo(
+    () =>
+      agentReviews.flatMap((review, index) => {
+        const reviewSummary = summarizeTurnReviewPatch(review.patch);
+        if (reviewSummary.files.size === 0) return [];
+        const label =
+          review.tag && review.agent && review.tag !== review.agent
+            ? `${review.tag} · ${review.agent}`
+            : review.tag || review.agent || 'Agent';
+        return [
+          {
+            key: `${review.sessionId}:${index}`,
+            label,
+            summary: reviewSummary,
+          },
+        ];
+      }),
+    [agentReviews]
+  );
   const agentSummary = useMemo(
     () => mergeTurnReviewSummaries(agentSources.map((source) => source.summary)),
-    [agentSources],
+    [agentSources]
   );
   const summary = useMemo(
-    () => authoritativeWorktreeSnapshot
-      ? transcriptSummary
-      : mergeTurnReviewSummaries([transcriptSummary, agentSummary]),
-    [transcriptSummary, agentSummary, authoritativeWorktreeSnapshot],
+    () =>
+      authoritativeWorktreeSnapshot ? transcriptSummary : mergeTurnReviewSummaries([transcriptSummary, agentSummary]),
+    [transcriptSummary, agentSummary, authoritativeWorktreeSnapshot]
   );
   const operationSummary = useMemo(
     () => summarizeTurnReviewOperations(items, reviewScope.startIndex),
-    [items, reviewScope.startIndex],
+    [items, reviewScope.startIndex]
   );
   // The file set and expanded rows remain the authoritative turn-start → current
   // diff. The collapsed headline mirrors the activity cards' edit workload so
   // replaced/deleted intermediate lines do not disappear into a net +N count.
   const headlineStats = operationSummary.hasLineStats ? operationSummary : summary;
-  const sources = useMemo(() => [
-    ...(transcriptSummary.files.size > 0
-      ? [{
-        key: authoritativeWorktreeSnapshot ? "turn" : "lead",
-        label: authoritativeWorktreeSnapshot ? "Turn" : "Lead",
-        summary: transcriptSummary,
-      }]
-      : []),
-    ...agentSources,
-  ], [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
+  const sources = useMemo(
+    () => [
+      ...(transcriptSummary.files.size > 0
+        ? [
+            {
+              key: authoritativeWorktreeSnapshot ? 'turn' : 'lead',
+              label: authoritativeWorktreeSnapshot ? 'Turn' : 'Lead',
+              summary: transcriptSummary,
+            },
+          ]
+        : []),
+      ...agentSources,
+    ],
+    [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]
+  );
   const reviewVisible = summary.files.size > 0;
-  const requestedCheckpointId = reviewScope.key === "none"
-    ? authoritativeCheckpointId
-    : reviewScope.key;
-  const checkpointMatches = !authoritativeCheckpointId
-    || authoritativeCheckpointId === requestedCheckpointId;
+  const requestedCheckpointId = reviewScope.key === 'none' ? authoritativeCheckpointId : reviewScope.key;
+  const checkpointMatches = !authoritativeCheckpointId || authoritativeCheckpointId === requestedCheckpointId;
   // Revert availability is decided by the runtime at click time. A transient
   // or stale capability read must not permanently disable an otherwise valid
   // checkpoint, but a known ID mismatch is never allowed to hit another turn.
@@ -650,23 +679,37 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // gap above the composer while new output streams above it.
   if (!reviewVisible) return null;
   return (
-    <section ref={barElement} className="turn-review-bar" aria-label={t("Files changed this turn")}
-      data-expanded={expanded ? "true" : "false"}>
+    <section
+      ref={barElement}
+      className="turn-review-bar"
+      aria-label={t('Files changed this turn')}
+      data-expanded={expanded ? 'true' : 'false'}
+    >
       <div className="turn-review-head">
-        <button type="button" className="turn-review-summary" aria-expanded={expanded}
-          onClick={() => setExpanded((value) => {
-            const next = !value;
-            // Collapsing also closes any open inline diff/confirm so reopening
-            // starts from the tidy list, not a tall stale diff.
-            if (!next) {
-              setOpenFile("");
-              setConfirmFile("");
-              setRevertError("");
-            }
-            return next;
-          })}>
+        <button
+          type="button"
+          className="turn-review-summary"
+          aria-expanded={expanded}
+          onClick={() =>
+            setExpanded((value) => {
+              const next = !value;
+              // Collapsing also closes any open inline diff/confirm so reopening
+              // starts from the tidy list, not a tall stale diff.
+              if (!next) {
+                setOpenFile('');
+                setConfirmFile('');
+                setRevertError('');
+              }
+              return next;
+            })
+          }
+        >
           <FileDiff size={14} aria-hidden="true" />
-          <strong>{summary.files.size === 1 ? t("1 file changed") : t("{{count}} files changed", { count: summary.files.size })}</strong>
+          <strong>
+            {summary.files.size === 1
+              ? t('1 file changed')
+              : t('{{count}} files changed', { count: summary.files.size })}
+          </strong>
           {/* The counters belong to the TITLE, not to the (now removed)
               expander side of the row. */}
           {headlineStats.hasLineStats && (
@@ -675,24 +718,29 @@ export const TurnReviewBar = memo(function TurnReviewBar({
               {headlineStats.deletions > 0 && <em>-{headlineStats.deletions}</em>}
             </span>
           )}
-          {agentSources.length > 0 && <span className="turn-review-attribution">
-            {authoritativeWorktreeSnapshot
-              ? t("Agents {{agents}} attributed", { agents: agentSummary.files.size })
-              : t("Lead {{lead}} · Agents {{agents}}", {
-                lead: transcriptSummary.files.size,
-                agents: agentSummary.files.size,
-              })}
-          </span>}
+          {agentSources.length > 0 && (
+            <span className="turn-review-attribution">
+              {authoritativeWorktreeSnapshot
+                ? t('Agents {{agents}} attributed', { agents: agentSummary.files.size })
+                : t('Lead {{lead}} · Agents {{agents}}', {
+                    lead: transcriptSummary.files.size,
+                    agents: agentSummary.files.size,
+                  })}
+            </span>
+          )}
         </button>
-        {expanded && <div className="turn-review-controls">
-          <div className="review-style-toggle turn-review-style" role="radiogroup"
-            aria-label={t("Diff style")}>
-            <button type="button" aria-pressed={diffStyle === "unified"}
-              onClick={() => setDiffStyle("unified")}>{t("Unified")}</button>
-            <button type="button" aria-pressed={diffStyle === "split"}
-              onClick={() => setDiffStyle("split")}>{t("Split")}</button>
+        {expanded && (
+          <div className="turn-review-controls">
+            <div className="review-style-toggle turn-review-style" role="radiogroup" aria-label={t('Diff style')}>
+              <button type="button" aria-pressed={diffStyle === 'unified'} onClick={() => setDiffStyle('unified')}>
+                {t('Unified')}
+              </button>
+              <button type="button" aria-pressed={diffStyle === 'split'} onClick={() => setDiffStyle('split')}>
+                {t('Split')}
+              </button>
+            </div>
           </div>
-        </div>}
+        )}
       </div>
       {/* A refusal stays OUTSIDE the disclosure so its reason is readable
           without expanding the bar. */}
@@ -700,106 +748,152 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       <div className="turn-review-collapse" inert={!expanded} aria-hidden={!expanded}>
         <div className="turn-review-collapse-inner">
           <ul className="turn-review-files">
-        {sources.flatMap((source) => {
-          const sourceHeader = (
-            <li key={`${source.key}:source`} className="turn-review-source">
-              <strong>{t(source.label)}</strong>
-              <span className="diff-stats" aria-hidden={!source.summary.hasLineStats}>
-                <i>{source.summary.additions > 0 ? `+${source.summary.additions}` : ""}</i>
-                <em>{source.summary.deletions > 0 ? `-${source.summary.deletions}` : ""}</em>
-              </span>
-            </li>
-          );
-          const rows = [...source.summary.files.entries()].map(([name, entry]) => {
-          // Tool patches sometimes carry ABSOLUTE paths; display and revert
-          // use the project-relative form (git confinement expects it).
-          const normalizedCwd = String(cwd || "").replace(/\\/g, "/").replace(/\/+$/, "");
-          const normalizedName = name.replace(/\\/g, "/");
-          const rel = normalizedCwd && normalizedName.toLowerCase().startsWith(`${normalizedCwd.toLowerCase()}/`)
-            ? normalizedName.slice(normalizedCwd.length + 1)
-            : normalizedName;
-          const rowKey = `${source.key}:${name}`;
-          const isReverted = reverted.includes(name);
-          const confirming = confirmFile === name;
-          const ownFile = source.key === "turn" || source.key === "lead";
-          const canRevertFile = ownFile && canRevertTurn && !busy && !isReverted;
-          return (
-          <li key={rowKey} data-open={openFile === rowKey ? "true" : "false"}
-            data-reverted={isReverted ? "true" : "false"}>
-            <button type="button" className="turn-review-file" aria-expanded={openFile === rowKey}
-              onClick={() => setOpenFile((current) => current === rowKey ? "" : rowKey)}>
-              <span className="turn-review-status" data-status={statusCode(entry)}
-                aria-label={statusLabel(entry)} data-tooltip={statusLabel(entry)}>
-                {statusCode(entry)}
-              </span>
-              <code>{rel}</code>
-              {entry.lineStats && (
-                <span className="diff-stats">
-                  <i>{entry.additions > 0 ? `+${entry.additions}` : ""}</i>
-                  <em>{entry.deletions > 0 ? `-${entry.deletions}` : ""}</em>
-                </span>
-              )}
-              {!entry.lineStats && <span className="diff-stats" aria-hidden="true"><i /><em /></span>}
-            </button>
-            <span className="turn-review-action-slot">
-            <button type="button" className="turn-review-open"
-              aria-label={t("Open file {{file}}", { file: rel })}
-              data-tooltip={t("Open file")}
-              disabled={!cwd || !onOpenFile || (statusCode(entry) === "D" && !isReverted)}
-              onClick={() => { if (cwd) onOpenFile?.(cwd, rel); }}>
-              <FileText size={12} aria-hidden="true" />
-            </button>
-            {ownFile && !isReverted && (confirming ? (
-              <span className="turn-review-confirm" role="group"
-                aria-label={t("Confirm reverting {{file}} to the start of this turn", { file: rel })}>
-                <button type="button" className="turn-review-revert"
-                  aria-label={t("Cancel revert")} data-tooltip={t("Cancel")}
-                  onClick={() => setConfirmFile("")}>
-                  <X size={12} />
-                </button>
-                <button type="button" className="turn-review-revert danger"
-                  aria-label={t("Confirm revert of {{file}}", { file: rel })} data-tooltip={t("Revert to turn start")}
-                  onClick={() => {
-                    setConfirmFile("");
-                    setRevertError("");
-                    void window.mixdogDesktop.invokeCapability?.({
-                      capability: "revertTurnReviewFile",
-                      args: [rel, requestedCheckpointId],
-                      sessionId,
-                    })
-                      .then(async () => {
-                        setReverted((current) => [...current, name]);
-                        setRevertedBoundary(turnBoundaryKey);
-                        await refreshAgentReviews();
-                      })
-                      .catch((reason: unknown) => setRevertError(
-                        reason instanceof Error ? reason.message : String(reason),
-                      ));
-                  }}>
-                  <Check size={12} />
-                </button>
-              </span>
-            ) : (
-              <button type="button" className="turn-review-revert"
-                aria-label={t("Revert {{file}}", { file: rel })} data-tooltip={t("Revert file to turn start")}
-                disabled={!canRevertFile}
-                onClick={() => setConfirmFile(name)}>
-                <Undo2 size={12} />
-              </button>
-            ))}
-            </span>
-            {openFile === rowKey && <div className="turn-review-diff">
-              {entry.parts.length > 0
-                ? entry.parts.map((file, index) => (
-                  <GitDiffBody key={`${rowKey}:${index}`} file={file} mode={diffStyle} />
-                ))
-                : <span className="turn-review-status">{t("Diff detail unavailable")}</span>}
-            </div>}
-          </li>
-          );
-          });
-          return [sourceHeader, ...rows];
-        })}
+            {sources.flatMap((source) => {
+              const sourceHeader = (
+                <li key={`${source.key}:source`} className="turn-review-source">
+                  <strong>{t(source.label)}</strong>
+                  <span className="diff-stats" aria-hidden={!source.summary.hasLineStats}>
+                    <i>{source.summary.additions > 0 ? `+${source.summary.additions}` : ''}</i>
+                    <em>{source.summary.deletions > 0 ? `-${source.summary.deletions}` : ''}</em>
+                  </span>
+                </li>
+              );
+              const rows = [...source.summary.files.entries()].map(([name, entry]) => {
+                // Tool patches sometimes carry ABSOLUTE paths; display and revert
+                // use the project-relative form (git confinement expects it).
+                const normalizedCwd = String(cwd || '')
+                  .replace(/\\/g, '/')
+                  .replace(/\/+$/, '');
+                const normalizedName = name.replace(/\\/g, '/');
+                const rel =
+                  normalizedCwd && normalizedName.toLowerCase().startsWith(`${normalizedCwd.toLowerCase()}/`)
+                    ? normalizedName.slice(normalizedCwd.length + 1)
+                    : normalizedName;
+                const rowKey = `${source.key}:${name}`;
+                const isReverted = reverted.includes(name);
+                const confirming = confirmFile === name;
+                const ownFile = source.key === 'turn' || source.key === 'lead';
+                const canRevertFile = ownFile && canRevertTurn && !busy && !isReverted;
+                return (
+                  <li
+                    key={rowKey}
+                    data-open={openFile === rowKey ? 'true' : 'false'}
+                    data-reverted={isReverted ? 'true' : 'false'}
+                  >
+                    <button
+                      type="button"
+                      className="turn-review-file"
+                      aria-expanded={openFile === rowKey}
+                      onClick={() => setOpenFile((current) => (current === rowKey ? '' : rowKey))}
+                    >
+                      <span
+                        className="turn-review-status"
+                        data-status={statusCode(entry)}
+                        aria-label={statusLabel(entry)}
+                        data-tooltip={statusLabel(entry)}
+                      >
+                        {statusCode(entry)}
+                      </span>
+                      <code>{rel}</code>
+                      {entry.lineStats && (
+                        <span className="diff-stats">
+                          <i>{entry.additions > 0 ? `+${entry.additions}` : ''}</i>
+                          <em>{entry.deletions > 0 ? `-${entry.deletions}` : ''}</em>
+                        </span>
+                      )}
+                      {!entry.lineStats && (
+                        <span className="diff-stats" aria-hidden="true">
+                          <i />
+                          <em />
+                        </span>
+                      )}
+                    </button>
+                    <span className="turn-review-action-slot">
+                      <button
+                        type="button"
+                        className="turn-review-open"
+                        aria-label={t('Open file {{file}}', { file: rel })}
+                        data-tooltip={t('Open file')}
+                        disabled={!cwd || !onOpenFile || (statusCode(entry) === 'D' && !isReverted)}
+                        onClick={() => {
+                          if (cwd) onOpenFile?.(cwd, rel);
+                        }}
+                      >
+                        <FileText size={12} aria-hidden="true" />
+                      </button>
+                      {ownFile &&
+                        !isReverted &&
+                        (confirming ? (
+                          <span
+                            className="turn-review-confirm"
+                            role="group"
+                            aria-label={t('Confirm reverting {{file}} to the start of this turn', { file: rel })}
+                          >
+                            <button
+                              type="button"
+                              className="turn-review-revert"
+                              aria-label={t('Cancel revert')}
+                              data-tooltip={t('Cancel')}
+                              onClick={() => setConfirmFile('')}
+                            >
+                              <X size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="turn-review-revert danger"
+                              aria-label={t('Confirm revert of {{file}}', { file: rel })}
+                              data-tooltip={t('Revert to turn start')}
+                              onClick={() => {
+                                setConfirmFile('');
+                                setRevertError('');
+                                void window.mixdogDesktop
+                                  .invokeCapability?.({
+                                    capability: 'revertTurnReviewFile',
+                                    args: [rel, requestedCheckpointId],
+                                    sessionId,
+                                  })
+                                  .then(async () => {
+                                    setReverted((current) => [...current, name]);
+                                    setRevertedBoundary(turnBoundaryKey);
+                                    await refreshAgentReviews();
+                                  })
+                                  .catch((reason: unknown) =>
+                                    setRevertError(reason instanceof Error ? reason.message : String(reason))
+                                  );
+                              }}
+                            >
+                              <Check size={12} />
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="turn-review-revert"
+                            aria-label={t('Revert {{file}}', { file: rel })}
+                            data-tooltip={t('Revert file to turn start')}
+                            disabled={!canRevertFile}
+                            onClick={() => setConfirmFile(name)}
+                          >
+                            <Undo2 size={12} />
+                          </button>
+                        ))}
+                    </span>
+                    {openFile === rowKey && (
+                      <div className="turn-review-diff">
+                        {entry.parts.length > 0 ? (
+                          entry.parts.map((file, index) => (
+                            <GitDiffBody key={`${rowKey}:${index}`} file={file} mode={diffStyle} />
+                          ))
+                        ) : (
+                          <span className="turn-review-status">{t('Diff detail unavailable')}</span>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              });
+              return [sourceHeader, ...rows];
+            })}
           </ul>
         </div>
       </div>

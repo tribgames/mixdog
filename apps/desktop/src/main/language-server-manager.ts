@@ -25,7 +25,7 @@ import { projectEntryPathIn } from './project-files';
 // @ts-expect-error The shared runtime helper is plain ESM and has no declaration file.
 import { shutdownStdioChild } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 
-export interface LanguageServerSpec {
+interface LanguageServerSpec {
   id: string;
   name: string;
   command: string;
@@ -72,7 +72,7 @@ export function lspDocumentLanguageId(relPath: string, languageId: string): stri
   return languageId;
 }
 
-export function languageServerInitializationOptions(
+function languageServerInitializationOptions(
   spec: Pick<LanguageServerSpec, 'id'>
 ): Readonly<Record<string, unknown>> | undefined {
   if (spec.id !== TYPESCRIPT_LANGUAGE_SERVER.id) return undefined;
@@ -132,10 +132,7 @@ function configStringArray(value: unknown, name: string, maximumEntries: number,
 /** Parse a trusted project-local `.mixdog/lsp.json` registry.
  *  The file may map any Monaco language id to a stdio language server, while
  *  executable candidates remain confined to the project root. */
-export function parseProjectLanguageServerConfig(
-  value: unknown,
-  root: string
-): Readonly<Record<string, LanguageServerSpec>> {
+function parseProjectLanguageServerConfig(value: unknown, root: string): Readonly<Record<string, LanguageServerSpec>> {
   const record = objectRecord(value);
   const rawServers = record?.servers;
   const serverMap = objectRecord(rawServers);
@@ -217,7 +214,7 @@ function providerEnabled(value: unknown): boolean {
   return value === true || Boolean(objectRecord(value));
 }
 
-export function normalizeLanguageServerCapabilities(value: unknown): DesktopLspCapabilities {
+function normalizeLanguageServerCapabilities(value: unknown): DesktopLspCapabilities {
   const initialization = objectRecord(value);
   const capabilities = objectRecord(initialization?.capabilities) ?? initialization ?? {};
   const completion = capabilities.completionProvider;
@@ -635,7 +632,7 @@ function methodSupported(method: string, capabilities: DesktopLspCapabilities): 
   }
 }
 
-export function languageServerRequestParams(
+function languageServerRequestParams(
   uri: string,
   method: string,
   params: Readonly<Record<string, unknown>>

@@ -5,7 +5,7 @@
  * source-controlled configuration: it has no user-facing settings UI and no
  * localStorage override.
  */
-export type DesktopFeatureId =
+type DesktopFeatureId =
   | 'sessions'
   | 'projects'
   | 'extensions'
@@ -32,7 +32,7 @@ export const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
   pullRequests: false,
 };
 
-export type DesktopSidebarDestination = 'sessions' | 'projects' | 'extensions' | 'schedules' | 'webhooks';
+type DesktopSidebarDestination = 'sessions' | 'projects' | 'extensions' | 'schedules' | 'webhooks';
 
 export type DesktopUtilityDockTab = 'agents' | 'search' | 'source-control' | 'pull-requests';
 

@@ -7,11 +7,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
-import {
-  parseModelRef,
-  preferredModelEffort,
-  preferredModelParameters,
-} from './model-route-utils';
+import { parseModelRef, preferredModelEffort, preferredModelParameters } from './model-route-utils';
 import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -23,23 +19,16 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import {
-  ModelRouteLabel,
-  modelDisplayName,
-  normalizeModelOptions,
-} from './provider-display';
+import { ModelRouteLabel, modelDisplayName, normalizeModelOptions } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
-import {
-  useSidebarReferences,
-  type SidebarReferenceKey,
-} from './sidebar-reference-cache';
+import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
 import { copyTextToClipboard } from './text-format';
 import { CompactSwitch } from './settings/capability-controls';
 
 type RecordValue = Record<string, unknown>;
-export type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
+type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
 const PARSER_OPTIONS = [
   { value: 'generic', label: 'Generic JSON' },
@@ -95,16 +84,21 @@ function webhookMeta(webhook: RecordValue) {
   let route: { model: string; effort: string; fast: boolean } | null = null;
   if (ref.route) {
     const slash = ref.route.indexOf('/');
-    const model = slash > 0
-      ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash))
-      : ref.route;
+    const model = slash > 0 ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash)) : ref.route;
     route = { model, effort: ref.effort || '', fast: ref.fast };
   }
-  return <>
-    {parser} · {delivery}
-    {route && <> · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} /></>}
-    {webhook.secretSet !== true && <> · {t('secret missing')}</>}
-  </>;
+  return (
+    <>
+      {parser} · {delivery}
+      {route && (
+        <>
+          {' '}
+          · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} />
+        </>
+      )}
+      {webhook.secretSet !== true && <> · {t('secret missing')}</>}
+    </>
+  );
 }
 
 function endpointUrl(publicBase: string, name: string): string {
@@ -124,7 +118,14 @@ function generateSigningSecret(): string {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
-function ConnectionRow({ label, note, value, placeholder, copied, onCopy }: {
+function ConnectionRow({
+  label,
+  note,
+  value,
+  placeholder,
+  copied,
+  onCopy,
+}: {
   label: string;
   note: string;
   value: string;
@@ -132,18 +133,26 @@ function ConnectionRow({ label, note, value, placeholder, copied, onCopy }: {
   copied: boolean;
   onCopy(): void;
 }) {
-  return <div className="schedules-field webhook-connection-row">
-    <span>{label}</span>
-    <small>{note}</small>
-    <div className="webhook-connection-value">
-      <code>{value || placeholder}</code>
-      {/* Icon-only copy (user decision): the value itself is the label. */}
-      <button type="button" className="icon-button webhook-connection-copy" disabled={!value} onClick={onCopy}
-        aria-label={t("Copy {{name}}", { name: t(label) })} data-tooltip={t("Copy {{name}}", { name: t(label) })}>
-        {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-      </button>
+  return (
+    <div className="schedules-field webhook-connection-row">
+      <span>{label}</span>
+      <small>{note}</small>
+      <div className="webhook-connection-value">
+        <code>{value || placeholder}</code>
+        {/* Icon-only copy (user decision): the value itself is the label. */}
+        <button
+          type="button"
+          className="icon-button webhook-connection-copy"
+          disabled={!value}
+          onClick={onCopy}
+          aria-label={t('Copy {{name}}', { name: t(label) })}
+          data-tooltip={t('Copy {{name}}', { name: t(label) })}
+        >
+          {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+        </button>
+      </div>
     </div>
-  </div>;
+  );
 }
 
 function WebhookEditor({
@@ -189,9 +198,12 @@ function WebhookEditor({
   const [urlName, setUrlName] = useState(draft.name);
   const [copiedField, setCopiedField] = useState('');
   const copiedFieldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (copiedFieldTimer.current) clearTimeout(copiedFieldTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (copiedFieldTimer.current) clearTimeout(copiedFieldTimer.current);
+    },
+    []
+  );
   const copyField = (field: string, value: string) => {
     void copyTextToClipboard(value);
     setCopiedField(field);
@@ -224,158 +236,236 @@ function WebhookEditor({
   if (cwd && !projectOptions.some((option) => option.value === cwd)) {
     projectOptions.push({ value: cwd, label: cwd });
   }
-  return <SidebarDialogLayer onClose={onCancel}>
-    <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="webhooks-dialog-title">
-      <header>
-        <h2 id="webhooks-dialog-title">{editing ? t('Edit webhook') : t('Create webhook')}</h2>
-        <div className="schedules-dialog-header-actions">
-          <CompactSwitch label={t('Enabled')} checked={enabled} disabled={busy}
-            onChange={(next) => {
-              setEnabled(next);
-              if (editing) onToggle?.(next);
-            }} />
-          <button type="button" aria-label={t("Close webhook editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
-        </div>
-      </header>
-      <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        const data = new FormData(event.currentTarget);
-        const text = (name: string) => String(data.get(name) || '').trim();
-        setFormError('');
-        const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
-        const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
-        const parameterSuffix = Object.keys(selectedModelParameters).length
-          ? `?${new URLSearchParams(selectedModelParameters).toString()}`
-          : '';
-        // A NEW webhook persists the displayed pre-minted secret; an EDIT
-        // sends a secret only after an explicit Regenerate (the store
-        // preserves the existing secret on plain overwrite).
-        const effectiveSecret = editing ? rotated : secret;
-        onSave({
-          name: editing ? draft.name : text('webhook-name'),
-          description: draft.description,
-          parser,
-          // Session-only delivery (user decision, schedules parity): every
-          // webhook fire runs as a fresh New-task session — no channel
-          // target, so saving a legacy channel webhook converts it.
-          ...(model ? { model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}` } : {}),
-          ...(cwd ? { cwd } : {}),
-          ...(workflow ? { workflow } : {}),
-          delivery,
-          ...(attachments.length ? { attachments } : {}),
-          ...(effectiveSecret ? { secret: effectiveSecret } : {}),
-          instructions: text('webhook-instructions'),
-          enabled,
-          ...(editing ? { overwrite: true } : {}),
-        });
-      }}>
-        <label className="schedules-field"><span>{t('Name')}</span>
-          <small>{t('Used in the endpoint URL and webhook lists.')}</small>
-          <input name="webhook-name" defaultValue={draft.name} placeholder="github-issues" required autoFocus
-            disabled={busy || editing} maxLength={64}
-            onChange={(event) => setUrlName(event.currentTarget.value)} />
-        </label>
-        {/* Field order (user decision): composer right under Name, then
-            Project → Delivery → Payload format as labeled fields. */}
-        <div className="schedules-composer">
-          <textarea name="webhook-instructions" defaultValue={draft.instructions} required disabled={busy}
-            placeholder={t("What should Mixdog do when this webhook fires?")} aria-label={t("Webhook instructions")} />
-          <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
-          <div className="composer-footer schedules-composer-footer">
-            <AutomationAttachButton attachments={attachments} disabled={busy}
-              ariaLabel={t("Attach files to this webhook")}
-              onChange={setAttachments} onError={setFormError} />
-            <ModelRouteEditor models={models} disabled={busy} ariaLabel={t("Webhook model")}
-              value={{
-                provider: modelProvider,
-                model: modelId,
-                ...(effortValue ? { effort: effortValue } : {}),
-                fast,
-                modelParameters: selectedModelParameters,
+  return (
+    <SidebarDialogLayer onClose={onCancel}>
+      <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="webhooks-dialog-title">
+        <header>
+          <h2 id="webhooks-dialog-title">{editing ? t('Edit webhook') : t('Create webhook')}</h2>
+          <div className="schedules-dialog-header-actions">
+            <CompactSwitch
+              label={t('Enabled')}
+              checked={enabled}
+              disabled={busy}
+              onChange={(next) => {
+                setEnabled(next);
+                if (editing) onToggle?.(next);
               }}
-              onChange={(selection) => {
-                setModel(`${selection.provider}/${selection.model}`);
-                setEffort(String(selection.effort || ''));
-                setFast(selection.fast === true);
-                setModelParameters(selection.modelParameters || {});
-                setFormError('');
-              }} />
-            {/* Same flat, right-aligned workflow control as the chat
+            />
+            <button type="button" aria-label={t('Close webhook editor')} onClick={onCancel}>
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+        <form
+          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            const text = (name: string) => String(data.get(name) || '').trim();
+            setFormError('');
+            const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
+            const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
+            const parameterSuffix = Object.keys(selectedModelParameters).length
+              ? `?${new URLSearchParams(selectedModelParameters).toString()}`
+              : '';
+            // A NEW webhook persists the displayed pre-minted secret; an EDIT
+            // sends a secret only after an explicit Regenerate (the store
+            // preserves the existing secret on plain overwrite).
+            const effectiveSecret = editing ? rotated : secret;
+            onSave({
+              name: editing ? draft.name : text('webhook-name'),
+              description: draft.description,
+              parser,
+              // Session-only delivery (user decision, schedules parity): every
+              // webhook fire runs as a fresh New-task session — no channel
+              // target, so saving a legacy channel webhook converts it.
+              ...(model ? { model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}` } : {}),
+              ...(cwd ? { cwd } : {}),
+              ...(workflow ? { workflow } : {}),
+              delivery,
+              ...(attachments.length ? { attachments } : {}),
+              ...(effectiveSecret ? { secret: effectiveSecret } : {}),
+              instructions: text('webhook-instructions'),
+              enabled,
+              ...(editing ? { overwrite: true } : {}),
+            });
+          }}
+        >
+          <label className="schedules-field">
+            <span>{t('Name')}</span>
+            <small>{t('Used in the endpoint URL and webhook lists.')}</small>
+            <input
+              name="webhook-name"
+              defaultValue={draft.name}
+              placeholder="github-issues"
+              required
+              autoFocus
+              disabled={busy || editing}
+              maxLength={64}
+              onChange={(event) => setUrlName(event.currentTarget.value)}
+            />
+          </label>
+          {/* Field order (user decision): composer right under Name, then
+            Project → Delivery → Payload format as labeled fields. */}
+          <div className="schedules-composer">
+            <textarea
+              name="webhook-instructions"
+              defaultValue={draft.instructions}
+              required
+              disabled={busy}
+              placeholder={t('What should Mixdog do when this webhook fires?')}
+              aria-label={t('Webhook instructions')}
+            />
+            <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
+            <div className="composer-footer schedules-composer-footer">
+              <AutomationAttachButton
+                attachments={attachments}
+                disabled={busy}
+                ariaLabel={t('Attach files to this webhook')}
+                onChange={setAttachments}
+                onError={setFormError}
+              />
+              <ModelRouteEditor
+                models={models}
+                disabled={busy}
+                ariaLabel={t('Webhook model')}
+                value={{
+                  provider: modelProvider,
+                  model: modelId,
+                  ...(effortValue ? { effort: effortValue } : {}),
+                  fast,
+                  modelParameters: selectedModelParameters,
+                }}
+                onChange={(selection) => {
+                  setModel(`${selection.provider}/${selection.model}`);
+                  setEffort(String(selection.effort || ''));
+                  setFast(selection.fast === true);
+                  setModelParameters(selection.modelParameters || {});
+                  setFormError('');
+                }}
+              />
+              {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
-            <div className="effort-control workflow-control">
-              <OpenSelect ariaLabel={t("Webhook workflow")} value={workflow} disabled={busy}
-                options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
-                onChange={setWorkflow} />
-            </div>
-          </div>
-        </div>
-        <div className="schedules-field">
-          <span>{t('Project')}</span>
-          <small>{t('Project used for each run.')}</small>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel={t("Webhook project")} value={cwd || '__none__'} disabled={busy}
-              options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
-          </div>
-        </div>
-        <div className="schedules-field">
-          <span>{t('Delivery')}</span>
-          <small>{t('Where completed results are sent.')}</small>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel={t("Webhook delivery")} value={delivery} disabled={busy}
-              options={DELIVERY_OPTIONS} onChange={setDelivery} />
-          </div>
-        </div>
-        <div className="schedules-field">
-          <span>{t('Payload format')}</span>
-          <small>{t('How the request body is interpreted.')}</small>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel={t("Webhook payload format")} value={parser} disabled={busy}
-              options={PARSER_OPTIONS} onChange={setParser} />
-          </div>
-        </div>
-        {/* Connection details (user decision): the endpoint URL stays
-            visible; the signing secret shows only when freshly minted —
-            create pre-mints it, edit offers Regenerate instead. */}
-        <div className="webhook-connection" aria-label={t("Connection details")}>
-          <ConnectionRow label={t("Endpoint URL")} note={t("Call this URL to trigger the webhook.")}
-            value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
-            placeholder={publicBase
-              ? t('Type a name to preview the endpoint URL')
-              : t('URL appears once the runtime connects to the relay')}
-            copied={copiedField === 'url'}
-            onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)} />
-          {editing && !rotated
-            ? <div className="schedules-field webhook-connection-row">
-              <span>{t('Signing secret')}</span>
-              <small>{t('The saved secret stays hidden. Regenerate it to create a new one.')}</small>
-              <div className="webhook-connection-value">
-                <button type="button" className="settings-action" disabled={busy}
-                  onClick={() => setRotated(generateSigningSecret())}>{t('Regenerate secret')}</button>
+              <div className="effort-control workflow-control">
+                <OpenSelect
+                  ariaLabel={t('Webhook workflow')}
+                  value={workflow}
+                  disabled={busy}
+                  options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
+                  onChange={setWorkflow}
+                />
               </div>
             </div>
-            : <ConnectionRow label={t("Signing secret")} note={t("Sign requests with this secret — copy it now.")}
-              value={editing ? rotated : secret}
-              placeholder={t("Secret unavailable")}
-              copied={copiedField === 'secret'}
-              onCopy={() => copyField('secret', editing ? rotated : secret)} />}
-        </div>
-        <footer>
-          {(formError || error) && <ErrorNotice error={formError || error} />}
-          {editing && onDelete && <button type="button"
-            className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
-            onClick={() => {
-              if (!confirmDelete) {
-                setConfirmDelete(true);
-                return;
+          </div>
+          <div className="schedules-field">
+            <span>{t('Project')}</span>
+            <small>{t('Project used for each run.')}</small>
+            <div className="schedules-frequency">
+              <OpenSelect
+                ariaLabel={t('Webhook project')}
+                value={cwd || '__none__'}
+                disabled={busy}
+                options={projectOptions}
+                onChange={(next) => setCwd(next === '__none__' ? '' : next)}
+              />
+            </div>
+          </div>
+          <div className="schedules-field">
+            <span>{t('Delivery')}</span>
+            <small>{t('Where completed results are sent.')}</small>
+            <div className="schedules-frequency">
+              <OpenSelect
+                ariaLabel={t('Webhook delivery')}
+                value={delivery}
+                disabled={busy}
+                options={DELIVERY_OPTIONS}
+                onChange={setDelivery}
+              />
+            </div>
+          </div>
+          <div className="schedules-field">
+            <span>{t('Payload format')}</span>
+            <small>{t('How the request body is interpreted.')}</small>
+            <div className="schedules-frequency">
+              <OpenSelect
+                ariaLabel={t('Webhook payload format')}
+                value={parser}
+                disabled={busy}
+                options={PARSER_OPTIONS}
+                onChange={setParser}
+              />
+            </div>
+          </div>
+          {/* Connection details (user decision): the endpoint URL stays
+            visible; the signing secret shows only when freshly minted —
+            create pre-mints it, edit offers Regenerate instead. */}
+          <div className="webhook-connection" aria-label={t('Connection details')}>
+            <ConnectionRow
+              label={t('Endpoint URL')}
+              note={t('Call this URL to trigger the webhook.')}
+              value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
+              placeholder={
+                publicBase
+                  ? t('Type a name to preview the endpoint URL')
+                  : t('URL appears once the runtime connects to the relay')
               }
-              onDelete();
-            }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
-          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
-          <button type="submit" disabled={busy}>{t('Save')}</button>
-        </footer>
-      </form>
-    </section>
-  </SidebarDialogLayer>;
+              copied={copiedField === 'url'}
+              onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)}
+            />
+            {editing && !rotated ? (
+              <div className="schedules-field webhook-connection-row">
+                <span>{t('Signing secret')}</span>
+                <small>{t('The saved secret stays hidden. Regenerate it to create a new one.')}</small>
+                <div className="webhook-connection-value">
+                  <button
+                    type="button"
+                    className="settings-action"
+                    disabled={busy}
+                    onClick={() => setRotated(generateSigningSecret())}
+                  >
+                    {t('Regenerate secret')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <ConnectionRow
+                label={t('Signing secret')}
+                note={t('Sign requests with this secret — copy it now.')}
+                value={editing ? rotated : secret}
+                placeholder={t('Secret unavailable')}
+                copied={copiedField === 'secret'}
+                onCopy={() => copyField('secret', editing ? rotated : secret)}
+              />
+            )}
+          </div>
+          <footer>
+            {(formError || error) && <ErrorNotice error={formError || error} />}
+            {editing && onDelete && (
+              <button
+                type="button"
+                className={`danger${confirmDelete ? ' confirming' : ''}`}
+                disabled={busy}
+                onClick={() => {
+                  if (!confirmDelete) {
+                    setConfirmDelete(true);
+                    return;
+                  }
+                  onDelete();
+                }}
+              >
+                {confirmDelete ? t('Confirm delete') : t('Delete')}
+              </button>
+            )}
+            <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
+              {t('Cancel')}
+            </button>
+            <button type="submit" disabled={busy}>
+              {t('Save')}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </SidebarDialogLayer>
+  );
 }
 
 // Same shared keys as Schedules: both panels read one channel setup, one quick
@@ -390,26 +480,33 @@ const WEBHOOK_REFERENCE_KEYS = [
 
 // Inbound-webhooks panel (rail -> Webhooks): the Schedules grammar — a
 // compact session-panel list with search, filters, and a popup editor.
-export function WebhooksPane({ api = window.mixdogDesktop, active = true, runningNames }: {
+export function WebhooksPane({
+  api = window.mixdogDesktop,
+  active = true,
+  runningNames,
+}: {
   api?: WebhooksApi;
   active?: boolean;
   runningNames?: ReadonlySet<string>;
 }) {
   // Cached seed → no loading cover on a warm first visit; the secret itself is
   // never cached (it is minted or rotated in the editor, never read back).
-  const { values, loading, completeMutation } =
-    useSidebarReferences(api, WEBHOOK_REFERENCE_KEYS, active);
+  const { values, loading, completeMutation } = useSidebarReferences(api, WEBHOOK_REFERENCE_KEYS, active);
   const setup = values.channelSetup;
   // Configured-provider filtering matches Schedules and Workflows: models from
   // a disconnected provider never enter the picker.
-  const models = useMemo(() => filterConfiguredModels(
-    normalizeModelOptions(values.quickProviderModels),
-    values.providerSetup,
-  ), [values.quickProviderModels, values.providerSetup]);
+  const models = useMemo(
+    () => filterConfiguredModels(normalizeModelOptions(values.quickProviderModels), values.providerSetup),
+    [values.quickProviderModels, values.providerSetup]
+  );
   const projects = values.projects;
-  const workflows = useMemo(() => values.workflows
-    .map((row) => ({ value: String(row.id || ''), label: String(row.name || row.id || '') }))
-    .filter((option) => option.value), [values.workflows]);
+  const workflows = useMemo(
+    () =>
+      values.workflows
+        .map((row) => ({ value: String(row.id || ''), label: String(row.name || row.id || '') }))
+        .filter((option) => option.value),
+    [values.workflows]
+  );
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -424,7 +521,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
   const run = async (
     capability: DesktopCapability,
     args: unknown[] = [],
-    errorMode: 'inline' | 'toast' = 'inline',
+    errorMode: 'inline' | 'toast' = 'inline'
   ): Promise<unknown> => {
     if (!api?.invokeCapability || pending) return undefined;
     setPending(capability);
@@ -454,7 +551,9 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
     if (filter === 'paused' && enabled) return false;
     if (!text) return true;
     return [webhook.name, webhook.description, webhook.parser, webhook.model, webhook.channel]
-      .map((value) => String(value || '').toLowerCase()).join(' ').includes(text);
+      .map((value) => String(value || '').toLowerCase())
+      .join(' ')
+      .includes(text);
   });
   const saveWebhook = async (entry: RecordValue) => {
     const result = await run('saveWebhook', [entry]);
@@ -468,70 +567,126 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
     setEditor({ name, draft, secret: '' });
   };
 
-  return <div className="schedules-pane stable-surface-preserved stable-takeover-surface"
-    data-surface-active={active ? 'true' : 'false'}
-    inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
-    <div className="schedules-page">
-      {/* Title and primary action live in the sidebar panel header. */}
-      <SidebarPanelAction active={active} label={t("New webhook")} icon={Plus}
-        className="webhooks-add" disabled={busy}
-        onClick={() => {
-          setError('');
-          // Pre-mint the signing secret so the popup shows URL + secret with
-          // copy buttons BEFORE the first save (user decision).
-          setEditor({ name: '', draft: webhookDraft(undefined), secret: generateSigningSecret() });
-        }} />
-      <div className="schedules-search">
-        <Search size={14} aria-hidden="true" />
-        <input aria-label={t("Search webhooks")} placeholder={t("Search webhooks…")} value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)} />
-      </div>
-      <div className="schedules-filters" aria-label={t("Webhook filter")}>
-        {([['all', 'All'], ['active', 'Active'], ['paused', 'Paused']] as const).map(([value, label]) =>
-          <button key={value} type="button" className={filter === value ? 'active' : ''}
-            aria-pressed={filter === value} onClick={() => setFilter(value)}>{t(label)}</button>)}
-      </div>
-      {active && editor && <WebhookEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
-        busy={busy} models={models} projects={projects} workflows={workflows}
-        publicBase={publicBase} secret={editor.secret} error={error}
-        onCancel={() => {
-          setError('');
-          setEditor(null);
-        }}
-        onDelete={editor.name ? () => {
-          const name = editor.name;
-          setEditor(null);
-          void run('deleteWebhook', [name], 'toast');
-        } : undefined}
-        onSave={(entry) => void saveWebhook(entry)}
-        onToggle={(enabled) => void run('setWebhookEnabled', [editor.name, enabled], 'toast')} />}
-      {/* No loading flash: the list area stays empty until the first snapshot
+  return (
+    <div
+      className="schedules-pane stable-surface-preserved stable-takeover-surface"
+      data-surface-active={active ? 'true' : 'false'}
+      inert={active ? undefined : true}
+      aria-hidden={active ? undefined : true}
+    >
+      <div className="schedules-page">
+        {/* Title and primary action live in the sidebar panel header. */}
+        <SidebarPanelAction
+          active={active}
+          label={t('New webhook')}
+          icon={Plus}
+          className="webhooks-add"
+          disabled={busy}
+          onClick={() => {
+            setError('');
+            // Pre-mint the signing secret so the popup shows URL + secret with
+            // copy buttons BEFORE the first save (user decision).
+            setEditor({ name: '', draft: webhookDraft(undefined), secret: generateSigningSecret() });
+          }}
+        />
+        <div className="schedules-search">
+          <Search size={14} aria-hidden="true" />
+          <input
+            aria-label={t('Search webhooks')}
+            placeholder={t('Search webhooks…')}
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </div>
+        <div className="schedules-filters" aria-label={t('Webhook filter')}>
+          {(
+            [
+              ['all', 'All'],
+              ['active', 'Active'],
+              ['paused', 'Paused'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={filter === value ? 'active' : ''}
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+            >
+              {t(label)}
+            </button>
+          ))}
+        </div>
+        {active && editor && (
+          <WebhookEditor
+            key={editor.name || '(new)'}
+            draft={editor.draft}
+            editing={Boolean(editor.name)}
+            busy={busy}
+            models={models}
+            projects={projects}
+            workflows={workflows}
+            publicBase={publicBase}
+            secret={editor.secret}
+            error={error}
+            onCancel={() => {
+              setError('');
+              setEditor(null);
+            }}
+            onDelete={
+              editor.name
+                ? () => {
+                    const name = editor.name;
+                    setEditor(null);
+                    void run('deleteWebhook', [name], 'toast');
+                  }
+                : undefined
+            }
+            onSave={(entry) => void saveWebhook(entry)}
+            onToggle={(enabled) => void run('setWebhookEnabled', [editor.name, enabled], 'toast')}
+          />
+        )}
+        {/* No loading flash: the list area stays empty until the first snapshot
           lands (Schedules-page grammar). */}
-      {loading ? <InitialSurface />
-        : visible.length ? <div className="schedules-list">{visible.map((webhook) => {
-          const name = String(webhook.name);
-          const enabled = webhook.enabled !== false;
-          const running = runningNames?.has(name) === true;
-          return <button type="button" key={name}
-            className="schedules-row utilities-row sidebar-resource-row"
-            data-enabled={enabled ? 'true' : 'false'}
-            disabled={busy} onClick={() => openEditor(name, webhookDraft(webhook))}>
-            <span className="sidebar-resource-icon" aria-hidden="true">
-              {running
-                ? <ProgressSpinner size={12} className="schedules-row-spinner" />
-                : <Webhook size={16} />}
-            </span>
-            <span className="schedules-row-copy utilities-row-copy">
-              <SidebarResourceTitle label={name} tag={!enabled ? { label: t('Disabled'), tone: 'muted' } : null} />
-              <small>{webhookMeta(webhook)}</small>
-            </span>
-            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-          </button>;
-        })}</div>
-        : <div className="schedules-empty">
-          <Webhook size={40} strokeWidth={1.5} aria-hidden="true" />
-          <p>{webhooks.length ? t('No webhooks match the current filter.') : t('No inbound webhooks yet.')}</p>
-        </div>}
+        {loading ? (
+          <InitialSurface />
+        ) : visible.length ? (
+          <div className="schedules-list">
+            {visible.map((webhook) => {
+              const name = String(webhook.name);
+              const enabled = webhook.enabled !== false;
+              const running = runningNames?.has(name) === true;
+              return (
+                <button
+                  type="button"
+                  key={name}
+                  className="schedules-row utilities-row sidebar-resource-row"
+                  data-enabled={enabled ? 'true' : 'false'}
+                  disabled={busy}
+                  onClick={() => openEditor(name, webhookDraft(webhook))}
+                >
+                  <span className="sidebar-resource-icon" aria-hidden="true">
+                    {running ? <ProgressSpinner size={12} className="schedules-row-spinner" /> : <Webhook size={16} />}
+                  </span>
+                  <span className="schedules-row-copy utilities-row-copy">
+                    <SidebarResourceTitle
+                      label={name}
+                      tag={!enabled ? { label: t('Disabled'), tone: 'muted' } : null}
+                    />
+                    <small>{webhookMeta(webhook)}</small>
+                  </span>
+                  <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="schedules-empty">
+            <Webhook size={40} strokeWidth={1.5} aria-hidden="true" />
+            <p>{webhooks.length ? t('No webhooks match the current filter.') : t('No inbound webhooks yet.')}</p>
+          </div>
+        )}
+      </div>
     </div>
-  </div>;
+  );
 }

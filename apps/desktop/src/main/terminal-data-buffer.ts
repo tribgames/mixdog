@@ -9,7 +9,7 @@ interface PendingTerminalData {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-export interface TerminalProducerFlowControl {
+interface TerminalProducerFlowControl {
   pause(id: string): void;
   resume(id: string): void;
 }
