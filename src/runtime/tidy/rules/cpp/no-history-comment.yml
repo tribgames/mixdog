@@ -2,8 +2,8 @@ id: no-history-comment
 language: Cpp
 severity: warning
 message: Delete comments that only record a move or copy.
-note: History comments (extracted verbatim, moved from, behavior-preserving move, copied from, was previously in) do not describe the current code. Remove them.
+note: Auto-delete a comment only when every sentence is history (extracted/moved/copied/lifted/split from, behaviour-preserving move, previously lived in, formerly). Mixed comments are reported without autofix.
 rule:
   kind: comment
-  regex: '(?i)(?s).*\b(extracted verbatim|moved (here )?from|behavior-preserving move|copied from|was previously in)\b.*'
+  regex: '(?i)(?s).*\b((extracted|moved|copied|lifted|split)\s+(verbatim\s+)?(from|out of)|moved(\s+here)?\s+from|behaviou?r-preserving\s+(move|extraction)|previously\s+(lived|defined)\s+in|was\s+previously\s+in|formerly)\b.*'
 fix: ""

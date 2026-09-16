@@ -8,7 +8,7 @@ import { existsSync, statSync } from 'node:fs';
 import { delimiter, extname, isAbsolute, join } from 'node:path';
 
 export const DEFAULT_PROCESS_TIMEOUT_MS = 90_000;
-const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
+export const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 const KILL_GRACE_MS = 3000;
 
 const WINDOWS_SCRIPT_EXTENSIONS = new Set(['.cmd', '.bat']);
@@ -48,11 +48,21 @@ export function which(name, { env = process.env } = {}) {
   return null;
 }
 
-function captureInto(state, key, chunk) {
-  if (state[key].length >= MAX_CAPTURE_BYTES) return;
+function captureInto(state, key, chunk, cap) {
+  const flag = `${key}Truncated`;
+  if (state[flag]) return;
   const piece = chunk.toString('utf8');
-  const room = MAX_CAPTURE_BYTES - state[key].length;
-  state[key] += piece.length > room ? piece.slice(0, room) : piece;
+  const room = cap - state[key].length;
+  if (room <= 0) {
+    state[flag] = true;
+    return;
+  }
+  if (piece.length > room) {
+    state[key] += piece.slice(0, room);
+    state[flag] = true;
+    return;
+  }
+  state[key] += piece;
 }
 
 /**
@@ -66,9 +76,11 @@ export function runProcess(bin, args = [], {
   input = null,
   timeoutMs = DEFAULT_PROCESS_TIMEOUT_MS,
   signal = null,
+  maxCaptureBytes = MAX_CAPTURE_BYTES,
 } = {}) {
   return new Promise((resolveRun) => {
-    const state = { stdout: '', stderr: '' };
+    const cap = Math.max(0, Number(maxCaptureBytes) || MAX_CAPTURE_BYTES);
+    const state = { stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
     let command = bin;
     let argv = args;
     if (isWindowsScript(bin)) {
@@ -86,7 +98,15 @@ export function runProcess(bin, args = [], {
         stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       });
     } catch (error) {
-      resolveRun({ code: -1, signal: null, stdout: '', stderr: '', timedOut: false, error: error?.message || String(error) });
+      resolveRun({
+        code: -1,
+        signal: null,
+        stdout: '',
+        stderr: '',
+        timedOut: false,
+        truncated: false,
+        error: error?.message || String(error),
+      });
       return;
     }
 
@@ -128,13 +148,21 @@ export function runProcess(bin, args = [], {
       else signal.addEventListener('abort', onAbort, { once: true });
     }
 
-    child.stdout?.on('data', (chunk) => captureInto(state, 'stdout', chunk));
-    child.stderr?.on('data', (chunk) => captureInto(state, 'stderr', chunk));
+    child.stdout?.on('data', (chunk) => captureInto(state, 'stdout', chunk, cap));
+    child.stderr?.on('data', (chunk) => captureInto(state, 'stderr', chunk, cap));
     child.on('error', (error) => {
       if (settled) return;
       settled = true;
       clearTimers();
-      resolveRun({ code: -1, signal: null, stdout: state.stdout, stderr: state.stderr, timedOut, error: error?.message || String(error) });
+      resolveRun({
+        code: -1,
+        signal: null,
+        stdout: state.stdout,
+        stderr: state.stderr,
+        timedOut,
+        truncated: Boolean(state.stdoutTruncated || state.stderrTruncated),
+        error: error?.message || String(error),
+      });
     });
     if (input != null && child.stdin) {
       child.stdin.on('error', () => { /* child may close stdin early */ });
@@ -150,6 +178,7 @@ export function runProcess(bin, args = [], {
         stdout: state.stdout,
         stderr: state.stderr,
         timedOut,
+        truncated: Boolean(state.stdoutTruncated || state.stderrTruncated),
         error: timedOut ? `timed out after ${timeoutMs}ms` : '',
       });
     });

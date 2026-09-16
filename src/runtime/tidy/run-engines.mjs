@@ -39,6 +39,9 @@ async function runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sess
     filesChanged: checkResult.changedFiles || [],
     diagnostics: checkResult.diagnostics || [],
     ...(checkResult.stderrTail ? { stderrTail: checkResult.stderrTail } : {}),
+    ...(checkResult.truncated ? { truncated: true } : {}),
+    ...(checkResult.counts ? { counts: checkResult.counts } : {}),
+    ...(checkResult.note ? { note: checkResult.note } : {}),
   };
   if (mode !== 'fix' || !apply) {
     if (mode === 'fix') result.dryRun = true;

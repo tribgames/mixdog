@@ -13,6 +13,23 @@ valid:
     const x = 1
     x = 1
   - |
+    // A seed copied from a CRLF checkout must be normalized.
+    const x = 1
+  - |
+    // shared with the slide it was copied from
+    const x = 1
+  - |
+    /**
+     * Formats the payload.
+     * Extracted verbatim from foo.mjs.
+     */
+    const x = 1
+  - |
+    // File-level docs about the algorithm.
+    // Extracted verbatim from foo.mjs.
+    // More notes for the reader.
+    const x = 1
+  - |
     // removed from the hot path
     # removed from the hot path
     -- removed from the hot path
@@ -55,3 +72,10 @@ invalid:
     -- was previously in qux
     const x = 1
     x = 1
+  - |
+    // Extracted verbatim from foo.mjs.
+    // Previously lived in bar.mjs.
+    const x = 1
+  - |
+    /** Extracted verbatim from foo.mjs. */
+    const x = 1

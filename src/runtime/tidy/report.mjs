@@ -39,6 +39,31 @@ export function shapeEngine(engine) {
   };
 }
 
+function rollupEngineCounts(results) {
+  if (!Array.isArray(results) || results.length === 0) return null;
+  const byFixability = { safe: 0, unsafe: 0, manual: 0, fixable: 0, unfixable: 0 };
+  const bySeverity = { error: 0, warning: 0, info: 0 };
+  let diagnostics = 0;
+  let filesToFormat = 0;
+  let any = false;
+  for (const result of results) {
+    const counts = result?.counts;
+    if (!counts) continue;
+    any = true;
+    diagnostics += Number(counts.diagnostics) || 0;
+    filesToFormat += Number(counts.filesToFormat) || 0;
+    const fixability = counts.byFixability || {};
+    for (const key of Object.keys(byFixability)) {
+      byFixability[key] += Number(fixability[key]) || 0;
+    }
+    const severity = counts.bySeverity || {};
+    for (const key of Object.keys(bySeverity)) {
+      bySeverity[key] += Number(severity[key]) || 0;
+    }
+  }
+  return any ? { diagnostics, filesToFormat, byFixability, bySeverity } : null;
+}
+
 function shapeEngineResult(result, diagnosticCap) {
   const diagnostics = capList(result.diagnostics, diagnosticCap);
   const changed = capList(result.filesChanged, FILE_LIST_CAP);
@@ -58,6 +83,8 @@ function shapeEngineResult(result, diagnosticCap) {
     ...(result.skipped ? { skipped: result.skipped } : {}),
     ...(result.error ? { error: result.error } : {}),
     ...(result.stderrTail ? { stderrTail: result.stderrTail } : {}),
+    ...(result.truncated ? { truncated: true } : {}),
+    ...(result.counts ? { counts: result.counts } : {}),
   };
 }
 
@@ -71,6 +98,7 @@ function shapeStructural(structural, diagnosticCap) {
     matches: matches.items,
     ...(matches.more ? { more: matches.more } : {}),
     fixable: (structural.matches || []).filter((match) => match?.fix).length,
+    manual: (structural.matches || []).filter((match) => match?.manual).length,
     applied: structural.applied || [],
     ...(structural.rejected?.length ? { rejected: structural.rejected } : {}),
     ...(structural.error ? { error: structural.error } : {}),
@@ -103,6 +131,12 @@ export function buildTidyReport({
 } = {}) {
   const missing = engines.filter((engine) => engine.missing).map(shapeEngine);
   const resolved = engines.filter((engine) => !engine.missing).map(shapeEngine);
+  const truncationNotes = (results || [])
+    .filter((result) => result?.truncated)
+    .map((result) => result.note || `${result.id} output was truncated; split the scope and re-run`);
+  const allNotes = [...notes, ...truncationNotes];
+  const engineTruncated = (results || []).some((result) => result?.truncated);
+  const rolled = rollupEngineCounts(results);
   const compose = (diagnosticCap) => ({
     ok,
     action,
@@ -113,16 +147,18 @@ export function buildTidyReport({
     ...(missing.length ? { missing } : {}),
     ...(policy ? { policy } : {}),
     ...(results ? { results: results.map((result) => shapeEngineResult(result, diagnosticCap)) } : {}),
+    ...(rolled ? { counts: rolled } : {}),
     ...(structural ? { structural: shapeStructural(structural, diagnosticCap) } : {}),
     ...(rules ? { rules } : {}),
     ...(installed ? { installed } : {}),
     ...(needsApproval ? { needsApproval } : {}),
     ...(errors.length ? { errors } : {}),
-    ...(notes.length ? { notes } : {}),
+    ...(allNotes.length ? { notes: allNotes } : {}),
     elapsedMs,
   });
 
   let report = compose(DIAGNOSTIC_CAP);
+  if (engineTruncated) report = { ...report, truncated: true };
   for (const cap of TRIM_STEPS) {
     if (Buffer.byteLength(JSON.stringify(report), 'utf8') <= maxBytes) return report;
     report = { ...compose(cap), truncated: true };

@@ -18,6 +18,7 @@ import { parseMagoFormatDryRun, parseMagoLintJson } from './runners/mago.mjs';
 import { parsePathList, positionAt } from './runners/shared.mjs';
 import { RUNNERS, runnerFor } from './runners/index.mjs';
 import { fixCandidates } from './run-engines.mjs';
+import { fullPathFor, guardTidyWritePath } from './apply.mjs';
 
 const CWD = resolve('/repo');
 
@@ -117,6 +118,60 @@ test('list-mode and diff-mode formatters report the files they would rewrite', (
   const rustfmt = parseRustfmtCheck('Diff in src/lib.rs at line 10:\n-foo\n+bar\nDiff in src/lib.rs at line 44:\n', CWD);
   assert.deepEqual(rustfmt.changedFiles, ['src/lib.rs']);
   assert.deepEqual(rustfmt.diagnostics.map((entry) => entry.line), [10, 44]);
+  const rustfmt19 = parseRustfmtCheck('Diff in src/lib.rs:10:\n-foo\n+bar\nDiff in src/main.rs:44:\n', CWD);
+  assert.deepEqual(rustfmt19.changedFiles, ['src/lib.rs', 'src/main.rs']);
+  assert.deepEqual(rustfmt19.diagnostics.map((entry) => entry.line), [10, 44]);
+});
+
+test('rustfmt --check headers from live rustfmt 1.9 output map to repo-relative files', () => {
+  const absLib = resolve(CWD, 'src/lib.rs');
+  const extended = `\\\\?\\${absLib}`;
+  const posix = `${CWD.replaceAll('\\', '/')}/src/lib.rs`;
+  const red = '\u001b[31m';
+  const green = '\u001b[32m';
+  const reset = '\u001b[0m';
+  const live = [
+    `Diff in ${extended}:10:`,
+    '     fn main() {',
+    `${red}-    let x=1;${reset}`,
+    `${green}+    let x = 1;${reset}`,
+    ' Diff in src/other.rs:99:',
+    '-Diff in src/skipped.rs:3:',
+    '+Diff in src/skipped.rs:3:',
+  ].join('\n');
+  const parsed = parseRustfmtCheck(live, CWD);
+  assert.deepEqual(parsed.changedFiles, ['src/lib.rs']);
+  assert.equal(parsed.diagnostics.length, 1);
+  assert.equal(parsed.diagnostics[0].file, 'src/lib.rs');
+  assert.equal(parsed.diagnostics[0].line, 10);
+  assert.equal(parsed.diagnostics[0].code, 'rustfmt');
+  assert.equal(parsed.diagnostics[0].severity, 'warning');
+  assert.equal(parsed.diagnostics[0].fixable, true);
+
+  const legacy = parseRustfmtCheck(`Diff in ${extended} at line 10:\n`, CWD);
+  const modern = parseRustfmtCheck(`Diff in ${extended}:10:\n`, CWD);
+  assert.equal(legacy.diagnostics[0].file, modern.diagnostics[0].file);
+  assert.equal(legacy.diagnostics[0].file, 'src/lib.rs');
+  assert.equal(legacy.diagnostics[0].line, 10);
+  assert.equal(modern.diagnostics[0].line, 10);
+
+  const posixParsed = parseRustfmtCheck(`Diff in ${posix}:10:\nDiff in ${posix} at line 44:\n`, CWD);
+  assert.deepEqual(posixParsed.changedFiles, ['src/lib.rs']);
+  assert.deepEqual(posixParsed.diagnostics.map((entry) => entry.line), [10, 44]);
+  assert.equal(posixParsed.diagnostics[0].file, 'src/lib.rs');
+  assert.equal(posixParsed.diagnostics[0].code, 'rustfmt');
+  assert.equal(posixParsed.diagnostics[0].severity, 'warning');
+  assert.equal(posixParsed.diagnostics[0].fixable, true);
+
+  const unc = parseRustfmtCheck('Diff in \\\\?\\UNC\\server\\share\\src\\lib.rs:10:\n', CWD);
+  assert.equal(unc.diagnostics.length, 1);
+  assert.equal(unc.diagnostics[0].line, 10);
+  assert.equal(unc.diagnostics[0].code, 'rustfmt');
+  assert.equal(unc.diagnostics[0].severity, 'warning');
+  assert.equal(unc.diagnostics[0].fixable, true);
+  assert.match(unc.diagnostics[0].file, /^(\\\\|\/\/)/);
+  assert.doesNotMatch(unc.diagnostics[0].file, /^UNC\//);
+  assert.match(guardTidyWritePath(fullPathFor(CWD, unc.diagnostics[0].file)), /UNC/);
 });
 
 test('eslint JSON keeps rule ids, severities, and fixable counts', () => {

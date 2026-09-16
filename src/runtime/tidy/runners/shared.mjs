@@ -8,7 +8,18 @@ import { runProcess } from '../process.mjs';
 
 export const DEFAULT_ENGINE_TIMEOUT_MS = 120_000;
 // Command lines are bounded (~32k on Windows); chunk long file lists.
-const FILES_PER_SPAWN = 80;
+export const FILES_PER_SPAWN = 80;
+
+/** Split `files` into argv-safe groups. An empty list is one empty chunk. */
+export function chunkFiles(files = [], size = FILES_PER_SPAWN) {
+  const width = Math.max(1, Number(size) || FILES_PER_SPAWN);
+  if (!files.length) return [[]];
+  const chunks = [];
+  for (let index = 0; index < files.length; index += width) {
+    chunks.push(files.slice(index, index + width));
+  }
+  return chunks;
+}
 
 // Engines colorize the paths they report (air underlines them, mago colors its
 // diffs), so every path-matching parser strips SGR sequences first.
@@ -32,7 +43,7 @@ export function toRel(cwd, filePath) {
   return rel.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
-export function diagnostic({ file, line = 0, col = 0, code = '', message = '', severity = 'error', fixable = false }) {
+export function diagnostic({ file, line = 0, col = 0, code = '', message = '', severity = 'error', fixable = false, fixKind = '', codeFix }) {
   return {
     file,
     line: Number(line) || 0,
@@ -41,6 +52,8 @@ export function diagnostic({ file, line = 0, col = 0, code = '', message = '', s
     message: String(message || '').trim(),
     severity,
     fixable: Boolean(fixable),
+    ...(fixKind ? { fixKind } : {}),
+    ...(codeFix === true || codeFix === false ? { codeFix } : {}),
   };
 }
 
@@ -65,18 +78,18 @@ export async function runChunked({
   env = process.env,
   input = null,
   withoutFiles = false,
+  filesPerSpawn = FILES_PER_SPAWN,
+  run = runProcess,
 }) {
-  const chunks = withoutFiles
-    ? [[]]
-    : Array.from({ length: Math.max(1, Math.ceil(files.length / FILES_PER_SPAWN)) },
-      (_unused, index) => files.slice(index * FILES_PER_SPAWN, (index + 1) * FILES_PER_SPAWN));
-  const merged = { code: 0, stdout: '', stderr: '', timedOut: false, error: '', results: [] };
+  const chunks = withoutFiles ? [[]] : chunkFiles(files, filesPerSpawn);
+  const merged = { code: 0, stdout: '', stderr: '', timedOut: false, error: '', truncated: false, results: [] };
   for (const chunk of chunks) {
-    const result = await runProcess(bin, [...baseArgs, ...chunk], { cwd, timeoutMs, signal, env, input });
+    const result = await run(bin, [...baseArgs, ...chunk], { cwd, timeoutMs, signal, env, input });
     merged.results.push(result);
     merged.stdout += result.stdout;
     merged.stderr += result.stderr;
     merged.timedOut = merged.timedOut || result.timedOut;
+    merged.truncated = merged.truncated || Boolean(result.truncated);
     if (result.error && !merged.error) merged.error = result.error;
     if (result.code !== 0) merged.code = result.code;
   }

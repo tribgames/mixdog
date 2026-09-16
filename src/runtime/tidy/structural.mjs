@@ -12,10 +12,11 @@
 // because apply.mjs edits by byte range. The engine is never allowed to write:
 // tidy takes the fix payloads and applies them through the write pipeline.
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runProcess } from './process.mjs';
 import { parseGraphLangs } from './languages.mjs';
+import { refineHistoryCommentMatches } from './history-comment.mjs';
 
 export const RULES_DIR = fileURLToPath(new URL('./rules/', import.meta.url));
 const PROBE_TIMEOUT_MS = 8000;
@@ -258,6 +259,27 @@ export function createGraphStructuralAdapter({ binPath, timeoutMs = STRUCTURAL_T
       const parsed = parseStructuralJsonl(result.stdout, { exitCode: result.code, stderr: result.stderr });
       if (parsed.error?.kind === 'protocol') {
         throw new StructuralEngineUnavailableError(binPath);
+      }
+      if (!parsed.error) {
+        parsed.matches = refineHistoryCommentMatches(parsed.matches, {
+          sourceFor: (file) => {
+            const rel = String(file || '').replaceAll('\\', '/');
+            const candidates = [];
+            if (rel) {
+              if (isAbsolute(file) || isAbsolute(rel)) candidates.push(file, rel);
+              candidates.push(join(cwd, rel), join(cwd, file));
+            }
+            for (const candidate of candidates) {
+              try { return readFileSync(candidate); } catch { /* try next */ }
+            }
+            return null;
+          },
+        });
+        parsed.summary = {
+          ...(parsed.summary || {}),
+          matches: parsed.matches.length,
+          files: new Set(parsed.matches.map((match) => match.file)).size,
+        };
       }
       return parsed;
     },
