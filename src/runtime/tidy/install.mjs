@@ -148,7 +148,7 @@ export function planInstall({ ids = [], manifest, pluginData = '', policy = 'aut
   return { targets, present, errors, needsApproval: null };
 }
 
-async function downloadAsset(target, tmpDir, fetchFn, signal) {
+async function downloadAsset(target, tmpDir, fetchFn, signal, onProgress) {
   const archiveFile = join(tmpDir, `asset-${target.id}`);
   const response = await fetchFn(target.url, { signal, redirect: 'follow' });
   if (!response?.ok) {
@@ -157,12 +157,24 @@ async function downloadAsset(target, tmpDir, fetchFn, signal) {
   await streamResponseToFile(response, archiveFile, {
     maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
     label: `${LABEL} ${target.id}`,
+    // Byte progress per engine: the desktop card renders it live, so the
+    // callback carries the engine id the bytes belong to.
+    ...(typeof onProgress === 'function'
+      ? {
+          onProgress: ({ downloaded, total }) => {
+            onProgress({ id: target.id, receivedBytes: downloaded, totalBytes: total });
+          },
+        }
+      : {}),
   });
   return archiveFile;
 }
 
 /** Download + verify + extract one engine into its versioned managed dir. */
-export async function installEngine(target, { pluginData, fetchFn = globalThis.fetch, signal = null } = {}) {
+export async function installEngine(
+  target,
+  { pluginData, fetchFn = globalThis.fetch, signal = null, onProgress = null } = {}
+) {
   const engineRoot = join(managedToolsDir(pluginData), target.id);
   const finalDir = managedEngineDir(pluginData, target.id, target.version);
   const binFull = join(finalDir, target.binPath);
@@ -173,7 +185,7 @@ export async function installEngine(target, { pluginData, fetchFn = globalThis.f
   const tmpDir = join(engineRoot, `.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   mkdirSync(tmpDir, { recursive: true });
   try {
-    const archiveFile = await downloadAsset(target, tmpDir, fetchFn, signal);
+    const archiveFile = await downloadAsset(target, tmpDir, fetchFn, signal, onProgress);
     await verifyDownloadDigest(archiveFile, target.sha256);
     const bytes = statSync(archiveFile).size;
     const stageDir = join(tmpDir, 'stage');
@@ -222,6 +234,7 @@ export async function installEngines({
   approveDownloads = false,
   fetchFn = globalThis.fetch,
   signal = null,
+  onProgress = null,
 } = {}) {
   const loaded = manifest || readEnginesManifest();
   const plan = planInstall({ ids, manifest: loaded, pluginData, policy, approveDownloads });
@@ -236,7 +249,7 @@ export async function installEngines({
   }
   for (const target of plan.targets) {
     try {
-      installed.push(await installEngine(target, { pluginData, fetchFn, signal }));
+      installed.push(await installEngine(target, { pluginData, fetchFn, signal, onProgress }));
     } catch (error) {
       errors.push({ id: target.id, error: error?.message || String(error) });
     }

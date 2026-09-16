@@ -129,7 +129,12 @@ test('nupkg extraction strips NuGet metadata and keeps the module', async (t) =>
   const archive = join(root, 'engine.nupkg');
   writeFileSync(archive, await zip.generateAsync({ type: 'nodebuffer' }));
   const dest = join(root, 'out');
-  const written = await extractArchive({ archive: 'nupkg', srcPath: archive, destDir: dest, binPath: 'PSScriptAnalyzer.psd1' });
+  const written = await extractArchive({
+    archive: 'nupkg',
+    srcPath: archive,
+    destDir: dest,
+    binPath: 'PSScriptAnalyzer.psd1',
+  });
   assert.ok(written.includes('PSScriptAnalyzer.psd1'));
   assert.ok(written.includes('PSScriptAnalyzer.psm1'));
   assert.ok(!written.some((name) => isNupkgMetadata(name)));
@@ -207,6 +212,34 @@ test('install verifies, extracts, and lands the engine in its versioned dir', as
   // A second install is a no-op, and no staging directory survives.
   const again = await installEngine(target, { pluginData: root, fetchFn: fakeFetch(payload) });
   assert.equal(again.status, 'present');
+});
+
+test('install reports per-engine download progress to its callback', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n'.repeat(64));
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const progress = [];
+  const outcome = await installEngines({
+    ids: ['shfmt'],
+    manifest,
+    pluginData: root,
+    policy: 'auto',
+    fetchFn: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (name) => (String(name).toLowerCase() === 'content-length' ? String(payload.length) : '') },
+      body: Readable.from([payload.subarray(0, 100), payload.subarray(100)]),
+    }),
+    onProgress: (event) => progress.push(event),
+  });
+  assert.equal(outcome.installed[0].status, 'installed');
+  assert.ok(progress.length > 0, 'the installer must report progress');
+  for (const event of progress) {
+    assert.equal(event.id, 'shfmt');
+    assert.equal(event.totalBytes, payload.length);
+    assert.ok(event.receivedBytes > 0 && event.receivedBytes <= payload.length);
+  }
+  assert.equal(progress.at(-1).receivedBytes, payload.length);
 });
 
 test('a digest mismatch aborts the install and leaves nothing behind', async (t) => {

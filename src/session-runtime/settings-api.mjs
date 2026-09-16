@@ -55,6 +55,10 @@ export function createSettingsApi({
   // Built-in install adapter: feature-specific preparation (model
   // pre-download, component verification) before the installed marker lands.
   prepareBuiltinFeature,
+  // Code Tidy card: engine inventory + the live install job. Both are reads;
+  // the Install button drives downloads through prepareBuiltinFeature('tidy').
+  tidyEngineStatus,
+  tidyInstallStatus,
   prepareLocalProviderModel,
   getLocalProviderStatus = () => ({}),
   stopLocalProviderServer,
@@ -400,6 +404,16 @@ export function createSettingsApi({
       if (name === 'memory') invalidateContextStatusCache();
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
+    },
+    /** Extensions → Code Tidy: which engines exist, where each one comes from,
+     *  and the in-flight install. Never downloads. */
+    async getTidyEngineStatus() {
+      return (await tidyEngineStatus?.()) || null;
+    },
+    /** Progress for an `installBuiltinFeature('tidy')` still in flight, the
+     *  last finished job, or null when this runtime never installed. */
+    async getTidyInstallStatus() {
+      return (await tidyInstallStatus?.()) || null;
     },
     getChannelSettings(options = {}) {
       return {

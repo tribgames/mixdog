@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   moduleEnabled,
@@ -8,8 +11,20 @@ import {
   setRecapEnabledInConfig,
 } from './config-helpers.mjs';
 import { createSettingsApi } from './settings-api.mjs';
+import {
+  TIDY_CORE_ENGINE_IDS,
+  installTidyCoreEngines,
+  resetTidyInstallStatus,
+  tidyEngineStatus,
+  tidyInstallStatus,
+} from '../runtime/tidy/core-install.mjs';
+import { platformAssetKey } from '../runtime/tidy/install.mjs';
 
-function fixture() {
+function fixture({
+  onPrepare = null,
+  tidyEngineStatus: engineStatus = null,
+  tidyInstallStatus: installStatus = null,
+} = {}) {
   let config = {};
   let refreshes = 0;
   let catalogRefreshes = 0;
@@ -41,7 +56,10 @@ function fixture() {
     prepareBuiltinFeature: async (name) => {
       prepared.push(name);
       if (name === 'localProvider') runtimeInstalled = true;
+      await onPrepare?.(name);
     },
+    tidyEngineStatus: engineStatus,
+    tidyInstallStatus: installStatus,
     prepareLocalProviderModel: async (modelId) => {
       installedModels.push(modelId);
     },
@@ -98,6 +116,86 @@ test('enabling a built-in tool marks it installed; install runs the adapter', as
   assert.equal(state.config().builtins.tidy.installed, true);
   const tidyOff = await state.api.setBuiltinToolEnabled('tidy', false);
   assert.deepEqual(tidyOff.tidy, { enabled: false, installed: true });
+});
+
+function tidyManifest() {
+  const engines = {};
+  for (const id of TIDY_CORE_ENGINE_IDS) {
+    engines[id] = {
+      version: '1.2.3',
+      license: 'MIT',
+      kind: ['format'],
+      languages: ['bash'],
+      assets: {
+        [id === 'psscriptanalyzer' ? 'any' : platformAssetKey()]: {
+          url: `https://example.invalid/${id}`,
+          sha256: 'a'.repeat(64),
+          archive: 'none',
+          binPath: id,
+        },
+      },
+    };
+  }
+  return { version: 1, engines };
+}
+
+test('installing Code Tidy provisions the core engines and keeps the marker when one fails', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'tidy-builtin-install-'));
+  t.after(() => {
+    resetTidyInstallStatus();
+    rmSync(root, { recursive: true, force: true });
+  });
+  resetTidyInstallStatus();
+  const manifest = tidyManifest();
+  const env = { PATH: '', Path: '' };
+  const requested = [];
+  let outcome = null;
+  const state = fixture({
+    onPrepare: async (name) => {
+      if (name !== 'tidy') return;
+      outcome = await installTidyCoreEngines({
+        pluginData: root,
+        manifest,
+        env,
+        installEngines: async (options) => {
+          requested.push(options.ids);
+          return {
+            installed: options.ids
+              .filter((id) => id !== 'shellcheck')
+              .map((id) => ({ id, version: '1.2.3', status: 'installed', bytes: 10 })),
+            errors: [{ id: 'shellcheck', error: 'HTTP 503 for https://example.invalid/shellcheck' }],
+            needsApproval: null,
+          };
+        },
+      });
+    },
+    tidyEngineStatus: () => tidyEngineStatus({ pluginData: root, manifest, env, probeVersions: false }),
+    tidyInstallStatus: () => tidyInstallStatus(),
+  });
+
+  const settings = await state.api.installBuiltinFeature('tidy');
+  // One engine failed; the tool itself works, so the feature stays installed.
+  assert.deepEqual(settings.tidy, { enabled: true, installed: true });
+  assert.equal(state.config().builtins.tidy.installed, true);
+  assert.deepEqual(requested, [['biome', 'ruff', 'shfmt', 'shellcheck']]);
+  const byId = new Map(outcome.engines.map((engine) => [engine.id, engine]));
+  assert.equal(byId.get('biome').status, 'installed');
+  assert.equal(byId.get('shellcheck').status, 'failed');
+  assert.equal(byId.get('psscriptanalyzer').status, 'skipped');
+
+  const status = await state.api.getTidyEngineStatus();
+  assert.equal(status.toolsDir, join(root, 'tools'));
+  assert.deepEqual(status.core, [...TIDY_CORE_ENGINE_IDS]);
+  assert.equal(status.installing.active, false);
+  assert.equal(status.installing.percent, 100);
+  const install = await state.api.getTidyInstallStatus();
+  assert.equal(install.engines.find((engine) => engine.id === 'shellcheck').status, 'failed');
+});
+
+test('Code Tidy status reads answer with null before any install adapter is wired', async () => {
+  const state = fixture();
+  assert.equal(await state.api.getTidyEngineStatus(), null);
+  assert.equal(await state.api.getTidyInstallStatus(), null);
 });
 
 test('built-in tool setting rejects names outside the first-party registry', async () => {

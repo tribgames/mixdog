@@ -290,7 +290,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-sidebar-panels .sidebar-resource-tag {
+.session-sidebar-panels .sidebar-resource-tag,
+.extensions-dialog .sidebar-resource-tag {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -305,17 +306,20 @@
   line-height: 1;
   white-space: nowrap;
 }
-.session-sidebar-panels .sidebar-resource-tag[data-tone="warn"] {
+.session-sidebar-panels .sidebar-resource-tag[data-tone="warn"],
+.extensions-dialog .sidebar-resource-tag[data-tone="warn"] {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 8%, var(--mx-bg-base));
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-warning) 35%, transparent);
 }
-.session-sidebar-panels .sidebar-resource-tag[data-tone="danger"] {
+.session-sidebar-panels .sidebar-resource-tag[data-tone="danger"],
+.extensions-dialog .sidebar-resource-tag[data-tone="danger"] {
   color: var(--mx-danger);
   background: color-mix(in srgb, var(--mx-danger) 8%, var(--mx-bg-base));
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 35%, transparent);
 }
-.session-sidebar-panels .sidebar-resource-tag[data-tone="ok"] {
+.session-sidebar-panels .sidebar-resource-tag[data-tone="ok"],
+.extensions-dialog .sidebar-resource-tag[data-tone="ok"] {
   color: var(--mx-success);
   background: color-mix(in srgb, var(--mx-success) 8%, var(--mx-bg-base));
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-success) 35%, transparent);

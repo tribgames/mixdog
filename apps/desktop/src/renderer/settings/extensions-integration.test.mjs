@@ -775,3 +775,343 @@ test('Workflow card surface opens an immediate loading popup before editor data 
     resetSidebarReferenceCache();
   }
 });
+
+test('Code Tidy card renders engine list, install progress, and failed engine row', async () => {
+  let tidyEngineStatus = {
+    toolsDir: 'C:\\Users\\tempe\\.mixdog\\data\\tools',
+    core: ['biome', 'ruff', 'shfmt', 'shellcheck', 'psscriptanalyzer'],
+    engines: [
+      {
+        id: 'biome',
+        title: 'Biome',
+        languages: ['JavaScript', 'TypeScript', 'JSON', 'CSS'],
+        kind: ['formatter', 'linter'],
+        version: '1.9.4',
+        source: 'managed',
+        bytes: 35651584,
+        managed: true,
+        core: true,
+        toolchain: false,
+      },
+      {
+        id: 'shfmt',
+        title: 'shfmt',
+        languages: ['Shell'],
+        kind: ['formatter'],
+        version: '3.7.0',
+        source: 'host',
+        managed: true,
+        core: true,
+        toolchain: false,
+      },
+      {
+        id: 'ruff',
+        title: 'ruff',
+        languages: ['Python'],
+        kind: ['formatter', 'linter'],
+        version: '',
+        source: 'missing',
+        managed: true,
+        core: true,
+        toolchain: false,
+      },
+      {
+        id: 'psscriptanalyzer',
+        title: 'PSScriptAnalyzer',
+        languages: ['PowerShell'],
+        kind: ['formatter', 'linter'],
+        version: '',
+        source: 'missing',
+        managed: true,
+        core: true,
+        toolchain: false,
+        installHint: 'Install PowerShell (pwsh) to use PSScriptAnalyzer',
+      },
+      {
+        id: 'google-java-format',
+        title: 'google-java-format',
+        languages: ['Java'],
+        kind: ['formatter'],
+        version: '',
+        source: 'missing',
+        managed: true,
+        core: false,
+        toolchain: false,
+      },
+      {
+        id: 'rustfmt',
+        title: 'rustfmt',
+        languages: ['Rust'],
+        kind: ['formatter'],
+        version: '',
+        source: 'missing',
+        managed: false,
+        core: false,
+        toolchain: true,
+        installHint: 'Install rustup and run `rustup component add rustfmt`',
+      },
+      {
+        id: 'ast-grep',
+        title: 'ast-grep',
+        languages: ['C', 'Rust', 'Go'],
+        kind: ['structural'],
+        version: '0.34.0',
+        source: 'managed',
+        managed: true,
+        core: false,
+        toolchain: false,
+      },
+    ],
+    installing: null,
+  };
+
+  let tidyInstallStatus = null;
+  const installDeferred = deferred();
+
+  const context = panelContext({
+    data: {
+      ...panelContext().data,
+      toolModules: {
+        ...panelContext().data.toolModules,
+        tidy: { enabled: false, installed: false },
+      },
+    },
+    api: {
+      ...panelContext().api,
+      async readCapabilities(requests) {
+        return requests.map((req) => {
+          if (req.capability === 'getTidyEngineStatus') {
+            return { ok: true, value: tidyEngineStatus };
+          }
+          if (req.capability === 'getTidyInstallStatus') {
+            return { ok: true, value: tidyInstallStatus };
+          }
+          return { ok: false, error: 'unknown' };
+        });
+      },
+    },
+    async run(capability, args) {
+      if (capability === 'installBuiltinFeature' && args[0] === 'tidy') {
+        await installDeferred.promise;
+        // Simulate install completing with feature installed, but ruff failed and psscriptanalyzer skipped
+        tidyEngineStatus = {
+          ...tidyEngineStatus,
+          engines: tidyEngineStatus.engines.map((e) =>
+            e.id === 'biome'
+              ? { ...e, source: 'managed' }
+              : e.id === 'shfmt'
+                ? { ...e, source: 'host' }
+                : e.id === 'ruff'
+                  ? { ...e, source: 'missing' }
+                  : e
+          ),
+          installing: {
+            active: false,
+            percent: 100,
+            startedAt: Date.now(),
+            updatedAt: Date.now(),
+            engines: [
+              {
+                id: 'biome',
+                status: 'installed',
+                receivedBytes: 35651584,
+                totalBytes: 35651584,
+                version: '1.9.4',
+                bytes: 35651584,
+              },
+              {
+                id: 'shfmt',
+                status: 'present',
+                receivedBytes: 0,
+                totalBytes: 0,
+                version: '3.7.0',
+                bytes: 0,
+              },
+              {
+                id: 'ruff',
+                status: 'failed',
+                receivedBytes: 12897485,
+                totalBytes: 78643200,
+                version: '',
+                bytes: 0,
+                error: 'Checksum mismatch',
+              },
+              {
+                id: 'psscriptanalyzer',
+                status: 'skipped',
+                receivedBytes: 0,
+                totalBytes: 0,
+                version: '',
+                bytes: 0,
+                installHint: 'Install PowerShell (pwsh) to use PSScriptAnalyzer',
+              },
+            ],
+          },
+        };
+        return { tidy: { installed: true, enabled: true } };
+      }
+      return {};
+    },
+  });
+
+  const rendered = await renderPanel('plugins', context);
+  try {
+    // Open Code Tidy dialog
+    await act(async () => {
+      document.querySelector('[data-built-in-feature="tidy"]').click();
+    });
+
+    const dialog = document.querySelector('[data-feature-id="tidy"]');
+    assert.ok(dialog);
+
+    // 1. Check ast-grep is excluded from engine rows
+    assert.equal(dialog.querySelector('[data-tidy-engine="ast-grep"]'), null);
+
+    // Check Biome (installed managed): no tag, row tone ok, description languages · version · size
+    const biomeRow = dialog.querySelector('[data-tidy-engine="biome"]');
+    assert.ok(biomeRow);
+    assert.equal(biomeRow.getAttribute('data-tone'), 'ok');
+    assert.equal(biomeRow.querySelector('.sidebar-resource-tag'), null);
+    assert.match(biomeRow.textContent, /JavaScript, TypeScript, JSON, CSS · 1\.9\.4 · 34\.0 MB/);
+
+    // Check shfmt (present host engine): no tag
+    const shfmtRow = dialog.querySelector('[data-tidy-engine="shfmt"]');
+    assert.ok(shfmtRow);
+    assert.equal(shfmtRow.getAttribute('data-tone'), 'ok');
+    assert.equal(shfmtRow.querySelector('.sidebar-resource-tag'), null);
+    assert.match(shfmtRow.textContent, /Shell · 3\.7\.0/);
+
+    // Check ruff (core, missing): tag 'Not installed' (muted), description 'Python'
+    const ruffRow = dialog.querySelector('[data-tidy-engine="ruff"]');
+    assert.ok(ruffRow);
+    const ruffTag = ruffRow.querySelector('.sidebar-resource-tag');
+    assert.ok(ruffTag);
+    assert.equal(ruffTag.textContent, 'Not installed');
+    assert.equal(ruffTag.getAttribute('data-tone'), 'muted');
+    assert.match(ruffRow.textContent, /Python/);
+
+    // Check google-java-format (non-core managed, missing): tag 'On demand' (muted)
+    const javaRow = dialog.querySelector('[data-tidy-engine="google-java-format"]');
+    assert.ok(javaRow);
+    const javaTag = javaRow.querySelector('.sidebar-resource-tag');
+    assert.ok(javaTag);
+    assert.equal(javaTag.textContent, 'On demand');
+    assert.equal(javaTag.getAttribute('data-tone'), 'muted');
+
+    // Check rustfmt (toolchain host missing): tag 'Not detected' (muted), description is installHint
+    const rustRow = dialog.querySelector('[data-tidy-engine="rustfmt"]');
+    assert.ok(rustRow);
+    const rustTag = rustRow.querySelector('.sidebar-resource-tag');
+    assert.ok(rustTag);
+    assert.equal(rustTag.textContent, 'Not detected');
+    assert.equal(rustTag.getAttribute('data-tone'), 'muted');
+    assert.match(rustRow.textContent, /Install rustup and run `rustup component add rustfmt`/);
+
+    // Section title count is installed engines (2: Biome + shfmt)
+    const enginesSection = dialog.querySelector('.extensions-section');
+    assert.ok(enginesSection);
+    assert.equal(enginesSection.querySelector('em')?.textContent, '2');
+
+    // ExtensionNote under Engines section
+    assert.match(
+      dialog.textContent,
+      /Structural rules ship with Mixdog; engines download to C:\\Users\\tempe\\\.mixdog\\data\\tools\./
+    );
+
+    // Info block fact
+    assert.match(
+      dialog.textContent,
+      /Install downloads the core engines \(Biome, ruff, shfmt, shellcheck, PSScriptAnalyzer\); other languages download on first use\./
+    );
+
+    // 2. Active install progress text
+    tidyInstallStatus = {
+      active: true,
+      percent: 42,
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      engines: [
+        {
+          id: 'ruff',
+          status: 'downloading',
+          receivedBytes: 12897485,
+          totalBytes: 78643200,
+          version: '',
+          bytes: 0,
+        },
+        {
+          id: 'psscriptanalyzer',
+          status: 'downloading',
+          receivedBytes: 12897485,
+          totalBytes: 0, // totalBytes 0/null → Downloading 12.3 MB (no slash)
+          version: '',
+          bytes: 0,
+        },
+      ],
+    };
+
+    // Trigger install
+    const installButton = dialog.querySelector('.built-in-feature-control button');
+    assert.ok(installButton);
+
+    // Start install
+    await act(async () => {
+      installButton.click();
+    });
+
+    // While installing: SlotProgress in header, badge on list, progress text in engine rows
+    const progressSlot = dialog.querySelector('.built-in-feature-slot-progress');
+    assert.ok(progressSlot);
+    assert.equal(progressSlot.getAttribute('aria-valuenow'), '42');
+    assert.equal(progressSlot.getAttribute('aria-valuetext'), 'Installing Code Tidy…');
+    assert.match(progressSlot.textContent, /42%/);
+
+    const tidyListBadge = document.querySelector('[data-built-in-feature="tidy"] .sidebar-resource-tag');
+    assert.ok(tidyListBadge);
+    assert.equal(tidyListBadge.textContent, 'Installing… 42%');
+    assert.equal(tidyListBadge.getAttribute('data-tone'), 'muted');
+
+    // With totalBytes > 0: has slash
+    assert.match(
+      dialog.querySelector('[data-tidy-engine="ruff"]')?.textContent || '',
+      /Downloading 12\.3 MB \/ 75\.0 MB/
+    );
+
+    // With totalBytes 0/null: exactly "Downloading 12.3 MB" without slash
+    const pwshRowProgress = dialog.querySelector('[data-tidy-engine="psscriptanalyzer"]');
+    assert.ok(pwshRowProgress);
+    assert.match(pwshRowProgress.textContent, /Downloading 12\.3 MB/);
+    assert.doesNotMatch(pwshRowProgress.textContent, /Downloading 12\.3 MB \//);
+
+    // Resolve the install
+    await act(async () => {
+      installDeferred.resolve();
+    });
+
+    // 3. After install finishes:
+    // ruff shows as Failed (danger) with error in description
+    const postRuffRow = dialog.querySelector('[data-tidy-engine="ruff"]');
+    assert.ok(postRuffRow);
+    const failedTag = postRuffRow.querySelector('.sidebar-resource-tag');
+    assert.ok(failedTag);
+    assert.equal(failedTag.textContent, 'Failed');
+    assert.equal(failedTag.getAttribute('data-tone'), 'danger');
+    assert.match(postRuffRow.textContent, /Checksum mismatch/);
+
+    // present engine: shfmt still has no tag
+    const postShfmtRow = dialog.querySelector('[data-tidy-engine="shfmt"]');
+    assert.ok(postShfmtRow);
+    assert.equal(postShfmtRow.querySelector('.sidebar-resource-tag'), null);
+
+    // skipped engine: psscriptanalyzer renders 'Not detected' (muted) + installHint
+    const postPwshRow = dialog.querySelector('[data-tidy-engine="psscriptanalyzer"]');
+    assert.ok(postPwshRow);
+    const skippedTag = postPwshRow.querySelector('.sidebar-resource-tag');
+    assert.ok(skippedTag);
+    assert.equal(skippedTag.textContent, 'Not detected');
+    assert.equal(skippedTag.getAttribute('data-tone'), 'muted');
+    assert.match(postPwshRow.textContent, /Install PowerShell \(pwsh\) to use PSScriptAnalyzer/);
+  } finally {
+    await rendered.cleanup();
+  }
+});

@@ -14,7 +14,10 @@ export function longRunningRequestTimeout(method: string, args: unknown[] = []):
   if (method === 'installLocalProviderModel') {
     return LOCAL_PROVIDER_INSTALL_REQUEST_TIMEOUT_MS;
   }
-  if (method === 'installBuiltinFeature' && args[0] === 'localProvider') {
+  // Code Tidy's built-in install downloads its core managed engines
+  // (~130 MB); it needs the same download-sized deadline, not the
+  // interactive one.
+  if (method === 'installBuiltinFeature' && (args[0] === 'localProvider' || args[0] === 'tidy')) {
     return LOCAL_PROVIDER_INSTALL_REQUEST_TIMEOUT_MS;
   }
   if (method === 'inheritFrom') return SESSION_INHERIT_REQUEST_TIMEOUT_MS;

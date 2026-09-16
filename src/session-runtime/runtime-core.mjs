@@ -98,6 +98,7 @@ import { createLifecycleApi } from './lifecycle-api.mjs';
 import { createResourceApi } from './resource-api.mjs';
 import { createModelRouteApi } from './model-route-api.mjs';
 import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
+import { configuredOrchestrationMode, sessionOrchestrationMode } from '../runtime/shared/orchestration.mjs';
 import { createSelfUpdateController } from './self-update.mjs';
 import { createSkillsApi } from './skills-api.mjs';
 import { createCompletionWakeScheduler, createNotificationBus } from './notification-bus.mjs';
@@ -151,6 +152,7 @@ const {
   loadAgentDefinition,
   listCustomAgentIds,
   activeWorkflowContext,
+  delegatableAgentIds,
 } = createWorkflowHelpers({
   rootDir: STANDALONE_ROOT,
   dataDir: STANDALONE_DATA_DIR,
@@ -631,8 +633,7 @@ export async function createMixdogSessionRuntime({
       getMcpScopeId: () => rt.mcpScopeId,
       getCurrentCwd: () => rt.currentCwd,
       cfgMod,
-      loadWorkflowPack,
-      activeWorkflowId,
+      delegatableAgentIds,
       dataDir: STANDALONE_DATA_DIR,
       getFeatureDisallowedTools: featureDisallowedTools,
     });
@@ -995,7 +996,7 @@ export async function createMixdogSessionRuntime({
     // Built-in install adapters. Memory warms the embedding runtime so the
     // model download happens at install time instead of the first recall;
     // git verification is an instant probe; office provisions global Noto fonts
-    // and verifies the bundled engine.
+    // and verifies the bundled engine; tidy downloads its core managed engines.
     prepareBuiltinFeature: async (name) => {
       if (name === 'memory') {
         const memory = await getMemoryModule().catch(() => null);
@@ -1003,9 +1004,22 @@ export async function createMixdogSessionRuntime({
       } else if (name === 'office') {
         const { prepareOfficeFonts } = await import('../runtime/office/portable/font-provisioner.mjs');
         await prepareOfficeFonts?.().catch?.(() => {});
+      } else if (name === 'tidy') {
+        const { installTidyCoreEngines } = await import('../runtime/tidy/core-install.mjs');
+        // Per-engine failures land in the install job, not in an exception:
+        // the feature still installs and the card reports what did not.
+        await installTidyCoreEngines({ pluginData: cfgMod.getPluginData?.() || STANDALONE_DATA_DIR });
       } else if (name === 'localProvider') {
         await installLocalProviderRuntime();
       }
+    },
+    tidyEngineStatus: async () => {
+      const { tidyEngineStatus } = await import('../runtime/tidy/core-install.mjs');
+      return tidyEngineStatus({ pluginData: cfgMod.getPluginData?.() || STANDALONE_DATA_DIR });
+    },
+    tidyInstallStatus: async () => {
+      const { tidyInstallStatus } = await import('../runtime/tidy/core-install.mjs');
+      return tidyInstallStatus();
     },
     prepareLocalProviderModel: (modelId) => installLocalProviderModel(modelId),
     getLocalProviderStatus: () => localProviderStatus(),
@@ -1360,13 +1374,16 @@ export async function createMixdogSessionRuntime({
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const active = activeWorkflowSummary(rt.config, dataDir);
       if (rt.session?.workflow && typeof rt.session.workflow === 'object') {
-        const current = workflowSummary(rt.session.workflow);
+        const current = rt.session.workflow;
         return current?.id && active?.id && current.id !== active.id
           ? { ...active, currentSession: current, appliedToCurrentSession: false }
           : active;
       }
       return active;
     },
+    getOrchestrationMode: () => rt.session?.id
+      ? sessionOrchestrationMode(rt.session)
+      : configuredOrchestrationMode(rt.config),
     getOutputStyle: () => getOutputStyleStatusCached().current,
     getContextStatus: computeContextStatus,
     getContextStatusForSession: computeContextStatusForSession,

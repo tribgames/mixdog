@@ -2,7 +2,13 @@ import { CapabilityIcon } from '../CapabilityIcon';
 import { skillDisplayDescription } from '../skill-presentation';
 import { useEffect, useMemo, useState } from 'react';
 
-import type { DesktopGitCliStatus, DesktopLibreOfficeStatus, DesktopSettings } from '../../shared/contract';
+import type {
+  DesktopGitCliStatus,
+  DesktopLibreOfficeStatus,
+  DesktopSettings,
+  DesktopTidyEngineStatus,
+  DesktopTidyInstallStatus,
+} from '../../shared/contract';
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
@@ -26,6 +32,8 @@ import { installationPercent, localProviderInstallation, useLocalProviderStatus 
 import { useLocalProviderActions } from './local-provider-actions';
 import type { LocalProviderActions } from './local-provider-operations';
 import { GitPanel } from './git-panel';
+import { useTidyEngineStatus } from './tidy-status';
+import { TidyEngines } from './tidy-engines';
 
 type FeatureAction = {
   id: BuiltInFeatureId;
@@ -143,11 +151,15 @@ function FeatureDetailDialog({
   api,
   gitStatus,
   officeDependency,
+  tidyStatus,
+  tidyInstallStatus,
 }: {
   api: PanelContext['api'];
   state: FeatureState;
   gitStatus: DesktopGitCliStatus | null;
   officeDependency: DesktopLibreOfficeStatus | null;
+  tidyStatus: DesktopTidyEngineStatus | null;
+  tidyInstallStatus: DesktopTidyInstallStatus | null;
   onInstall(): void;
   onToggle(enabled: boolean): void;
   onClose(): void;
@@ -177,6 +189,7 @@ function FeatureDetailDialog({
       />
       {feature.id === 'git' && <GitPanel api={api} />}
       {feature.id === 'localProvider' && <LocalProviderModels status={state.localProvider} actions={localActions} />}
+      {feature.id === 'tidy' && <TidyEngines status={tidyStatus} installStatus={tidyInstallStatus} />}
       {bundledSkills.length > 0 && (
         <ExtensionSection title={t('Skills')} count={bundledSkills.length}>
           <ExtensionItemList>
@@ -229,6 +242,11 @@ export function BuiltInFeaturesPanel({
     api,
     toolModules.localProvider,
     openId === 'localProvider' || action?.id === 'localProvider'
+  );
+  const tidy = useTidyEngineStatus(
+    api,
+    openId === 'tidy' || action?.id === 'tidy',
+    action?.id === 'tidy' && action?.status === 'installing'
   );
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
@@ -384,6 +402,9 @@ export function BuiltInFeaturesPanel({
         if (entry.installed !== true || entry.enabled !== true) {
           throw new Error(t('Installation did not complete.'));
         }
+        if (id === 'tidy') {
+          await tidy.refresh();
+        }
       } else {
         // Browser Use / Computer Use ship bundled: install marks the feature
         // activated, then turns its control on.
@@ -429,7 +450,9 @@ export function BuiltInFeaturesPanel({
           ? installationPercent(localProviderInstallation(localProvider, 'runtime'))
           : feature.id === 'voice' || feature.id === 'memory'
             ? progress.percent
-            : null,
+            : feature.id === 'tidy'
+              ? (tidy.installStatus?.percent ?? tidy.status?.installing?.percent ?? null)
+              : null,
       localProvider,
       info: record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),
     };
@@ -461,6 +484,8 @@ export function BuiltInFeaturesPanel({
           localActions={localActions}
           gitStatus={gitStatus}
           officeDependency={officeDependency}
+          tidyStatus={tidy.status}
+          tidyInstallStatus={tidy.installStatus}
           onInstall={() => install(open.id)}
           onToggle={(next) => toggle(open.id, next)}
           onClose={() => setOpenId(null)}

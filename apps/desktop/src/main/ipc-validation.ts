@@ -57,7 +57,7 @@ const SUBMIT_OPTION_KEYS = new Set([
   'pastedTexts',
 ]);
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
-const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId']);
+const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'orchestrationMode']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
 const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'modelParameters', 'contextPercent']);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
@@ -88,6 +88,8 @@ const CAPABILITY_ARITY = {
   setMemoryToolsEnabled: [1, 1],
   setBuiltinToolEnabled: [2, 2],
   installBuiltinFeature: [1, 1],
+  getTidyEngineStatus: [0, 0],
+  getTidyInstallStatus: [0, 0],
   installLocalProviderModel: [1, 1],
   startLocalProviderInstallation: [1, 2],
   cancelLocalProviderInstallation: [1, 1],
@@ -144,6 +146,8 @@ const CAPABILITY_ARITY = {
   listOutputStyles: [0, 0],
   setOutputStyle: [1, 1],
   setWorkflow: [1, 1],
+  getOrchestrationMode: [0, 0],
+  setOrchestrationMode: [1, 1],
   getWorkflowPack: [1, 1],
   saveWorkflowPack: [1, 1],
   createWorkflow: [1, 1],
@@ -446,6 +450,10 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
   const projectPath = input.projectPath === undefined ? '' : requiredString(input.projectPath, 'projectPath');
   const route = input.route === undefined ? undefined : requiredModelSelection(input.route);
   const workflowId = input.workflowId === undefined ? '' : requiredString(input.workflowId, 'workflowId', 256);
+  const orchestrationMode = input.orchestrationMode as DesktopNewTaskDraft['orchestrationMode'];
+  if (orchestrationMode !== undefined && !['none', 'focused', 'balanced', 'swarm'].includes(orchestrationMode)) {
+    throw new TypeError('orchestrationMode is invalid.');
+  }
   // A legacy `remote` flag was validated here, but NEW_TASK_DRAFT_KEYS rejects
   // the key before this point, the contract has no such field, and no caller
   // sends one: the branch was unreachable and is gone with its passthrough.
@@ -453,6 +461,7 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
     ...(projectPath ? { projectPath } : {}),
     ...(route ? { route } : {}),
     ...(workflowId ? { workflowId } : {}),
+    ...(orchestrationMode !== undefined ? { orchestrationMode } : {}),
   };
 }
 

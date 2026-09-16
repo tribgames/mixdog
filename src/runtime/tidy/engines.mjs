@@ -1,5 +1,8 @@
 // The engine catalog: what tidy knows how to resolve and run.
 //
+// `title` is the display name for surfaces that list engines (the desktop
+// Code Tidy card); everything else here is resolution/runner data.
+//
 // `toolchain: true` marks engines that ship with a language toolchain
 // (rustfmt, gofmt, zig fmt, ...). Those are PATH-detected only and are NEVER
 // downloaded; a missing one reports its installHint instead.
@@ -11,6 +14,7 @@
 export const ENGINE_CATALOG = Object.freeze({
   biome: {
     id: 'biome',
+    title: 'Biome',
     bin: 'biome',
     kind: ['format', 'lint'],
     languages: ['javascript', 'typescript', 'json', 'css'],
@@ -24,6 +28,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   prettier: {
     id: 'prettier',
+    title: 'Prettier',
     bin: 'prettier',
     kind: ['format'],
     languages: ['javascript', 'typescript', 'json', 'css', 'markdown', 'yaml', 'html'],
@@ -46,6 +51,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   eslint: {
     id: 'eslint',
+    title: 'ESLint',
     bin: 'eslint',
     kind: ['lint'],
     languages: ['javascript', 'typescript'],
@@ -67,6 +73,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   ruff: {
     id: 'ruff',
+    title: 'Ruff',
     bin: 'ruff',
     kind: ['format', 'lint'],
     languages: ['python'],
@@ -78,6 +85,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   'clang-format': {
     id: 'clang-format',
+    title: 'clang-format',
     bin: 'clang-format',
     kind: ['format'],
     languages: ['c', 'cpp', 'objc'],
@@ -88,6 +96,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   shfmt: {
     id: 'shfmt',
+    title: 'shfmt',
     bin: 'shfmt',
     kind: ['format'],
     languages: ['bash'],
@@ -98,6 +107,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   shellcheck: {
     id: 'shellcheck',
+    title: 'ShellCheck',
     bin: 'shellcheck',
     kind: ['lint'],
     languages: ['bash'],
@@ -108,6 +118,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   stylua: {
     id: 'stylua',
+    title: 'StyLua',
     bin: 'stylua',
     kind: ['format'],
     languages: ['lua'],
@@ -118,6 +129,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   gofumpt: {
     id: 'gofumpt',
+    title: 'gofumpt',
     bin: 'gofumpt',
     kind: ['format'],
     languages: ['go'],
@@ -130,6 +142,7 @@ export const ENGINE_CATALOG = Object.freeze({
   // stderr and exits non-zero; `air format` writes.
   air: {
     id: 'air',
+    title: 'Air',
     bin: 'air',
     kind: ['format'],
     languages: ['r'],
@@ -143,6 +156,7 @@ export const ENGINE_CATALOG = Object.freeze({
   // `mago lint --reporting-format json` emits {issues:[...]}.
   mago: {
     id: 'mago',
+    title: 'Mago',
     bin: 'mago',
     kind: ['format', 'lint'],
     languages: ['php'],
@@ -153,6 +167,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   dprint: {
     id: 'dprint',
+    title: 'dprint',
     bin: 'dprint',
     kind: ['format'],
     languages: ['json', 'markdown', 'toml', 'javascript', 'typescript'],
@@ -166,6 +181,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   rustfmt: {
     id: 'rustfmt',
+    title: 'rustfmt',
     bin: 'rustfmt',
     kind: ['format'],
     languages: ['rust'],
@@ -176,6 +192,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   gofmt: {
     id: 'gofmt',
+    title: 'gofmt',
     bin: 'gofmt',
     kind: ['format'],
     languages: ['go'],
@@ -186,6 +203,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   psscriptanalyzer: {
     id: 'psscriptanalyzer',
+    title: 'PSScriptAnalyzer',
     // Host is pwsh/powershell (never downloaded). The PSScriptAnalyzer module is
     // a managed nupkg; tidy downloads it under the default auto policy.
     bin: 'pwsh',
@@ -210,6 +228,7 @@ export const ENGINE_CATALOG = Object.freeze({
   // is `dotnet format --version` (catalog command prefix + default --version).
   'dotnet-format': {
     id: 'dotnet-format',
+    title: 'dotnet format',
     bin: 'dotnet',
     kind: ['format'],
     languages: ['csharp'],
@@ -223,6 +242,7 @@ export const ENGINE_CATALOG = Object.freeze({
   // resolution + installHint only, so `scan` stays honest about what exists.
   zig: {
     id: 'zig',
+    title: 'zig fmt',
     bin: 'zig',
     kind: ['format'],
     languages: ['zig'],
@@ -234,6 +254,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   dart: {
     id: 'dart',
+    title: 'dart format',
     bin: 'dart',
     kind: ['format'],
     languages: ['dart'],
@@ -245,6 +266,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   'swift-format': {
     id: 'swift-format',
+    title: 'swift-format',
     bin: 'swift-format',
     kind: ['format'],
     languages: ['swift'],
@@ -255,6 +277,7 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   mix: {
     id: 'mix',
+    title: 'mix format',
     bin: 'mix',
     kind: ['format'],
     languages: ['elixir'],

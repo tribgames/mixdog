@@ -386,6 +386,10 @@ export function createSessionApiA(bag) {
         }
       );
     },
+    // Code Tidy card reads. Advertised session actions, so the daemon resolves
+    // them by name on this surface (session-protocol.mjs).
+    getTidyEngineStatus: () => runtime.getTidyEngineStatus?.(),
+    getTidyInstallStatus: () => runtime.getTidyInstallStatus?.(),
     setWebSearchEnabled: async (enabled) => {
       if (getState().commandBusy) return null;
       set({ commandBusy: true });

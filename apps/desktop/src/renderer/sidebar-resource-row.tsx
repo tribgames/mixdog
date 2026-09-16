@@ -7,6 +7,15 @@ export type SidebarResourceTag = {
   tone?: SidebarResourceTagTone;
 };
 
+export function SidebarResourceTagBadge({ tag }: { tag?: SidebarResourceTag | null }) {
+  if (!tag?.label) return null;
+  return (
+    <span className="sidebar-resource-tag" data-tone={tag.tone || 'muted'}>
+      {tag.label}
+    </span>
+  );
+}
+
 /** Shared title line for sidebar rail resource rows (Workflows, Schedules,
  *  Webhooks, Extensions). Places a small framed status tag immediately next
  *  to the title, vertically centered on the line box. The title ellipsizes
@@ -15,11 +24,7 @@ export function SidebarResourceTitle({ label, tag }: { label: ReactNode; tag?: S
   return (
     <span className="sidebar-resource-title">
       <b>{label}</b>
-      {tag?.label ? (
-        <span className="sidebar-resource-tag" data-tone={tag.tone || 'muted'}>
-          {tag.label}
-        </span>
-      ) : null}
+      <SidebarResourceTagBadge tag={tag} />
     </span>
   );
 }

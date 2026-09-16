@@ -96,6 +96,14 @@ export function BuiltInFeatureInfo({
       dependency ? (dependency.installed ? dependency.version || t('Unknown') : t('Not installed')) : t('Loading…'),
     ]);
   }
+  if (feature.id === 'tidy') {
+    facts.push([
+      'Core engines',
+      t(
+        'Install downloads the core engines (Biome, ruff, shfmt, shellcheck, PSScriptAnalyzer); other languages download on first use.'
+      ),
+    ]);
+  }
   if (feature.id === 'localProvider') facts.push(...localProviderFacts(state.localProvider));
   if (!facts.some(([, value]) => value)) return null;
   return (

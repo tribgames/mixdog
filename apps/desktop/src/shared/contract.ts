@@ -294,6 +294,7 @@ export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> 
   id?: string;
   name?: string;
 }
+export type DesktopOrchestrationMode = 'none' | 'focused' | 'balanced' | 'swarm';
 
 export interface DesktopGoalTask extends Readonly<Record<string, unknown>> {
   id?: string;
@@ -356,6 +357,7 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
    *  pane's OWN session bucket and must stay that way. */
   hostShellJobs?: DesktopShellJobsState;
   workflow?: DesktopWorkflowState | null;
+  orchestrationMode?: DesktopOrchestrationMode;
   remoteEnabled?: boolean;
 }
 
@@ -567,6 +569,7 @@ export interface DesktopNewTaskDraft {
   projectPath?: string;
   route?: DesktopModelSelection;
   workflowId?: string;
+  orchestrationMode?: DesktopOrchestrationMode;
 }
 
 export interface DesktopNewTaskSubmitResult {
@@ -603,6 +606,8 @@ export const DESKTOP_CAPABILITIES = [
   'setMemoryToolsEnabled',
   'setBuiltinToolEnabled',
   'installBuiltinFeature',
+  'getTidyEngineStatus',
+  'getTidyInstallStatus',
   'installLocalProviderModel',
   'startLocalProviderInstallation',
   'cancelLocalProviderInstallation',
@@ -663,6 +668,8 @@ export const DESKTOP_CAPABILITIES = [
   'listOutputStyles',
   'setOutputStyle',
   'setWorkflow',
+  'getOrchestrationMode',
+  'setOrchestrationMode',
   'listThemes',
   'getTheme',
   'setTheme',
@@ -735,6 +742,8 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getCompactionSettings',
   'getRecapSettings',
   'getToolModuleSettings',
+  'getTidyEngineStatus',
+  'getTidyInstallStatus',
   'getVoiceStatus',
   'toolsStatus',
   'getSystemShell',
@@ -754,6 +763,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'listAgents',
   'listWorkflows',
   'getWorkflowPack',
+  'getOrchestrationMode',
   'getAgentDefinition',
   'getOutputStyle',
   'listOutputStyles',
@@ -798,6 +808,68 @@ export type DesktopCapabilityReadResult = { ok: true; value: unknown } | { ok: f
 export interface DesktopCapabilityResult<T = unknown> {
   value: T;
   snapshot: SessionSnapshot;
+}
+
+/** Where a Code Tidy engine comes from: a managed download under the tools
+ *  dir, a binary the host already provides (PATH/project), or nothing yet. */
+export type DesktopTidyEngineSource = 'managed' | 'host' | 'missing';
+
+export interface DesktopTidyEngine {
+  id: string;
+  /** Display name, e.g. "Biome", "ShellCheck", "PSScriptAnalyzer". */
+  title: string;
+  languages: string[];
+  /** 'format' and/or 'lint'. */
+  kind: string[];
+  /** Resolved version, '' when unknown or missing. */
+  version: string;
+  source: DesktopTidyEngineSource;
+  /** Tidy can download this engine into the managed tools dir. */
+  managed: boolean;
+  /** Part of the set the built-in Install provisions. */
+  core: boolean;
+  /** Ships with a language toolchain; tidy never downloads it. */
+  toolchain: boolean;
+  /** On-disk size of the installed managed version; absent for host engines. */
+  bytes?: number;
+  /** How the user can provide a missing engine themselves. */
+  installHint?: string;
+}
+
+export type DesktopTidyInstallEngineStatus = 'pending' | 'downloading' | 'installed' | 'present' | 'skipped' | 'failed';
+
+export interface DesktopTidyInstallEngine {
+  id: string;
+  status: DesktopTidyInstallEngineStatus;
+  /** Live download bytes; totalBytes is 0 until the server advertises it. */
+  receivedBytes: number;
+  totalBytes: number;
+  version: string;
+  /** On-disk size once installed. */
+  bytes: number;
+  error?: string;
+  installHint?: string;
+}
+
+/** One in-memory install job. `active` is false once it finished; the engines
+ *  then carry the per-engine outcome the card reports. */
+export interface DesktopTidyInstallStatus {
+  active: boolean;
+  /** 0-99 while running, 100 when finished. */
+  percent: number;
+  startedAt: number;
+  updatedAt: number;
+  engines: DesktopTidyInstallEngine[];
+}
+
+export interface DesktopTidyEngineStatus {
+  /** Managed engine root, `<pluginData>/tools`. */
+  toolsDir: string;
+  /** Engine ids the built-in Install provisions. */
+  core: string[];
+  engines: DesktopTidyEngine[];
+  /** Null until this runtime has run an install. */
+  installing: DesktopTidyInstallStatus | null;
 }
 
 export type DesktopSettingKey =

@@ -205,7 +205,10 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
   return { ...base, source: 'missing', path: '', missing: true, ...(installable ? { installable: true } : {}) };
 }
 
-async function probeHostManagedModule(engine, signal) {
+/** Version of a host-provided managed module (PSScriptAnalyzer under
+ *  pwsh/powershell). Spawns a PowerShell host, so callers on a polled path
+ *  must cache it instead of probing per call. */
+export async function probeHostManagedModule(engine, signal) {
   const result = await runProcess(
     engine.command,
     [
