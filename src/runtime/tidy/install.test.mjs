@@ -7,11 +7,12 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 
-import { extractTarGz, extractZip, isSafeEntryPath, parseUstar } from './extract.mjs';
+import { extractArchive, extractTarGz, extractZip, isNupkgMetadata, isSafeEntryPath, parseUstar } from './extract.mjs';
 import {
   installEngine,
   installEngines,
   managedEngineBinary,
+  manifestAsset,
   planInstall,
   platformAssetKey,
   readEnginesManifest,
@@ -74,10 +75,10 @@ test('sha256 verification accepts the manifest digest and rejects a tampered fil
 test('the ustar reader handles prefixes, long names, and rejects traversal', async (t) => {
   const root = workspace(t);
   const archive = join(root, 'engine.tar.gz');
-  writeFileSync(archive, gzipSync(tarball([
-    tarEntry('bin/engine', 'binary-bytes'),
-    tarEntry('LICENSE', 'MIT', { prefix: 'engine-1.0.0' }),
-  ])));
+  writeFileSync(
+    archive,
+    gzipSync(tarball([tarEntry('bin/engine', 'binary-bytes'), tarEntry('LICENSE', 'MIT', { prefix: 'engine-1.0.0' })]))
+  );
   const written = extractTarGz(archive, join(root, 'out'));
   assert.deepEqual(written.sort(), ['bin/engine', 'engine-1.0.0/LICENSE']);
   assert.equal(readFileSync(join(root, 'out', 'bin', 'engine'), 'utf8'), 'binary-bytes');
@@ -114,6 +115,31 @@ test('zip extraction round-trips through the existing jszip dependency', async (
   assert.equal(readFileSync(join(root, 'out', 'docs', 'README.md'), 'utf8'), '# readme');
 });
 
+test('nupkg extraction strips NuGet metadata and keeps the module', async (t) => {
+  const root = workspace(t);
+  const { default: JSZip } = await import('jszip');
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', 'ct');
+  zip.file('_rels/.rels', 'rels');
+  zip.file('package/services/metadata.psmdcp', 'meta');
+  zip.file('PSScriptAnalyzer.nuspec', '<package/>');
+  zip.file('.signature.p7s', 'sig');
+  zip.file('PSScriptAnalyzer.psd1', '@{ ModuleVersion = "1.25.0" }');
+  zip.file('PSScriptAnalyzer.psm1', 'function Invoke-Formatter {}');
+  const archive = join(root, 'engine.nupkg');
+  writeFileSync(archive, await zip.generateAsync({ type: 'nodebuffer' }));
+  const dest = join(root, 'out');
+  const written = await extractArchive({ archive: 'nupkg', srcPath: archive, destDir: dest, binPath: 'PSScriptAnalyzer.psd1' });
+  assert.ok(written.includes('PSScriptAnalyzer.psd1'));
+  assert.ok(written.includes('PSScriptAnalyzer.psm1'));
+  assert.ok(!written.some((name) => isNupkgMetadata(name)));
+  assert.equal(existsSync(join(dest, '[Content_Types].xml')), false);
+  assert.equal(existsSync(join(dest, '_rels', '.rels')), false);
+  assert.equal(existsSync(join(dest, 'package', 'services', 'metadata.psmdcp')), false);
+  assert.equal(existsSync(join(dest, 'PSScriptAnalyzer.nuspec')), false);
+  assert.equal(readFileSync(join(dest, 'PSScriptAnalyzer.psd1'), 'utf8'), '@{ ModuleVersion = "1.25.0" }');
+});
+
 function manifestFor(id, { sha, archive = 'none', binPath = id, bytes = 0 } = {}) {
   return {
     version: 1,
@@ -143,6 +169,7 @@ test('policy gates every download decision before the network', () => {
 
   assert.equal(planInstall({ ...base, policy: 'ask', approveDownloads: true }).targets.length, 1);
   assert.equal(planInstall({ ...base, policy: 'auto' }).targets.length, 1);
+  assert.equal(planInstall({ ...base }).targets.length, 1, 'default policy is auto');
 
   const never = planInstall({ ...base, policy: 'never' });
   assert.equal(never.targets.length, 0);
@@ -156,7 +183,12 @@ test('policy gates every download decision before the network', () => {
   const unknown = planInstall({ ids: ['nope'], manifest, pluginData: '/nowhere', policy: 'auto' });
   assert.match(unknown.errors[0].error, /unknown engine/);
 
-  const noAsset = planInstall({ ids: ['shfmt'], manifest: { version: 1, engines: {} }, pluginData: '/nowhere', policy: 'auto' });
+  const noAsset = planInstall({
+    ids: ['shfmt'],
+    manifest: { version: 1, engines: {} },
+    pluginData: '/nowhere',
+    policy: 'auto',
+  });
   assert.match(noAsset.errors[0].error, /no .* asset in the engines manifest/);
 });
 
@@ -202,7 +234,10 @@ test('an "ask" policy install returns the approval request without fetching', as
     manifest,
     pluginData: root,
     policy: 'ask',
-    fetchFn: async () => { fetched = true; throw new Error('must not fetch'); },
+    fetchFn: async () => {
+      fetched = true;
+      throw new Error('must not fetch');
+    },
   });
   assert.equal(fetched, false);
   assert.equal(outcome.needsApproval.engines[0].id, 'shfmt');
@@ -225,12 +260,34 @@ test('the shipped engines manifest parses and keeps the documented schema', () =
   assert.equal(manifest.version, 1);
   assert.equal(typeof manifest.engines, 'object');
   const ids = Object.keys(manifest.engines).sort();
-  assert.deepEqual(ids, ['air', 'biome', 'clang-format', 'dprint', 'gofumpt', 'mago', 'ruff', 'shellcheck', 'shfmt', 'stylua']);
+  assert.deepEqual(ids, [
+    'air',
+    'biome',
+    'clang-format',
+    'dprint',
+    'gofumpt',
+    'mago',
+    'psscriptanalyzer',
+    'ruff',
+    'shellcheck',
+    'shfmt',
+    'stylua',
+  ]);
   assert.equal(ids.includes('ast-grep'), false);
+  const pssa = manifestAsset(manifest, 'psscriptanalyzer');
+  assert.equal(pssa.version, '1.25.0');
+  assert.equal(pssa.pkey, 'any');
+  assert.equal(pssa.asset.archive, 'nupkg');
+  assert.equal(pssa.asset.binPath, 'PSScriptAnalyzer.psd1');
+  assert.equal(pssa.asset.bytes, 14658674);
+  assert.match(pssa.asset.url, /PSScriptAnalyzer\/1\.25\.0$/);
   for (const [id, entry] of Object.entries(manifest.engines)) {
     assert.ok(entry.version, `${id} needs a version`);
     assert.ok(Array.isArray(entry.languages), `${id} needs languages`);
-    assert.ok(entry.assets && typeof entry.assets === 'object' && Object.keys(entry.assets).length > 0, `${id} needs platform assets`);
+    assert.ok(
+      entry.assets && typeof entry.assets === 'object' && Object.keys(entry.assets).length > 0,
+      `${id} needs platform assets`
+    );
     for (const [pkey, asset] of Object.entries(entry.assets || {})) {
       assert.match(asset.sha256 || '', /^[a-f0-9]{64}$/i, `${id}/${pkey} needs a sha256`);
       assert.ok(asset.binPath, `${id}/${pkey} needs a binPath`);

@@ -6,22 +6,27 @@ const FILE_HEADER = /^(?:from\s+(.+?):|---\s*(.+?)\s*---)$/;
 
 /** Parse `dprint check` output. */
 export function parseDprintCheck(output, cwd) {
-  const changedFiles = uniquePaths(String(output || '').split('\n')
-    .map((line) => {
-      const match = line.trim().match(FILE_HEADER);
-      return match ? (match[1] || match[2]) : '';
-    })
-    .filter(Boolean)
-    .map((file) => toRel(cwd, file)));
+  const changedFiles = uniquePaths(
+    String(output || '')
+      .split('\n')
+      .map((line) => {
+        const match = line.trim().match(FILE_HEADER);
+        return match ? match[1] || match[2] : '';
+      })
+      .filter(Boolean)
+      .map((file) => toRel(cwd, file))
+  );
   return {
     changedFiles,
-    diagnostics: changedFiles.map((file) => diagnostic({
-      file,
-      code: 'dprint',
-      message: 'dprint would reformat this file',
-      severity: 'warning',
-      fixable: true,
-    })),
+    diagnostics: changedFiles.map((file) =>
+      diagnostic({
+        file,
+        code: 'dprint',
+        message: 'dprint would reformat this file',
+        severity: 'warning',
+        fixable: true,
+      })
+    ),
   };
 }
 

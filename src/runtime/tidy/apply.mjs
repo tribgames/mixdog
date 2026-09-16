@@ -20,7 +20,8 @@ import { markCodeGraphDirtyPaths } from '../agent/orchestrator/tools/code-graph-
 export function guardTidyWritePath(fullPath) {
   if (isUncPath(fullPath)) return `cannot write UNC / SMB path: ${fullPath}`;
   if (isWindowsDevicePath(fullPath)) return `cannot write Windows device path: ${fullPath}`;
-  if (hasUnsafeWin32Component(fullPath)) return `cannot write path with a trailing dot/space or ADS component: ${fullPath}`;
+  if (hasUnsafeWin32Component(fullPath))
+    return `cannot write path with a trailing dot/space or ADS component: ${fullPath}`;
   if (isBlockedDevicePath(fullPath)) return `cannot write device path: ${fullPath}`;
   return null;
 }
@@ -43,7 +44,13 @@ export function planReplacements(fixes) {
     const range = fix?.byteOffset;
     const start = Number(range?.[0]);
     const end = Number(range?.[1]);
-    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || typeof fix.text !== 'string') {
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      end < start ||
+      typeof fix.text !== 'string'
+    ) {
       invalid.push(fix);
       continue;
     }
@@ -81,15 +88,25 @@ export function applyReplacements(buffer, replacements) {
 
 /** Post-write bookkeeping for one path; every step is best-effort. */
 export function noteWrittenFile(fullPath, { sessionId = null } = {}) {
-  try { invalidateBuiltinResultCache([fullPath]); } catch { /* best-effort */ }
-  try { markCodeGraphDirtyPaths([fullPath]); } catch { /* best-effort */ }
+  try {
+    invalidateBuiltinResultCache([fullPath]);
+  } catch {
+    /* best-effort */
+  }
+  try {
+    markCodeGraphDirtyPaths([fullPath]);
+  } catch {
+    /* best-effort */
+  }
   try {
     recordReadSnapshot(fullPath, statSync(fullPath), sessionId || null, {
       source: 'tidy',
       isPartialView: false,
       replaceExisting: true,
     });
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
 /** Engines that format in place still need the invalidation trio per file. */
@@ -110,12 +127,7 @@ export async function writeThroughPipeline(fullPath, content, { sessionId = null
  * `matchesByFile` maps a repo-relative path to its matches; only matches with a
  * `fix` participate. Returns applied files and per-file rejections.
  */
-export async function applyStructuralFixes({
-  cwd,
-  matchesByFile,
-  sessionId = null,
-  signal = null,
-} = {}) {
+export async function applyStructuralFixes({ cwd, matchesByFile, sessionId = null, signal = null } = {}) {
   const applied = [];
   const rejected = [];
   for (const [file, matches] of Object.entries(matchesByFile || {})) {

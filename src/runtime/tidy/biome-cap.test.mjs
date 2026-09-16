@@ -59,11 +59,7 @@ test('concatenated per-chunk JSON is merged instead of collapsing to empty', () 
 });
 
 test('truncated JSON recovers complete diagnostics and flags truncation', () => {
-  const full = biomeDoc([
-    formatRow('src/a.js'),
-    lintRow('src/a.js'),
-    lintRow('src/a.js', 'lint/style/noEval'),
-  ]);
+  const full = biomeDoc([formatRow('src/a.js'), lintRow('src/a.js'), lintRow('src/a.js', 'lint/style/noEval')]);
   const cut = full.slice(0, full.indexOf('noEval') + 8);
   const parsed = parseBiomeJson(cut, CWD);
   assert.equal(parsed.truncated, true);
@@ -73,12 +69,17 @@ test('truncated JSON recovers complete diagnostics and flags truncation', () => 
 });
 
 test('Biome 2 location paths and start.line/column are accepted', () => {
-  const parsed = parseBiomeJson(biomeDoc([{
-    category: 'lint/complexity/useFlatMap',
-    severity: 'info',
-    message: 'use flatMap',
-    location: { path: 'src\\a.js', start: { line: 4, column: 8 } },
-  }]), CWD);
+  const parsed = parseBiomeJson(
+    biomeDoc([
+      {
+        category: 'lint/complexity/useFlatMap',
+        severity: 'info',
+        message: 'use flatMap',
+        location: { path: 'src\\a.js', start: { line: 4, column: 8 } },
+      },
+    ]),
+    CWD
+  );
   assert.equal(parsed.diagnostics[0].file, 'src/a.js');
   assert.equal(parsed.diagnostics[0].line, 4);
   assert.equal(parsed.diagnostics[0].col, 8);
@@ -87,9 +88,12 @@ test('Biome 2 location paths and start.line/column are accepted', () => {
 });
 
 test('format findings stay fixable; diagnosticsNotPrinted marks truncation', () => {
-  const parsed = parseBiomeJson(biomeDoc([formatRow('src/a.js')], {
-    summary: { diagnosticsNotPrinted: 12 },
-  }), CWD);
+  const parsed = parseBiomeJson(
+    biomeDoc([formatRow('src/a.js')], {
+      summary: { diagnosticsNotPrinted: 12 },
+    }),
+    CWD
+  );
   assert.equal(parsed.truncated, true);
   assert.equal(parsed.diagnostics[0].fixable, true);
   assert.equal(parsed.changedFiles.length, 1);
@@ -199,22 +203,26 @@ test('engine truncation is surfaced on the report with counts and a split-scope 
   const report = buildTidyReport({
     action: 'check',
     engines: [{ id: 'biome', source: 'managed', kind: ['format', 'lint'], languages: ['javascript'] }],
-    results: [{
-      id: 'biome',
-      source: 'managed',
-      filesChecked: 100,
-      filesChanged: ['a.js'],
-      diagnostics: [{ file: 'a.js', line: 1, col: 1, code: 'format', message: 'fmt', severity: 'error', fixable: true }],
-      truncated: true,
-      note: BIOME_TRUNCATED_NOTE,
-      counts: {
-        filesToFormat: 40,
-        diagnostics: 90,
-        bySeverity: { error: 80, warning: 10, info: 0 },
-        byFixability: { safe: 40, unsafe: 20, manual: 30, fixable: 40, unfixable: 50 },
-        byRule: { format: 40 },
+    results: [
+      {
+        id: 'biome',
+        source: 'managed',
+        filesChecked: 100,
+        filesChanged: ['a.js'],
+        diagnostics: [
+          { file: 'a.js', line: 1, col: 1, code: 'format', message: 'fmt', severity: 'error', fixable: true },
+        ],
+        truncated: true,
+        note: BIOME_TRUNCATED_NOTE,
+        counts: {
+          filesToFormat: 40,
+          diagnostics: 90,
+          bySeverity: { error: 80, warning: 10, info: 0 },
+          byFixability: { safe: 40, unsafe: 20, manual: 30, fixable: 40, unfixable: 50 },
+          byRule: { format: 40 },
+        },
       },
-    }],
+    ],
   });
   assert.equal(report.truncated, true);
   assert.equal(report.results[0].truncated, true);
@@ -286,7 +294,13 @@ test('rdjson suggestions mark an applicable code fix; missing suggestions are ma
   assert.equal(parsed.diagnostics[0].line, 4);
   assert.equal(parsed.diagnostics[0].codeFix, true);
   assert.equal(parsed.diagnostics[1].codeFix, false);
-  applyBiomeFixKinds(parsed.diagnostics, new Map([['useFlatMap', 'safe'], ['noAssignInExpressions', 'none']]));
+  applyBiomeFixKinds(
+    parsed.diagnostics,
+    new Map([
+      ['useFlatMap', 'safe'],
+      ['noAssignInExpressions', 'none'],
+    ])
+  );
   assert.equal(parsed.diagnostics[0].fixKind, 'safe');
   assert.equal(parsed.diagnostics[1].fixKind, 'manual');
 });
@@ -318,9 +332,12 @@ test('biome check classifies safe/unsafe/manual the way explain and --write do',
     run: async (_bin, args) => {
       if (args[0] === 'explain') {
         const name = args[1];
-        const line = name === 'useFlatMap' ? '- Fix: safe'
-          : name === 'useNodejsImportProtocol' ? '- Fix: unsafe'
-            : '- No fix available.';
+        const line =
+          name === 'useFlatMap'
+            ? '- Fix: safe'
+            : name === 'useNodejsImportProtocol'
+              ? '- Fix: unsafe'
+              : '- No fix available.';
         return { code: 0, stdout: `Summary\n- Name: ${name}\n${line}\n`, stderr: '', truncated: false, error: '' };
       }
       return {
@@ -344,7 +361,10 @@ test('biome check classifies safe/unsafe/manual the way explain and --write do',
   assert.equal(result.diagnostics.find((row) => row.code === 'lint/complexity/useFlatMap').fixable, true);
   assert.equal(result.diagnostics.find((row) => row.code === 'lint/style/useNodejsImportProtocol').fixKind, 'unsafe');
   assert.equal(result.diagnostics.find((row) => row.code === 'lint/style/useNodejsImportProtocol').fixable, false);
-  assert.equal(result.diagnostics.find((row) => row.code === 'lint/suspicious/noAssignInExpressions').fixKind, 'manual');
+  assert.equal(
+    result.diagnostics.find((row) => row.code === 'lint/suspicious/noAssignInExpressions').fixKind,
+    'manual'
+  );
 });
 
 test('runner.fix passes --max-diagnostics=none on --write and the legacy --apply fallback', async () => {
@@ -404,11 +424,28 @@ test('explain runs once per unique rule per check, not per chunk, and a failed e
       const chunk = filesFromArgs(args);
       return {
         code: 1,
-        stdout: biomeDoc(chunk.flatMap((file) => [
-          { category: 'lint/complexity/useFlatMap', message: 'flat', location: { path: file, start: { line: 1, column: 1 } }, advices: [] },
-          { category: 'lint/suspicious/noAssignInExpressions', message: 'assign', location: { path: file, start: { line: 2, column: 1 } }, advices: [] },
-          { category: 'lint/style/useNodejsImportProtocol', message: 'protocol', location: { path: file, start: { line: 3, column: 1 } }, advices: [] },
-        ])),
+        stdout: biomeDoc(
+          chunk.flatMap((file) => [
+            {
+              category: 'lint/complexity/useFlatMap',
+              message: 'flat',
+              location: { path: file, start: { line: 1, column: 1 } },
+              advices: [],
+            },
+            {
+              category: 'lint/suspicious/noAssignInExpressions',
+              message: 'assign',
+              location: { path: file, start: { line: 2, column: 1 } },
+              advices: [],
+            },
+            {
+              category: 'lint/style/useNodejsImportProtocol',
+              message: 'protocol',
+              location: { path: file, start: { line: 3, column: 1 } },
+              advices: [],
+            },
+          ])
+        ),
         stderr: '',
         truncated: false,
         error: '',
@@ -417,8 +454,17 @@ test('explain runs once per unique rule per check, not per chunk, and a failed e
   });
   assert.equal(explains.length, 3);
   assert.deepEqual([...explains].sort(), ['noAssignInExpressions', 'useFlatMap', 'useNodejsImportProtocol']);
-  assert.ok(result.diagnostics.filter((row) => row.code === 'lint/complexity/useFlatMap').every((row) => row.fixKind === 'safe'));
-  assert.ok(result.diagnostics.filter((row) => row.code === 'lint/suspicious/noAssignInExpressions').every((row) => row.fixKind === 'manual'));
-  assert.ok(result.diagnostics.filter((row) => row.code === 'lint/style/useNodejsImportProtocol').every((row) => row.fixKind === 'manual'));
+  assert.ok(
+    result.diagnostics.filter((row) => row.code === 'lint/complexity/useFlatMap').every((row) => row.fixKind === 'safe')
+  );
+  assert.ok(
+    result.diagnostics
+      .filter((row) => row.code === 'lint/suspicious/noAssignInExpressions')
+      .every((row) => row.fixKind === 'manual')
+  );
+  assert.ok(
+    result.diagnostics
+      .filter((row) => row.code === 'lint/style/useNodejsImportProtocol')
+      .every((row) => row.fixKind === 'manual')
+  );
 });
-

@@ -13,6 +13,7 @@ import mago from './mago.mjs';
 import rustfmt from './rustfmt.mjs';
 import gofmt from './gofmt.mjs';
 import psscriptanalyzer from './psscriptanalyzer.mjs';
+import dotnetFormat from './dotnet-format.mjs';
 import prettier from './prettier.mjs';
 import eslint from './eslint.mjs';
 
@@ -30,6 +31,7 @@ export const RUNNERS = Object.freeze({
   rustfmt,
   gofmt,
   psscriptanalyzer,
+  'dotnet-format': dotnetFormat,
   prettier,
   eslint,
 });

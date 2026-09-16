@@ -23,10 +23,12 @@ test('the static registry agrees with the graph binary capability table', async 
   // binary is allowed to know more (extensions and languages); tidy is not
   // allowed to disagree. Aux extensions (jsonc, less, ps1, toml) are
   // formatter-only and simply absent from the table.
-  const release = fileURLToPath(new URL(
-    `../../../native/mixdog-graph/target/release/mixdog-graph${process.platform === 'win32' ? '.exe' : ''}`,
-    import.meta.url,
-  ));
+  const release = fileURLToPath(
+    new URL(
+      `../../../native/mixdog-graph/target/release/mixdog-graph${process.platform === 'win32' ? '.exe' : ''}`,
+      import.meta.url
+    )
+  );
   if (!existsSync(release)) {
     t.skip('no local mixdog-graph release build to check the registry against');
     return;
@@ -42,7 +44,7 @@ test('the static registry agrees with the graph binary capability table', async 
       assert.equal(
         table.extensions.get(ext.toLowerCase()),
         language,
-        `.${ext} is ${language} here but ${table.extensions.get(ext.toLowerCase()) || 'unknown'} to the graph binary`,
+        `.${ext} is ${language} here but ${table.extensions.get(ext.toLowerCase()) || 'unknown'} to the graph binary`
       );
     }
   }
@@ -91,14 +93,16 @@ test('engine scoping classifies files with the same table detection used', () =>
 
 test('parseGraphLangs reads the binary capability table, first extension wins', () => {
   // Shape observed from `mixdog-graph <cwd> --langs`.
-  const table = parseGraphLangs(JSON.stringify({
-    languages: [
-      { id: 'typescript', extensions: ['ts', 'tsx', 'mts', 'cts'], scan: true, extract: true },
-      { id: 'python', extensions: ['py', 'pyi', 'bzl'], scan: true, extract: true },
-      { id: 'tsx', extensions: ['tsx'], scan: true, extract: false },
-      { id: 'yaml', extensions: ['yaml', 'yml'], scan: false, extract: false },
-    ],
-  }));
+  const table = parseGraphLangs(
+    JSON.stringify({
+      languages: [
+        { id: 'typescript', extensions: ['ts', 'tsx', 'mts', 'cts'], scan: true, extract: true },
+        { id: 'python', extensions: ['py', 'pyi', 'bzl'], scan: true, extract: true },
+        { id: 'tsx', extensions: ['tsx'], scan: true, extract: false },
+        { id: 'yaml', extensions: ['yaml', 'yml'], scan: false, extract: false },
+      ],
+    })
+  );
   assert.equal(table.extensions.get('tsx'), 'typescript', 'the first declaration owns the extension');
   assert.equal(table.extensions.get('bzl'), 'python');
   assert.deepEqual(table.ids, ['typescript', 'python', 'tsx', 'yaml']);

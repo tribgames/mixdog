@@ -11,10 +11,15 @@ test('tidy exposes one action-routed schema with no hidden fields', () => {
   assert.equal(tool.inputSchema.additionalProperties, false);
   assert.deepEqual(tool.inputSchema.required, ['action']);
   assert.deepEqual(tool.inputSchema.properties.action.enum, [...TIDY_ACTIONS]);
-  assert.deepEqual(
-    Object.keys(tool.inputSchema.properties).sort(),
-    ['action', 'apply', 'approveDownloads', 'engines', 'languages', 'paths', 'structural'],
-  );
+  assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), [
+    'action',
+    'apply',
+    'approveDownloads',
+    'engines',
+    'languages',
+    'paths',
+    'structural',
+  ]);
   for (const [name, schema] of Object.entries(tool.inputSchema.properties)) {
     assert.equal(schema.minLength, undefined, `${name} must not pin minLength`);
     assert.ok(schema.description, `${name} needs a description`);

@@ -30,7 +30,18 @@ export const ENGINE_CATALOG = Object.freeze({
     managed: false,
     projectLocal: ['node'],
     projectLocalOnly: true,
-    configFiles: ['.prettierrc', '.prettierrc.json', '.prettierrc.yml', '.prettierrc.yaml', '.prettierrc.js', '.prettierrc.cjs', '.prettierrc.mjs', 'prettier.config.js', 'prettier.config.cjs', 'prettier.config.mjs'],
+    configFiles: [
+      '.prettierrc',
+      '.prettierrc.json',
+      '.prettierrc.yml',
+      '.prettierrc.yaml',
+      '.prettierrc.js',
+      '.prettierrc.cjs',
+      '.prettierrc.mjs',
+      'prettier.config.js',
+      'prettier.config.cjs',
+      'prettier.config.mjs',
+    ],
     installHint: 'npm i -D prettier (tidy only uses a project-local Prettier)',
   },
   eslint: {
@@ -41,7 +52,17 @@ export const ENGINE_CATALOG = Object.freeze({
     managed: false,
     projectLocal: ['node'],
     projectLocalOnly: true,
-    configFiles: ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'],
+    configFiles: [
+      'eslint.config.js',
+      'eslint.config.mjs',
+      'eslint.config.cjs',
+      '.eslintrc',
+      '.eslintrc.js',
+      '.eslintrc.cjs',
+      '.eslintrc.json',
+      '.eslintrc.yml',
+      '.eslintrc.yaml',
+    ],
     installHint: 'npm i -D eslint (tidy only uses a project-local ESLint)',
   },
   ruff: {
@@ -165,17 +186,38 @@ export const ENGINE_CATALOG = Object.freeze({
   },
   psscriptanalyzer: {
     id: 'psscriptanalyzer',
-    // Runs through the PowerShell host; Invoke-Formatter / Invoke-ScriptAnalyzer
-    // come from the PSScriptAnalyzer module.
+    // Host is pwsh/powershell (never downloaded). The PSScriptAnalyzer module is
+    // a managed nupkg; tidy downloads it under the default auto policy.
     bin: 'pwsh',
     altBins: ['powershell'],
     kind: ['format', 'lint'],
     languages: ['powershell'],
-    toolchain: true,
+    managed: true,
+    managedModule: true,
     projectLocal: [],
     configFiles: ['PSScriptAnalyzerSettings.psd1'],
-    versionArgs: ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()'],
-    installHint: 'Install-Module PSScriptAnalyzer -Scope CurrentUser (needs pwsh or powershell on PATH)',
+    versionArgs: [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      '$m = @(Get-Module -ListAvailable -Name PSScriptAnalyzer) | Select-Object -First 1; if ($m) { [string]$m.Version }',
+    ],
+    hostInstallHint: 'install PowerShell (pwsh or powershell on PATH)',
+    installHint: 'run tidy action:install engines:["psscriptanalyzer"] (needs pwsh or powershell on PATH)',
+  },
+  // Loose .cs files (no .csproj): `dotnet format whitespace <folder> --folder
+  // --include …` with `--verify-no-changes --report <json>` on check. Version
+  // is `dotnet format --version` (catalog command prefix + default --version).
+  'dotnet-format': {
+    id: 'dotnet-format',
+    bin: 'dotnet',
+    kind: ['format'],
+    languages: ['csharp'],
+    toolchain: true,
+    projectLocal: [],
+    configFiles: ['.editorconfig'],
+    command: ['dotnet', 'format'],
+    installHint: 'install the .NET SDK (dotnet format)',
   },
   // Toolchain formatters tidy detects and reports but has no v1 runner for:
   // resolution + installHint only, so `scan` stays honest about what exists.
@@ -221,17 +263,6 @@ export const ENGINE_CATALOG = Object.freeze({
     configFiles: ['.formatter.exs'],
     command: ['mix', 'format'],
     installHint: 'install Elixir (mix format)',
-  },
-  'dotnet-format': {
-    id: 'dotnet-format',
-    bin: 'dotnet',
-    kind: ['format'],
-    languages: ['csharp'],
-    toolchain: true,
-    projectLocal: [],
-    configFiles: ['.editorconfig'],
-    command: ['dotnet', 'format'],
-    installHint: 'install the .NET SDK (dotnet format)',
   },
 });
 

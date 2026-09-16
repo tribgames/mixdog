@@ -34,12 +34,8 @@
         }
       },
       "homepage": "https://posit-dev.github.io/air",
-      "kind": [
-        "format"
-      ],
-      "languages": [
-        "r"
-      ],
+      "kind": ["format"],
+      "languages": ["r"],
       "license": "MIT",
       "source": "upstream",
       "version": "0.11.0"
@@ -78,14 +74,8 @@
         }
       },
       "homepage": "https://biomejs.dev",
-      "kind": [
-        "format",
-        "lint"
-      ],
-      "languages": [
-        "javascript",
-        "typescript"
-      ],
+      "kind": ["format", "lint"],
+      "languages": ["javascript", "typescript"],
       "license": "MIT",
       "source": "upstream",
       "version": "2.5.13"
@@ -118,16 +108,8 @@
         }
       },
       "homepage": "https://clang.llvm.org/docs/ClangFormat.html",
-      "kind": [
-        "format"
-      ],
-      "languages": [
-        "c",
-        "cpp",
-        "objc",
-        "java",
-        "csharp"
-      ],
+      "kind": ["format"],
+      "languages": ["c", "cpp", "objc", "java", "csharp"],
       "license": "Apache-2.0 WITH LLVM-exception",
       "source": "upstream",
       "version": "20.0.0"
@@ -166,13 +148,8 @@
         }
       },
       "homepage": "https://dprint.dev",
-      "kind": [
-        "format"
-      ],
-      "languages": [
-        "javascript",
-        "typescript"
-      ],
+      "kind": ["format"],
+      "languages": ["javascript", "typescript"],
       "license": "MIT",
       "source": "upstream",
       "version": "0.57.4"
@@ -211,12 +188,8 @@
         }
       },
       "homepage": "https://github.com/mvdan/gofumpt",
-      "kind": [
-        "format"
-      ],
-      "languages": [
-        "go"
-      ],
+      "kind": ["format"],
+      "languages": ["go"],
       "license": "BSD-3-Clause",
       "source": "upstream",
       "version": "0.12.0"
@@ -255,16 +228,28 @@
         }
       },
       "homepage": "https://mago.carthage.software/",
-      "kind": [
-        "format",
-        "lint"
-      ],
-      "languages": [
-        "php"
-      ],
+      "kind": ["format", "lint"],
+      "languages": ["php"],
       "license": "MIT",
       "source": "upstream",
       "version": "1.48.1"
+    },
+    "psscriptanalyzer": {
+      "assets": {
+        "any": {
+          "archive": "nupkg",
+          "binPath": "PSScriptAnalyzer.psd1",
+          "bytes": 14658674,
+          "sha256": "14e634c828eb98efb9f40b2918ba90f139ed5eccdf663a2a747736d996995d60",
+          "url": "https://www.powershellgallery.com/api/v2/package/PSScriptAnalyzer/1.25.0"
+        }
+      },
+      "homepage": "https://github.com/PowerShell/PSScriptAnalyzer",
+      "kind": ["format", "lint"],
+      "languages": ["powershell"],
+      "license": "MIT",
+      "source": "upstream",
+      "version": "1.25.0"
     },
     "ruff": {
       "assets": {
@@ -300,13 +285,8 @@
         }
       },
       "homepage": "https://docs.astral.sh/ruff",
-      "kind": [
-        "format",
-        "lint"
-      ],
-      "languages": [
-        "python"
-      ],
+      "kind": ["format", "lint"],
+      "languages": ["python"],
       "license": "MIT",
       "source": "upstream",
       "version": "0.16.7"
@@ -345,12 +325,8 @@
         }
       },
       "homepage": "https://www.shellcheck.net",
-      "kind": [
-        "lint"
-      ],
-      "languages": [
-        "bash"
-      ],
+      "kind": ["lint"],
+      "languages": ["bash"],
       "license": "GPL-3.0",
       "source": "upstream",
       "version": "0.11.0"
@@ -389,12 +365,8 @@
         }
       },
       "homepage": "https://github.com/mvdan/sh",
-      "kind": [
-        "format"
-      ],
-      "languages": [
-        "bash"
-      ],
+      "kind": ["format"],
+      "languages": ["bash"],
       "license": "BSD-3-Clause",
       "source": "upstream",
       "version": "3.14.1"
@@ -433,12 +405,8 @@
         }
       },
       "homepage": "https://github.com/JohnnyMorganz/StyLua",
-      "kind": [
-        "format"
-      ],
-      "languages": [
-        "lua"
-      ],
+      "kind": ["format"],
+      "languages": ["lua"],
       "license": "MPL-2.0",
       "source": "upstream",
       "version": "2.5.2"

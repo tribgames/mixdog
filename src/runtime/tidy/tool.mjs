@@ -108,7 +108,9 @@ async function resolveForRun({ cwd, detected, engineFilter, signal }) {
  * approves, otherwise hand the approval request back to the caller.
  */
 async function satisfyMissingEngines({ resolution, cwd, engineFilter, approveDownloads, signal }) {
-  const installable = resolution.engines.filter((engine) => engine.missing && engine.installable).map((engine) => engine.id);
+  const installable = resolution.engines
+    .filter((engine) => engine.missing && engine.installable)
+    .map((engine) => engine.id);
   if (installable.length === 0) return { resolution, needsApproval: null, installed: null };
   const policy = resolution.policy.downloads;
   if (policy === 'never') return { resolution, needsApproval: null, installed: null };
@@ -133,7 +135,7 @@ async function satisfyMissingEngines({ resolution, cwd, engineFilter, approveDow
   });
   const refreshed = await resolveEngines({
     cwd,
-    languages: resolution.engines.map((engine) => engine.languages).flat(),
+    languages: resolution.engines.flatMap((engine) => engine.languages),
     engineIds: engineFilter.length ? engineFilter : resolution.engines.map((engine) => engine.id),
     pluginData: resolution.pluginData,
     manifest: resolution.manifest,
@@ -146,9 +148,7 @@ async function satisfyMissingEngines({ resolution, cwd, engineFilter, approveDow
   };
 }
 
-async function runStructural({
-  cwd, files, languages = [], apply, sessionId, signal, graphBinPath, graphLangs,
-}) {
+async function runStructural({ cwd, files, languages = [], apply, sessionId, signal, graphBinPath, graphLangs }) {
   const { groupsForLanguages, loadRulePacks, resolveStructuralAdapter } = await import('./structural.mjs');
   const { groups } = loadRulePacks();
   if (groups.length === 0) {
@@ -239,18 +239,19 @@ async function runAction({ action, args, cwd, scope, languageFilter, engineFilte
     extensions: detected.extensions,
   });
 
-  const structural = args.structural === false
-    ? null
-    : await runStructural({
-      cwd,
-      files: detected.files,
-      languages: detected.languages.map((language) => language.id),
-      apply,
-      sessionId,
-      signal,
-      graphBinPath: detected.graphBinPath,
-      graphLangs: detected.graphLangs,
-    });
+  const structural =
+    args.structural === false
+      ? null
+      : await runStructural({
+          cwd,
+          files: detected.files,
+          languages: detected.languages.map((language) => language.id),
+          apply,
+          sessionId,
+          signal,
+          graphBinPath: detected.graphBinPath,
+          graphLangs: detected.graphLangs,
+        });
 
   return buildTidyReport({
     action,
@@ -307,7 +308,9 @@ async function installAction({ args, cwd, engineFilter, signal, startedAt }) {
 }
 
 async function rulesAction({ cwd, signal, startedAt }) {
-  const { loadRulePacks, resolveStructuralAdapter, StructuralEngineUnavailableError } = await import('./structural.mjs');
+  const { loadRulePacks, resolveStructuralAdapter, StructuralEngineUnavailableError } = await import(
+    './structural.mjs'
+  );
   const { packs } = loadRulePacks();
   // Listing the packs still works without the engine; the report says so
   // explicitly (ok:false + the remedy) instead of showing a usable adapter.
@@ -331,11 +334,7 @@ async function rulesAction({ cwd, signal, startedAt }) {
   });
 }
 
-export async function executeTidyTool(args = {}, {
-  cwd = process.cwd(),
-  signal = null,
-  sessionId = null,
-} = {}) {
+export async function executeTidyTool(args = {}, { cwd = process.cwd(), signal = null, sessionId = null } = {}) {
   const startedAt = Date.now();
   const action = clean(args.action).toLowerCase();
   try {
@@ -354,15 +353,28 @@ export async function executeTidyTool(args = {}, {
     if (action === 'rules') {
       return tidyToolResult(await rulesAction({ cwd, signal, startedAt }));
     }
-    return tidyToolResult(await runAction({
-      action, args, cwd, scope, languageFilter, engineFilter, sessionId, signal, startedAt,
-    }));
+    return tidyToolResult(
+      await runAction({
+        action,
+        args,
+        cwd,
+        scope,
+        languageFilter,
+        engineFilter,
+        sessionId,
+        signal,
+        startedAt,
+      })
+    );
   } catch (error) {
-    return tidyToolResult({
-      ok: false,
-      action,
-      error: error?.message || String(error),
-      elapsedMs: Date.now() - startedAt,
-    }, true);
+    return tidyToolResult(
+      {
+        ok: false,
+        action,
+        error: error?.message || String(error),
+        elapsedMs: Date.now() - startedAt,
+      },
+      true
+    );
   }
 }

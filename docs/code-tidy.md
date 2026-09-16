@@ -10,12 +10,14 @@ Load `code-tidy` before the first `tidy` call.
 
 1. `tidy action:'scan'` — languages and engines (used / missing /
    `installHint`). Scan does not download and does not return
-   `needsApproval`. If a later `check` / `fix` / `install` result has
-   `needsApproval`, ask once with engines and byte sizes, then re-call that
-   action with `approveDownloads:true`.
+   `needsApproval`. Downloads happen automatically under the default `auto`
+   policy. Only when the user set `tidy.downloads` to `ask` does a later
+   `check` / `fix` / `install` result carry `needsApproval` — then ask once
+   with engines and byte sizes and re-call with `approveDownloads:true`.
 2. Never install toolchain engines (rustfmt, gofmt, dart, swift, zig, mix,
-   dotnet, PSScriptAnalyzer). Report `installHint` instead. Managed engines
-   download only through tidy (`approveDownloads` or `action:'install'`).
+   dotnet). Report `installHint` instead. Managed engines (including
+   PSScriptAnalyzer) download only through tidy (`auto` policy,
+   `approveDownloads`, or `action:'install'`).
 3. Deterministic layers first, each dry-run then apply (`fix` writes only
    with `apply:true`):
    - engine `check` with `structural:false`
@@ -151,10 +153,11 @@ writes or rewrites a project's formatter config.
 | mago | php | yes | `format --dry-run` ("diff of '…':") + `lint --reporting-format json` / `format`, `lint --fix` |
 | rustfmt | rust | toolchain | `--check` / write |
 | gofmt | go | toolchain | `-l` / `-w` |
-| psscriptanalyzer | powershell | toolchain | `Invoke-ScriptAnalyzer` + `Invoke-Formatter` |
+| psscriptanalyzer | powershell | yes (module) | `Invoke-ScriptAnalyzer` + `Invoke-Formatter` (host: pwsh/powershell) |
+| dotnet-format | csharp | toolchain | `format whitespace <folder> --folder --include` + `--report` json / write |
 | prettier | js/ts, json, css, markdown, yaml, html | project-local only | `--list-different` / `--write` |
 | eslint | javascript, typescript | project-local only | `-f json` / `--fix` |
-| zig, dart, swift-format, mix, dotnet-format | zig, dart, swift, elixir, csharp | toolchain | detection + `installHint` only |
+| zig, dart, swift-format, mix | zig, dart, swift, elixir | toolchain | detection + `installHint` only |
 
 Engines see only the files of their own languages inside the requested scope,
 spawn with argument arrays (never a shell) and `windowsHide`, run under a
@@ -164,7 +167,8 @@ time so two formatters never write the same file at once.
 ### Downloads
 
 `tidy.downloads` in `.mixdog/tidy.json` (or `MIXDOG_TIDY_DOWNLOADS`):
-`ask` (default) | `auto` | `never`. Under `ask` the call returns
+`auto` (default) | `ask` | `never`. Under `auto`, missing managed engines
+download without prompting. Under `ask` the call returns
 `needsApproval:{engines:[{id,version,bytes}],bytes}` and downloads nothing;
 re-call with `approveDownloads:true`. Toolchain engines are never downloaded.
 Assets come from `src/runtime/tidy/engines-manifest.json`, stream through the

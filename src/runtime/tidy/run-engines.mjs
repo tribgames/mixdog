@@ -13,7 +13,11 @@ import { fullPathFor, guardTidyWritePath, noteWrittenFiles } from './apply.mjs';
 const CHECK_CONCURRENCY = 3;
 
 function fileDigest(fullPath) {
-  try { return createHash('sha256').update(readFileSync(fullPath)).digest('hex'); } catch { return ''; }
+  try {
+    return createHash('sha256').update(readFileSync(fullPath)).digest('hex');
+  } catch {
+    return '';
+  }
 }
 
 /** Files an engine's check pass says it would rewrite, plus fixable findings. */
@@ -28,11 +32,26 @@ export function fixCandidates(checkResult) {
 async function runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sessionId, extensions }) {
   const base = { id: engine.id, source: engine.source, ...(engine.version ? { version: engine.version } : {}) };
   const runner = runnerFor(engine.id);
-  if (!runner) return { ...base, filesChecked: 0, filesChanged: [], diagnostics: [], skipped: 'no runner for this engine in this build' };
+  if (!runner)
+    return {
+      ...base,
+      filesChecked: 0,
+      filesChanged: [],
+      diagnostics: [],
+      skipped: 'no runner for this engine in this build',
+    };
   const scope = filesForLanguages(files, engine.languages, extensions);
   if (scope.length === 0) return { ...base, filesChecked: 0, filesChanged: [], diagnostics: [] };
 
-  const checkResult = await runner.check({ files: scope, cwd, bin: engine.command, args: engine.args || [], timeoutMs, signal });
+  const checkResult = await runner.check({
+    files: scope,
+    cwd,
+    bin: engine.command,
+    args: engine.args || [],
+    timeoutMs,
+    signal,
+    modulePath: engine.modulePath,
+  });
   const result = {
     ...base,
     filesChecked: scope.length,
@@ -55,11 +74,22 @@ async function runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sess
     return result;
   }
   const before = new Map(candidates.map((file) => [file, fileDigest(fullPathFor(cwd, file))]));
-  const fixResult = await runner.fix({ files: candidates, cwd, bin: engine.command, args: engine.args || [], timeoutMs, signal });
+  const fixResult = await runner.fix({
+    files: candidates,
+    cwd,
+    bin: engine.command,
+    args: engine.args || [],
+    timeoutMs,
+    signal,
+    modulePath: engine.modulePath,
+  });
   const changed = candidates.filter((file) => fileDigest(fullPathFor(cwd, file)) !== before.get(file));
   // The engine wrote in place; run the same invalidation trio a pipeline write
   // would have run for each file it touched.
-  noteWrittenFiles(changed.map((file) => fullPathFor(cwd, file)), { sessionId });
+  noteWrittenFiles(
+    changed.map((file) => fullPathFor(cwd, file)),
+    { sessionId }
+  );
   result.applied = true;
   result.filesChanged = changed;
   if (fixResult?.stderrTail) result.stderrTail = fixResult.stderrTail;

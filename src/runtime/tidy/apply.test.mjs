@@ -4,12 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  applyReplacements,
-  applyStructuralFixes,
-  guardTidyWritePath,
-  planReplacements,
-} from './apply.mjs';
+import { applyReplacements, applyStructuralFixes, guardTidyWritePath, planReplacements } from './apply.mjs';
 
 function workspace(t) {
   const root = mkdtempSync(join(tmpdir(), 'tidy-apply-'));
@@ -21,7 +16,10 @@ const fix = (start, end, text, ruleId = 'rule') => ({ byteOffset: [start, end], 
 
 test('replacements are ordered back-to-front so earlier offsets stay valid', () => {
   const plan = planReplacements([fix(10, 12, 'BB'), fix(0, 3, 'AAA'), fix(20, 21, 'C')]);
-  assert.deepEqual(plan.replacements.map((entry) => entry.start), [20, 10, 0]);
+  assert.deepEqual(
+    plan.replacements.map((entry) => entry.start),
+    [20, 10, 0]
+  );
   assert.deepEqual(plan.overlaps, []);
   assert.deepEqual(plan.invalid, []);
 });

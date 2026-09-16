@@ -6,19 +6,24 @@ const DIFF_HEADER = /^Diff in (.+?):?\s*$/;
 
 /** Parse `stylua --check` output (diff headers name the files). */
 export function parseStyluaCheck(output, cwd) {
-  const changedFiles = uniquePaths(String(output || '').split('\n')
-    .map((line) => line.trim().match(DIFF_HEADER)?.[1])
-    .filter(Boolean)
-    .map((file) => toRel(cwd, file)));
+  const changedFiles = uniquePaths(
+    String(output || '')
+      .split('\n')
+      .map((line) => line.trim().match(DIFF_HEADER)?.[1])
+      .filter(Boolean)
+      .map((file) => toRel(cwd, file))
+  );
   return {
     changedFiles,
-    diagnostics: changedFiles.map((file) => diagnostic({
-      file,
-      code: 'stylua',
-      message: 'stylua would reformat this file',
-      severity: 'warning',
-      fixable: true,
-    })),
+    diagnostics: changedFiles.map((file) =>
+      diagnostic({
+        file,
+        code: 'stylua',
+        message: 'stylua would reformat this file',
+        severity: 'warning',
+        fixable: true,
+      })
+    ),
   };
 }
 

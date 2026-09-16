@@ -11,19 +11,24 @@ const WOULD_REFORMAT = /^Would reformat:\s*(.+?)\s*$/;
 
 /** Parse `air format --check` stderr. */
 export function parseAirCheck(stderr, cwd) {
-  const changedFiles = uniquePaths(stripAnsi(stderr).split('\n')
-    .map((line) => line.trim().match(WOULD_REFORMAT)?.[1])
-    .filter(Boolean)
-    .map((file) => toRel(cwd, file)));
+  const changedFiles = uniquePaths(
+    stripAnsi(stderr)
+      .split('\n')
+      .map((line) => line.trim().match(WOULD_REFORMAT)?.[1])
+      .filter(Boolean)
+      .map((file) => toRel(cwd, file))
+  );
   return {
     changedFiles,
-    diagnostics: changedFiles.map((file) => diagnostic({
-      file,
-      code: 'air',
-      message: 'air would reformat this file',
-      severity: 'warning',
-      fixable: true,
-    })),
+    diagnostics: changedFiles.map((file) =>
+      diagnostic({
+        file,
+        code: 'air',
+        message: 'air would reformat this file',
+        severity: 'warning',
+        fixable: true,
+      })
+    ),
   };
 }
 

@@ -39,9 +39,9 @@ export function managedEngineDir(pluginData, id, version) {
 
 export function manifestAsset(manifest, id, pkey = platformAssetKey()) {
   const entry = manifest?.engines?.[id];
-  const asset = entry?.assets?.[pkey];
+  const asset = entry?.assets?.[pkey] || entry?.assets?.any;
   if (!entry || !asset || typeof asset.url !== 'string' || !asset.url) return null;
-  return { entry, asset, version: String(entry.version || '0'), pkey };
+  return { entry, asset, version: String(entry.version || '0'), pkey: entry?.assets?.[pkey] ? pkey : 'any' };
 }
 
 /** An already-installed managed binary for `id`, or null. Sync, no network. */
@@ -71,13 +71,7 @@ export async function verifyDownloadDigest(filePath, expected, label = LABEL) {
  * Decide what an install call may do, without touching the network.
  * Returns { targets, present, needsApproval, errors }.
  */
-export function planInstall({
-  ids = [],
-  manifest,
-  pluginData = '',
-  policy = 'ask',
-  approveDownloads = false,
-} = {}) {
+export function planInstall({ ids = [], manifest, pluginData = '', policy = 'auto', approveDownloads = false } = {}) {
   const targets = [];
   const present = [];
   const errors = [];
@@ -99,7 +93,11 @@ export function planInstall({
     }
     const found = manifestAsset(manifest, id);
     if (!found) {
-      errors.push({ id, error: `no ${platformAssetKey()} asset in the engines manifest`, installHint: catalog.installHint });
+      errors.push({
+        id,
+        error: `no ${platformAssetKey()} asset in the engines manifest`,
+        installHint: catalog.installHint,
+      });
       continue;
     }
     const installed = managedEngineBinary({ id, manifest, pluginData });
@@ -121,7 +119,11 @@ export function planInstall({
   if (pending.length === 0) return { targets, present, errors, needsApproval: null };
   if (policy === 'never') {
     for (const item of pending) {
-      errors.push({ id: item.id, error: 'downloads are disabled by policy (tidy.downloads="never")', installHint: ENGINE_CATALOG[item.id].installHint });
+      errors.push({
+        id: item.id,
+        error: 'downloads are disabled by policy (tidy.downloads="never")',
+        installHint: ENGINE_CATALOG[item.id].installHint,
+      });
     }
     return { targets, present, errors, needsApproval: null };
   }
@@ -131,7 +133,12 @@ export function planInstall({
       present,
       errors,
       needsApproval: {
-        engines: pending.map(({ id, version, bytes, license }) => ({ id, version, bytes, ...(license ? { license } : {}) })),
+        engines: pending.map(({ id, version, bytes, license }) => ({
+          id,
+          version,
+          bytes,
+          ...(license ? { license } : {}),
+        })),
         bytes: pending.reduce((sum, item) => sum + item.bytes, 0),
         reason: 'tidy.downloads="ask": re-run with approveDownloads:true to download these engines',
       },
@@ -155,11 +162,7 @@ async function downloadAsset(target, tmpDir, fetchFn, signal) {
 }
 
 /** Download + verify + extract one engine into its versioned managed dir. */
-export async function installEngine(target, {
-  pluginData,
-  fetchFn = globalThis.fetch,
-  signal = null,
-} = {}) {
+export async function installEngine(target, { pluginData, fetchFn = globalThis.fetch, signal = null } = {}) {
   const engineRoot = join(managedToolsDir(pluginData), target.id);
   const finalDir = managedEngineDir(pluginData, target.id, target.version);
   const binFull = join(finalDir, target.binPath);
@@ -185,7 +188,11 @@ export async function installEngine(target, {
       throw new Error(`${LABEL} ${target.id}: archive has no ${target.binPath}`);
     }
     if (process.platform !== 'win32') {
-      try { chmodSync(stagedBin, 0o755); } catch { /* best-effort */ }
+      try {
+        chmodSync(stagedBin, 0o755);
+      } catch {
+        /* best-effort */
+      }
     }
     try {
       renameSync(stageDir, finalDir);
@@ -195,7 +202,11 @@ export async function installEngine(target, {
     }
     return { id: target.id, version: target.version, path: binFull, bytes, status: 'installed' };
   } finally {
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
   }
 }
 
@@ -207,7 +218,7 @@ export async function installEngines({
   ids = [],
   manifest = null,
   pluginData = '',
-  policy = 'ask',
+  policy = 'auto',
   approveDownloads = false,
   fetchFn = globalThis.fetch,
   signal = null,
@@ -217,7 +228,11 @@ export async function installEngines({
   const installed = [...plan.present];
   const errors = [...plan.errors];
   if (!pluginData && plan.targets.length > 0) {
-    return { installed, errors: [...errors, { id: '*', error: 'no plugin data directory for managed installs' }], needsApproval: null };
+    return {
+      installed,
+      errors: [...errors, { id: '*', error: 'no plugin data directory for managed installs' }],
+      needsApproval: null,
+    };
   }
   for (const target of plan.targets) {
     try {

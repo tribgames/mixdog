@@ -62,7 +62,10 @@ test('JSONL matches convert to 1-based positions and keep byte offsets', () => {
 });
 
 test('a missing summary line is synthesized and malformed rows are counted', () => {
-  const parsed = parseStructuralJsonl(`${JSON.stringify({ file: 'a.ts', range: { start: { line: 0, column: 0 }, end: { line: 0, column: 1 } } })}\n{oops`, { exitCode: 0 });
+  const parsed = parseStructuralJsonl(
+    `${JSON.stringify({ file: 'a.ts', range: { start: { line: 0, column: 0 }, end: { line: 0, column: 1 } } })}\n{oops`,
+    { exitCode: 0 }
+  );
   assert.deepEqual(parsed.summary, { matches: 1, files: 1 });
   assert.equal(parsed.malformedLines, 1);
 });
@@ -97,12 +100,18 @@ test('a record without a file is dropped rather than half-normalized', () => {
 test('rule packs load from yml files; an absent directory is simply empty', (t) => {
   const root = workspace(t);
   mkdirSync(join(root, 'javascript'), { recursive: true });
-  writeFileSync(join(root, 'javascript', 'no-var.yml'), 'id: no-var\nlanguage: javascript\nrule:\n  pattern: var $A = $B\n');
+  writeFileSync(
+    join(root, 'javascript', 'no-var.yml'),
+    'id: no-var\nlanguage: javascript\nrule:\n  pattern: var $A = $B\n'
+  );
   writeFileSync(join(root, 'python.yaml'), 'id: no-assert\nlanguage: python\nrule:\n  pattern: assert $A\n');
   writeFileSync(join(root, 'notes.md'), 'ignored');
 
   const { packs, rulesText } = loadRulePacks({ dir: root });
-  assert.deepEqual(packs.map((pack) => pack.id), ['javascript/no-var', 'python']);
+  assert.deepEqual(
+    packs.map((pack) => pack.id),
+    ['javascript/no-var', 'python']
+  );
   assert.deepEqual(packs[0].rules, ['no-var']);
   assert.deepEqual(packs[0].languages, ['javascript']);
   assert.match(rulesText, /\n---\n/);
@@ -118,7 +127,10 @@ test('rule-pack test cases are not loaded as rules', (t) => {
   writeFileSync(join(root, 'rust.yml'), 'id: no-dbg\nlanguage: rust\nrule:\n  pattern: dbg!($A)\n');
   writeFileSync(join(root, '__tests__', 'no-dbg.yml'), 'id: no-dbg\nvalid:\n  - let a = 1;\ninvalid:\n  - dbg!(a)\n');
   const { packs, rulesText } = loadRulePacks({ dir: root });
-  assert.deepEqual(packs.map((pack) => pack.id), ['rust']);
+  assert.deepEqual(
+    packs.map((pack) => pack.id),
+    ['rust']
+  );
   assert.ok(!rulesText.includes('invalid:'), 'test fixtures must never reach the scan');
 });
 
@@ -134,7 +146,7 @@ test('mixdog-graph is the only structural engine: no binary is an explicit error
       assert.match(error.message, /cargo build --release --manifest-path native\/mixdog-graph\/Cargo\.toml/);
       assert.match(error.message, /structural:false/);
       return true;
-    },
+    }
   );
   assert.equal(ENGINE_IDS.includes('ast-grep'), false, 'ast-grep must be gone from the engine catalog');
   assert.equal(enginesForLanguages(['javascript']).includes('ast-grep'), false);
@@ -150,9 +162,12 @@ test('rule groups follow the scan grammar, so tsx packs run for a typescript pro
   // language filter that drops the tsx group leaves them with no rules at all.
   assert.deepEqual(
     groupsForLanguages(groups, ['typescript']).map((group) => group.language),
-    ['typescript', 'tsx'],
+    ['typescript', 'tsx']
   );
-  assert.deepEqual(groupsForLanguages(groups, ['python']).map((group) => group.language), ['python']);
+  assert.deepEqual(
+    groupsForLanguages(groups, ['python']).map((group) => group.language),
+    ['python']
+  );
   assert.equal(groupsForLanguages(groups, []).length, 3);
 });
 
@@ -176,7 +191,7 @@ test('a graph binary without the scan mode is refused even though it exits 0', a
       assert.match(error.message, new RegExp(`${windows ? 'graph\\.cmd' : 'graph\\.sh'}" does not answer`));
       assert.match(error.message, /update the packaged mixdog-graph native tool/);
       return true;
-    },
+    }
   );
   resetStructuralProbeCache();
 });
@@ -189,11 +204,11 @@ test('an empty langs table does not skip the probe and adopt the binary', async 
   resetStructuralProbeCache();
   await assert.rejects(
     () => resolveStructuralAdapter({ cwd: root, graphBinPath: fake, graphLangs: {} }),
-    StructuralEngineUnavailableError,
+    StructuralEngineUnavailableError
   );
   await assert.rejects(
     () => resolveStructuralAdapter({ cwd: root, graphBinPath: fake, graphLangs: { extensions: new Map() } }),
-    StructuralEngineUnavailableError,
+    StructuralEngineUnavailableError
   );
   resetStructuralProbeCache();
 });
@@ -205,13 +220,19 @@ test('scanning through a binary that exits 0 with empty stdout throws, not zero 
   writeFileSync(fake, windows ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n', windows ? {} : { mode: 0o755 });
   const adapter = createGraphStructuralAdapter({ binPath: fake });
   await assert.rejects(
-    () => adapter.scan({ cwd: root, rulesText: 'id: x\nlanguage: javascript\nrule:\n  pattern: foo\n', files: [], fix: false }),
+    () =>
+      adapter.scan({
+        cwd: root,
+        rulesText: 'id: x\nlanguage: javascript\nrule:\n  pattern: foo\n',
+        files: [],
+        fix: false,
+      }),
     (error) => {
       assert.equal(error instanceof StructuralEngineUnavailableError, true);
       assert.equal(error.binPath, fake);
       assert.match(error.message, /does not answer/);
       return true;
-    },
+    }
   );
 });
 
@@ -220,7 +241,7 @@ test('the local graph binary answers the live scan contract', async (t) => {
   const root = workspace(t);
   // The probe, not mere existence: an older binary accepts --langs, exits 0 and
   // prints nothing, and must not be mistaken for a scan-capable one.
-  if (!binPath || !existsSync(binPath) || !await graphSupportsScan(binPath, { cwd: root })) {
+  if (!binPath || !existsSync(binPath) || !(await graphSupportsScan(binPath, { cwd: root }))) {
     t.skip('no mixdog-graph build with the --langs/--scan modes on this machine');
     return;
   }
@@ -255,8 +276,14 @@ test('rule packs are grouped per language so one bad pack cannot mute the rest',
   const root = workspace(t);
   mkdirSync(join(root, 'javascript'), { recursive: true });
   mkdirSync(join(root, 'lua'), { recursive: true });
-  writeFileSync(join(root, 'javascript', 'no-debugger.yml'), 'id: no-debugger\nlanguage: javascript\nrule:\n  kind: debugger_statement\n');
-  writeFileSync(join(root, 'javascript', 'no-var.yml'), 'id: no-var\nlanguage: javascript\nrule:\n  pattern: var $A = $B\n');
+  writeFileSync(
+    join(root, 'javascript', 'no-debugger.yml'),
+    'id: no-debugger\nlanguage: javascript\nrule:\n  kind: debugger_statement\n'
+  );
+  writeFileSync(
+    join(root, 'javascript', 'no-var.yml'),
+    'id: no-var\nlanguage: javascript\nrule:\n  pattern: var $A = $B\n'
+  );
   writeFileSync(join(root, 'lua', 'todo.yml'), 'id: todo\nlanguage: lua\nrule:\n  kind: comment\n');
 
   const { groups } = loadRulePacks({ dir: root });

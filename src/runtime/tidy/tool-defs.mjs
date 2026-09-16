@@ -6,17 +6,19 @@ export const TOOL_DEFS = [
   {
     name: 'tidy',
     title: 'Tidy',
-    description: 'Clean up code across the languages in this project: detect the languages, resolve each one\'s formatter/linter engine, run them together with the structural rule packs, and write fixes through the normal edit pipeline. '
-      + 'fix reports what would change and writes only with apply:true; a missing downloadable engine is installed only after the user approves it. '
-      + 'Engine and rule work belongs here, not in shell. '
-      + TOOL_SYNC_EXECUTION_CONTRACT,
+    description:
+      "Clean up code across the languages in this project: detect the languages, resolve each one's formatter/linter engine, run them together with the structural rule packs, and write fixes through the normal edit pipeline. " +
+      'fix reports what would change and writes only with apply:true; missing managed engines download automatically unless tidy.downloads is ask, in which case the user approves them. ' +
+      'Engine and rule work belongs here, not in shell. ' +
+      TOOL_SYNC_EXECUTION_CONTRACT,
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
           enum: TIDY_ACTIONS,
-          description: 'scan: languages, resolved/missing engines and download policy; check: run engines and rules read-only; fix: the change plan (dry run unless apply); install: download missing managed engines; rules: list structural rule packs.',
+          description:
+            'scan: languages, resolved/missing engines and download policy; check: run engines and rules read-only; fix: the change plan (dry run unless apply); install: download missing managed engines; rules: list structural rule packs.',
         },
         paths: {
           type: 'array',
@@ -39,7 +41,8 @@ export const TOOL_DEFS = [
         },
         approveDownloads: {
           type: 'boolean',
-          description: 'The user approved the engines a previous needsApproval result listed; without it an "ask" policy never downloads.',
+          description:
+            'When tidy.downloads is ask, the user approved the engines a previous needsApproval result listed; ignored under the default auto policy.',
         },
         structural: {
           type: 'boolean',

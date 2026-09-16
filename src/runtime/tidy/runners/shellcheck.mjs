@@ -14,17 +14,23 @@ export function parseShellcheckJson(stdout, cwd) {
   const text = String(stdout || '').trim();
   if (!text) return [];
   let rows;
-  try { rows = JSON.parse(text); } catch { return []; }
+  try {
+    rows = JSON.parse(text);
+  } catch {
+    return [];
+  }
   if (!Array.isArray(rows)) return [];
-  return rows.map((row) => diagnostic({
-    file: toRel(cwd, row?.file || ''),
-    line: row?.line || 0,
-    col: row?.column || 0,
-    code: row?.code ? `SC${row.code}` : 'shellcheck',
-    message: String(row?.message || ''),
-    severity: severityOf(row?.level),
-    fixable: Boolean(row?.fix),
-  }));
+  return rows.map((row) =>
+    diagnostic({
+      file: toRel(cwd, row?.file || ''),
+      line: row?.line || 0,
+      col: row?.column || 0,
+      code: row?.code ? `SC${row.code}` : 'shellcheck',
+      message: String(row?.message || ''),
+      severity: severityOf(row?.level),
+      fixable: Boolean(row?.fix),
+    })
+  );
 }
 
 async function analyze({ files, cwd, bin, args = [], timeoutMs, signal }) {

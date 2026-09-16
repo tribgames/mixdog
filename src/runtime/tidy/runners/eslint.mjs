@@ -6,7 +6,11 @@ export function parseEslintJson(stdout, cwd) {
   const text = String(stdout || '').trim();
   if (!text) return { diagnostics: [], changedFiles: [] };
   let rows;
-  try { rows = JSON.parse(text); } catch { return { diagnostics: [], changedFiles: [] }; }
+  try {
+    rows = JSON.parse(text);
+  } catch {
+    return { diagnostics: [], changedFiles: [] };
+  }
   if (!Array.isArray(rows)) return { diagnostics: [], changedFiles: [] };
   const diagnostics = [];
   const changedFiles = [];
@@ -14,15 +18,17 @@ export function parseEslintJson(stdout, cwd) {
     const file = toRel(cwd, row?.filePath || '');
     if (Number(row?.fixableErrorCount || 0) + Number(row?.fixableWarningCount || 0) > 0) changedFiles.push(file);
     for (const message of Array.isArray(row?.messages) ? row.messages : []) {
-      diagnostics.push(diagnostic({
-        file,
-        line: message?.line || 0,
-        col: message?.column || 0,
-        code: String(message?.ruleId || 'eslint'),
-        message: String(message?.message || ''),
-        severity: Number(message?.severity) === 2 ? 'error' : 'warning',
-        fixable: Boolean(message?.fix),
-      }));
+      diagnostics.push(
+        diagnostic({
+          file,
+          line: message?.line || 0,
+          col: message?.column || 0,
+          code: String(message?.ruleId || 'eslint'),
+          message: String(message?.message || ''),
+          severity: Number(message?.severity) === 2 ? 'error' : 'warning',
+          fixable: Boolean(message?.fix),
+        })
+      );
     }
   }
   return { diagnostics, changedFiles: uniquePaths(changedFiles) };

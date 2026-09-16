@@ -4,9 +4,32 @@ import assert from 'node:assert/strict';
 import { DIAGNOSTIC_CAP, buildTidyReport, tidyToolResult } from './report.mjs';
 
 const engines = [
-  { id: 'ruff', version: '0.6.9', source: 'project-local', path: '/repo/.venv/bin/ruff', kind: ['format', 'lint'], languages: ['python'] },
-  { id: 'shfmt', source: 'missing', missing: true, installable: true, kind: ['format'], languages: ['bash'], installHint: 'install mvdan/sh' },
-  { id: 'rustfmt', source: 'missing', missing: true, toolchain: true, kind: ['format'], languages: ['rust'], installHint: 'rustup component add rustfmt' },
+  {
+    id: 'ruff',
+    version: '0.6.9',
+    source: 'project-local',
+    path: '/repo/.venv/bin/ruff',
+    kind: ['format', 'lint'],
+    languages: ['python'],
+  },
+  {
+    id: 'shfmt',
+    source: 'missing',
+    missing: true,
+    installable: true,
+    kind: ['format'],
+    languages: ['bash'],
+    installHint: 'install mvdan/sh',
+  },
+  {
+    id: 'rustfmt',
+    source: 'missing',
+    missing: true,
+    toolchain: true,
+    kind: ['format'],
+    languages: ['rust'],
+    installHint: 'rustup component add rustfmt',
+  },
 ];
 
 function diagnostics(count) {
@@ -30,8 +53,14 @@ test('the report splits resolved from missing engines and keeps hints', () => {
     policy: { downloads: 'ask', source: 'default' },
     elapsedMs: 42,
   });
-  assert.deepEqual(report.engines.map((engine) => engine.id), ['ruff']);
-  assert.deepEqual(report.missing.map((engine) => engine.id), ['shfmt', 'rustfmt']);
+  assert.deepEqual(
+    report.engines.map((engine) => engine.id),
+    ['ruff']
+  );
+  assert.deepEqual(
+    report.missing.map((engine) => engine.id),
+    ['shfmt', 'rustfmt']
+  );
   assert.equal(report.missing[0].installHint, 'install mvdan/sh');
   assert.equal(report.missing[0].installable, true);
   assert.equal(report.missing[1].toolchain, true);
@@ -46,13 +75,15 @@ test('per-engine diagnostics are capped with a `more` count and exact totals', (
   const report = buildTidyReport({
     action: 'check',
     engines,
-    results: [{
-      id: 'ruff',
-      source: 'project-local',
-      filesChecked: 30,
-      filesChanged: Array.from({ length: 40 }, (_unused, index) => `src/f${index}.py`),
-      diagnostics: diagnostics(55),
-    }],
+    results: [
+      {
+        id: 'ruff',
+        source: 'project-local',
+        filesChecked: 30,
+        filesChanged: Array.from({ length: 40 }, (_unused, index) => `src/f${index}.py`),
+        diagnostics: diagnostics(55),
+      },
+    ],
   });
   const [result] = report.results;
   assert.equal(result.diagnostics.length, DIAGNOSTIC_CAP);

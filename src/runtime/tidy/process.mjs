@@ -15,20 +15,25 @@ const WINDOWS_SCRIPT_EXTENSIONS = new Set(['.cmd', '.bat']);
 
 /** True for the Windows batch wrappers npm writes into node_modules/.bin. */
 export function isWindowsScript(binPath) {
-  return process.platform === 'win32'
-    && WINDOWS_SCRIPT_EXTENSIONS.has(extname(String(binPath || '')).toLowerCase());
+  return process.platform === 'win32' && WINDOWS_SCRIPT_EXTENSIONS.has(extname(String(binPath || '')).toLowerCase());
 }
 
 function executableCandidates(name) {
   if (process.platform !== 'win32') return [name];
   if (extname(name)) return [name];
   const pathExt = String(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
-    .split(';').map((value) => value.trim()).filter(Boolean);
+    .split(';')
+    .map((value) => value.trim())
+    .filter(Boolean);
   return [name, ...pathExt.map((ext) => `${name}${ext.toLowerCase()}`)];
 }
 
 function isExecutableFile(candidate) {
-  try { return statSync(candidate).isFile(); } catch { return false; }
+  try {
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** First match for `name` on PATH, or null. Pure filesystem lookup, no spawn. */
@@ -38,7 +43,10 @@ export function which(name, { env = process.env } = {}) {
   if (isAbsolute(bin) || bin.includes('/') || bin.includes('\\')) {
     return existsSync(bin) ? bin : null;
   }
-  const dirs = String(env.PATH || env.Path || '').split(delimiter).map((value) => value.trim()).filter(Boolean);
+  const dirs = String(env.PATH || env.Path || '')
+    .split(delimiter)
+    .map((value) => value.trim())
+    .filter(Boolean);
   for (const dir of dirs) {
     for (const candidate of executableCandidates(bin)) {
       const full = join(dir, candidate);
@@ -70,14 +78,18 @@ function captureInto(state, key, chunk, cap) {
  * Resolves `{code, signal, stdout, stderr, timedOut, error}` — a failed spawn is
  * reported, never thrown, so one broken engine cannot abort the multiplexer.
  */
-export function runProcess(bin, args = [], {
-  cwd = process.cwd(),
-  env = process.env,
-  input = null,
-  timeoutMs = DEFAULT_PROCESS_TIMEOUT_MS,
-  signal = null,
-  maxCaptureBytes = MAX_CAPTURE_BYTES,
-} = {}) {
+export function runProcess(
+  bin,
+  args = [],
+  {
+    cwd = process.cwd(),
+    env = process.env,
+    input = null,
+    timeoutMs = DEFAULT_PROCESS_TIMEOUT_MS,
+    signal = null,
+    maxCaptureBytes = MAX_CAPTURE_BYTES,
+  } = {}
+) {
   return new Promise((resolveRun) => {
     const cap = Math.max(0, Number(maxCaptureBytes) || MAX_CAPTURE_BYTES);
     const state = { stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
@@ -123,23 +135,37 @@ export function runProcess(bin, args = [], {
         } else {
           child.kill('SIGKILL');
         }
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     };
     const killChild = () => {
-      try { child.kill('SIGTERM'); } catch { /* best-effort */ }
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* best-effort */
+      }
       if (killTimer) clearTimeout(killTimer);
       killTimer = setTimeout(escalate, KILL_GRACE_MS);
       if (killTimer.unref) killTimer.unref();
     };
-    const timer = timeoutMs > 0
-      ? setTimeout(() => { timedOut = true; killChild(); }, timeoutMs)
-      : null;
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            killChild();
+          }, timeoutMs)
+        : null;
     if (timer?.unref) timer.unref();
     const clearTimers = () => {
       if (timer) clearTimeout(timer);
       if (killTimer) clearTimeout(killTimer);
       if (onAbort && signal) {
-        try { signal.removeEventListener('abort', onAbort); } catch { /* best-effort */ }
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {
+          /* best-effort */
+        }
       }
     };
     if (signal) {
@@ -165,7 +191,9 @@ export function runProcess(bin, args = [], {
       });
     });
     if (input != null && child.stdin) {
-      child.stdin.on('error', () => { /* child may close stdin early */ });
+      child.stdin.on('error', () => {
+        /* child may close stdin early */
+      });
       child.stdin.end(input);
     }
     child.on('close', (code, closeSignal) => {

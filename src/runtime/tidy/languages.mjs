@@ -61,7 +61,9 @@ for (const [language, extensions] of Object.entries(LANGUAGE_EXTENSIONS)) {
 
 /** Language id for a path, or '' when the extension is not in the registry. */
 export function languageForPath(filePath) {
-  const ext = extname(String(filePath || '')).replace(/^\./, '').toLowerCase();
+  const ext = extname(String(filePath || ''))
+    .replace(/^\./, '')
+    .toLowerCase();
   if (!ext) return '';
   return EXTENSION_TO_LANGUAGE.get(ext) || '';
 }
@@ -69,7 +71,9 @@ export function languageForPath(filePath) {
 /** Language id for a path: the graph capability table first, then the static registry. */
 function languageWith(filePath, extensions) {
   if (extensions instanceof Map) {
-    const ext = extname(String(filePath || '')).replace(/^\./, '').toLowerCase();
+    const ext = extname(String(filePath || ''))
+      .replace(/^\./, '')
+      .toLowerCase();
     const fromGraph = ext ? extensions.get(ext) : '';
     if (fromGraph) return fromGraph;
   }
@@ -77,7 +81,9 @@ function languageWith(filePath, extensions) {
 }
 
 function normalizeRel(value) {
-  return String(value || '').replaceAll('\\', '/').replace(/^\.\//, '');
+  return String(value || '')
+    .replaceAll('\\', '/')
+    .replace(/^\.\//, '');
 }
 
 /**
@@ -110,14 +116,23 @@ export function parseGraphLangs(stdout) {
   let rows = null;
   try {
     const whole = JSON.parse(text);
-    rows = Array.isArray(whole) ? whole
-      : (Array.isArray(whole?.languages) ? whole.languages : (Array.isArray(whole?.langs) ? whole.langs : null));
+    rows = Array.isArray(whole)
+      ? whole
+      : Array.isArray(whole?.languages)
+        ? whole.languages
+        : Array.isArray(whole?.langs)
+          ? whole.langs
+          : null;
   } catch {
     rows = [];
     for (const line of text.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      try { rows.push(JSON.parse(trimmed)); } catch { return null; }
+      try {
+        rows.push(JSON.parse(trimmed));
+      } catch {
+        return null;
+      }
     }
   }
   if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -131,7 +146,9 @@ export function parseGraphLangs(stdout) {
     ids.push(id);
     if (row.scan !== false) scannable.push(id);
     for (const raw of row.extensions) {
-      const ext = String(raw || '').replace(/^\./, '').toLowerCase();
+      const ext = String(raw || '')
+        .replace(/^\./, '')
+        .toLowerCase();
       // First declaration wins: the binary lists `tsx` twice (typescript first,
       // then a standalone tsx grammar), and typescript is the id lang.rs uses.
       if (ext && !extensions.has(ext)) extensions.set(ext, id);
@@ -149,9 +166,15 @@ export async function listTrackedFiles({ cwd, paths = [], signal = null, timeout
     timeoutMs,
   });
   if (result.code !== 0) {
-    return { files: [], error: result.stderr.trim().slice(0, 200) || result.error || `git ls-files exited ${result.code}` };
+    return {
+      files: [],
+      error: result.stderr.trim().slice(0, 200) || result.error || `git ls-files exited ${result.code}`,
+    };
   }
-  const files = result.stdout.split('\0').map(normalizeRel).filter(Boolean)
+  const files = result.stdout
+    .split('\0')
+    .map(normalizeRel)
+    .filter(Boolean)
     .filter((rel) => withinScope(rel, paths));
   return { files, error: '' };
 }
@@ -172,9 +195,7 @@ export async function detectLanguages({
   const { files, error } = await listTrackedFiles({ cwd, paths, signal });
   const graphExtensions = graphLangs?.extensions instanceof Map ? graphLangs.extensions : null;
   const languageOf = (rel) => languageWith(rel, graphExtensions);
-  const filtered = languageFilter.length > 0
-    ? files.filter((rel) => languageFilter.includes(languageOf(rel)))
-    : files;
+  const filtered = languageFilter.length > 0 ? files.filter((rel) => languageFilter.includes(languageOf(rel))) : files;
   const counts = new Map();
   for (const rel of filtered) {
     const language = languageOf(rel);

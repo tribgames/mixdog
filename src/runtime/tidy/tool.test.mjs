@@ -13,7 +13,7 @@ import { graphBinaryPath } from '../agent/orchestrator/tools/code-graph/graph-bi
 async function scanCapableGraphBinary(cwd) {
   const binPath = graphBinaryPath();
   if (!binPath || !existsSync(binPath)) return null;
-  return await graphSupportsScan(binPath, { cwd }) ? binPath : null;
+  return (await graphSupportsScan(binPath, { cwd })) ? binPath : null;
 }
 
 function parseResult(result) {
@@ -44,12 +44,9 @@ test('scan reports detected languages, engine resolution and the download policy
   const report = parseResult(await executeTidyTool({ action: 'scan' }, { cwd: root }));
   assert.equal(report.ok, true);
   assert.equal(report.action, 'scan');
-  assert.deepEqual(
-    report.languages.map((language) => language.id).sort(),
-    ['javascript', 'markdown', 'python'],
-  );
+  assert.deepEqual(report.languages.map((language) => language.id).sort(), ['javascript', 'markdown', 'python']);
   assert.ok(Array.isArray(report.engines));
-  assert.equal(report.policy.downloads, 'ask');
+  assert.equal(report.policy.downloads, 'auto');
   for (const engine of report.missing || []) {
     assert.ok(engine.installHint, `${engine.id} must carry an install hint`);
   }
@@ -62,7 +59,9 @@ test('scan honors the paths and languages filters', async (t) => {
     t.skip('git is unavailable in this environment');
     return;
   }
-  const report = parseResult(await executeTidyTool({ action: 'scan', paths: ['src'], languages: ['python'] }, { cwd: root }));
+  const report = parseResult(
+    await executeTidyTool({ action: 'scan', paths: ['src'], languages: ['python'] }, { cwd: root })
+  );
   assert.deepEqual(report.languages, [{ id: 'python', files: 1 }]);
   assert.deepEqual(report.scope, ['src']);
   assert.ok(report.engines.concat(report.missing || []).every((engine) => engine.languages.includes('python')));
@@ -91,12 +90,12 @@ test('language detection uses the graph binary when it answers --langs', async (
     return;
   }
   const report = parseResult(await executeTidyTool({ action: 'scan' }, { cwd: root }));
-  const expected = await scanCapableGraphBinary(root) ? 'graph-binary' : 'git';
+  const expected = (await scanCapableGraphBinary(root)) ? 'graph-binary' : 'git';
   assert.equal(report.languageSource, expected);
 });
 
 test('a structural fix dry-run reports graph-binary matches without writing', async (t) => {
-  if (!await scanCapableGraphBinary(process.cwd())) {
+  if (!(await scanCapableGraphBinary(process.cwd()))) {
     t.skip('no mixdog-graph build with the --langs/--scan modes on this machine');
     return;
   }
@@ -153,7 +152,9 @@ test('an outdated mixdog-graph fails check/fix/rules instead of reporting zero m
   const fake = join(root, windows ? 'old-graph.cmd' : 'old-graph.sh');
   writeFileSync(fake, windows ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n', windows ? {} : { mode: 0o755 });
   const childScript = join(root, 'probe-tidy.mjs');
-  writeFileSync(childScript, `
+  writeFileSync(
+    childScript,
+    `
     import { executeTidyTool } from ${JSON.stringify(new URL('./tool.mjs', import.meta.url).href)};
     const cwd = ${JSON.stringify(root)};
     async function run(args) {
@@ -168,7 +169,8 @@ test('an outdated mixdog-graph fails check/fix/rules instead of reporting zero m
       checkOff: await run({ action: 'check', structural: false }),
     };
     process.stdout.write(JSON.stringify(out));
-  `);
+  `
+  );
   const result = await runProcess(process.execPath, [childScript], {
     cwd: root,
     env: { ...process.env, MIXDOG_GRAPH_BIN: fake },

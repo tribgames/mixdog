@@ -548,6 +548,15 @@ async function mapPool(items, limit, worker) {
 async function generate(pins) {
   const notes = [];
   const engines = {};
+  const extras = {};
+  try {
+    const committed = JSON.parse(await readFile(MANIFEST_PATH, 'utf8'));
+    for (const [id, engine] of Object.entries(committed.engines || {})) {
+      if (!ENGINES.some((entry) => entry.id === id)) extras[id] = engine;
+    }
+  } catch {
+    /* first generate */
+  }
   const perPlatform = Object.fromEntries(PLATFORMS.map((p) => [p, 0]));
   await mkdir(TMP_DIR, { recursive: true });
 
@@ -607,7 +616,7 @@ async function generate(pins) {
   const manifest = {
     version: MANIFEST_VERSION,
     generatedAt: new Date().toISOString(),
-    engines,
+    engines: { ...engines, ...extras },
   };
   await mkdir(dirname(MANIFEST_PATH), { recursive: true });
   await writeFile(MANIFEST_PATH, encodeManifest(manifest));

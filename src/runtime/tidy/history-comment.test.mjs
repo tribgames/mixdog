@@ -4,11 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  classifyHistoryComment,
-  isHistorySentence,
-  refineHistoryCommentMatches,
-} from './history-comment.mjs';
+import { classifyHistoryComment, isHistorySentence, refineHistoryCommentMatches } from './history-comment.mjs';
 import { applyReplacements } from './apply.mjs';
 import { loadRulePacks, resolveStructuralAdapter, graphSupportsScan } from './structural.mjs';
 import { graphBinaryPath } from '../agent/orchestrator/tools/code-graph/graph-binary.mjs';
@@ -63,11 +59,13 @@ function applyHistoryFixes(source, matches) {
   const refined = refine(source, matches);
   const fixes = refined.filter((match) => match.fix).map((match) => match.fix);
   const plan = {
-    replacements: [...fixes].map((fix) => ({
-      start: fix.byteOffset[0],
-      end: fix.byteOffset[1],
-      text: fix.text,
-    })).sort((a, b) => b.start - a.start),
+    replacements: [...fixes]
+      .map((fix) => ({
+        start: fix.byteOffset[0],
+        end: fix.byteOffset[1],
+        text: fix.text,
+      }))
+      .sort((a, b) => b.start - a.start),
   };
   return {
     refined,
@@ -193,12 +191,9 @@ test('(c) a /** */ header with one history sentence is manual and keeps the bloc
 });
 
 test('a pure-history // block is one autofix covering the whole run', () => {
-  const source = [
-    '// Extracted verbatim from foo.mjs.',
-    '// Previously lived in bar.mjs.',
-    'const x = 1;',
-    '',
-  ].join('\n');
+  const source = ['// Extracted verbatim from foo.mjs.', '// Previously lived in bar.mjs.', 'const x = 1;', ''].join(
+    '\n'
+  );
   const first = source.indexOf('// Extracted');
   const firstEnd = source.indexOf('\n', first);
   const second = source.indexOf('// Previously');
@@ -241,20 +236,32 @@ test('live graph scan: mixed comments are manual; pure history comments are dele
   const binPath = graphBinaryPath();
   const root = mkdtempSync(join(tmpdir(), 'tidy-history-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  if (!binPath || !existsSync(binPath) || !await graphSupportsScan(binPath, { cwd: root })) {
+  if (!binPath || !existsSync(binPath) || !(await graphSupportsScan(binPath, { cwd: root }))) {
     t.skip('no mixdog-graph build with the --langs/--scan modes on this machine');
     return;
   }
-  writeFileSync(join(root, 'mixed.js'), [
-    '// File-level docs about the algorithm.',
-    '// Extracted verbatim from foo.mjs.',
-    '// More notes for the reader.',
-    'export const n = 1;',
-    '',
-  ].join('\n'));
-  writeFileSync(join(root, 'prose.js'), '// A seed copied from a CRLF checkout must be normalized.\nexport const n = 2;\n');
-  writeFileSync(join(root, 'header.js'), '/**\n * Formats the payload.\n * Extracted verbatim from foo.mjs.\n */\nexport function f() {}\n');
-  writeFileSync(join(root, 'pure-line.js'), '// Extracted verbatim from foo.mjs.\n// Previously lived in bar.mjs.\nexport const n = 3;\n');
+  writeFileSync(
+    join(root, 'mixed.js'),
+    [
+      '// File-level docs about the algorithm.',
+      '// Extracted verbatim from foo.mjs.',
+      '// More notes for the reader.',
+      'export const n = 1;',
+      '',
+    ].join('\n')
+  );
+  writeFileSync(
+    join(root, 'prose.js'),
+    '// A seed copied from a CRLF checkout must be normalized.\nexport const n = 2;\n'
+  );
+  writeFileSync(
+    join(root, 'header.js'),
+    '/**\n * Formats the payload.\n * Extracted verbatim from foo.mjs.\n */\nexport function f() {}\n'
+  );
+  writeFileSync(
+    join(root, 'pure-line.js'),
+    '// Extracted verbatim from foo.mjs.\n// Previously lived in bar.mjs.\nexport const n = 3;\n'
+  );
   writeFileSync(join(root, 'pure-block.js'), '/** Extracted verbatim from foo.mjs. */\nexport const n = 4;\n');
 
   const adapter = await resolveStructuralAdapter({ cwd: root, graphBinPath: binPath });
@@ -282,7 +289,7 @@ test('live graph scan: mixed comments are manual; pure history comments are dele
 // The assistant-row `if` is `// <comment>\n        continue;` — deleting the
 // comment must not eat `continue;` (the old fix:'' / lineEnd(end-1) path did).
 const ASSISTANT_CONTINUE_FIXTURE = [
-  '      if (it.kind === \'assistant\') {',
+  "      if (it.kind === 'assistant') {",
   '        // Extracted verbatim from foo.mjs.',
   '        continue;',
   '      } else {',
@@ -337,4 +344,3 @@ test('every history autofix leaves the comment-stripped token stream unchanged',
     assert.deepEqual(codeTokens(source), codeTokens(after), source.slice(0, 80));
   }
 });
-

@@ -11,7 +11,7 @@ import { mapLimit, runProcess, which } from './process.mjs';
 import { managedEngineBinary, manifestAsset, readEnginesManifest } from './install.mjs';
 
 export const DOWNLOAD_POLICIES = Object.freeze(['ask', 'auto', 'never']);
-export const DEFAULT_DOWNLOAD_POLICY = 'ask';
+export const DEFAULT_DOWNLOAD_POLICY = 'auto';
 export const TIDY_CONFIG_RELATIVE_PATH = '.mixdog/tidy.json';
 const VERSION_PROBE_TIMEOUT_MS = 5000;
 
@@ -25,7 +25,13 @@ export function readTidyConfig(cwd) {
     const policy = parsed?.policy && typeof parsed.policy === 'object' ? parsed.policy : {};
     return { engines, policy, path, present: true, error: '' };
   } catch (error) {
-    return { engines: {}, policy: {}, path, present: true, error: `cannot read ${TIDY_CONFIG_RELATIVE_PATH}: ${error?.message || error}` };
+    return {
+      engines: {},
+      policy: {},
+      path,
+      present: true,
+      error: `cannot read ${TIDY_CONFIG_RELATIVE_PATH}: ${error?.message || error}`,
+    };
   }
 }
 
@@ -34,8 +40,12 @@ export function readTidyConfig(cwd) {
  * an unknown value falls back to the default and is reported.
  */
 export function resolveDownloadPolicy(config, env = process.env) {
-  const fromEnv = String(env.MIXDOG_TIDY_DOWNLOADS || '').trim().toLowerCase();
-  const fromConfig = String(config?.policy?.downloads || '').trim().toLowerCase();
+  const fromEnv = String(env.MIXDOG_TIDY_DOWNLOADS || '')
+    .trim()
+    .toLowerCase();
+  const fromConfig = String(config?.policy?.downloads || '')
+    .trim()
+    .toLowerCase();
   const chosen = fromConfig || fromEnv;
   if (!chosen) return { downloads: DEFAULT_DOWNLOAD_POLICY, source: 'default' };
   if (!DOWNLOAD_POLICIES.includes(chosen)) {
@@ -94,7 +104,9 @@ export function projectConfigFileFor(cwd, entry) {
     const path = join(cwd, toml.file);
     try {
       if (existsSync(path) && readFileSync(path, 'utf8').includes(toml.section)) return toml.file;
-    } catch { /* unreadable config is treated as absent */ }
+    } catch {
+      /* unreadable config is treated as absent */
+    }
   }
   return null;
 }
@@ -137,12 +149,53 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
   if (entry.projectLocalOnly) {
     return { ...base, source: 'missing', path: '', missing: true };
   }
+  if (entry.managedModule) {
+    const host = pathBinary(entry, env);
+    if (!host) {
+      return {
+        ...base,
+        source: 'missing',
+        path: '',
+        missing: true,
+        installHint: entry.hostInstallHint || entry.installHint,
+      };
+    }
+    const managed = entry.managed && pluginData ? managedEngineBinary({ id: entry.id, manifest, pluginData }) : null;
+    if (managed) {
+      return {
+        ...base,
+        source: 'managed',
+        path: managed.path,
+        command: host.path,
+        args: [],
+        version: managed.version,
+        modulePath: managed.path,
+      };
+    }
+    const installable = Boolean(entry.managed) && Boolean(manifestAsset(manifest, entry.id));
+    return {
+      ...base,
+      source: 'missing',
+      path: host.path,
+      command: host.path,
+      args: [],
+      missing: true,
+      ...(installable ? { installable: true } : {}),
+    };
+  }
   const onPath = pathBinary(entry, env);
   if (onPath) return { ...base, source: 'path', path: onPath.path, ...commandFor(entry, onPath.path) };
   if (entry.managed && pluginData) {
     const managed = managedEngineBinary({ id: entry.id, manifest, pluginData });
     if (managed) {
-      return { ...base, source: 'managed', path: managed.path, command: managed.path, args: [], version: managed.version };
+      return {
+        ...base,
+        source: 'managed',
+        path: managed.path,
+        command: managed.path,
+        args: [],
+        version: managed.version,
+      };
     }
   }
   // Installable means "this platform has an asset", not merely "the manifest
@@ -150,6 +203,38 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
   // a download there would turn into a failed install instead of an installHint.
   const installable = Boolean(entry.managed) && Boolean(manifestAsset(manifest, entry.id));
   return { ...base, source: 'missing', path: '', missing: true, ...(installable ? { installable: true } : {}) };
+}
+
+async function probeHostManagedModule(engine, signal) {
+  const result = await runProcess(
+    engine.command,
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      '$m = @(Get-Module -ListAvailable -Name PSScriptAnalyzer) | Select-Object -First 1; if ($m) { [string]$m.Version }',
+    ],
+    { timeoutMs: VERSION_PROBE_TIMEOUT_MS, signal }
+  );
+  const match = `${result.stdout}\n`.match(/\d+\.\d+(?:\.\d+)?/);
+  return result.code === 0 && match ? match[0] : '';
+}
+
+async function refineManagedModules(engines, { hostModuleProbe, signal }) {
+  const candidates = engines.filter((engine) => ENGINE_CATALOG[engine.id]?.managedModule && engine.command);
+  if (candidates.length === 0) return;
+  const probe = hostModuleProbe || probeHostManagedModule;
+  const versions = await mapLimit(candidates, 4, (engine) => probe(engine, signal).catch(() => ''));
+  candidates.forEach((engine, index) => {
+    const version = versions[index];
+    if (!version) return;
+    engine.source = 'path';
+    engine.version = version;
+    engine.path = engine.command;
+    delete engine.modulePath;
+    delete engine.missing;
+    delete engine.installable;
+  });
 }
 
 async function probeVersion(engine, signal) {
@@ -181,14 +266,18 @@ export async function resolveEngines({
   manifest = null,
   env = process.env,
   probeVersions = true,
+  hostModuleProbe = null,
   signal = null,
 } = {}) {
   const config = readTidyConfig(cwd);
   const policy = resolveDownloadPolicy(config, env);
   const loadedManifest = manifest || readEnginesManifest();
-  const requested = engineIds.length > 0
-    ? engineIds.filter((id) => ENGINE_IDS.includes(id))
-    : (languages.length > 0 ? enginesForLanguages(languages) : []);
+  const requested =
+    engineIds.length > 0
+      ? engineIds.filter((id) => ENGINE_IDS.includes(id))
+      : languages.length > 0
+        ? enginesForLanguages(languages)
+        : [];
   const unknown = engineIds.filter((id) => !ENGINE_IDS.includes(id));
 
   const resolved = requested.map((id) => {
@@ -207,19 +296,22 @@ export async function resolveEngines({
   // stands down rather than reformatting against the project's own config.
   const byId = new Map(resolved.map((engine) => [engine.id, engine]));
   for (const engine of resolved) {
-    const suppressors = (ENGINE_CATALOG[engine.id].suppressedBy || [])
-      .filter((id) => byId.get(id)?.source === 'project-local' || byId.get(id)?.source === 'project-config');
+    const suppressors = (ENGINE_CATALOG[engine.id].suppressedBy || []).filter(
+      (id) => byId.get(id)?.source === 'project-local' || byId.get(id)?.source === 'project-config'
+    );
     if (suppressors.length > 0 && !engine.missing) {
       engine.suppressedBy = suppressors;
       engine.skipped = `project uses ${suppressors.join(' + ')}`;
     }
   }
 
+  await refineManagedModules(resolved, { hostModuleProbe, signal });
+
   if (probeVersions) {
     const runnable = resolved.filter((engine) => !engine.missing && engine.command);
-    const versions = await mapLimit(runnable, 4, (engine) => (
+    const versions = await mapLimit(runnable, 4, (engine) =>
       engine.version ? engine.version : probeVersion(engine, signal).catch(() => '')
-    ));
+    );
     runnable.forEach((engine, index) => {
       const version = versions[index];
       if (version) engine.version = version;

@@ -13,15 +13,17 @@ export function parseClangFormatDryRun(stderr, cwd) {
     if (!match) continue;
     const file = toRel(cwd, match[1]);
     changedFiles.push(file);
-    diagnostics.push(diagnostic({
-      file,
-      line: match[2],
-      col: match[3],
-      code: 'clang-format',
-      message: match[5],
-      severity: match[4] === 'error' ? 'error' : 'warning',
-      fixable: true,
-    }));
+    diagnostics.push(
+      diagnostic({
+        file,
+        line: match[2],
+        col: match[3],
+        code: 'clang-format',
+        message: match[5],
+        severity: match[4] === 'error' ? 'error' : 'warning',
+        fixable: true,
+      })
+    );
   }
   return { diagnostics, changedFiles: uniquePaths(changedFiles) };
 }
@@ -29,7 +31,14 @@ export function parseClangFormatDryRun(stderr, cwd) {
 export const runner = {
   id: 'clang-format',
   async check({ files, cwd, bin, args = [], timeoutMs, signal }) {
-    const result = await runChunked({ bin, baseArgs: [...args, '--dry-run', '-Werror'], files, cwd, timeoutMs, signal });
+    const result = await runChunked({
+      bin,
+      baseArgs: [...args, '--dry-run', '-Werror'],
+      files,
+      cwd,
+      timeoutMs,
+      signal,
+    });
     if (result.error) return spawnFailureResult('clang-format', result);
     const parsed = parseClangFormatDryRun(result.stderr, cwd);
     return { ...parsed, stderrTail: parsed.diagnostics.length ? '' : tail(result.stderr) };

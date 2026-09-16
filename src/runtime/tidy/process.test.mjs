@@ -26,7 +26,10 @@ test('runProcess does not mark truncated when output fits', async () => {
 });
 
 test('runChunked splits file lists and ORs the truncated flag', async () => {
-  assert.deepEqual(chunkFiles(['a', 'b', 'c', 'd'], 2), [['a', 'b'], ['c', 'd']]);
+  assert.deepEqual(chunkFiles(['a', 'b', 'c', 'd'], 2), [
+    ['a', 'b'],
+    ['c', 'd'],
+  ]);
   assert.equal(FILES_PER_SPAWN, 80);
   const calls = [];
   const result = await runChunked({

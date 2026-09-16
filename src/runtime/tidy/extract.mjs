@@ -71,7 +71,11 @@ function writeEntry(destDir, name, data, mode) {
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, data);
   if (process.platform !== 'win32' && mode) {
-    try { chmodSync(target, mode & 0o777); } catch { /* best-effort */ }
+    try {
+      chmodSync(target, mode & 0o777);
+    } catch {
+      /* best-effort */
+    }
   }
   return name;
 }
@@ -93,12 +97,27 @@ export function extractTarGz(srcPath, destDir) {
   return written;
 }
 
+/** NuGet packaging files that must not land in a managed PSScriptAnalyzer dir. */
+export function isNupkgMetadata(name) {
+  const value = String(name || '')
+    .replaceAll('\\', '/')
+    .replace(/\/+$/, '');
+  if (!value) return false;
+  const base = value.split('/').pop();
+  if (base === '[Content_Types].xml' || base === '.signature.p7s') return true;
+  if (value === '_rels' || value.startsWith('_rels/')) return true;
+  if (value === 'package' || value.startsWith('package/')) return true;
+  if (/\.nuspec$/i.test(base)) return true;
+  return false;
+}
+
 /** Extract a .zip into destDir; returns the written entry names. */
-export async function extractZip(srcPath, destDir) {
+export async function extractZip(srcPath, destDir, { skip } = {}) {
   const { default: JSZip } = await import('jszip');
   const zip = await JSZip.loadAsync(readFileSync(srcPath));
   const written = [];
   for (const [name, file] of Object.entries(zip.files)) {
+    if (skip && skip(name)) continue;
     if (!isSafeEntryPath(name)) {
       throw new Error(`refusing unsafe archive entry: ${name}`);
     }
@@ -116,6 +135,7 @@ export async function extractZip(srcPath, destDir) {
 /** Extract by manifest archive kind; 'none' copies the single downloaded file. */
 export async function extractArchive({ archive, srcPath, destDir, binPath }) {
   mkdirSync(destDir, { recursive: true });
+  if (archive === 'nupkg') return extractZip(srcPath, destDir, { skip: isNupkgMetadata });
   if (archive === 'zip') return extractZip(srcPath, destDir);
   if (archive === 'tar.gz' || archive === 'tgz') return extractTarGz(srcPath, destDir);
   if (archive === 'none' || !archive) {

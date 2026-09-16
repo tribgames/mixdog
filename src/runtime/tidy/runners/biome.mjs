@@ -14,7 +14,8 @@ import {
 
 const LEGACY_WRITE_FLAG = /unexpected argument|unrecognized|unknown (?:option|argument)/i;
 export const BIOME_CHECK_ARGS = ['check', '--reporter=json', '--max-diagnostics=none'];
-export const BIOME_TRUNCATED_NOTE = 'biome JSON output was truncated; split the scope and re-run to get complete diagnostics';
+export const BIOME_TRUNCATED_NOTE =
+  'biome JSON output was truncated; split the scope and re-run to get complete diagnostics';
 const EXPLAIN_TIMEOUT_MS = 8_000;
 const EXPLAIN_CONCURRENCY = 4;
 
@@ -26,9 +27,7 @@ function severityOf(value) {
 }
 
 function emptyParse(truncated) {
-  return truncated
-    ? { diagnostics: [], changedFiles: [], truncated: true }
-    : { diagnostics: [], changedFiles: [] };
+  return truncated ? { diagnostics: [], changedFiles: [], truncated: true } : { diagnostics: [], changedFiles: [] };
 }
 
 /** Byte index just past a JSON object/array starting at `start`, or -1 if truncated. */
@@ -83,7 +82,11 @@ function recoverDiagnosticsArray(text) {
     if (source[index] !== '{') break;
     const end = endOfJsonValue(source, index);
     if (end < 0) break;
-    try { rows.push(JSON.parse(source.slice(index, end))); } catch { break; }
+    try {
+      rows.push(JSON.parse(source.slice(index, end)));
+    } catch {
+      break;
+    }
     index = end;
   }
   return rows;
@@ -229,21 +232,26 @@ function rowsToResult(rows, cwd, truncated) {
     if (category.startsWith('format')) changedFiles.push(file);
     const kind = payloadFixKind(row, category);
     const rdjson = row?.code && typeof row.code === 'object' && typeof row.code.value === 'string';
-    const codeFix = category.startsWith('format') ? true
-      : Array.isArray(row?.suggestions) ? row.suggestions.length > 0
-        : rdjson ? false
+    const codeFix = category.startsWith('format')
+      ? true
+      : Array.isArray(row?.suggestions)
+        ? row.suggestions.length > 0
+        : rdjson
+          ? false
           : undefined;
-    diagnostics.push(diagnostic({
-      file,
-      line,
-      col,
-      code: category,
-      message: String(row?.description || row?.message || '').replace(/\s+/g, ' '),
-      severity: severityOf(row?.severity),
-      fixable: kind === 'safe',
-      fixKind: kind,
-      ...(codeFix === true || codeFix === false ? { codeFix } : {}),
-    }));
+    diagnostics.push(
+      diagnostic({
+        file,
+        line,
+        col,
+        code: category,
+        message: String(row?.description || row?.message || '').replace(/\s+/g, ' '),
+        severity: severityOf(row?.severity),
+        fixable: kind === 'safe',
+        fixKind: kind,
+        ...(codeFix === true || codeFix === false ? { codeFix } : {}),
+      })
+    );
   }
   return {
     diagnostics,
@@ -296,9 +304,8 @@ export function biomeCounts(diagnostics = [], changedFiles = []) {
   for (const finding of diagnostics) {
     const severity = finding?.severity === 'error' || finding?.severity === 'warning' ? finding.severity : 'info';
     bySeverity[severity] += 1;
-    const kind = finding?.fixKind === 'unsafe' ? 'unsafe'
-      : (finding?.fixKind === 'safe' || finding?.fixable) ? 'safe'
-        : 'manual';
+    const kind =
+      finding?.fixKind === 'unsafe' ? 'unsafe' : finding?.fixKind === 'safe' || finding?.fixable ? 'safe' : 'manual';
     byFixability[kind] += 1;
     if (kind === 'safe') byFixability.fixable += 1;
     else byFixability.unfixable += 1;
@@ -367,11 +374,20 @@ export const runner = {
   async check({ files, cwd, bin, args = [], timeoutMs, signal, run, filesPerSpawn }) {
     const spawn = run || runProcess;
     const result = await runBiomeJsonChunks({
-      bin, args, files, cwd, timeoutMs, signal, run: spawn, filesPerSpawn,
+      bin,
+      args,
+      files,
+      cwd,
+      timeoutMs,
+      signal,
+      run: spawn,
+      filesPerSpawn,
     });
     if (result.failure) return spawnFailureResult('biome', result.failure);
     const parsed = mergeBiomeParses(result.parts);
-    const names = [...new Set((parsed.diagnostics || []).map((finding) => biomeRuleName(finding.code)).filter(Boolean))];
+    const names = [
+      ...new Set((parsed.diagnostics || []).map((finding) => biomeRuleName(finding.code)).filter(Boolean)),
+    ];
     if (names.length) {
       const kinds = await loadBiomeFixKinds({ bin, names, run: spawn, signal, timeoutMs: EXPLAIN_TIMEOUT_MS });
       applyBiomeFixKinds(parsed.diagnostics, kinds);
@@ -382,11 +398,23 @@ export const runner = {
   },
   async fix({ files, cwd, bin, args = [], timeoutMs, signal, run }) {
     let result = await runChunked({
-      bin, baseArgs: [...args, 'check', '--write', '--max-diagnostics=none'], files, cwd, timeoutMs, signal, run,
+      bin,
+      baseArgs: [...args, 'check', '--write', '--max-diagnostics=none'],
+      files,
+      cwd,
+      timeoutMs,
+      signal,
+      run,
     });
     if (result.code !== 0 && LEGACY_WRITE_FLAG.test(result.stderr)) {
       result = await runChunked({
-        bin, baseArgs: [...args, 'check', '--apply', '--max-diagnostics=none'], files, cwd, timeoutMs, signal, run,
+        bin,
+        baseArgs: [...args, 'check', '--apply', '--max-diagnostics=none'],
+        files,
+        cwd,
+        timeoutMs,
+        signal,
+        run,
       });
     }
     if (result.error) return spawnFailureResult('biome', result);

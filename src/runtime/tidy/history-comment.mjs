@@ -12,26 +12,34 @@ export const HISTORY_COMMENT_RULE_ID = 'no-history-comment';
 const LOCATION_TOKEN = String.raw`(?:\.\.?/)*[\w][\w.-]*(?:/[\w.-]+)*`;
 
 export const HISTORY_SENTENCE_RE = new RegExp(
-  `^(?:(?:extracted|moved|copied|lifted|split)(?:\\s+verbatim)?\\s+(?:from|out of)\\s+${LOCATION_TOKEN}`
-    + `(?:\\s+\\((?:behaviou?r-preserving|no behaviou?r change)\\))?`
-    + `|behaviou?r-preserving\\s+(?:move|extraction)`
-    + `|previously\\s+(?:lived|defined)\\s+in\\s+${LOCATION_TOKEN}`
-    + `|formerly\\s+${LOCATION_TOKEN})\\.?$`,
-  'i',
+  `^(?:(?:extracted|moved|copied|lifted|split)(?:\\s+verbatim)?\\s+(?:from|out of)\\s+${LOCATION_TOKEN}` +
+    `(?:\\s+\\((?:behaviou?r-preserving|no behaviou?r change)\\))?` +
+    `|behaviou?r-preserving\\s+(?:move|extraction)` +
+    `|previously\\s+(?:lived|defined)\\s+in\\s+${LOCATION_TOKEN}` +
+    `|formerly\\s+${LOCATION_TOKEN})\\.?$`,
+  'i'
 );
 
-const HISTORY_PHRASE_RE = /\b(?:(?:extracted|moved|copied|lifted|split)\s+(?:verbatim\s+)?(?:from|out of)|moved(?:\s+here)?\s+from|behaviou?r-preserving\s+(?:move|extraction)|previously\s+(?:lived|defined)\s+in|was\s+previously\s+in|formerly)\b/i;
+const HISTORY_PHRASE_RE =
+  /\b(?:(?:extracted|moved|copied|lifted|split)\s+(?:verbatim\s+)?(?:from|out of)|moved(?:\s+here)?\s+from|behaviou?r-preserving\s+(?:move|extraction)|previously\s+(?:lived|defined)\s+in|was\s+previously\s+in|formerly)\b/i;
 
 export function isHistorySentence(text) {
-  const sentence = String(text || '').replace(/\s+/g, ' ').trim();
+  const sentence = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!sentence) return false;
   return HISTORY_SENTENCE_RE.test(sentence);
 }
 
 export function splitCommentSentences(text) {
-  const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+  const cleaned = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!cleaned) return [];
-  return cleaned.split(/[.!?;]+(?:\s+|$)/).map((part) => part.trim()).filter(Boolean);
+  return cleaned
+    .split(/[.!?;]+(?:\s+|$)/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 export function commentBody(text) {
@@ -125,7 +133,8 @@ function nextFullLineComment(buf, currentHi, kind) {
 
 function rangeIsCommentOnly(buf, start, end) {
   const text = buf.subarray(start, end).toString('utf8');
-  if (isBlockCommentText(text)) return /\/\*[\s\S]*\*\/\s*$/.test(text.trim()) || text.trim().startsWith('--[[') || text.trim().startsWith('<!--');
+  if (isBlockCommentText(text))
+    return /\/\*[\s\S]*\*\/\s*$/.test(text.trim()) || text.trim().startsWith('--[[') || text.trim().startsWith('<!--');
   const lines = text.split(/\r?\n/);
   if (lines.length && lines[lines.length - 1] === '') lines.pop();
   if (lines.length === 0) return false;
@@ -170,7 +179,10 @@ export function expandCommentRange(buf, start, end) {
   }
   let range = { start: lo, end: hi };
   if (!rangeIsCommentOnly(buf, range.start, range.end)) {
-    range = { start: isFullLineComment(buf, nodeStart) ? lineStart(buf, nodeStart) : nodeStart, end: lineEnd(buf, nodeStart) };
+    range = {
+      start: isFullLineComment(buf, nodeStart) ? lineStart(buf, nodeStart) : nodeStart,
+      end: lineEnd(buf, nodeStart),
+    };
   }
   if (!rangeIsCommentOnly(buf, range.start, range.end)) return { start: nodeStart, end: nodeEnd };
   return range;
@@ -219,8 +231,7 @@ export function refineHistoryCommentMatches(matches, { sourceFor } = {}) {
   const refined = [];
   for (const [file, fileMatches] of byFile) {
     const source = sourceFor ? sourceFor(file) : null;
-    const buf = Buffer.isBuffer(source) ? source
-      : (typeof source === 'string' ? Buffer.from(source, 'utf8') : null);
+    const buf = Buffer.isBuffer(source) ? source : typeof source === 'string' ? Buffer.from(source, 'utf8') : null;
     if (!buf) {
       for (const match of fileMatches) refined.push({ ...match, fix: null, manual: true });
       continue;

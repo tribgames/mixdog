@@ -43,7 +43,17 @@ export function toRel(cwd, filePath) {
   return rel.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
-export function diagnostic({ file, line = 0, col = 0, code = '', message = '', severity = 'error', fixable = false, fixKind = '', codeFix }) {
+export function diagnostic({
+  file,
+  line = 0,
+  col = 0,
+  code = '',
+  message = '',
+  severity = 'error',
+  fixable = false,
+  fixKind = '',
+  codeFix,
+}) {
   return {
     file,
     line: Number(line) || 0,
@@ -99,12 +109,14 @@ export async function runChunked({
 /** Engine could not start (missing binary, EACCES): one actionable diagnostic. */
 export function spawnFailureResult(id, result) {
   return {
-    diagnostics: [diagnostic({
-      file: '',
-      code: `${id}/spawn`,
-      message: result.timedOut ? `${id} timed out` : `${id} could not run: ${result.error || `exit ${result.code}`}`,
-      severity: 'error',
-    })],
+    diagnostics: [
+      diagnostic({
+        file: '',
+        code: `${id}/spawn`,
+        message: result.timedOut ? `${id} timed out` : `${id} could not run: ${result.error || `exit ${result.code}`}`,
+        severity: 'error',
+      }),
+    ],
     changedFiles: [],
     stderrTail: tail(result.stderr),
   };
@@ -121,11 +133,13 @@ export function uniquePaths(paths) {
 
 /** Parse a "one unformatted path per line" listing (shfmt -l, prettier -l). */
 export function parsePathList(stdout, cwd) {
-  return uniquePaths(String(stdout || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('['))
-    .map((line) => toRel(cwd, line)));
+  return uniquePaths(
+    String(stdout || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('['))
+      .map((line) => toRel(cwd, line))
+  );
 }
 
 /**
@@ -141,13 +155,15 @@ export function createListFormatterRunner({ id, listArgs, writeArgs, code = id }
       if (result.error) return spawnFailureResult(id, result);
       const changedFiles = parsePathList(result.stdout, cwd);
       return {
-        diagnostics: changedFiles.map((file) => diagnostic({
-          file,
-          code,
-          message: `${id} would reformat this file`,
-          severity: 'warning',
-          fixable: true,
-        })),
+        diagnostics: changedFiles.map((file) =>
+          diagnostic({
+            file,
+            code,
+            message: `${id} would reformat this file`,
+            severity: 'warning',
+            fixable: true,
+          })
+        ),
         changedFiles,
         stderrTail: tail(result.stderr),
       };

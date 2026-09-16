@@ -24,19 +24,24 @@ const JSON_FLAGS = ['--reporting-format', 'json', '--reporting-target', 'stdout'
  * callers pass stdout and stderr merged and the SGR escapes come off first.
  */
 export function parseMagoFormatDryRun(output, cwd) {
-  const changedFiles = uniquePaths(stripAnsi(output).split('\n')
-    .map((line) => line.trim().match(DIFF_HEADER)?.[1])
-    .filter(Boolean)
-    .map((file) => toRel(cwd, file)));
+  const changedFiles = uniquePaths(
+    stripAnsi(output)
+      .split('\n')
+      .map((line) => line.trim().match(DIFF_HEADER)?.[1])
+      .filter(Boolean)
+      .map((file) => toRel(cwd, file))
+  );
   return {
     changedFiles,
-    diagnostics: changedFiles.map((file) => diagnostic({
-      file,
-      code: 'mago/format',
-      message: 'mago would reformat this file',
-      severity: 'warning',
-      fixable: true,
-    })),
+    diagnostics: changedFiles.map((file) =>
+      diagnostic({
+        file,
+        code: 'mago/format',
+        message: 'mago would reformat this file',
+        severity: 'warning',
+        fixable: true,
+      })
+    ),
   };
 }
 
@@ -52,8 +57,12 @@ export function parseMagoLintJson(stdout, cwd) {
   const text = String(stdout || '').trim();
   if (!text) return [];
   let payload;
-  try { payload = JSON.parse(text); } catch { return []; }
-  const issues = Array.isArray(payload?.issues) ? payload.issues : (Array.isArray(payload) ? payload : []);
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const issues = Array.isArray(payload?.issues) ? payload.issues : Array.isArray(payload) ? payload : [];
   return issues.map((issue) => {
     const annotation = Array.isArray(issue?.annotations) ? issue.annotations[0] : null;
     const span = annotation?.span;
@@ -84,7 +93,14 @@ export const runner = {
     };
   },
   async fix({ files, cwd, bin, args = [], timeoutMs, signal }) {
-    const lint = await runChunked({ bin, baseArgs: [...args, 'lint', '--fix', ...JSON_FLAGS], files, cwd, timeoutMs, signal });
+    const lint = await runChunked({
+      bin,
+      baseArgs: [...args, 'lint', '--fix', ...JSON_FLAGS],
+      files,
+      cwd,
+      timeoutMs,
+      signal,
+    });
     if (lint.error) return spawnFailureResult('mago', lint);
     const format = await runChunked({ bin, baseArgs: [...args, 'format'], files, cwd, timeoutMs, signal });
     return { diagnostics: [], changedFiles: [], stderrTail: tail(`${lint.stderr}\n${format.stderr}`) };

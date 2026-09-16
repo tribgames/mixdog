@@ -39,10 +39,13 @@ const noPathEnv = { PATH: '', Path: '' };
 test('project config beats every other source', async (t) => {
   const root = workspace(t);
   mkdirSync(join(root, '.mixdog'), { recursive: true });
-  writeFileSync(join(root, '.mixdog', 'tidy.json'), JSON.stringify({
-    engines: { ruff: { command: '/opt/ruff', args: ['--config', 'x.toml'] } },
-    policy: { downloads: 'never' },
-  }));
+  writeFileSync(
+    join(root, '.mixdog', 'tidy.json'),
+    JSON.stringify({
+      engines: { ruff: { command: '/opt/ruff', args: ['--config', 'x.toml'] } },
+      policy: { downloads: 'never' },
+    })
+  );
   fakeBin(join(root, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin'), 'ruff');
 
   const { engines, policy } = await resolveEngines({
@@ -95,7 +98,14 @@ test('a managed install resolves under <pluginData>/tools/<engine>/<version>', a
         kind: ['format'],
         languages: ['lua'],
         source: 'upstream',
-        assets: { [platformAssetKey()]: { url: 'https://example.invalid/stylua.zip', sha256: 'a'.repeat(64), archive: 'zip', binPath: binName } },
+        assets: {
+          [platformAssetKey()]: {
+            url: 'https://example.invalid/stylua.zip',
+            sha256: 'a'.repeat(64),
+            archive: 'zip',
+            binPath: binName,
+          },
+        },
       },
     },
   };
@@ -122,7 +132,14 @@ test('an unresolved engine reports its install hint and whether tidy can fetch i
         kind: ['format'],
         languages: ['bash'],
         source: 'mirror',
-        assets: { [platformAssetKey()]: { url: 'https://example.invalid/shfmt', sha256: 'b'.repeat(64), archive: 'none', binPath: 'shfmt' } },
+        assets: {
+          [platformAssetKey()]: {
+            url: 'https://example.invalid/shfmt',
+            sha256: 'b'.repeat(64),
+            archive: 'none',
+            binPath: 'shfmt',
+          },
+        },
       },
     },
   };
@@ -160,7 +177,12 @@ test('an engine the manifest cannot serve on this platform is not advertised as 
         languages: ['c', 'cpp'],
         source: 'upstream',
         assets: {
-          'someother-arch': { url: 'https://example.invalid/clang-format', sha256: 'e'.repeat(64), archive: 'none', binPath: 'clang-format' },
+          'someother-arch': {
+            url: 'https://example.invalid/clang-format',
+            sha256: 'e'.repeat(64),
+            archive: 'none',
+            binPath: 'clang-format',
+          },
         },
       },
     },
@@ -197,7 +219,10 @@ test('a project on Prettier/ESLint keeps them and stands Biome down', async (t) 
   assert.equal(biome.source, 'project-local');
   assert.deepEqual(biome.suppressedBy, ['prettier']);
   assert.match(biome.skipped, /project uses prettier/);
-  assert.deepEqual(runnableEngines(engines).map((engine) => engine.id), ['prettier']);
+  assert.deepEqual(
+    runnableEngines(engines).map((engine) => engine.id),
+    ['prettier']
+  );
 });
 
 test('ESLint stays project-local only: a PATH copy is not adopted', async (t) => {
@@ -217,12 +242,22 @@ test('dprint without a project config is resolved but not run', async (t) => {
   const root = workspace(t);
   const pathDir = join(root, 'fake-path');
   fakeBin(pathDir, 'dprint');
-  const withoutConfig = await resolveEngines({ cwd: root, engineIds: ['dprint'], probeVersions: false, env: { PATH: pathDir } });
+  const withoutConfig = await resolveEngines({
+    cwd: root,
+    engineIds: ['dprint'],
+    probeVersions: false,
+    env: { PATH: pathDir },
+  });
   assert.equal(withoutConfig.engines[0].source, 'path');
   assert.match(withoutConfig.engines[0].skipped, /no project config/);
 
   writeFileSync(join(root, 'dprint.json'), '{}');
-  const withConfig = await resolveEngines({ cwd: root, engineIds: ['dprint'], probeVersions: false, env: { PATH: pathDir } });
+  const withConfig = await resolveEngines({
+    cwd: root,
+    engineIds: ['dprint'],
+    probeVersions: false,
+    env: { PATH: pathDir },
+  });
   assert.equal(withConfig.engines[0].skipped, undefined);
   assert.equal(withConfig.engines[0].configFile, 'dprint.json');
 });
@@ -231,15 +266,20 @@ test('nothing detected means nothing resolved, not the whole catalog', async (t)
   const root = workspace(t);
   const { engines, policy } = await resolveEngines({ cwd: root, probeVersions: false, env: noPathEnv });
   assert.deepEqual(engines, []);
-  assert.equal(policy.downloads, 'ask');
+  assert.equal(policy.downloads, 'auto');
 });
 
-test('download policy defaults to ask and rejects unknown values', () => {
+test('download policy defaults to auto and rejects unknown values', () => {
   assert.equal(resolveDownloadPolicy({ policy: {} }, {}).downloads, DEFAULT_DOWNLOAD_POLICY);
+  assert.equal(DEFAULT_DOWNLOAD_POLICY, 'auto');
+  assert.equal(resolveDownloadPolicy({ policy: { downloads: 'ask' } }, {}).downloads, 'ask');
   assert.equal(resolveDownloadPolicy({ policy: { downloads: 'auto' } }, {}).downloads, 'auto');
   assert.equal(resolveDownloadPolicy({ policy: {} }, { MIXDOG_TIDY_DOWNLOADS: 'never' }).downloads, 'never');
   // Project config wins over the environment.
-  assert.equal(resolveDownloadPolicy({ policy: { downloads: 'never' } }, { MIXDOG_TIDY_DOWNLOADS: 'auto' }).downloads, 'never');
+  assert.equal(
+    resolveDownloadPolicy({ policy: { downloads: 'never' } }, { MIXDOG_TIDY_DOWNLOADS: 'auto' }).downloads,
+    'never'
+  );
   const bad = resolveDownloadPolicy({ policy: { downloads: 'sometimes' } }, {});
   assert.equal(bad.downloads, DEFAULT_DOWNLOAD_POLICY);
   assert.match(bad.warning, /not one of/);
@@ -251,8 +291,73 @@ test('a malformed tidy.json is reported instead of thrown', async (t) => {
   writeFileSync(join(root, '.mixdog', 'tidy.json'), '{ broken');
   const config = readTidyConfig(root);
   assert.match(config.error, /cannot read \.mixdog\/tidy\.json/);
-  const { config: reported } = await resolveEngines({ cwd: root, engineIds: ['ruff'], probeVersions: false, env: noPathEnv });
+  const { config: reported } = await resolveEngines({
+    cwd: root,
+    engineIds: ['ruff'],
+    probeVersions: false,
+    env: noPathEnv,
+  });
   assert.match(reported.error, /cannot read/);
+});
+
+test('PSScriptAnalyzer without a host is missing and not downloadable', async (t) => {
+  const root = workspace(t);
+  const { engines } = await resolveEngines({
+    cwd: root,
+    engineIds: ['psscriptanalyzer'],
+    probeVersions: false,
+    env: noPathEnv,
+    hostModuleProbe: async () => '',
+  });
+  assert.equal(engines[0].source, 'missing');
+  assert.equal(engines[0].installable, undefined);
+  assert.match(engines[0].installHint, /PowerShell/);
+});
+
+test('PSScriptAnalyzer prefers a host module then a managed nupkg', async (t) => {
+  const root = workspace(t);
+  const pathDir = join(root, 'fake-path');
+  fakeBin(pathDir, process.platform === 'win32' ? 'pwsh.exe' : 'pwsh');
+  const pluginData = join(root, 'data');
+  const managedDir = join(pluginData, 'tools', 'psscriptanalyzer', '1.25.0');
+  mkdirSync(managedDir, { recursive: true });
+  writeFileSync(join(managedDir, 'PSScriptAnalyzer.psd1'), '@{ ModuleVersion = "1.25.0" }\n');
+  const env = { PATH: pathDir };
+
+  const host = await resolveEngines({
+    cwd: root,
+    engineIds: ['psscriptanalyzer'],
+    pluginData,
+    probeVersions: false,
+    env,
+    hostModuleProbe: async () => '1.24.0',
+  });
+  assert.equal(host.engines[0].source, 'path');
+  assert.equal(host.engines[0].version, '1.24.0');
+  assert.equal(host.engines[0].modulePath, undefined);
+
+  const managed = await resolveEngines({
+    cwd: root,
+    engineIds: ['psscriptanalyzer'],
+    pluginData,
+    probeVersions: false,
+    env,
+    hostModuleProbe: async () => '',
+  });
+  assert.equal(managed.engines[0].source, 'managed');
+  assert.equal(managed.engines[0].version, '1.25.0');
+  assert.match(managed.engines[0].modulePath.replaceAll('\\', '/'), /PSScriptAnalyzer\.psd1$/);
+
+  const missingModule = await resolveEngines({
+    cwd: root,
+    engineIds: ['psscriptanalyzer'],
+    pluginData: join(root, 'empty-data'),
+    probeVersions: false,
+    env,
+    hostModuleProbe: async () => '',
+  });
+  assert.equal(missingModule.engines[0].source, 'missing');
+  assert.equal(missingModule.engines[0].installable, true);
 });
 
 test('pyproject [tool.ruff] counts as a project config marker', (t) => {

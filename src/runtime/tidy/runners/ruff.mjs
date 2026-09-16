@@ -7,25 +7,34 @@ export function parseRuffJson(stdout, cwd) {
   const text = String(stdout || '').trim();
   if (!text) return [];
   let rows;
-  try { rows = JSON.parse(text); } catch { return []; }
+  try {
+    rows = JSON.parse(text);
+  } catch {
+    return [];
+  }
   if (!Array.isArray(rows)) return [];
-  return rows.map((row) => diagnostic({
-    file: toRel(cwd, row?.filename || ''),
-    line: row?.location?.row || 0,
-    col: row?.location?.column || 0,
-    code: String(row?.code || 'ruff'),
-    message: String(row?.message || ''),
-    severity: 'error',
-    fixable: Boolean(row?.fix),
-  }));
+  return rows.map((row) =>
+    diagnostic({
+      file: toRel(cwd, row?.filename || ''),
+      line: row?.location?.row || 0,
+      col: row?.location?.column || 0,
+      code: String(row?.code || 'ruff'),
+      message: String(row?.message || ''),
+      severity: 'error',
+      fixable: Boolean(row?.fix),
+    })
+  );
 }
 
 /** Parse `ruff format --check` ("Would reformat: path"). */
 export function parseRuffFormatCheck(stdout, cwd) {
-  return uniquePaths(String(stdout || '').split('\n')
-    .map((line) => line.match(/^\s*Would reformat:\s*(.+?)\s*$/)?.[1])
-    .filter(Boolean)
-    .map((file) => toRel(cwd, file)));
+  return uniquePaths(
+    String(stdout || '')
+      .split('\n')
+      .map((line) => line.match(/^\s*Would reformat:\s*(.+?)\s*$/)?.[1])
+      .filter(Boolean)
+      .map((file) => toRel(cwd, file))
+  );
 }
 
 export const runner = {

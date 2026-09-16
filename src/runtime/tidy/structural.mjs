@@ -31,7 +31,11 @@ const RULE_DIR_SKIP = new Set(['__tests__', 'node_modules']);
 function listYamlFiles(dir) {
   const out = [];
   let entries;
-  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
   for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -50,12 +54,22 @@ export function loadRulePacks({ dir = RULES_DIR } = {}) {
   const packs = [];
   for (const path of listYamlFiles(dir)) {
     let text = '';
-    try { text = readFileSync(path, 'utf8'); } catch { continue; }
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch {
+      continue;
+    }
     if (!text.trim()) continue;
     const ruleIds = [...text.matchAll(/^\s*id:\s*["']?([\w.-]+)["']?\s*$/gm)].map((match) => match[1]);
-    const languages = [...new Set([...text.matchAll(/^\s*language:\s*["']?([\w+#-]+)["']?\s*$/gm)].map((match) => match[1].toLowerCase()))];
+    const languages = [
+      ...new Set(
+        [...text.matchAll(/^\s*language:\s*["']?([\w+#-]+)["']?\s*$/gm)].map((match) => match[1].toLowerCase())
+      ),
+    ];
     packs.push({
-      id: relative(dir, path).replaceAll('\\', '/').replace(/\.ya?ml$/i, ''),
+      id: relative(dir, path)
+        .replaceAll('\\', '/')
+        .replace(/\.ya?ml$/i, ''),
       path,
       languages,
       rules: ruleIds,
@@ -101,8 +115,10 @@ const GROUP_LANGUAGE_ALIASES = Object.freeze({ tsx: ['typescript'] });
 export function groupsForLanguages(groups, languages = []) {
   const wanted = new Set(languages || []);
   if (wanted.size === 0) return [...(groups || [])];
-  return (groups || []).filter((group) => wanted.has(group.language)
-    || (GROUP_LANGUAGE_ALIASES[group.language] || []).some((alias) => wanted.has(alias)));
+  return (groups || []).filter(
+    (group) =>
+      wanted.has(group.language) || (GROUP_LANGUAGE_ALIASES[group.language] || []).some((alias) => wanted.has(alias))
+  );
 }
 
 function toOneBased(value) {
@@ -129,8 +145,7 @@ function normalizeFix(raw, range) {
     return range ? { byteOffset: range, text: raw } : null;
   }
   const offset = byteRange(raw.byteOffset ?? raw.range ?? raw.span) || range;
-  const text = typeof raw.text === 'string' ? raw.text
-    : (typeof raw.replacement === 'string' ? raw.replacement : null);
+  const text = typeof raw.text === 'string' ? raw.text : typeof raw.replacement === 'string' ? raw.replacement : null;
   if (!offset || text == null) return null;
   return { byteOffset: offset, text };
 }
@@ -146,9 +161,10 @@ export function normalizeStructuralMatch(row, { zeroBased = true } = {}) {
   const rawRange = row.range || row.position || {};
   const start = rawRange.start || {};
   const end = rawRange.end || {};
-  const shift = zeroBased ? toOneBased : (value) => (Number(value) || 0);
-  const offsets = byteRange(rawRange.byteOffset ?? rawRange.byteOffsets ?? row.byteOffset)
-    || (Number.isFinite(Number(start.byteOffset)) && Number.isFinite(Number(end.byteOffset))
+  const shift = zeroBased ? toOneBased : (value) => Number(value) || 0;
+  const offsets =
+    byteRange(rawRange.byteOffset ?? rawRange.byteOffsets ?? row.byteOffset) ||
+    (Number.isFinite(Number(start.byteOffset)) && Number.isFinite(Number(end.byteOffset))
       ? [Number(start.byteOffset), Number(end.byteOffset)]
       : null);
   return {
@@ -176,7 +192,14 @@ export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {})
     return {
       matches: [],
       summary: { matches: 0, files: 0 },
-      error: { exitCode, kind: 'rules', message: String(stderr || '').trim().slice(0, 400) || 'rule parse or usage error' },
+      error: {
+        exitCode,
+        kind: 'rules',
+        message:
+          String(stderr || '')
+            .trim()
+            .slice(0, 400) || 'rule parse or usage error',
+      },
     };
   }
   const matches = [];
@@ -186,7 +209,12 @@ export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {})
     const trimmed = line.trim();
     if (!trimmed) continue;
     let row;
-    try { row = JSON.parse(trimmed); } catch { malformed.push(trimmed.slice(0, 80)); continue; }
+    try {
+      row = JSON.parse(trimmed);
+    } catch {
+      malformed.push(trimmed.slice(0, 80));
+      continue;
+    }
     if (row && typeof row === 'object' && row.summary) {
       summary = row.summary;
       continue;
@@ -211,7 +239,10 @@ export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {})
     result.error = {
       exitCode,
       kind: 'internal',
-      message: String(stderr || '').trim().slice(0, 400) || `structural scan exited ${exitCode}`,
+      message:
+        String(stderr || '')
+          .trim()
+          .slice(0, 400) || `structural scan exited ${exitCode}`,
     };
   }
   if (malformed.length > 0) result.malformedLines = malformed.length;
@@ -230,9 +261,7 @@ export async function graphSupportsScan(binPath, { cwd = process.cwd(), signal =
   const cached = probeCache.get(binPath);
   if (typeof cached === 'boolean') return cached;
   const result = await runProcess(binPath, [cwd, '--langs'], { cwd, timeoutMs: PROBE_TIMEOUT_MS, signal });
-  const supported = result.code === 0
-    && !result.error
-    && Boolean(parseGraphLangs(result.stdout)?.extensions?.size);
+  const supported = result.code === 0 && !result.error && Boolean(parseGraphLangs(result.stdout)?.extensions?.size);
   probeCache.set(binPath, supported);
   return supported;
 }
@@ -254,7 +283,11 @@ export function createGraphStructuralAdapter({ binPath, timeoutMs = STRUCTURAL_T
       if (fix) args.push('--fix');
       const result = await runProcess(binPath, args, { cwd, input: rulesText, timeoutMs, signal });
       if (result.error && result.code === -1) {
-        return { matches: [], summary: { matches: 0, files: 0 }, error: { exitCode: -1, kind: 'spawn', message: result.error } };
+        return {
+          matches: [],
+          summary: { matches: 0, files: 0 },
+          error: { exitCode: -1, kind: 'spawn', message: result.error },
+        };
       }
       const parsed = parseStructuralJsonl(result.stdout, { exitCode: result.code, stderr: result.stderr });
       if (parsed.error?.kind === 'protocol') {
@@ -270,7 +303,11 @@ export function createGraphStructuralAdapter({ binPath, timeoutMs = STRUCTURAL_T
               candidates.push(join(cwd, rel), join(cwd, file));
             }
             for (const candidate of candidates) {
-              try { return readFileSync(candidate); } catch { /* try next */ }
+              try {
+                return readFileSync(candidate);
+              } catch {
+                /* try next */
+              }
             }
             return null;
           },
@@ -288,13 +325,13 @@ export function createGraphStructuralAdapter({ binPath, timeoutMs = STRUCTURAL_T
 
 /** Why structural rules cannot run, and what to do about it. */
 export function structuralUnavailableMessage(binPath) {
-  const where = binPath
-    ? `"${binPath}" does not answer \`--langs\``
-    : 'no mixdog-graph binary was found';
-  return 'structural rules need a mixdog-graph build with the --scan mode: '
-    + `${where}. Rebuild it (cargo build --release --manifest-path native/mixdog-graph/Cargo.toml) `
-    + 'or update the packaged mixdog-graph native tool; '
-    + 'pass structural:false to run only the formatters and linters.';
+  const where = binPath ? `"${binPath}" does not answer \`--langs\`` : 'no mixdog-graph binary was found';
+  return (
+    'structural rules need a mixdog-graph build with the --scan mode: ' +
+    `${where}. Rebuild it (cargo build --release --manifest-path native/mixdog-graph/Cargo.toml) ` +
+    'or update the packaged mixdog-graph native tool; ' +
+    'pass structural:false to run only the formatters and linters.'
+  );
 }
 
 /**
@@ -322,9 +359,10 @@ export async function resolveStructuralAdapter({
   graphLangs,
   signal = null,
 } = {}) {
-  const graphReady = graphLangs === undefined
-    ? await graphSupportsScan(graphBinPath, { cwd, signal })
-    : Boolean(graphLangs?.extensions?.size);
+  const graphReady =
+    graphLangs === undefined
+      ? await graphSupportsScan(graphBinPath, { cwd, signal })
+      : Boolean(graphLangs?.extensions?.size);
   if (!graphBinPath || !graphReady) throw new StructuralEngineUnavailableError(graphBinPath);
   return createGraphStructuralAdapter({ binPath: graphBinPath });
 }

@@ -36,14 +36,16 @@ export function parseRustfmtCheck(output, cwd) {
     if (!match) continue;
     const file = rustfmtRel(cwd, match.file);
     files.push(file);
-    diagnostics.push(diagnostic({
-      file,
-      line: match.line,
-      code: 'rustfmt',
-      message: 'rustfmt would reformat this block',
-      severity: 'warning',
-      fixable: true,
-    }));
+    diagnostics.push(
+      diagnostic({
+        file,
+        line: match.line,
+        code: 'rustfmt',
+        message: 'rustfmt would reformat this block',
+        severity: 'warning',
+        fixable: true,
+      })
+    );
   }
   return { diagnostics, changedFiles: uniquePaths(files) };
 }

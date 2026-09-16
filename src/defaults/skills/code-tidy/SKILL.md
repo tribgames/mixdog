@@ -29,14 +29,15 @@ tidy uses them. Do not add or rewrite `biome.json`, `.prettierrc`,
 ## 2. Call order
 1. `tidy action:'scan'` first. Result: languages and engines (used / missing /
    `installHint`). Scan does not download and does not return `needsApproval`.
-2. **Hard rule — downloads need one ask**: if a later `check` / `fix` /
-   `install` result has `needsApproval`, list engines and bytes, ask once,
-   then re-call that action with `approveDownloads:true`. Never download
-   without that. → manual
+2. **Hard rule — downloads happen automatically under the default `auto`
+   policy; only when the user set `tidy.downloads` to `ask` does a result
+   carry `needsApproval` — then ask once**, list engines and bytes, and
+   re-call that action with `approveDownloads:true`. Never download without
+   that when policy is `ask`. → manual
 3. **Hard rule — never install toolchain engines**: rustfmt, gofmt, dart,
-   swift, zig, mix, dotnet, PSScriptAnalyzer. Report `installHint`; do not
-   brew/choco/npm/cargo-install them. Managed engines download only through
-   tidy (`approveDownloads` or `action:'install'`). → manual
+   swift, zig, mix, dotnet. Report `installHint`; do not brew/choco/npm/cargo-
+   install them. Managed engines (including PSScriptAnalyzer) download only
+   through tidy (`auto` policy, `approveDownloads`, or `action:'install'`). → manual
 4. Deterministic engines, then structural rules, then agent cleanup. Skip a
    layer that the scan shows has nothing to do.
 
