@@ -28,7 +28,12 @@
       "!**/.bench*/**",
       "!**/.bench*",
       "!**/node_modules/**",
-      "!**/*.min.js"
+      "!**/*.min.js",
+      "!scripts/generate-voice-runtime-manifest.mjs",
+      "!scripts/build-voice-runtime-windows.ps1",
+      "!scripts/build-voice-runtime-unix.sh",
+      "!scripts/build-ffmpeg-runtime.sh",
+      "!scripts/voice-runtime-config.json"
     ]
   },
   "formatter": {
