@@ -17,7 +17,7 @@ to coordinating agents and shaping your own workflows.
 - **Efficiency that turns into more work.** Cache-aware context, focused
   tools, and compaction reduce overhead so more of your budget goes toward
   the task. The same-model Terminal-Bench comparisons below show comparable
-  or better results with less context and lower priced cost.
+  or better results with smaller contexts and lower costs at the same API rates.
 - **Advanced capabilities, within easy reach.** Guided setup and visual
   controls help you assign models by role, configure workflows, and work
   with parallel agent sessions without building your own agent stack.
@@ -100,15 +100,59 @@ task checksums, and the usage snapshots behind every cost figure — alongside
 the harness, presets, and metric scripts that recompute each number above:
 [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).
 
+## How Mixdog keeps context lean
+
+Efficiency comes from several layers working together, not just a shorter
+prompt or a larger context window:
+
+1. **Lightweight system instructions** — continuously refined rules keep
+   operating guidance focused without repeating the same policy.
+2. **Purpose-built tools** — scoped queries, batched calls, and bounded
+   results retrieve the evidence a task needs instead of dumping whole files.
+3. **Built-in ast-grep and code graphs** — parsed symbols, signatures, calls,
+   and imports answer structural questions without repeated text searches.
+4. **Provider-aware caching** — stable prompt layers and provider-specific
+   cache controls help reuse context that has already been processed.
+5. **Structured compaction** — a task handoff, the latest request, and a
+   bounded execution history keep long sessions moving.
+6. **Idle-time context reduction** — configurable automatic compaction
+   reduces the context sent after long idle gaps, when caches may be cold.
+7. **On-demand prompt loading** — skill bodies and deferred tool schemas
+   load when needed; stable instructions stay separate from changing state.
+8. **Database-backed long-term memory** — retrieve relevant history instead
+   of injecting the whole archive into every session.
+9. **Tool-result reduction** — repeated results become short references,
+   while large outputs can be saved separately and returned as previews.
+
+Caching can reduce repeated processing and input cost, but cached tokens
+still count toward the model's context limit. Compaction, selective retrieval,
+and output reduction reduce the amount of context the model needs. See
+[Context efficiency](docs/context-efficiency.md) for the mechanisms,
+implementation references, and limits.
+
 ## What you can do
 
 ### Build, test, and review
 
-Search repositories with text and symbol-aware tools, edit files, run tests
+Search repositories with text and AST-based tools, edit files, run tests
 and background commands, and review changes. Desktop brings the agent together
 with a Monaco editor, Git, terminals, and a file explorer. Use workflows and
 role-specific models to organize work, and extend the toolset with MCP
 servers, skills, hooks, and plugins.
+
+**Code graph.** Inspect exports, signatures, and nested members; locate
+declarations and references; trace calls and imports; and assess which files
+a change may affect. Call relationships come from parsed call sites rather than
+text matches, and identifier references exclude comment-only mentions.
+The native engine embeds tree-sitter and ast-grep, parses 31 languages, and
+extracts symbols and imports for 24. Capabilities vary by language; this is
+structural navigation, not a replacement for a compiler's type analysis.
+
+**Code Tidy.** Install the built-in capability to format, lint, and check
+structural rules through the agent. It respects project configuration and
+uses project-local, system-installed, or supported managed engines.
+Fixes are previewed without changing files unless explicitly applied. See
+[Code Tidy](docs/code-tidy.md) for engine setup and rule coverage.
 
 The GitHub integration manages repositories, issues, pull requests and reviews,
 Actions, releases, and notifications. Source Control commits use a manually
@@ -118,11 +162,18 @@ operations and permission requirements.
 
 ### Keep longer work moving
 
-Resume saved chats, recall prior work through local semantic and lexical
-search, and retain project-scoped preferences across sessions. Compaction
-keeps long conversations manageable. For an explicitly requested longer-running
-objective, **Goals** track completion conditions and tasks, support time limits
-and automatic continuation, and let you pause or resume the work.
+Resume saved chats and recall prior work through local semantic and lexical
+search. Long-term memory separates searchable conversation history (`recall`)
+from approved shared or project-scoped preferences (`memory`); generated
+conversation summaries do not become standing instructions.
+
+Compaction keeps long conversations manageable while retaining the latest
+request and the context needed to continue. Configurable idle-time compaction
+can also reduce input cost when resuming after a long idle period, when the
+provider's cache may have expired.
+For an explicitly requested longer-running objective, **Goals** track
+completion conditions and tasks, support time limits and automatic
+continuation, and let you pause or resume the work.
 
 ### Work beyond the repository
 
@@ -135,8 +186,12 @@ and automatic continuation, and let you pause or resume the work.
   `browser_devtools`.
 - **Computer Use on Windows** — operate native apps through accessibility,
   screenshots, OCR, keyboard, and pointer input with guarded execution.
+  An overlay provides Stop and Resume controls.
 - **Documents** — create and edit Word, Excel, and PowerPoint files, work
-  with PDFs, and inspect rendered previews and document quality checks.
+  with PDFs, and review rendered previews alongside automated checks.
+  Use portable OOXML editing without Microsoft Office, or Microsoft Office
+  automation on Windows. Rendering and spreadsheet recalculation depend on
+  the available engines. See [Office runtime](src/runtime/office/README.md).
 - **Image and video Studio** — generate and edit images, generate short video
   clips, and keep the results in a persistent local gallery. Continue a clip
   by using its last frame as the reference for a new generation; this carries
@@ -247,7 +302,7 @@ diagnostics remain on stderr.
 /inherit      carry this conversation into a new session on the current model
 /compact      compact older conversation context
 /goal         start, inspect, pause, or resume a durable session Goal
-/autoclear    manage idle-time context clearing
+/autoclear    manage idle-time context compaction
 /context      inspect the current context surface
 /usage        show provider quota and balance
 /providers    configure provider authentication
@@ -300,6 +355,7 @@ The workspace includes:
 - Split panes for parallel, independently routed agent sessions
 - Live session handoff between the TUI, desktop windows, and paired browsers
 - Monaco editor, LSP integration, diffs, and turn-by-turn edit review
+- Built-in code graph navigation and installable Code Tidy checks and fixes
 - Git staging, commits with manually entered messages, and branches
 - GitHub repositories, issues, pull requests, reviews, Actions, releases,
   and notifications
@@ -313,7 +369,7 @@ The workspace includes:
   progress and controls
 - Voice dictation with an optional local transcription runtime
 - Extensions hub with guided setup for Git & GitHub, Memory, Browser Use,
-  Computer Use, Office, Local Provider, and voice
+  Computer Use, Office, Code Tidy, Local Provider, and voice
 - Provider setup, usage, git identity, and remote pairing settings
 
 In **Extensions**, the **Plugin** tab manages integrations and built-in
@@ -343,6 +399,23 @@ Useful environment variables:
 - `MIXDOG_DISABLE_MODEL_PREFETCH=1` — disable provider model prefetch.
 - `MIXDOG_MODE=ship|dev` — select shipping or development diagnostics.
 - `MIXDOG_DIAGNOSTICS=1` — force diagnostic trace and log output.
+
+## Core technology
+
+| Layer | Stack |
+| --- | --- |
+| Shared agent runtime | Node.js and ECMAScript modules, shared by CLI and Desktop |
+| Terminal UI | React and Ink |
+| Desktop workspace | Electron, React, TypeScript, Monaco, and xterm.js |
+| Native code tools | Rust, tree-sitter, and embedded ast-grep for parsing, structural queries, and rule-based checks |
+| Browser automation | Chromium and the Chrome DevTools Protocol (CDP) |
+| Long-term memory | Managed local PostgreSQL with pgvector and full-text search |
+| Documents | Portable OOXML and PDF tooling, plus Microsoft Office automation on Windows |
+
+These components serve different roles: native tools analyze code, database
+retrieval keeps historical context selective, and provider-specific caching
+reduces repeated model processing. See [Context efficiency](docs/context-efficiency.md)
+for how they work with prompt management and compaction.
 
 ## Development
 
@@ -379,7 +452,7 @@ Main directories:
 src/            CLI, TUI, runtime, workflows, agents, and rules
 apps/desktop/   cross-platform desktop app
 apps/relay/     remote web app and relay
-native/         native process, search, patch, and support binaries
+native/         native process, search, graph, patch, and support binaries
 scripts/        tests, diagnostics, benchmarks, and build scripts
 benchmarks/     reproducible benchmark harnesses, results, and raw artifacts
 src/vendor/     vendored runtime components

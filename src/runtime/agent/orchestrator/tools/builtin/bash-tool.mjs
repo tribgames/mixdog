@@ -492,20 +492,13 @@ export async function executeBashTool(args, workDir, options = {}) {
   if (wmicRewrite?.command) command = wmicRewrite.command;
 
   // PowerShell hygiene preflight (Windows PS-only; POSIX no-op): losslessly
-  // rewrite MSYS `/x/…` drive paths, and hard-block bash-only syntax
-  // (grep|tail|sed|awk pipeline stages, `$PID=` reassignment, `&&` on PS 5.1)
-  // with PowerShell-native hints so the agent retries with valid syntax.
+  // rewrite MSYS `/x/…` drive paths and reject invalid PowerShell syntax
+  // (`$PID=` reassignment, `&&` on PS 5.1). Dedicated-tool routing belongs in
+  // the tool description, not command-name execution blocks.
   const psHygiene = preflightPowerShellHygiene(command, {
     shellType: resolvedSpec.shellType,
     shellName: resolvedSpec.shell,
   });
-  // A bash-shaped command on a PowerShell host stays a hard block carrying
-  // PowerShell-native hints, so the caller retries in the announced shell.
-  // Re-running it in Git Bash instead would contradict a fact the session
-  // already stated (shell=pwsh.exe) without saying so, leaving every later
-  // command reasoned about under the wrong interpreter — path form, quoting,
-  // and exit-code semantics all differ. The blocked filter pipelines
-  // (grep/sed/awk/tail) are also exactly what the grep/read tools own.
   if (psHygiene.block) return formatShellToolFailure(psHygiene.block);
   command = psHygiene.command;
 

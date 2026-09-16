@@ -42,8 +42,8 @@ test('shell, edit, and task keep their execution contracts', () => {
   // below — the tool description no longer duplicates it.
   if (
     !/^Run programs, builds, tests and computation/i.test(shellDescription) ||
-    !/Never for files, search or Git \(cat\/head\/tail→read/i.test(shellDescription) ||
-    !/no `edit\/apply_patch <<EOF`/i.test(shellDescription) ||
+    !/Never use shell commands or scripts for work covered by dedicated tools/i.test(shellDescription) ||
+    !/Tool names are not shell commands/i.test(shellDescription) ||
     !/10s foreground window.*not a timeout/i.test(shellDescription) ||
     !/use task wait, not read polling/i.test(shellDescription)
   ) {

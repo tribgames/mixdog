@@ -50,7 +50,7 @@ test('real shell descriptions name only the selected editing tool', () => {
       false
     );
     const shell = surface.find((tool) => tool.name === 'shell');
-    assert.match(shell.description, new RegExp(`code_graph, git, ${selected}\\)`));
+    assert.match(shell.description, new RegExp(`\\(sed/awk/redirection\\)→${selected}, Git→git`));
     assert.doesNotMatch(shell.description, /edit\/apply_patch|apply_patch or edit/);
     if (selected === 'edit') assert.doesNotMatch(shell.description, /apply_patch/);
   }

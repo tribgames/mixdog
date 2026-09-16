@@ -598,20 +598,6 @@ function rewriteMsysDrivePaths(command) {
   return { command: changed ? out : src, changed };
 }
 
-// Unix-only command → PowerShell-native replacement hint. Keyed by the bare
-// first token of a pipeline stage (path prefix stripped), so `Select-String`
-// and other real cmdlets never match, and a filename/arg that merely contains
-// "grep" is ignored (only the command token is judged).
-const POWERSHELL_BASHISM_HINTS = {
-  grep: 'grep → Select-String  (e.g. `Select-String -Pattern foo -Path file`)',
-  egrep: 'egrep → Select-String -Pattern <regex>',
-  fgrep: 'fgrep → Select-String -SimpleMatch',
-  tail: 'tail → Get-Content -Tail N',
-  head: 'head → Get-Content -TotalCount N',
-  sed: "sed → Select-String / ForEach-Object { $_ -replace 'a','b' }",
-  awk: "awk → Select-String / ForEach-Object { ($_ -split '\\s+')[N] }",
-};
-
 export function preflightPowerShellHygiene(command, { shellType, shellName } = {}) {
   const original = String(command || '');
   if (shellType !== 'powershell' || !original.trim()) {
@@ -621,8 +607,9 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
   const { command: rewritten, changed } = rewriteMsysDrivePaths(original);
   const note = changed ? 'note: rewrote MSYS-style `/x/…` absolute path(s) to Windows `X:\\…`.' : null;
 
-  // (2) hard-block bash-isms. `powershell.exe` (Windows PS 5.1) lacks `&&`;
-  // `pwsh` (PS 7+) supports it, so only legacy PS blocks `&&`.
+  // (2) Reject invalid PowerShell syntax, not command names. Dedicated-tool
+  // routing is model-facing guidance, not an execution gate. Windows PS 5.1
+  // lacks `&&`; PS 7+ supports it, so only legacy PS blocks `&&`.
   const name = String(shellName || '').toLowerCase();
   const isLegacyPS = /powershell/.test(name) && !/pwsh/.test(name);
   const violations = [];
@@ -631,21 +618,6 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
   // regex/search args are never mistaken for real syntax.
   const masked = maskQuotedRegions(rewritten);
 
-  // Only command heads matter here. Scan the quote-masked copy so PowerShell
-  // literals use PowerShell escaping rules (`\` is literal, backtick escapes)
-  // and nested bash snippets remain opaque.
-  for (const segment of shellSplitSegments(masked)) {
-    for (const stage of shellSplitPipelineSegments(segment)) {
-      const tokens = stripShellProbeWrappers(shellTokenize(stage) || []);
-      if (tokens.length === 0) continue;
-      const first = String(tokens[0] || '')
-        .toLowerCase()
-        .replace(/^.*[\\/]/, '');
-      if (POWERSHELL_BASHISM_HINTS[first]) {
-        violations.push(`\`${first}\` is a Unix command: ${POWERSHELL_BASHISM_HINTS[first]}`);
-      }
-    }
-  }
   if (/\$PID\s*=(?!=)/i.test(masked)) {
     violations.push('`$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name).');
   }
@@ -658,7 +630,7 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
     return {
       command: rewritten,
       note,
-      block: `PowerShell preflight blocked this command (bash syntax on a PowerShell host). Fix and retry:\n- ${hints.join('\n- ')}`,
+      block: `PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- ${hints.join('\n- ')}`,
     };
   }
   return { command: rewritten, note, block: null };

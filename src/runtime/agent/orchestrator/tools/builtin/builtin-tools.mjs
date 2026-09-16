@@ -147,7 +147,7 @@ export const BUILTIN_TOOLS = [
       openWorldHint: true,
       compressible: true,
     },
-    description: `Run programs, builds, tests and computation. Never for files, search or Git (cat/head/tail→read, ls→list, find→glob, grep/rg→grep, code_graph, git, edit/apply_patch); tool names run as tools, never as shell commands — no \`edit/apply_patch <<EOF\`. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id; use task wait, not read polling.'}`,
+    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id; use task wait, not read polling.'}`,
     inputSchema: {
       type: 'object',
       properties: {

@@ -1,10 +1,23 @@
 // Standing memory is exclusively user-curated. Generated history is accessed
 // through recall, not through a second instruction-management namespace.
 import { indexedCoreRecord, syncCoreMemoryIndexes } from './core-memory-index.mjs';
+import { resolveProjectScope } from './project-id-resolver.mjs';
 
 export async function listManagedMemories(db, scope, options = {}) {
   const includeInactive = options.include_inactive ?? false;
   if (typeof includeInactive !== 'boolean') throw new Error('include_inactive must be a boolean');
+  // The project editor reads the catalog once, rather than synchronizing the
+  // same index for every row. Resolve its paths here, using the store's scope
+  // resolver instead of guessing project IDs from display names or folders.
+  if (
+    options.project_paths !== undefined &&
+    (scope !== '*' ||
+      !Array.isArray(options.project_paths) ||
+      options.project_paths.some((path) => typeof path !== 'string' || !path.trim()))
+  ) {
+    throw new Error('project_paths requires an all-project list and non-empty paths');
+  }
+  const projectScopes = options.project_paths?.map((path) => ({ path, projectId: resolveProjectScope(path) }));
   const limit = Math.min(100, Math.max(1, Math.trunc(Number(options.limit) || 50)));
   const offset = Math.max(0, Math.trunc(Number(options.offset) || 0));
   const directory = await syncCoreMemoryIndexes(db);
@@ -34,7 +47,7 @@ export async function listManagedMemories(db, scope, options = {}) {
   if (entries.some((row) => row.injection_enabled && !row.id)) {
     throw new Error('memory indices changed during listing; list memories again');
   }
-  return { entries, nextOffset: hasMore ? offset + limit : null };
+  return { entries, nextOffset: hasMore ? offset + limit : null, ...(projectScopes ? { projectScopes } : {}) };
 }
 
 export function formatManagedMemories(page) {

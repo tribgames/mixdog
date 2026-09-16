@@ -48,8 +48,30 @@ test('shell execution policy matches sync-first background-task parity', () => {
   assert.equal(taskTool.inputSchema.properties.task_id.description, 'Shell task_id; required for read/wait/cancel.');
 }); // PS 7+
 
-test('B: bash-isms and $PID reassignment are blocked on a PS host', () => {
-  assert.ok(preflightPowerShellHygiene('grep foo | x', PS).block, 'grep stage blocked');
+test('B: command names and pipelines are not hard-blocked for tool routing', () => {
+  const commands = [
+    'grep foo file',
+    'egrep foo file',
+    'fgrep foo file',
+    'head -n 5 file',
+    'tail -n 5 file',
+    'sed -n 1p file',
+    "awk '{print $1}' file",
+    'node producer.mjs | grep foo | head -n 5',
+    "Write-Output '\\'; head file",
+  ];
+  for (const shell of [PS, PWSH]) {
+    for (const command of commands) {
+      assert.deepEqual(
+        preflightPowerShellHygiene(command, shell),
+        { command, block: null, note: null },
+        `${shell.shellName}: ${command}`
+      );
+    }
+  }
+});
+
+test('B: invalid PowerShell syntax and $PID reassignment remain blocked', () => {
   assert.ok(preflightPowerShellHygiene('cd /c/p && x', PS).block, '&& on PS 5.1 blocked');
   assert.ok(preflightPowerShellHygiene('$PID=1', PS).block, '$PID= reassignment blocked');
 });
@@ -72,7 +94,7 @@ test('B: valid PS syntax and quoted literals pass', () => {
     "$dir=(Resolve-Path 'x').Path -replace '\\','/'; docker run image bash -lc 'printf x | awk \"{print $1}\"'";
   assert.equal(preflightPowerShellHygiene(nestedBash, PS).block, null);
   // A real outer command after the same literal still gets classified.
-  assert.match(preflightPowerShellHygiene("Write-Output '\\'; head file", PS).block, /`head`/);
+  assert.match(preflightPowerShellHygiene("Write-Output '\\'; $PID=1", PS).block, /`\$PID`/);
 });
 
 test('B: MSYS /x/ drive path is losslessly rewritten to X:\\', () => {
@@ -104,17 +126,25 @@ test('C: shell surface keeps execution contract separate from the platform comma
     shellTool.description,
     /Avoid file operations covered by dedicated tools|never a reason to route work to it/
   );
-  // Explicit prohibition with the command→tool map (reference-agent style):
-  // the shell never substitutes for file, search or Git tools, and tool
-  // names (apply_patch heredocs in particular) are never shell commands.
+  // Routing is explicit model-facing guidance for commands AND scripts,
+  // rather than a runtime command-name block.
   assert.match(
     shellTool.description,
-    /Never for files, search or Git \(cat\/head\/tail→read, ls→list, find→glob, grep\/rg→grep, code_graph, git, edit\/apply_patch\)/
+    /Never use shell commands or scripts for work covered by dedicated tools/
   );
-  assert.match(
-    shellTool.description,
-    /tool names run as tools, never as shell commands — no `edit\/apply_patch <<EOF`/
-  );
+  for (const route of [
+    'cat/head/tail→read',
+    'ls→list',
+    'find→glob',
+    'filename lookup→find',
+    'grep/rg→grep',
+    'code structure→code_graph',
+    'file edits/writes (sed/awk/redirection)→edit/apply_patch',
+    'Git→git',
+  ]) {
+    assert.ok(shellTool.description.includes(route), `shell description must name the replacement tool: ${route}`);
+  }
+  assert.match(shellTool.description, /Tool names are not shell commands/);
   assert.doesNotMatch(shellTool.description, /Use read, NOT cat|Get-Content|Select-String/);
   assert.doesNotMatch(shellTool.description, /Shell startup environment:|available=|unavailable=/);
   assert.equal(shellTool.inputSchema?.properties?.shell, undefined);

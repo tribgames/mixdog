@@ -93,10 +93,12 @@ resort. `mode=visual` alone cannot ground coordinates.
 
 ## Batching — fewer turns, same safety
 
-- **Independent, known inputs** go in the same assistant turn (e.g. two
-  background pages, or a snapshot on one tab and `read` on another).
+- **Independent, known inputs** go in the same assistant turn: use distinct
+  named background pages and include independent calls to other tools
+  (e.g. a page snapshot alongside a repository `grep`).
 - Same-page snapshot-producing observations are serialized; a returned ref and
-  its image always belong to one observation.
+  its image always belong to one observation. This does not serialize
+  independent background pages or unrelated tools.
 - **`fill.fields`** fills up to 30 fields in one call, each by `ref` from one
   snapshot or each by `target` (all one kind; targets resolve against one
   fresh observation).

@@ -73,7 +73,9 @@ observed target, and leave windows where they were.
 ## Rules
 
 - **Call contract (the tool enforces it).** One `computer` call per model
-  turn — chain a same-window sequence inside one `act`. Every window action
+  turn — chain a same-window sequence inside one `act`. This limit applies
+  only to `computer`; issue independent calls to other tools in the same turn.
+  Every window action
   names one window: `window_id` from `list`, or `app` when it resolves to
   exactly one (ambiguity is refused). Input requires a fresh observation of
   the exact target, from `capture` or a returned `observation`. Refs, marks,

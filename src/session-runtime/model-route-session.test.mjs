@@ -134,6 +134,7 @@ test('heir selection leaves the source context gauge and compact trigger unchang
     getSystemShell: () => ({}),
     getWebSearchRoute: () => null,
     getWorkflow: () => null,
+    getOrchestrationMode: () => 'none',
   });
   let display = {
     sessionId: state.session.id,

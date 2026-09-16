@@ -1,11 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { listManagedMemories, formatManagedMemories } from './core-memory-management.mjs';
 import { parseMemoryCoreRows } from '../../../tui/app/input-parsers.mjs';
 import { createMemoryActionHandlers } from './memory-action-handlers.mjs';
 
-test('standing memory lists only curated records; legacy history stays unchanged', async () => {
+test('standing memory lists only curated records; legacy history stays unchanged', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-project-memory-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const projectPaths = ['renamed-folder', 'other-folder', 'empty-folder'].map((name) => join(root, name));
+  for (const [index, projectId] of ['mixdog', 'other', 'empty'].entries()) {
+    mkdirSync(join(projectPaths[index], '.mixdog'), { recursive: true });
+    writeFileSync(join(projectPaths[index], '.mixdog', 'project.id'), projectId);
+  }
   const sqlite = new DatabaseSync(':memory:');
   try {
     sqlite.exec(`
@@ -20,9 +30,13 @@ test('standing memory lists only curated records; legacy history stays unchanged
       INSERT INTO entries VALUES (10, 'mixdog', 'Historical summary', 'active', 'promoted');
     `);
     const originals = sqlite.prepare('SELECT * FROM entries').all();
+    let indexReads = 0;
     const db = {
       query: async (sql, args = []) => {
-        if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
+        if (sql.includes('pg_advisory_xact_lock')) {
+          indexReads++;
+          return { rows: [] };
+        }
         const statement = sqlite.prepare(sql.replace(/::(?:text|boolean|jsonb)/g, '').replace(/\$(\d+)/g, ':p$1'));
         return {
           rows: statement.all(
@@ -68,6 +82,30 @@ test('standing memory lists only curated records; legacy history stays unchanged
     assert.equal(ui._projectId, 'mixdog');
     assert.equal(ui._summary, 'Project preference');
     assert.equal(ui._indexRevision, scoped.entries[0].index_revision);
+    const { handleMemoryAction } = createMemoryActionHandlers({
+      getDb: () => db, dataDir: root, readMainConfig: () => ({}),
+    });
+    indexReads = 0;
+    const batch = await handleMemoryAction({
+      action: 'core', op: 'list', project_id: '*', project_paths: projectPaths, format: 'json', limit: 100,
+    });
+    assert.equal(indexReads, 1, 'all project rows share one index synchronization');
+    const page = JSON.parse(batch.text);
+    assert.deepEqual(page.projectScopes, [
+      { path: projectPaths[0], projectId: 'mixdog' },
+      { path: projectPaths[1], projectId: 'other' },
+      { path: projectPaths[2], projectId: 'empty' },
+    ]);
+    assert.deepEqual(page.entries.map(({ project_id, id, summary }) => [project_id, id, summary]), [
+      [null, 1, 'Common preference'],
+      ['mixdog', 1, 'Project preference'],
+      ['other', 1, 'Other preference'],
+    ]);
+    assert.equal(page.nextOffset, null);
+    for (const project_paths of ['not-an-array', [null], ['']]) {
+      await assert.rejects(listManagedMemories(db, '*', { project_paths }), /project_paths requires/);
+    }
+    await assert.rejects(listManagedMemories(db, 'mixdog', { project_paths: projectPaths }), /all-project list/);
     assert.deepEqual(sqlite.prepare('SELECT * FROM entries').all(), originals);
     await assert.rejects(listManagedMemories(db, '*', { include_inactive: 'false' }), /must be a boolean/);
   } finally {

@@ -108,8 +108,8 @@ import { executeGlobTool } from '../../src/runtime/agent/orchestrator/tools/buil
 //      chain must stay Error.
 //   B) PowerShell hygiene preflight (shell-analysis.mjs
 //      `preflightPowerShellHygiene`) — PS-only lossless `/x/…`→`X:\…` rewrite
-//      (quoted literals untouched) + hard-block bash-isms (grep|tail|sed|awk
-//      stages, real `&&` on PS 5.1, `$PID=` reassignment); POSIX is a no-op.
+//      (quoted literals untouched) + reject invalid PowerShell syntax (real
+//      `&&` on PS 5.1, `$PID=` reassignment); command names pass, POSIX is a no-op.
 //   C) shell tool description (builtin-tools.mjs) carries the PowerShell cheat
 //      only on win32 (process.platform branch, fixed at module load).
 // Unit style: real modules imported, cases fed directly to the exported fns.
